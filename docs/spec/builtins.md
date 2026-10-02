@@ -1,10 +1,14 @@
 # Kagari Builtins and Standard Library Specification
 
 This document defines the builtin runtime semantics and standard-library design.
-The implemented public signatures, method views, API documentation and examples
-are owned by the [bundled declaration sources](../../stdlib/README.md), which the
-installed source package prepares for HIR. The [declaration architecture](standard-declarations.md)
-describes their binding and tool-query boundaries.
+The [native collections reset plan](../native-provider-refactor.md) defines the
+target ownership: compiler-owned language contracts and ArrayList/HashMap/HashSet
+declarations, always-present basic Rust runtime implementations, and optional
+native modules for other containers and extension algorithms. Generated .kgr views
+serve tooling only. The [declaration architecture](standard-declarations.md)
+describes checked bindings. This reset is not implemented yet; remaining source
+catalog, intrinsic and extended-library descriptions below are predecessor
+behavior awaiting replacement, not additional reset acceptance requirements.
 
 Unqualified helper names such as `print` and `type_of` are consulted only after
 lexical and declared names. A same-named user function is an ordinary script call;
@@ -86,8 +90,8 @@ The core type set includes:
 - floating-point numbers: `f32`, `f64`
 - `String`
 - arrays or vectors as `[T]`
-- ordered maps as `Map<K, V>`
-- ordered sets as `Set<T>`
+- map interfaces as `Map<K, V>`
+- set interfaces as `Set<T>`
 - tuples
 - user-defined structs and enums
 - trait/interface value types
@@ -102,21 +106,30 @@ The semantics do not import Rust ownership or borrowing.
 The collection surface includes:
 
 - `List<T>` (`[T]`) and `MutableList<T>` interfaces, implemented by `ArrayList<T>`
-- `Map<K, V>` and `MutableMap<K, V>` interfaces, implemented by `LinkedHashMap<K,V>`
-- `Set<T>` and `MutableSet<T>` interfaces, implemented by `LinkedHashSet<T>`
+- `Map<K, V>` and `MutableMap<K, V>` interfaces, with default `HashMap<K,V>`
+- `Set<T>` and `MutableSet<T>` interfaces, with default `HashSet<T>`
 - tuple values
 - string values
 
 Collection storage is runtime-native.
 It is not implemented by Kagari source-level data structures.
-The compiler, IR, bytecode verifier, runtime, GC, reload validation, reflection metadata, debugger, and JIT boundary must all understand these collection categories structurally.
+The compiler owns trait/type contracts; generic executable layers consume
+checked layouts, impl records and storage capabilities. Additional native container
+types must not require new named value/type variants or dispatch branches.
 
-`LinkedHashMap` and `LinkedHashSet` preserve insertion order; interfaces leave order to their implementation.
-The Rust runtime implementation should use `indexmap` for their backing storage unless a future implementation proves an equivalent deterministic order, hash behavior, and performance profile.
+Default HashMap/HashSet basic operations remain available without optional
+libraries and promise no insertion/sorted order. Optional LinkedHashMap/LinkedHashSet
+preserve insertion order; tree implementations can provide sorted order. These
+policies belong to concrete types, not to the foundational interfaces.
+
+Default hash storage is Rust `std::collections::HashMap` and
+`std::collections::HashSet`. `indexmap` belongs to optional standard-library
+LinkedHashMap/LinkedHashSet, not to default containers.
 
 The [equality and hashing contract](value-semantics.md#equality-and-hashing)
 defines defaults, custom Struct/enum implementations and user obligations for
-mutable keys. Map and Set keys require the canonical standard `Eq + Hash`:
+mutable keys. Default HashMap keys and HashSet elements require the
+compiler-owned `Eq + Hash` contracts; Map/Set interfaces do not:
 
 - unit, bool, integers and String use value equality and hashing;
 - Tuple, Option and Result compose the protocols of all members;
@@ -369,15 +382,17 @@ Arrays, maps, and sets share heap storage. Only their `Mutable*` access types pe
 String values are script-visible text values with validated UTF-8 boundary behavior for slicing.
 `Option<T>` and `Result<T, E>` are ordinary standard enum values and are not hidden control-flow constructs.
 
-`Map<K, V>` and `Set<T>` preserve insertion order.
-The Rust runtime implementation uses `indexmap` to provide deterministic script-visible ordering.
-The same ordering is used by `keys`, `values`, `entries`, `to_array`, set algebra helpers, iterable helpers, display/debug classification, and reflection metadata.
+Traversal order belongs to the concrete implementation. HashMap/HashSet do
+not guarantee insertion/sorted order. Optional LinkedHashMap/LinkedHashSet preserve
+insertion order; their traversal and snapshot algorithms follow that policy.
 
 ### Standard Module Shape
 
-Collection modules declare read-only and writable interfaces alongside concrete
-storage classes. Constructors (`new`, `from`, `from_iter`) belong to `ArrayList`,
-`LinkedHashMap` and `LinkedHashSet`, not the interfaces. Map factory inputs contain
+The compiler declares read-only/writable interfaces and canonical default
+ArrayList/HashMap/HashSet types. Runtime provides their basic `new`, access, mutation
+and traversal bindings. Optional collection modules declare additional types and
+extension algorithms. Constructors belong to concrete types, not the interfaces;
+extended `from`/`from_iter` algorithms are library additions. Map factory inputs contain
 `(K,V)` tuples. Hash storage requires Eq + Hash; interfaces do not impose this.
 Literals create ArrayList; `[T]` annotates a read-only List. Mutators are available
 on concrete storage and writable interfaces. Fresh result containers are shallow
@@ -465,11 +480,11 @@ fn main() -> (usize, bool, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
 
-    val scores: MutableMap<String, i32> = LinkedHashMap::new();
+    val scores: MutableMap<String, i32> = HashMap::new();
     scores.insert("alice", 10);
     scores.insert("bob", 12);
 
-    val names: MutableSet<String> = LinkedHashSet::new();
+    val names: MutableSet<String> = HashSet::new();
     names.insert("alice");
     names.insert("bob");
 
@@ -538,7 +553,7 @@ The builtin surface is complete when:
 
 - all core builtin types are represented in the type checker and runtime
 - bytecode and VM operations cover numeric, boolean, string, array, map, set, tuple, `Option`, and `Result` behavior
-- `Map` and `Set` use deterministic insertion order and are implemented with `indexmap` or an explicitly equivalent ordered backing
+- all three default containers support basic operations with optional modules disabled; ordering belongs to each concrete implementation
 - map and set key eligibility is enforced by type checking and bytecode verification
 - standard modules resolve to typed intrinsic metadata rather than reflection or host-string dispatch
 - `for` loops lower through a defined iterable protocol
@@ -663,12 +678,14 @@ An Iterator automatically implements identity Iterable, including under generic
 bounds. It cannot also declare a conflicting Iterable implementation.
 Custom iterables return an iterator whose Item agrees with their own Item.
 
-Arrays, Map, Set and String implement Iterable using the opaque shared
-`Iter<Item>` type. Iter implements Iterator and identity Iterable.
+The default containers implement Iterable with checked associated iterator
+types, available without optional library adapters. The predecessor optional shared
+`Iter<Item>` also implements Iterator and identity Iterable.
 The concrete `Iter<T>` type is distinct from the `Iterable::Iter` associated type:
 an Iterable implementation may use `type Iter = Iter<T>` or select a custom iterator.
-Array/Set items are elements, Map items are `(key, value)` tuples in insertion
-order, and String items are single Unicode scalars represented as String.
+Array/Set items are elements, Map items are `(key, value)` tuples in the
+concrete implementation's traversal order, and String items are single Unicode
+scalars represented as String.
 Iter construction retains the source and reads each slot on demand, without
 copying all items. Contained objects retain their identity. Copying an Iter shares
 its position; converting a collection again creates independent progress.

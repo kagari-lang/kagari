@@ -42,7 +42,7 @@ its replacement; do not keep both architectures while migrating algorithms.
   matrices are not requirements or prerequisites of this reset and must not
   dictate the new native ABI or add per-step/per-call bookkeeping to it.
 
-Out of scope: full-library restoration, Map/Set algorithms, arbitrary inline
+Out of scope: full-library restoration, extended Map/Set algorithms, arbitrary inline
 script-struct layouts, a complete async executor, JIT/LLVM feature expansion,
 new syntax, LSP transport, broad Rust interoperability and a separate execution-
 policy migration. Necessary consumer changes belong to their owning phase.
@@ -51,8 +51,8 @@ policy migration. Necessary consumer changes belong to their owning phase.
 
 | Layer | Owns |
 | --- | --- |
-| Compiler/language | Complete foundational trait declarations, associated outputs, inheritance, interface conversions and read/write semantics; [T] and collection literal typing |
-| Runtime foundation | GC-managed object identity, generic native storage registration, continuous primitive buffers, scoped access and ordinary native invocation |
+| Compiler/language | Complete foundational trait declarations, associated outputs, inheritance, interface conversions and read/write semantics; canonical ArrayList/HashMap/HashSet declarations, [T] and existing collection literal typing |
+| Runtime foundation | Always-present ArrayList/HashMap/HashSet basic implementations, GC-managed object identity, generic native storage registration, contiguous primitive buffers, scoped access and ordinary native invocation |
 | Native library | Concrete additional collection types and Rust algorithms such as sorting, searching, deduplication, grouping and set operations |
 
 List<T>, MutableList<T>, Map<K,V>, MutableMap<K,V>, Set<T>, MutableSet<T>,
@@ -69,19 +69,41 @@ Iterable's associated Iter must satisfy Iterator<Item = Item>; do not fix it to
 an optional library's concrete Iter<T>. Checked static/dynamic interface metadata
 retains the actual associated outputs and implementation targets.
 
-[T] denotes the compiler-owned List<T> contract. Existing array literals create
-the language's canonical ArrayList<T> with a minimal always-present runtime
-implementation. Literal construction, core list/index/iteration behavior and
-read-only/writable conversions do not require the optional algorithm library.
-Phase 1 removes predecessor registrations; phase 2 establishes these language
-contracts/basic operations, and phase 3 optimizes their storage/call boundary.
-There is only one default array object and implementation, not a core array plus
-an independently installed replacement of the same type.
+Each collection family has one canonical default implementation:
+
+| Contracts | Default type | Required implementation bounds |
+| --- | --- | --- |
+| List<T> / MutableList<T> | ArrayList<T> | No blanket equality/hash/ordering bound |
+| Map<K,V> / MutableMap<K,V> | HashMap<K,V> | K: Eq + Hash |
+| Set<T> / MutableSet<T> | HashSet<T> | T: Eq + Hash |
+
+Default HashMap storage uses Rust std::collections::HashMap; default HashSet uses
+std::collections::HashSet. Do not use indexmap for either default. indexmap belongs
+only to optional standard-library LinkedHashMap/LinkedHashSet implementations.
+Checked Kagari Eq/Hash selections still govern script keys; Rust storage does not
+replace the language's key semantics with automatically derived Rust contracts.
+
+The compiler owns these nominal declarations and complete basic signatures.
+Runtime implements their construction, access, mutation and traversal in Rust
+through ordinary checked native bindings and storage registration. They are part
+of the engine foundation and cannot disappear when optional modules are disabled.
+Hash requirements belong to HashMap/HashSet, not to Map/Set interfaces. Default
+hash containers promise no insertion or sorted traversal order; explicitly ordered
+containers such as LinkedHashMap/LinkedHashSet or TreeMap/TreeSet are library types.
+
+[T] denotes List<T>. Existing array literals create ArrayList<T>; selecting defaults
+does not introduce new map/set literal syntax or make an interface constructor
+silently choose storage. All three defaults support read-only/writable conversions.
+Phase 1 removes predecessor registrations; phase 2 establishes these contracts and
+basic operations, and phase 3 optimizes their storage/call boundary. Each default
+has one canonical type and implementation; optional libraries do not reinstall it.
 
 Optional modules add sort/sort_by and the lazy adapter proof through ordinary
 registered functions or library-owned extension traits. Do not mutate the core
 type declaration at runtime or reinstall its contracts with the algorithm module.
-Disabling the module removes its algorithms; ArrayList and language syntax remain.
+Disabling the module removes its algorithms; all three default containers and
+language syntax remain. Additional containers and extension algorithms use the
+same registration mechanism, without a separate standard-library crate.
 
 New native objects register allocation, GC tracing, destruction and scoped access
 through the generic storage interface. Adding a queue, tree or application object
@@ -89,7 +111,7 @@ must not add a named variant to Value, HeapObject or NativeTypeConstructor, nor
 add compiler/verifier/VM dispatch branches. Finite primitive layouts remain valid;
 a growing catalog of concrete collection types is not a physical layout model.
 This manual GC-managed storage contract does not require the deferred automatic
-Rust interoperability design or a full Map/Set algorithm implementation.
+Rust interoperability design or extended Map/Set algorithm families.
 
 ## Proposed data structures and explicit API
 
@@ -466,7 +488,8 @@ library. Audit existing syntax/specifications first; do not copy all 38 old trai
 | PartialOrd / Ord | Signatures, Ordering, scalar implementations and floating-point partial ordering |
 | Arithmetic, bitwise and unary operator traits | Existing signatures, associated outputs, checked primitives and ordinary user implementation selection |
 | List / MutableList | Complete access/mutation signatures, Index/Iterable parents and read-only/writable interface semantics; [T] names List<T> |
-| Map / MutableMap / Set / MutableSet | Complete lookup/mutation/traversal contracts and normal interface conversions; no storage algorithm or universal Eq/Hash/order requirement |
+| Map / MutableMap / Set / MutableSet | Complete lookup/mutation/traversal contracts and normal interface conversions; no universal Eq/Hash/order requirement |
+| Default ArrayList / HashMap / HashSet | Canonical declarations and checked runtime bindings for construction, basic access/mutation and traversal; concrete hash bounds, not compiler-owned algorithms |
 | Index and existing writable indexing rules | Index/output contracts, read/write lowering and once-only evaluation; no new assignment syntax |
 | Iterator / Iterable | Associated item/iterator contracts and ordinary selected implementations used by for loops |
 | Fn | Function/closure contracts, argument tuples, associated outputs and normal callable implementations |
@@ -496,12 +519,19 @@ Moving basic contracts into the compiler does not restore all predecessor method
   a complete library catalog.
 - Make the same compiler-owned declarations available to tooling without a second
   signature authority or an optional native provider.
+- Provide the minimal Rust ArrayList/HashMap/HashSet implementations in runtime,
+  bound through the ordinary native mechanism. Hash lookup selects compiler-owned
+  Eq/Hash implementations; it does not retain predecessor library selectors.
+  Validate basic construction/mutation, views, iteration, collision handling,
+  custom Eq/Hash keys, GC edges and callback failures without optional modules.
+  Sorting, set algebra, grouping and callback conveniences remain library work.
 
 Exit: with libraries disabled, primitive operators, implicit value behavior,
 user-defined operator/index impls, closures, Option/Result propagation and for
 loops over user-defined iterators type check and execute. Array literals, [T],
-MutableList views and basic default-array operations also work without algorithm
-modules. Complete Map/Set declarations are available without hash/tree providers.
+MutableList views and basic ArrayList/HashMap/HashSet construction, access,
+mutation and traversal also work without optional modules. Concrete hash bounds
+are enforced; other Map/Set implementations need no installed hash/tree provider.
 Invalid signatures, bounds and associated outputs are rejected. Existing language semantics are
 covered and phase 1 language-contract build gaps are resolved.
 
@@ -532,6 +562,8 @@ synchronous calls back into script code.
   destruction and scoped access. Registered nominal types/codecs must not require
   new named variants or per-type dispatch cases in generic layers. Retain checked
   primitive/sequence layout capabilities for efficient interpreter/compiled access.
+  The three default containers use this same mechanism; additional containers
+  require only module declarations, impls and Rust storage bindings.
 - Choose storage from the declared element type at construction, including empty
   collections. ArrayList<i32> uses Vec<i32>; supported primitive types have compact
   contiguous buffers. Generic/reference-bearing values may use traced Vec<Value>.
@@ -574,8 +606,8 @@ restart full-library restoration or write a parallel Kagari algorithm.
 - Verify lazy consumption, retained captures, shared cursor behavior and cleanup
   on early exit/failure.
 - Install the algorithm module by default through the ordinary engine mechanism.
-  Disabling it removes algorithms while ArrayList literals/basic operations and
-  all foundational collection protocols remain available.
+  Disabling it removes algorithms while basic ArrayList/HashMap/HashSet operations,
+  array literals and all foundational collection protocols remain available.
 - The one application-owned consumer includes a small non-sequence native object
   retaining a script value, using generic storage/trace/drop registration and the
   same binding/callback interface. It must require no new Value/HeapObject/type-
@@ -617,7 +649,7 @@ No build/test failure remains in retained workspace consumers.
 ## Checklist
 
 - [ ] Phase 1: old library implementation and tracked executable fixtures removed.
-- [ ] Phase 2: compiler-owned language protocols implemented independently.
+- [ ] Phase 2: compiler-owned protocols and three default containers implemented independently.
 - [ ] Phase 3: efficient synchronous native calls and typed storage implemented.
 - [ ] Phase 4: ArrayList algorithm module, storage extension and measured proof accepted.
 
@@ -659,5 +691,15 @@ Complete List/MutableList, Map/MutableMap, Set/MutableSet and iteration contract
 are compiler-owned. Array literals use the always-present canonical ArrayList;
 optional modules add algorithms and additional types. NativeStorage registration
 is the object/GC extension boundary. The existing external-consumer proof now
-checks a non-sequence object; Map/Set algorithms remain out of scope. Four phases
-remain unstarted, with no resumed goal or Rust implementation claimed.
+checks a non-sequence object; extended Map/Set algorithms remain out of scope.
+Four phases remain unstarted, with no resumed goal or Rust implementation claimed.
+
+2026-10-02 — Symmetric defaults adopted at the user's request. ArrayList, HashMap
+and HashSet have compiler-owned declarations and always-present Rust runtime
+implementations for basic operations. Eq/Hash bounds belong to the concrete hash
+types; default storage is std::collections::HashMap/HashSet, with no insertion/sorted
+order promise. indexmap belongs to optional LinkedHashMap/LinkedHashSet. Native
+modules provide other containers and extension algorithms. Phase 2 owns the three baseline
+implementations, phase 3 their generic native boundary, and phase 4 retains the
+ArrayList algorithm proof. Four phases remain unstarted; no new syntax, separate
+stdlib crate, resumed goal or implementation completion is claimed.

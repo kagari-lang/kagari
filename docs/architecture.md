@@ -16,10 +16,12 @@ mandatory callback state machines or full-library restoration. The reset plan
 supersedes those implementation details while preserving language semantics.
 
 Foundational List/MutableList, Map/MutableMap, Set/MutableSet and iteration traits
-are compiler-owned complete contracts. [T] and array literals use the language's
-always-present default ArrayList and minimal runtime implementation. Optional
-native modules add algorithms and additional concrete types. Generic storage
-registration owns allocation, GC tracing, destruction and scoped object access;
+are compiler-owned complete contracts. ArrayList/HashMap/HashSet are their
+canonical defaults, with compiler-owned signatures and always-present Rust runtime
+implementations for basic operations. [T] denotes List and array literals create
+ArrayList. Concrete hash types require Eq + Hash and promise no insertion/sorted
+order. Optional native modules add algorithms and additional concrete types.
+Generic storage registration owns allocation, GC tracing, destruction and scoped object access;
 new collection types do not add concrete dispatch variants to generic layers.
 
 The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
@@ -316,17 +318,22 @@ Kagari has a typed standard surface defined in `docs/spec/builtins.md`.
 
 The language foundation owns primitive/value types, Option/Result, syntax-required
 range forms and the complete operator, collection, iteration and callable traits.
-It owns [T] typing, existing collection literal semantics, the canonical default
-ArrayList declaration and its minimal runtime behavior. Native/script impls use
+It owns [T] typing, existing collection literal semantics and the canonical
+ArrayList/HashMap/HashSet declarations. Native/script impls use
 ordinary checked trait records; the compiler does not select storage algorithms
 from interface names.
 
-Runtime owns GC-managed object identity, generic registered native storage and
-scoped access. Continuous primitive buffers are one layout capability. Other
+Runtime supplies basic construction, access, mutation and traversal for all
+three default containers through ordinary checked native bindings. Default hash
+storage uses Rust std::collections::HashMap/HashSet, never indexmap. It owns
+GC-managed object identity, generic registered native storage and scoped access.
+Contiguous primitive buffers are one layout capability. Other
 native storage supplies checked factories, tracing/destruction and access entries
 without adding a concrete type to the compiler/ABI/VM's global catalog.
 
-Optional native modules own algorithms and additional collection implementations.
+Optional native modules own algorithms and additional collection implementations
+such as LinkedList, TreeMap/TreeSet and LinkedHashMap/LinkedHashSet. Disabling
+these modules retains the three defaults and language contracts.
 Native registrations explicitly declare their own types, functions and impls;
 compiler-owned contracts are referenced rather than redeclared. Generated tooling
 views project the same checked declarations. The [active plan](native-provider-refactor.md)
@@ -335,7 +342,8 @@ copy of collection algorithms in Kagari source.
 
 The predecessor ordered map/set implementations use deterministic insertion
 order; foundational Map/Set traits do not prescribe that policy.
-Those runtime implementations use insertion-ordered `indexmap` backing for script-visible `Map<K, V>` and `Set<T>` behavior.
+In the target, `indexmap` is backing for optional standard-library LinkedHashMap/
+LinkedHashSet only, not the default HashMap/HashSet or the Map/Set interfaces.
 Hash-key eligibility and custom equality/hash protocols follow the checked contracts in [builtins](spec/builtins.md). Runtime callbacks execute on the same explicit frame stack with ordinary resource and reentry rules.
 
 Standard library calls flow through one structural path:

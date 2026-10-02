@@ -14,9 +14,15 @@ detailed contracts.
 
 List/MutableList, Map/MutableMap, Set/MutableSet and iteration contracts belong to
 the compiler-owned catalog. Modules reference these complete contracts when
-registering impls; they do not declare them again. Array literals/basic ArrayList
-behavior are always available. Optional modules own algorithms and additional
-native types, using generic storage/GC registration rather than core enum entries.
+registering impls; they do not declare them again. ArrayList/HashMap/HashSet
+are compiler-declared defaults with basic Rust runtime implementations always
+available. Array literals create ArrayList. Concrete HashMap/HashSet impose Eq +
+Hash bounds and promise no insertion/sorted order; Map/Set contracts impose neither.
+Optional modules own other containers and algorithms, using the same native
+binding/storage/GC registration mechanism rather than core enum entries.
+
+Default HashMap/HashSet use Rust std::collections::HashMap/HashSet. indexmap is
+backing only for optional standard-library LinkedHashMap/LinkedHashSet.
 
 Native registration definitions own API declarations and Rust implementation
 bindings. The standard library is an optional native package installed by Engine

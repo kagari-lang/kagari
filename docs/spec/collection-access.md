@@ -9,11 +9,11 @@ Generated .kgr files are tooling views, not the source of these declarations.
 
 ## Types
 
-| Read-only interface | Writable interface | Initial concrete implementation |
+| Read-only interface | Writable interface | Canonical default implementation |
 | --- | --- | --- |
 | `List<T>`, abbreviated `[T]` | `MutableList<T>: List<T>` | `ArrayList<T>` |
-| `Map<K, V>` | `MutableMap<K, V>: Map<K, V>` | `LinkedHashMap<K, V>` |
-| `Set<T>` | `MutableSet<T>: Set<T>` | `LinkedHashSet<T>` |
+| `Map<K, V>` | `MutableMap<K, V>: Map<K, V>` | `HashMap<K, V>` |
+| `Set<T>` | `MutableSet<T>: Set<T>` | `HashSet<T>` |
 
 These are complete compiler-owned trait contracts, usable as generic bounds or
 dynamic interface types. Native and script types implement them through ordinary
@@ -22,21 +22,31 @@ read-only/writable conversions exist without optional native libraries.
 
 `[T]` means read-only `List<T>`, not fixed-size storage, a slice or a borrow.
 Existing `[1, 2]` and `[value; count]` literals create the canonical `ArrayList<T>`.
-Its minimal construction, access, mutation and iteration implementation is part
-of the runtime foundation and remains available when algorithm modules are off.
-There is no optional provider that redeclares or replaces the same core array type.
+ArrayList, HashMap and HashSet have compiler-owned nominal declarations and
+minimal Rust construction, access, mutation and iteration implementations in the
+runtime foundation. These use ordinary checked native bindings/storage registration
+and remain available when optional modules are off. Optional providers do not
+redeclare or replace the default types. Selecting defaults adds no map/set literal
+syntax and does not make Map/Set interface constructors choose concrete storage.
 ArrayList::from_fn and other callback conveniences remain library algorithms.
 
 Concrete additional classes register native storage independently of their trait
 impls. An interface does not select an allocator or implementation. Additional
-hash/tree/queue types use the same checked registration path without extending
+list/hash/tree/queue types use the same checked registration path without extending
 core value/type enums for each collection.
 
-Map and Set interfaces do not impose Eq/Hash or traversal order. The initial
-LinkedHash implementations require `Eq + Hash` on keys/elements and preserve
-insertion order. Equal map keys keep the last inserted value; sets discard equal
-duplicates. Stored key equality and hashes must remain stable, including changes
-through aliases. Tree-based and other concrete implementations are future work.
+Map and Set interfaces do not impose Eq/Hash or traversal order. Default HashMap
+requires `K: Eq + Hash`; HashSet requires `T: Eq + Hash`. These concrete types
+promise neither insertion order nor sorted traversal. Equal map keys keep the
+last inserted value; sets discard equal duplicates. Stored key equality and hashes
+must remain stable, including changes through aliases. Optional LinkedHashMap/
+LinkedHashSet provide insertion order; TreeMap/TreeSet may require Ord. Their
+implementations and extension algorithms belong to library modules.
+
+Default HashMap uses Rust `std::collections::HashMap`; HashSet uses
+`std::collections::HashSet`. `indexmap` is reserved for optional standard-library
+LinkedHashMap/LinkedHashSet. Storage bindings preserve checked Kagari Eq/Hash key
+semantics rather than infer them from Rust types.
 
 ## Read-only access is shallow and live
 
@@ -137,25 +147,28 @@ language cannot automatically roll back arbitrary code in a user method.
 
 ## Construction and copying
 
-Constructors and `FromIterator` belong to concrete types:
+Basic `new` construction is always available on the three default types.
+Extended `from`/`from_iter` factories and `FromIterator` belong to library modules
+and concrete destinations. This example uses array factories/lazy adapters from
+an installed module alongside default hash constructors:
 
 ```kgr
 val storage = ArrayList::from([10, 20]);
 val list: List<i32> = storage;
-val map: Map<String, i32> = LinkedHashMap::from([("answer", 42)]);
-val set: Set<i32> = LinkedHashSet::from([10, 20, 10]);
+val map: Map<String, i32> = HashMap::new();
+val set: Set<i32> = HashSet::new();
 val collected: ArrayList<i32> = list.iter().map(|x| x + 1).collect();
 val copied = ArrayList::from(list);
 ```
 
-Use `ArrayList::new`, `LinkedHashMap::new` and `LinkedHashSet::new` for empty
+Use `ArrayList::new`, `HashMap::new` and `HashSet::new` for empty
 storage. Context or explicit type arguments supply otherwise unknown element
 types. Interfaces do not have `new`, `from` or a blanket `FromIterator` that
 silently chooses storage. Result/Option collection likewise names a concrete
 inner destination, for example `Result<ArrayList<T>, E>`.
 
-The three `from` factories accept read-only List inputs and allocate fresh shallow
-storage. Map inputs contain `(K,V)` pairs. Referenced elements retain identity,
+When installed, concrete `from` factories accept read-only List inputs and allocate
+fresh shallow storage. Map inputs contain `(K,V)` pairs. Referenced elements retain identity,
 but input slots are not retained. `ArrayList::from(readable)` obtains a writable
 copy without upgrading the original view. `copy_from` accepts a List and
 snapshots its iteration before committing the destination replacement. Source
@@ -170,8 +183,9 @@ objects. See [array repetition](value-semantics.md#repeat-arrays-and-bulk-replac
 
 The compiler-owned language catalog owns foundational interface signatures,
 documentation and parent/associated contracts. Tooling projects those declarations
-and maps them to generated navigation spans. Native modules own their concrete
-implementation records, storage bindings and optional algorithm declarations.
+and maps them to generated navigation spans. It also declares the three default
+container types. Runtime owns their basic implementations and storage bindings;
+optional native modules own additional types, impls and algorithm declarations.
 HIR owns coercions and checked implementation selection. Completion exposes only
 the members of the visible type. Native entries are checked against concrete
 signatures; interface contracts and parent tables are verified/linked before

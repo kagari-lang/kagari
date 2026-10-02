@@ -15,8 +15,12 @@ Execution has four phases, in strict order:
 2. Implement complete compiler-owned language traits/types independently of native
    installation: equality/hash/ordering, operators/indexing, foundational
    List/MutableList, Map/MutableMap, Set/MutableSet, iteration, callable and existing
-   formatting/range contracts. Array literals and minimal default ArrayList
-   operations remain available without optional algorithms.
+   formatting/range contracts. Declare ArrayList/HashMap/HashSet as canonical
+   defaults and provide their minimal Rust runtime implementations through ordinary
+   native bindings. Basic operations and array literals remain available without
+   optional modules; hash bounds belong to the concrete types.
+   Default backing is Rust std::collections::HashMap/HashSet; indexmap belongs to
+   optional standard-library LinkedHashMap/LinkedHashSet.
 3. Define Kagari modules through ModuleBuilder and bind Rust functions through
    NativeBinding with checked conversion views; retire macro-derived declarations.
    Replace mandatory continuations with efficient synchronous functions and
@@ -27,8 +31,9 @@ Execution has four phases, in strict order:
 4. Prove one optional algorithm module over the language's ArrayList, including
    contiguous i32 storage, script comparators, lazy map, tooling declarations,
    source-free execution and measured costs. The existing external consumer also
-   proves non-sequence native storage registration. No Map/Set algorithm family
-   or full-library restoration is added.
+   proves non-sequence native storage registration. Extended Map/Set algorithms
+   and full-library restoration remain deferred; basic default hash storage belongs
+   to phase 2. Other containers and extension algorithms belong to optional modules.
 
 The plan owns exact scope, acceptance and the only active checklist/ledger.
 Budget schedules and permission matrices do not constrain its native ABI or
@@ -459,10 +464,11 @@ clippy with warnings denied and `git diff --check` passed.
 
 ## Collection access and construction
 
-The authoritative [collection contract](spec/collection-access.md) now separates
-List/MutableList, Map/MutableMap and Set/MutableSet interfaces from ArrayList,
-LinkedHashMap and LinkedHashSet storage. `[T]` means read-only List; literals create
-ArrayList. Constructors and collection destinations name concrete storage.
+The authoritative [collection contract](spec/collection-access.md) defines
+compiler-owned interfaces and canonical ArrayList/HashMap/HashSet defaults. The
+CI01 results below describe the predecessor LinkedHashMap/LinkedHashSet storage,
+not acceptance of the unimplemented reset. `[T]` means read-only List; array literals
+create ArrayList. Constructors and collection destinations name concrete storage.
 
 The earlier C00-C04 checkpoints established access checking, host ABI access flags,
 artifact validation, shallow factories and source queries (KBC v63-v64, KHI v12).
