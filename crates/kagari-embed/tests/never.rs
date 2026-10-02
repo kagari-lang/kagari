@@ -1,3 +1,4 @@
+mod support;
 use kagari_common::{host_interface::standard_log, source::SourceFile};
 use kagari_embed::{
     BytecodeArtifact,
@@ -19,13 +20,13 @@ fn execute(source: &str, entry: &str, expected: i32) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let prepared =
@@ -94,7 +95,6 @@ fn rejects_normal_returns_and_nested_never_coercions() {
             engine
                 .compile_to_artifact(
                     SourceFile::new("never-invalid.kgr", source),
-                    Default::default(),
                     Default::default()
                 )
                 .is_err(),
@@ -127,7 +127,7 @@ fn main() -> i32 {
 }
 
 #[test]
-fn never_preserves_effects_and_releases_resources_on_traps_and_budget_exhaustion() {
+fn never_preserves_effects_and_releases_resources_on_traps_and_cancellation() {
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
@@ -153,10 +153,8 @@ fn healthy() -> i32 { 42 }
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.language_profile.allow_host_calls = true;
-        context.capabilities.host_calls = true;
-        context.host_policy.allowed_host_functions = vec!["host.log".into()];
+        let context = ExecutionContext::default();
+
         let mut runtime = engine.runtime(context.clone());
         let prepared =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
@@ -176,12 +174,14 @@ fn healthy() -> i32 { 42 }
         assert_eq!(*effects.lock().unwrap(), vec![Value::Str("before".into())]);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert!(runtime.runtime().execution_root().is_none());
-        let mut limited = context.clone();
-        limited.resources.max_instruction_steps = Some(25);
+        let limited = context.clone();
+
+        let cancellation = support::cancel_after(runtime.runtime(), &loaded, 20);
         let error = runtime
             .execute(&loaded, "forever", &[], &limited)
             .unwrap_err();
-        assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
+        assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
+        drop(cancellation);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert!(runtime.runtime().execution_root().is_none());
 

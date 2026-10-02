@@ -1,3 +1,4 @@
+mod support;
 use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
@@ -101,13 +102,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -426,16 +427,18 @@ fn after()->i32 { 42 }
         .unwrap_err();
     assert!(format!("{error:?}").contains("division by zero"));
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    let mut limited = ExecutionContext::default();
-    limited.resources.max_instruction_steps = Some(2);
+    let limited = ExecutionContext::default();
+    let cancellation = support::cancel_after(runtime.runtime(), &loaded, 1);
+
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &limited)
             .unwrap_err()
             .code(),
-        "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED"
+        "KG_RUNTIME_CANCELLED"
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    drop(cancellation);
     let cancelled = ExecutionContext::default();
     cancelled.cancellation.cancel();
     assert_eq!(

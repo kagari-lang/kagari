@@ -1,3 +1,4 @@
+mod support;
 use kagari_abi::language as standard_traits;
 use kagari_embed::{
     BytecodeArtifact,
@@ -27,13 +28,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -105,7 +106,6 @@ fn invalid_ordering_contracts_are_diagnostics() {
             matches!(
                 KagariEngine::default().compile_to_artifact(
                     SourceFile::new("bad-order.kgr", source),
-                    Default::default(),
                     Default::default()
                 ),
                 Err(EmbeddingError::Diagnostics { .. })
@@ -186,7 +186,6 @@ fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
             matches!(
                 KagariEngine::default().compile_to_artifact(
                     SourceFile::new("bad-index.kgr", source),
-                    Default::default(),
                     Default::default()
                 ),
                 Err(EmbeddingError::Diagnostics { .. })
@@ -408,7 +407,7 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
 }
 
 #[test]
-fn operator_traps_and_budget_exhaustion_release_execution_roots() {
+fn operator_traps_and_cancellation_release_execution_roots() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -438,11 +437,11 @@ fn main()->i32 {Number{value:42}+1}
         .load_program(&loaded_program, Default::default())
         .unwrap();
     for entry in ["fail_add", "fail_index", "exhaust"] {
-        let mut options = context.clone();
-        if entry == "exhaust" {
-            options.resources.max_instruction_steps = Some(40);
-        }
+        let options = context.clone();
+        let cancellation =
+            (entry == "exhaust").then(|| support::cancel_after(runtime.runtime(), &loaded, 30));
         assert!(runtime.execute(&loaded, entry, &[], &options).is_err());
+        drop(cancellation);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert!(!runtime.runtime().is_quarantined());
         assert_eq!(

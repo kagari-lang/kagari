@@ -49,10 +49,10 @@ fn main() {
         let dead = runtime.collect_garbage().unwrap();
         assert_eq!(dead.reclaimed_objects, OBJECTS);
         assert_eq!(runtime.gc().allocated_objects(), 0);
-        // Collection releases live occupancy, not the execution allocation budget.
+        // Collection releases live occupancy used by the collector.
         let counters = runtime.resources().counters();
         assert_eq!(counters.current_heap_units, 0);
-        assert_eq!(counters.allocation_units, LEAVES * 3 + 1);
+
         println!(
             "{repeat},{OBJECTS},{},{},{}",
             live.pause.as_nanos(),

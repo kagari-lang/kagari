@@ -227,7 +227,7 @@ fn metadata_registry_carries_reload_and_path_validation_records() {
                 }],
                 return_type: i32_id,
                 origin: MethodOrigin::Trait(trait_id),
-                capability_requirements: CapabilitySet::default(),
+
                 abi_fingerprint: AbiFingerprint(4),
             }],
             traits: vec![TraitInfo {

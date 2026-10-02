@@ -41,7 +41,7 @@ Package roots define:
 - allowed source file extension
 - optional artifact cache directory
 - import search policy
-- security profile defaults
+- host installation defaults
 - host-provided dependency mappings
 
 The package manager name `kg` is reserved for future tooling, but the language runtime only requires the package-root abstraction.
@@ -94,7 +94,7 @@ The loader may load a `.kbc` artifact instead of source when:
 - the artifact format version is supported
 - dependency fingerprints match
 - host registry fingerprints match
-- security profile allows artifact loading
+- required runtime bindings are installed
 - debug metadata policy is satisfied
 
 Invalid or stale artifacts are rejected or ignored according to host policy.
@@ -110,7 +110,7 @@ The loader may cache:
 - dependency fingerprints
 - diagnostics
 
-Cache entries are invalidated by source hash, dependency fingerprint, host registry fingerprint, compiler version, language version, or security profile changes.
+Cache entries are invalidated by source hash, dependency fingerprint, host registry fingerprint, compiler version, language version or installed interface changes.
 
 ## CLI Loading
 
@@ -125,7 +125,7 @@ The current CLI commands are:
 - run `.kbc`
 
 An implicit source path runs source and an implicit `.kbc` path runs an artifact.
-The CLI also supports `--profile restricted`, `--profile dev`, `--profile tooling`, `--jit`, `--no-jit`, and `-o` / `--output` for artifact emission.
+The CLI also supports `--jit`, `--no-jit`, and `-o` / `--output` for artifact emission.
 Module reload remains a host-managed embedding operation rather than a standalone CLI command.
 
 CLI convenience behavior must not define different language semantics from embedding behavior.

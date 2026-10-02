@@ -259,7 +259,7 @@ impl Runtime {
                     .validate_candidate_value_for(program.module().key(), value)
             }) {
                 return Err(ReloadValidationError::Runtime(
-                    RuntimeError::capability_denied(
+                    RuntimeError::execution_phase_violation(
                         "external object in candidate module state at publication",
                     ),
                 ));

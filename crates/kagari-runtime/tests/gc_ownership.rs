@@ -63,7 +63,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     );
     assert!(first.root_value(Value::Array(foreign)).is_none());
     assert!(first.root_value(Value::Map(own)).is_none());
-    let allocation_units = first.resources().counters().allocation_units;
+
     assert_eq!(
         first
             .alloc_array(
@@ -78,10 +78,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
             .kind(),
         RuntimeErrorKind::ScriptTrap
     );
-    assert_eq!(
-        first.resources().counters().allocation_units,
-        allocation_units
-    );
+
     assert_eq!(first.gc().stats(), before);
     assert_eq!(first.gc().array_snapshot(own), Some(vec![Value::I32(1)]));
     assert!(script_equal(first.gc(), &Value::Array(foreign), &Value::Array(foreign)).is_err());

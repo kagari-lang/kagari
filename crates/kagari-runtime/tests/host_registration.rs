@@ -134,7 +134,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
 }
 
 #[test]
-fn host_functions_are_unavailable_until_exposed() {
+fn installed_host_functions_are_available() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
     let mut runtime = host_call_enabled_runtime();
@@ -151,15 +151,6 @@ fn host_functions_are_unavailable_until_exposed() {
             },
         ))
         .unwrap();
-
-    let error = runtime.invoke_host("game.tick", &[]).unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::CapabilityDenied);
-    assert_eq!(*calls.lock().expect("counter should lock"), 0);
-
-    runtime.set_host_exposure_policy(HostExposurePolicy {
-        allowed_host_functions: vec!["game.tick".to_owned()],
-        ..HostExposurePolicy::default()
-    });
 
     assert_eq!(runtime.invoke_host("game.tick", &[]).unwrap(), Value::Unit);
     assert_eq!(*calls.lock().expect("counter should lock"), 1);

@@ -148,7 +148,7 @@ impl Runtime {
             .map_err(runtime_failure)
             .map_err(failure)?;
         // Map failures while the frame still exists. The stack guard then unwinds
-        // only this call's frames on success, trap, cancellation or budget failure.
+        // only this call's frames on success, trap, cancellation or call-depth failure.
         self.call_native_entry(installed).map_err(failure)
     }
 

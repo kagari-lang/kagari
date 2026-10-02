@@ -21,7 +21,7 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
         "root",
         "use pkg::left::make; use pkg::right::add; fn id() -> bool { true } fn main() -> i32 { val p = make(20); val n = add(p, 22); p.x }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let mut user_modules: Vec<_> = artifact
         .program
         .modules
@@ -87,7 +87,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     for artifact in [artifact, encoded] {
         let context = ExecutionContext::default();
@@ -122,9 +122,8 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         include_str!("../../../../examples/imported-traits/main.kgr"),
     );
     let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
-    let artifact = compile(&engine, root, CompileOptions {});
+
+    let artifact = compile(&engine, root);
     let mut wrong_contract = artifact.program.clone();
     let api = wrong_contract
         .modules
@@ -204,9 +203,8 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
         "use pkg::api::Echo; use pkg::model::make; fn read<T: Echo>(value: T) -> i32 { value.echo(42) } fn main() -> i32 { read(make()) }",
     );
     let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
-    let artifact = compile(&engine, root, CompileOptions {});
+
+    let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -264,9 +262,8 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
         include_str!("../../../../examples/imported-traits/consumer.kgr"),
     );
     let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
-    let artifact = compile(&engine, root, CompileOptions {});
+
+    let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -467,9 +464,8 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
         include_str!("../../../../examples/imported-traits/generic-consumer.kgr"),
     );
     let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
-    let artifact = compile(&engine, root, CompileOptions {});
+
+    let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -531,7 +527,6 @@ fn dependency_generic_implementation_checks_specialized_bounds() {
             .compile_snapshot(
                 engine.source_snapshot(),
                 root,
-                CompileOptions::default(),
                 &CancellationToken::default(),
             )
             .is_ok()
@@ -583,7 +578,7 @@ fn dependency_generic_instances_follow_transitive_method_calls() {
         "root",
         "use pkg::api::Echo; use pkg::outer::make_outer; fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(make_outer()) }",
     );
-    let artifact = compile(&engine, root, CompileOptions::default());
+    let artifact = compile(&engine, root);
     let mut runtime = engine.runtime(Default::default());
     let loaded_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
@@ -615,9 +610,8 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
         "use pkg::facade::{Marker, Token, take}; fn main() -> i32 { val explicit = Marker<i32> { value: 20 }; take(Marker { value: 22 }, Token<bool>::Empty) + explicit.value }",
     );
     let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
-    let artifact = compile(&engine, root, CompileOptions {});
+
+    let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()

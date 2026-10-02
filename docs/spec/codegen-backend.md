@@ -45,7 +45,7 @@ module, its `FunctionAnalysis` and the supplied links.
 
 The verified handoff retains concrete executable identities, typed operations,
 module/function links, origins, effects, definite initialization, liveness,
-logical roots, safepoints and logical budget points. Editing MIR requires consuming
+logical roots, safepoints and cancellation safepoints. Editing MIR requires consuming
 the seal and re-verifying before lowering or compilation. Physical registers,
 spills and backend stack-map locations remain backend responsibilities; the backend
 must reject support when it cannot implement the verified root contract.
@@ -101,14 +101,13 @@ The current zero-argument scalar entry uses the C ABI:
 Runtime translates them into values or structured failures. Cranelift stores fields
 at ABI-defined offsets rather than assuming the layout of runtime Rust `Value`.
 
-At each logical point, the scalar backend calls the instruction-step helper using
-the sealed analysis's logical offset. Runtime records the location, checks terminal
-state/cancellation, visits a GC safepoint and charges the corresponding verified
-bytecode point. Checked arithmetic then runs. Thus budget exhaustion can precede
-an arithmetic trap and both paths retain the correct source origin. No optimizer
-may silently eliminate a required logical charge.
+At each executable point, the scalar backend calls the execution-poll helper using
+its sealed logical offset. Runtime validates and records the location, checks
+sticky termination/cancellation and visits a GC safepoint before checked arithmetic.
+Errors retain their correct source origin. There are no logical charges or
+charge-only checkpoints; optimizers retain actual effects and required safepoints.
 
-Allocation, host access, borrows, capability checks, reflection, paths, calls and
+Allocation, host access, borrows, declared interface checks, reflection, paths, calls and
 future GC-bearing native operations must use the shared runtime contracts. Their
 presence in MIR does not imply support by the current scalar backend.
 
@@ -123,13 +122,13 @@ compiler errors are not cached. Runtime-specific handles are never cached there.
 `KagariRuntime::prepare_native` checks the exact prepared/loaded version identity,
 entry and runtime policy, compiles or reuses the product and installs it for this
 runtime. `Runtime::install_native_function` is unsafe for direct callers; it checks
-the descriptor, host ABI, permissions, entry/function/signature and metadata bounds,
+the descriptor, host ABI, declared access, entry/function/signature and metadata bounds,
 while the caller proves code correctness and lifetime. SDK orchestration can satisfy
 that contract using the unsafe backend guarantee and verified correspondence.
 
 `InstalledNativeFunction` retains its code owner, loaded version and dependency
 closure. Runtime invocation creates ordinary sessions/frames, checks authority and
-ownership and shares cancellation, GC, budgets and trace behavior with the VM.
+ownership and shares cancellation, GC, cancellation and trace behavior with the VM.
 `Vm::execute_prepared` accepts an installed entry or an explicit unsupported decision.
 It never compiles. Only a pre-entry unsupported/policy decision may fall back;
 a native failure after entry is returned with its trace and never restarted.
@@ -147,15 +146,14 @@ process restarts is not supported.
 ## Current Cranelift Subset
 
 Supported functions have no arguments, one straight-line return block, and only
-Unit/Bool/i32 values. Supported instructions are constants, moves, logical budget
-checkpoints, checked i32 add/subtract/multiply/negation, boolean not, supported
+Unit/Bool/i32 values. Supported instructions are constants, moves, checked i32 add/subtract/multiply/negation, boolean not, supported
 scalar equality/order comparisons and return. GC-bearing values, locals, branches,
 loops, calls, remainder/division and other numeric families select pre-entry fallback.
 Each scalar helper safepoint has an empty root map. The backend allocates one JIT
 module per successful product and frees its pages on final code-owner drop.
 
 Native/interpreter tests must distinguish Native from InterpreterFallback, including
-source and encoded artifacts, overflow/budget ordering, exact origins, retained code,
+source and encoded artifacts, overflow and cancellation behavior, exact origins, retained code,
 reload and GC boundaries. Compiler errors must not be mislabeled unsupported.
 
 ## Future Backends

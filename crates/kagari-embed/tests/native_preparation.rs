@@ -329,18 +329,12 @@ fn bounded_cache_keeps_existing_entries_usable_after_capacity_is_reached() {
 }
 
 #[test]
-fn policy_rejection_and_pre_cancelled_requests_do_not_compile() {
+fn pre_cancelled_requests_do_not_compile() {
     let engine = KagariEngine::default();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let mut backend = Backend::default();
-    assert!(matches!(
-        runtime
-            .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
-            .unwrap(),
-        PreparedNativeEntry::Unsupported { .. }
-    ));
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(matches!(

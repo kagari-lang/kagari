@@ -5,7 +5,7 @@ IDE integrations, DAP servers, and host tools should translate their own protoco
 
 ## Session Flow
 
-1. Create a runtime with debugger profile and capabilities enabled.
+1. Create a runtime and attach a DebugSession.
 2. Create a `Vm` for that runtime.
 3. Create a `DebugProtocolAdapter` with an event sink.
 4. Send `DebugAdapterRequest::Attach`.
@@ -40,12 +40,11 @@ Adapters receive:
 - pause events with inspected frames
 
 Pause events carry debugger frame ids, module ids, module epochs, function ids, source spans, instruction offsets, and visible bindings.
-Watch evaluation uses those debugger frame ids and remains subject to debugger capability and host visibility policy.
+Watch evaluation uses those debugger frame ids and remains subject to declared visibility and valid runtime handles.
 
 ## Policy
 
-Debugger attachment and operations require runtime debugger capabilities.
-Restricted profiles should leave debugger attachment disabled.
+The host chooses whether to attach a debugger. No runtime permission bits are required.
 Host-owned values are inspectable only when the runtime debug visibility policy exposes them.
 JIT execution may fall back to the interpreter when active debug sessions require metadata that the compiled artifact cannot provide.
 

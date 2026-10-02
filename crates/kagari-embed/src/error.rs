@@ -84,7 +84,7 @@ pub enum RuntimeFailureKind {
     Cancelled,
     ScriptTrap,
     BytecodeVerification,
-    CapabilityDenied,
+    ExecutionPhaseViolation,
     ResourceLimitExceeded,
     HostCallFailure,
     TypedPathValidation,
@@ -100,7 +100,7 @@ impl RuntimeFailureKind {
             Self::Cancelled => "KG_RUNTIME_CANCELLED",
             Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
             Self::BytecodeVerification => "KG_BYTECODE_VERIFICATION_FAILED",
-            Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
+            Self::ExecutionPhaseViolation => "KG_RUNTIME_EXECUTION_PHASE_VIOLATION",
             Self::ResourceLimitExceeded => "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED",
             Self::HostCallFailure => "KG_RUNTIME_HOST_CALL_FAILURE",
             Self::TypedPathValidation => "KG_RUNTIME_TYPED_PATH_VALIDATION",
@@ -236,7 +236,9 @@ impl EmbeddingError {
             VmError::RuntimeError(error) => match error.kind() {
                 RuntimeErrorKind::Cancelled => RuntimeFailureKind::Cancelled,
                 RuntimeErrorKind::EngineFault => RuntimeFailureKind::EngineInvariant,
-                RuntimeErrorKind::CapabilityDenied => RuntimeFailureKind::CapabilityDenied,
+                RuntimeErrorKind::ExecutionPhaseViolation => {
+                    RuntimeFailureKind::ExecutionPhaseViolation
+                }
                 RuntimeErrorKind::ResourceLimitExceeded => {
                     RuntimeFailureKind::ResourceLimitExceeded
                 }

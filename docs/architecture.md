@@ -216,7 +216,7 @@ wholesale into contract:
 | `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Group source and tooling responsibilities; separate literal parsing from numeric execution semantics. |
 | `identity`, `span` | Separate portable package/module/definition identity from source file revisions and locations where appropriate. Preserve debug metadata consumers; these modules are not uniformly source-only. |
 | `arithmetic`, `integer`, `numeric`, `range`, `collection` | Give shared language semantics a deliberate owner; preserve one implementation of compile-time/runtime numeric behavior. Distinguish semantic tags from execution algorithms. |
-| `host_interface`, `capability` | Locate portable host schema and effect/requirement records with their contract owner; keep runtime policy enforcement and host state with runtime/embedding. This does not activate execution-policy redesign. |
+| `host_interface` | Locate portable host schema and effect records with their contract owner; keep execution state and host state with runtime/embedding. The capability module was removed by the execution-policy simplification. |
 | `cancellation`, decode-limit helpers | Retain or relocate small shared mechanisms according to concrete dependency needs; preserve cancellation and bounded decoding. |
 
 Whether a small `common` crate remains, is renamed or disappears follows this
@@ -344,7 +344,7 @@ source call or method
 ```
 
 This keeps ordinary standard library execution out of script-visible reflection and host string dispatch.
-Reflection metadata may describe standard values for tooling when the active profile allows it, but reflection is not the implementation mechanism for arrays, maps, sets, strings, or standard helpers.
+Reflection metadata may describe standard values for tooling through declared metadata, but reflection is not the implementation mechanism for arrays, maps, sets, strings, or standard helpers.
 Reload validation and JIT preparation use the same verified callable contracts as the interpreter. Unsupported native compilation falls back before entry.
 
 Host-sensitive APIs such as file system, networking, timers, persistence, service registries, and logging sinks are host APIs.
@@ -380,7 +380,7 @@ HIR and semantic analysis own:
 - compile-time metadata and generated registration data
 
 Type checking must reject invalid programs before MIR lowering whenever the violation is statically knowable.
-Runtime checks remain required for host state, capabilities, dynamic indexes, and hot reload epochs.
+Runtime checks remain required for host state, declared access, dynamic indexes, and hot reload epochs.
 
 ## MIR, ABI and Bytecode
 
@@ -388,7 +388,7 @@ MIR is a concrete typed, non-SSA control-flow representation. Source generics an
 trait obligations are resolved by compiler source lowering into reachable executable
 instances; MIR contains no HIR type arena or generic binder. Verification seals
 function/program links and bounded analyses: initialization, liveness, effects,
-logical roots, safepoints, source/debug origins and logical budget points. Public
+logical roots, safepoints, source/debug origins and cooperative cancellation points. Public
 passes consume verified input, make bounded changes and reverify the result.
 
 The ABI crate owns nominal executable types, signatures, layouts, provider
@@ -403,7 +403,7 @@ Native-enabled preparation also proves correspondence of optional portable MIR t
 that same bytecode program; executable contracts never depend on source analysis.
 
 Ordinary aggregate access uses checked nominal field slots. Host-backed typed path
-access is a separate operation with declared capabilities and scoped borrow rules.
+access is a separate operation with installed contracts and scoped borrow rules.
 Reflection remains explicit rather than implementing ordinary field mutation.
 
 ## Runtime Model
@@ -420,7 +420,7 @@ Core runtime subsystems:
 - installed native handles retaining code owners and exact dependency versions
 - type and interface metadata registry
 - host registry
-- security context and capability state
+- root cancellation and execution phase
 - resource accounting
 - hot reload coordinator
 
@@ -450,7 +450,7 @@ The embedding API owns:
 - host registry setup
 - module loader configuration
 - execution context construction
-- runtime capability and resource policy
+- runtime call-depth limits and cooperative cancellation
 - structured diagnostics and runtime errors
 - interpreter/JIT execution policy
 
@@ -469,7 +469,7 @@ load it into each runtime. `execute` interprets; `prepare_native` uses a trusted
 compilation-only backend and a bounded configuration/version cache, then installs
 runtime-specific handles. `execute_prepared` executes that decision. Reload consumes
 a prepared candidate and preserves its verified identity. Preparation precedes
-script execution and does not consume the script's logical instruction budget.
+script execution and has its own structural work limits.
 
 ## Interpreter
 
@@ -480,7 +480,7 @@ The interpreter must:
 
 - preserve bytecode-visible control flow and value behavior
 - enforce traps and runtime errors consistently
-- call runtime helpers at allocation, host, reflection, security, and path boundaries
+- call runtime helpers at allocation, host, reflection and path boundaries
 - maintain correct stack/root metadata for GC
 - respect pinned module versions across hot reload
 - reject unsupported or unverified bytecode instead of guessing behavior
@@ -496,7 +496,7 @@ It is built on:
 - safe debug points
 - runtime frame inspection
 - value inspection
-- profile-gated reflection metadata
+- declared reflection metadata
 - host exposure policy
 - typed path read policy
 - module epoch identity
@@ -547,22 +547,15 @@ Script-visible durable module storage is deferred until the reload model defines
 
 ## Security and Reflection
 
-Security is layered:
+Kagari primarily embeds trusted scripts. Installation determines available native
+and host APIs. Member visibility, readonly views and host adapters enforce declared
+language/interface contracts. Reflection uses these metadata and access contracts.
+There is no language-profile or generic runtime permission matrix.
 
-- language profile
-- runtime capabilities
-- host API exposure
-- resource policy
-
-Reflection is metadata-driven and profile-gated.
-Ordinary game-state mutation must not go through reflection.
-Privileged reflective writes, when provided by an embedding, are separate from typed path mutation and must be explicitly gated.
-
-The CLI currently maps profiles to runtime policy as follows:
-
-- `restricted`: default-deny capabilities, no host calls, debugger, module loading, reflection, path mutation, or JIT.
-- `dev`: host calls for `host.log`; JIT only when `--jit` is requested and the binary has the `jit` feature.
-- `tooling`: host calls, reflection, path mutation, module loading, debugger capabilities, and optional JIT.
+Execution retains cooperative cancellation and a runtime call-depth limit, without
+instruction charging or generic CPU/memory quotas. Hosts own service admission and
+deadlines. GC, borrow, generation, artifact and candidate-publication validation
+remain mandatory. See [execution control](spec/security.md).
 
 ## Production Readiness Definition
 
@@ -578,6 +571,6 @@ Kagari is production-ready when:
 - typed path mutation is validated, efficient, and reload-aware
 - debugger sessions support IDEA-like source debugging through safe runtime hooks
 - hot reload cannot corrupt the active runtime on failure
-- security profiles and reflection gates are enforced at runtime boundaries
+- installed interfaces and declared member contracts are enforced at runtime boundaries
 - baseline Cranelift JIT can be enabled without changing language behavior
 - documentation matches implementation and gives Codex agents an executable roadmap

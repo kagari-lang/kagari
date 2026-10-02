@@ -24,13 +24,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -139,7 +139,6 @@ fn callable_errors_are_reported_before_codegen() {
             engine
                 .compile_to_artifact(
                     SourceFile::new("invalid-callable.kgr", source),
-                    Default::default(),
                     Default::default()
                 )
                 .is_err(),

@@ -53,7 +53,7 @@ Borrow-boundary management decides how Rust-owned data may be accessed safely du
 
 Rust types are registered from a portable `HostTypeDeclaration`. It owns nominal
 type/member identities, export labels, structural signatures, read/write and path
-permissions, receiver/parameter passing styles, effects, capabilities and docs.
+declared access, receiver/parameter passing styles, effects and docs.
 Its default constructor derives an identity in the application host namespace;
 providers can supply their own package/module identity. The runtime binding adds
 only a Rust type name; callers no longer supply member slots or ABI fingerprints.
@@ -131,7 +131,7 @@ Open generics require inline `T: NativeValue` and compile once using checked roo
 NativeArray operations preserve bounds, aliasing and heap guards. Readonly
 applications permit reads and reject mutations. NativeFn<(usize,), T> supplies the
 checked index callback for the current array proof; NativeContinuation<T> reuses
-the rooted resumable driver and logical budget steps. The registered ops Index is a by-value
+the rooted resumable driver and cooperative polling boundaries. The registered ops Index is a by-value
 Rust bridge for the existing script indexing contract. It returns checked values
 and does not expose unrestricted Rust references. NativeRange preserves complete
 integer widths without converting endpoints to signed offsets. Bound payloads
@@ -143,13 +143,13 @@ packages along with the optional default package. Generated `.kgr` provides
 navigation and documentation, while compiler signatures are imported directly.
 Advanced NativeApi::new/NativeFactory registrations retain runtime result,
 application, ownership and callback validation. Migration of existing host
-opaque/type/path adapters remains pending; their authority, permission, scoped
+opaque/type/path adapters remains pending; their identity, declared access, scoped
 borrow, schema and output checks below continue to apply.
 
 The current function API is `HostFunction::new(declaration, callback)`. Its
 `HostFunctionDeclaration` comes from `kagari_common::host_interface`, which has no
 runtime dependency. It carries a `DefinitionId`, export label, typed parameters
-and result, passing styles, capabilities, effects, resource cost and documentation.
+and result, passing styles, effects and documentation.
 `HostValueType` covers scalar and composite representations plus opaque nominal
 types. Opaque references use declaration identities, not runtime type slots.
 The old callback-owned metadata model, arbitrary ABI fingerprint field, static
@@ -168,7 +168,7 @@ entry registers a HostResourceScope in the active session and keeps argument roo
 and borrow leases there until the call ends. Callbacks can add temporary values with
 retain_temporaries; permanent retention still requires RootedValue. Borrowed
 results are rejected before their scope ends. The public registry/function invoke
-bypasses are removed; host invocation goes through Runtime permission, resource,
+bypasses are removed; host invocation goes through Runtime effect, cancellation,
 signature and heap validation.
 
 `kagari_vm::reenter(context, loaded, function, args)` drives the existing explicit
@@ -180,7 +180,7 @@ must contain valid references owned by this runtime. The return is a RootedValue
 keeping it alive retains the object across subsequent GC and host operations.
 Outer frames and borrow guards remain live while nested calls run. Borrow conflicts
 are checked across these scopes, and each scope releases only its own resources.
-An ordinary nested trap may be handled by the host. Cancellation or budget
+An ordinary nested trap may be handled by the host. Cancellation or call-depth
 termination remains recorded for the root even if the host ignores the error.
 Nested calls share the session's frame stack and debugger observer. Breakpoint and
 trap snapshots include suspended callers at their actual call instruction, plus
@@ -196,14 +196,14 @@ epoch, so coincident frame numbers in other runtimes confer no authority.
 Runtime::host_scope creates explicit temporary scopes and validate_host_borrow
 checks tokens; the old enter_host_call and mutable borrow-table access are removed.
 Scopes participating in a root retain its options/version until the last scope
-ends. Root and lease cleanup is unconditional after traps, cancellation, budgets
+ends. Root and lease cleanup is unconditional after traps, cancellation, call-depth failures
 and quarantine. Direct host operations outside script execution use the same scope
 implementation with runtime defaults and do not implicitly create a script root.
 
 One declaration can be cloned into a `HostInterface` for offline tooling and into
 the runtime binding. `HostRegistry::link_interface` checks required declarations
 against installed bindings without calling them. It rejects missing bindings,
-identity/signature/borrow/effect/capability/cost mismatches. Documentation changes
+identity/signature/borrow/effect mismatches. Documentation changes
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
@@ -227,7 +227,7 @@ because it determines runtime slots. Versions 1 through 5 are not decoded.
 
 `HostFunctionEffects::may_read_immutable_configuration` is part of the binding
 contract and function fingerprint. It permits snapshot configuration reads during
-candidate initialization, subject to normal host permissions. Inputs and results
+candidate initialization, subject to declared effect and borrow contracts. Inputs and results
 must be owned value-only shapes (scalars, String, Tuple, Option and Result);
 containers and opaque handles are rejected, including nested occurrences. The host
 must supply an immutable snapshot, not live mutable service state. Declaring this
@@ -255,7 +255,7 @@ host_function_at query returns the declaration at a callee or function import
 without executing code, including through source facades.
 Changing the catalog invalidates semantic reuse while unchanged source can reuse
 its parsed CST. Correct neighboring functions remain queryable after import or
-call errors. Host calls require the host-call language profile and are excluded
+call errors. Host calls require installed bindings and are excluded
 from scalar constant evaluation.
 
 The source call boundary supports scalar and nested Tuple, Array, Map, Set, Option
@@ -294,7 +294,7 @@ parameter and return types after associated-output substitution. Mismatches are 
 generation. Host passing styles and effects remain part of the host ABI.
 Host methods are callable through their receiver: `player.read_score()`.
 `HostTypeDeclaration::method_contract` derives the executable contract from the
-member identity, signature, receiver passing style, effects, capabilities and cost.
+member identity, signature, receiver passing style, effects.
 The first argument is an explicit `self` of the declaring nominal host type;
 member parameters cannot also use that reserved name. There is no second editable
 method signature. `HostFunction::method` binds a callback to that definition.
@@ -308,7 +308,7 @@ errors; `host_function_at` returns the generated contract and original member do
 Lowering evaluates the receiver first and each explicit argument once, then emits
 the existing linked host call operand. Methods cannot be imported as free functions
 through the type's label. Calls use the generated `type-symbol.method-name` label
-for host exposure policy and preserve the declared capability/effect checks.
+for installed interface contracts and preserve declared effects and borrow checks.
 Receiver borrow leases use the ordinary host call scope, including cleanup after
 failure and rejection of conflicting synchronous reentry. Method source calls,
 artifacts and existing JIT fallback share this execution path. Opaque receivers
@@ -320,7 +320,7 @@ retained for linking even when all calls target hosts.
 For example, `pub use demo::echo as call; pub use demo as service;` permits clients
 to import `call` or `service` from the facade, or call `facade::call(...)` and
 `facade::service::echo(...)` through a source module alias. These calls retain
-ordinary lexical shadowing and require the original host symbol's permission and
+ordinary lexical shadowing and require the original host symbol's identity and
 matching runtime binding; re-exporting grants no additional authority.
 Run cargo run -p kagari-embed --example offline_compile to compile an imported
 host call without any runtime or callback registration.
@@ -347,7 +347,6 @@ Function registration records:
 - parameter list
 - passing style for each parameter
 - return type
-- capability requirements if any
 
 This aligns with the existing host runtime surface in [host.rs](../../crates/kagari-runtime/src/host.rs).
 
@@ -633,7 +632,7 @@ Index and virtual registrations do not accept a caller-supplied member
 fingerprint. They have no portable member declaration yet, so their member
 fingerprint slot is zero. The versioned whole-path encoder still includes the
 index slot and portable collection/index/result types, or the virtual name and
-result type, plus access, schema and capabilities. Identical resolved contracts
+result type, plus access and schema. Identical resolved contracts
 produce identical path fingerprints; changes to those inputs change the path
 fingerprint. These segments can be included in an offline `HostPathDeclaration`.
 
@@ -644,7 +643,7 @@ and path access, and returns its result type and portable contract without callb
 or runtime registration. Runtime registration uses the same encoder. The
 `kagari-host-path-v1\0` encoding uses FNV-1a 64 over fixed-order fields:
 root declaration fingerprint, result type fingerprint, schema epoch, access,
-capability flags, segment count, then ordered segment records. Integers and lengths
+segment count, then ordered segment records. Integers and lengths
 are little-endian u64; tags and flags are bytes; virtual names are length-prefixed
 UTF-8. Each segment includes its kind-specific input contract, result type, access
 and member fingerprint. Types use portable host type contracts, never runtime IDs
@@ -654,7 +653,7 @@ unrelated runtime type registrations therefore does not change a path fingerprin
 
 KHI v8 stores `HostInterface.paths` as portable `HostPathDeclaration` records:
 nominal root, ordered field/index/virtual segments, access, schema epoch and
-required capabilities. Encoding sorts these records independently of registration
+declared access. Encoding sorts these records independently of registration
 order; duplicate records, invalid chains, noncontiguous dynamic argument slots
 and paths longer than 256 segments are rejected. `Runtime::register_host_path` consumes the same declaration after its
 types are registered and derives the runtime descriptor. Every registered runtime
@@ -687,7 +686,7 @@ Reusing an unchanged function body remaps its path root to the new analysis aren
 
 Source field assignments and compound assignments use checked writable path
 declarations. HIR records the target's root place and contract; readonly paths
-produce diagnostics, and the language profile must allow path mutation. Lowering
+produce diagnostics. Lowering
 captures the root before evaluating the RHS, then emits SetPath or ModifyPath.
 The runtime validates and reads the current target after RHS evaluation and prepares
 the update before committing the target and dirty record. Arithmetic failure or
@@ -808,7 +807,7 @@ Behavior:
 
 - host types may opt into reflection
 - host objects may expose metadata for tooling, diagnostics, or reload validation
-- reflective reads over host objects are optional and capability-gated
+- reflective reads over host objects are limited to declared reflection metadata and adapters
 - reflective writes over host objects are privileged tooling operations, not the ordinary mutation model
 - ordinary script mutation of host-owned structured state uses typed path mutation
 
@@ -842,7 +841,7 @@ is an overlap; associated outputs do not distinguish implementations.
 
 A concrete host receiver satisfies static bounds and may convert to a fully bound
 dynamic interface. Generated IR forwarding functions call the mapped host method
-through the ordinary capability, exposure, effect, budget and borrow checks.
+through the ordinary installation, effect, cancellation and borrow checks.
 Artifact verification checks the exact forwarding call and method mapping.
 The interface retains only a checked durable `HostRoot`; temporary borrow tokens
 and path views cannot be boxed. It keeps its linked execution version across
@@ -863,7 +862,7 @@ Behavior:
 
 - host APIs are opt-in exposures
 - host reflection is separately gated
-- dynamic loading and powerful host services are controlled through capabilities and profile checks
+- dynamic loading and powerful host services are available only through installed host services
 
 Security behavior is defined in [security.md](security.md).
 

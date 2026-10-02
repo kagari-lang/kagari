@@ -172,11 +172,6 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             .load_program(&loaded_program, LoadOptions::default())
             .unwrap();
         assert!(calls.lock().unwrap().is_empty());
-        let mut denied = context.clone();
-        denied.jit_policy = JitPolicy::Disabled;
-        denied.host_policy.allowed_host_functions = vec!["call".into()];
-        assert!(runtime.execute(&loaded, "main", &[], &denied).is_err());
-        assert!(calls.lock().unwrap().is_empty());
         let mut backend =
             jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for _ in 0..2 {
@@ -276,7 +271,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
 }
 
 #[test]
-fn host_calls_require_profile_and_cannot_run_in_scalar_constants() {
+fn declared_host_calls_compile_but_cannot_run_in_scalar_constants() {
     let engine = KagariEngine::default();
     engine
         .set_host_interface(HostInterface {
@@ -285,13 +280,14 @@ fn host_calls_require_profile_and_cannot_run_in_scalar_constants() {
             functions: vec![declaration()],
         })
         .unwrap();
-    let disabled = engine
-        .compile_source(SourceFile::new(
-            "disabled.kgr",
-            "fn main() -> i32 { demo::echo(7) }",
-        ))
-        .unwrap_err();
-    assert!(format!("{disabled:?}").contains("KG_PROFILE_FEATURE_DISABLED"));
+    assert!(
+        engine
+            .compile_source(SourceFile::new(
+                "host.kgr",
+                "fn main() -> i32 { demo::echo(7) }"
+            ))
+            .is_ok()
+    );
     let constant = engine.compile_source(SourceFile::new(
         "const.kgr",
         "const N: i32 = demo::echo(7); fn main() -> i32 { N }",

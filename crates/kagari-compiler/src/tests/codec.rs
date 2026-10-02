@@ -213,7 +213,16 @@ fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
         32_768
     ];
     let block = &mut function.blocks[0];
-    block.instructions = vec![Instruction::BudgetCheckpoint; 256];
+    block.instructions = vec![
+        Instruction::LoadConst {
+            dst: kagari_mir::instruction::MirValue {
+                temp: kagari_mir::ids::TempId::new(0),
+                ty: ValueType::Unit
+            },
+            constant: kagari_mir::instruction::Constant::Unit
+        };
+        256
+    ];
     block.instruction_spans = vec![Default::default(); 256];
     block.instruction_scopes = vec![0; 256];
     block.terminator = Some(Terminator::Return(None));

@@ -277,12 +277,12 @@ in the matching hash bucket, in insertion order. The query is the comparison
 receiver. Comparisons stop at the first match; updates retain the original key.
 There is no identity shortcut around an explicit comparison, even for aliases.
 Reentrant reads are allowed; mutation of the active container traps, including
-updates which would not change its length. Trap and budget termination release
+updates which would not change its length. Traps and cancellation release
 the lookup guard and temporary roots.
 
 Builtin-only keys retain native hashing and lookup. Composite values containing
 custom members use reusable compiled comparison/hash helpers. These helpers and
-user callbacks run through ordinary linked calls, logical budgets and GC
+user callbacks run through ordinary linked calls, cooperative cancellation and GC
 safepoints; JIT-ineligible paths use the interpreter.
 
 
@@ -349,7 +349,7 @@ from Array pop/remove or Map remove, and `Ok(false)` from Set remove, indicate
 normal absence only. Invalid keys/handles, iteration protection and execution
 rejection are errors. Clear returns `Result<(), RuntimeError>`. Standard helpers
 preserve this distinction and check iteration protection before allocating their
-script-level Option result; rejected operations do not change contents or quota.
+script-level Option result; rejected operations do not change contents or live occupancy.
 
 Array element and Struct field-slot replacement return `Result<(), RuntimeError>`.
 Invalid payloads, slots, layouts and write permissions fail before assignment.
@@ -428,7 +428,7 @@ are checked recursively across every variant. Structs, containers (including
 read-only views), interfaces, closures and host handles do not qualify. This rule
 also applies at lengths zero and one and to an empty variant such as `None` in
 `Option<Struct>`. An unconstrained generic element type cannot prove the requirement.
-The count may be a runtime expression. Allocation and execution budgets are checked.
+The count may be a runtime expression. Checked allocation arithmetic and cooperative cancellation still apply.
 
 Objects requiring separate identity must be initialized separately, for example
 `[Cell { value: 1 }, Cell { value: 1 }]`. A repeated reference can be expressed

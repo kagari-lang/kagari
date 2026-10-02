@@ -51,9 +51,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
     );
     let old_again = engine.compile_snapshot(old_source, id, &token).unwrap();
     assert_eq!(old_again.module_identity(), &first);
-    let current_again = engine
-        .analyze(current_source, Default::default(), &token)
-        .unwrap();
+    let current_again = engine.analyze(current_source, &token).unwrap();
     assert_eq!(
         current_again
             .file(id)
@@ -89,9 +87,7 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
             SourceLayer::Base,
         )
         .unwrap();
-    engine
-        .analyze(engine.source_snapshot(), Default::default(), &token)
-        .unwrap();
+    engine.analyze(engine.source_snapshot(), &token).unwrap();
     let edited = format!(
         "fn a() -> i32 {{ val shifted: (i32, ArrayList<i32>) = (10, [20]); shifted[0] + shifted[1][0] + 30 }} {unchanged}"
     );
@@ -99,9 +95,7 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
         .set_source("memory://reuse.kgr", edited.clone(), SourceLayer::Overlay)
         .unwrap();
     let snapshot = engine.source_snapshot();
-    let analysis = engine
-        .analyze(snapshot.clone(), Default::default(), &token)
-        .unwrap();
+    let analysis = engine.analyze(snapshot.clone(), &token).unwrap();
     assert!(analysis.file(id).unwrap().signatures_reused());
     assert_eq!(
         analysis
@@ -203,13 +197,13 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
 
     token.cancel();
     assert!(matches!(
-        engine.compile_snapshot(original, id, CompileOptions::default(), &token),
+        engine.compile_snapshot(original, id, &token),
         Err(EmbeddingError::Cancelled)
     ));
 }
 
 #[test]
-fn profile_changes_do_not_reuse_a_previously_accepted_result() {
+fn unchanged_installed_environment_reuses_analysis_results() {
     let engine = KagariEngine::default();
     let id = engine
         .set_source(
@@ -220,17 +214,19 @@ fn profile_changes_do_not_reuse_a_previously_accepted_result() {
         .unwrap();
     let token = CancellationToken::default();
 
-    let allowed = engine
-        .analyze(engine.source_snapshot(), permissive, &token)
-        .unwrap();
+    let allowed = engine.analyze(engine.source_snapshot(), &token).unwrap();
     let restricted = engine.analyze(engine.source_snapshot(), &token).unwrap();
-    assert!(!Arc::ptr_eq(
+    assert!(Arc::ptr_eq(
         allowed.file(id).unwrap(),
         restricted.file(id).unwrap()
     ));
     assert!(
-        restricted.file(id).unwrap().result().diagnostics().len()
-            > allowed.file(id).unwrap().result().diagnostics().len()
+        restricted
+            .file(id)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
     );
 }
 
@@ -470,7 +466,7 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
         );
         assert!(
             matches!(
-                engine.compile_snapshot(source, id, Default::default(), &Default::default()),
+                engine.compile_snapshot(source, id, &Default::default()),
                 Err(EmbeddingError::Diagnostics { .. })
             ),
             "case {index}"
@@ -493,9 +489,7 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
         max_steps: 2,
         max_depth: 1,
     });
-    let complete = engine
-        .analyze(source.clone(), Default::default(), &Default::default())
-        .unwrap();
+    let complete = engine.analyze(source.clone(), &Default::default()).unwrap();
     assert!(complete.check_program(id, &Default::default()).is_ok());
     let declaration = complete
         .file(id)
@@ -518,9 +512,7 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
         max_steps: 1,
         max_depth: 1,
     });
-    let limited = engine
-        .analyze(source.clone(), Default::default(), &Default::default())
-        .unwrap();
+    let limited = engine.analyze(source.clone(), &Default::default()).unwrap();
     let new_body = engine
         .body(source.clone(), owner, &Default::default())
         .unwrap()
@@ -593,13 +585,10 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
         .unwrap();
     assert!(
         engine
-            .compile_source(
-                SourceFile::new(
-                    "memory://full.kgr",
-                    "const VALUE: bool = true && true; fn main() -> bool { VALUE }"
-                ),
-                Default::default()
-            )
+            .compile_source(SourceFile::new(
+                "memory://full.kgr",
+                "const VALUE: bool = true && true; fn main() -> bool { VALUE }"
+            ))
             .is_err()
     );
     let engine = KagariEngine::default();
@@ -612,11 +601,7 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
         .set_source("memory://dependencies.kgr", text, SourceLayer::Base)
         .unwrap();
     let analysis = engine
-        .analyze(
-            engine.source_snapshot(),
-            Default::default(),
-            &Default::default(),
-        )
+        .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
     let file = analysis.file(id).unwrap();
     assert!(file.result().diagnostics().iter().any(|d| matches!(
@@ -656,18 +641,13 @@ fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
         )
         .unwrap();
     assert!(matches!(
-        engine.compile_snapshot(
-            engine.source_snapshot(),
-            id,
-            Default::default(),
-            &Default::default()
-        ),
+        engine.compile_snapshot(engine.source_snapshot(), id, &Default::default()),
         Err(EmbeddingError::Diagnostics { .. })
     ));
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(matches!(
-        engine.analyze(engine.source_snapshot(), Default::default(), &cancel),
+        engine.analyze(engine.source_snapshot(), &cancel),
         Err(EmbeddingError::Cancelled)
     ));
 }
@@ -693,11 +673,7 @@ fn invalid_const_types_cannot_bypass_validation_budget() {
             )
             .unwrap();
         let analysis = engine
-            .analyze(
-                engine.source_snapshot(),
-                Default::default(),
-                &Default::default(),
-            )
+            .analyze(engine.source_snapshot(), &Default::default())
             .unwrap();
         let file = analysis.file(id).unwrap();
         let diagnostics = file.result().diagnostics();

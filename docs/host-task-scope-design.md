@@ -19,7 +19,7 @@ the dependency; the async proposal retains the implementation sequence and ledge
 All API names and examples below are illustrative and require review before coding.
 
 The execution-policy plan supplies the simplified baseline: installed APIs authorize
-use, per-root coarse work guards protect execution, and the host manages task
+use, root cancellation and call-depth limits control execution, and the host manages task
 admission, deadlines and service limits. Scope/operation identities below are
 lifetime and ownership checks, not another boolean permission matrix.
 
@@ -68,7 +68,7 @@ business Result type; it need not support arbitrary output reporting immediately
 | Cold task | Engine-managed checked target and rooted captures; no execution has started |
 | Scope capability | Unforgeable, runtime-local script handle authorizing bounded task admission |
 | Host scope owner | Host control handle binding lifecycle, policy and scheduling to an Actor or another host service |
-| Execution | Engine-owned frames, roots, pinned code, budget, termination and waiting operations |
+| Execution | Engine-owned frames, roots, pinned code, cancellation, termination and waiting operations |
 | Job | Script-visible observation/cancellation handle for an admitted execution; not its lifetime owner |
 | Ready notice | Opaque identity telling the host that an execution may need driving; no script frames or callable closure |
 | Completion endpoint | Operation-specific authority to submit an owned result, not authority to enter the VM |
@@ -220,7 +220,7 @@ No completion thread accesses the VM heap or directly resumes an execution.
 
 When the Actor drives the notice, the engine checks cancellation and operation
 identity, claims the result once, converts it on the owning thread under runtime
-heap limits, and continues at the saved await position. Program counters,
+checked allocation and GC ownership, and continues at the saved await position. Program counters,
 locals and callback state remain engine-owned; the mailbox carries no raw frame
 pointers and no executable script closure.
 

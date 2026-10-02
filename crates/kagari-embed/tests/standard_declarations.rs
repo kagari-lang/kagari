@@ -18,7 +18,6 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
                         format!("fn main() {{ {body} }}")
                     ),
                     Default::default(),
-                    Default::default(),
                 )
                 .is_err(),
             "{body}"

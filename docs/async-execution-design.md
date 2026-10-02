@@ -19,7 +19,7 @@ It refines the original root-bound task proposal without introducing script thre
 or a mandatory Actor/Tokio dependency.
 
 The execution-policy plan owns the proposed access/protection model: installation
-authorizes API use, coarse root work guards prevent runaway execution, and the host
+authorizes API use, root cancellation and a call-depth limit control execution, and the host
 owns deadlines/service limits. Per-task permission matrices, precise allocation
 attribution and hierarchical budget delegation are not async requirements.
 
@@ -153,7 +153,7 @@ Only owned, declared inputs may survive the start call. The operation cannot ret
 `HostCallContext`, runtime borrows, frame leases or unrooted script values. External
 completion carries owned host data through a checked typed adapter; conversion to
 GC-managed script values occurs on the owning VM thread under the execution's
-runtime heap limits. Arbitrary host data is not portable executable metadata.
+checked allocation and GC ownership. Arbitrary host data is not portable executable metadata.
 
 A Rust Future adapter can be added over this lifecycle, but the language and core
 runtime must not require Tokio or a particular executor. A Future must not borrow
@@ -186,16 +186,15 @@ silently make existing native callbacks suspendable.
 
 Current synchronous session lifetimes cannot simply be held open as Rust borrows
 across an external wait. The future runtime must own each parked execution's
-frames, roots, native states, ownership, pinned versions, work guard and
+frames, roots, native states, ownership, pinned versions, cancellation state and
 termination independently of an active driver call. A short-lived activation
 guard grants exclusive driving access and restores runtime state when it exits.
 Attempted concurrent or recursive driving of the same execution is rejected.
 
 Independent roots must not be mistaken for synchronous nested reentry. Nested
-calls share the caller's work guard and versions; a separate host-started root has
-its own controls. Track remaining work per execution rather than subtracting a
-global counter baseline across interleaved roots. Heap protection stays runtime-wide;
-do not require precise allocation attribution or separate capability sets per task.
+calls share the caller's cancellation state and versions; a separate host-started
+root has its own cancellation state. Scheduling does not add work charging or
+runtime heap quotas. Host services own task admission and queue capacity.
 
 ## Waiting and completion lifecycle
 
@@ -246,8 +245,8 @@ of an RPC result does not guarantee that the remote server stopped processing it
 An RPC-specific timeout may be an ordinary `RpcError` if declared by that API.
 The host owns task deadlines and triggers cancellation when one expires; it also
 defines whether waiting counts toward that deadline. The engine does not add a
-second wall-time budget. Parked time consumes no script work. Host scheduling slices
-never replenish the root work allowance or bypass runtime heap/depth limits.
+second wall-time budget. There is no script work allowance or heap quota. Scheduling slices preserve
+cancellation and runtime call-depth limits.
 A runtime invariant failure quarantines the
 runtime and retires all its executions, not just the currently driven one.
 
@@ -302,7 +301,7 @@ may cancel old executions under an explicit deployment policy; publication does
 not silently cancel them. Cancellation still does not roll back external effects.
 
 The installed surface remains the access boundary. Completion cannot install APIs,
-change execution ownership or reset its work guard. Candidate initialization
+change execution ownership or reset its cancellation state. Candidate initialization
 rejects async entries and external waits in the first release; do not park a staged
 reload session or bypass its restrictions by returning an async task.
 
@@ -313,7 +312,7 @@ reload session or bypass its restrictions by returning an async task.
 | Syntax and HIR | Async declarations, await expressions, completed-output typing, task types, diagnostics and source-level suspension restrictions |
 | Compiler and MIR | Explicit await control flow, captured/live values, effects, source origins and verified resume points; no RPC-specific lowering |
 | ABI and bytecode | Portable async call contracts and bounded validation of task/result types, resume destinations, initialization, roots and non-suspendable resources |
-| Runtime | Owned execution/task state, provider operations, completion identities, GC retention, runtime limits, root work guards, cancellation and pinned generations |
+| Runtime | Owned execution/task state, provider operations, completion identities, GC retention, runtime limits, cancellation and pinned generations |
 | VM | Generic bounded driving, wait/resume transitions and logical async stacks |
 | SDK and host | Execution handles, registration adapters, readiness integration, IO, timers and scheduling |
 | Native backends | Recognize unsupported suspendable execution before entry and use checked interpreter fallback |
@@ -356,7 +355,7 @@ before activating async work:
   ephemeral-value analysis and artifact verification rules.
 - Specify owned execution APIs, activation/reentry rules, completion ownership,
   cancellation races, overload behavior and host lifetime/shutdown requirements.
-- Define coarse root work guards, scheduling slices, host deadline cancellation,
+- Define scheduling slices, host deadline cancellation,
   bounded completion storage and trace/debug behavior while several roots are parked;
   do not reintroduce a generic hierarchy of quotas or permissions.
 

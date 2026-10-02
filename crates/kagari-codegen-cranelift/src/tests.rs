@@ -29,10 +29,9 @@ fn root(program: &VerifiedMirProgram) -> &VerifiedMirModule {
         .find(|module| &module.identity == program.root())
         .unwrap()
 }
-fn runtime(limit: Option<u64>) -> Runtime {
+fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: limit,
             ..Default::default()
         },
         ..Default::default()
@@ -100,8 +99,8 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     }
     // Later compilations and backend destruction cannot retire earlier products.
     drop(backend);
-    for (mir, code, expected, points) in products {
-        let mut runtime = runtime(None);
+    for (mir, code, expected, _points) in products {
+        let mut runtime = runtime();
         let module = runtime
             .load_program("native", lower_program_to_bytecode(&mir).unwrap())
             .unwrap();
@@ -111,31 +110,9 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
             runtime.invoke_native_function(&installed).unwrap(),
             expected
         );
-        assert_eq!(
-            runtime.resources().counters().instruction_steps,
-            points as u64
-        );
+
         assert_eq!(runtime.gc().active_roots(), 0);
     }
-}
-
-#[test]
-fn cranelift_backend_calls_runtime_resource_helper_and_reports_failure() {
-    let mir = mir("fn main() -> bool { true }");
-    let code = Rc::new(compile(&mut CraneliftBackend::for_host().unwrap(), &mir).unwrap());
-    let mut runtime = runtime(Some(1));
-    let module = runtime
-        .load_program("native", lower_program_to_bytecode(&mir).unwrap())
-        .unwrap();
-    let installed = unsafe { runtime.install_native_function(&module, code) }.unwrap();
-    let failure = runtime.invoke_native_function(&installed).unwrap_err();
-    assert!(
-        matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
-    );
-    assert!(failure.error.message().contains("instruction steps"));
-    assert_eq!(failure.trace.frames[0].instruction_offset, 1);
-    assert_eq!(runtime.resources().counters().instruction_steps, 1);
-    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -187,7 +164,7 @@ fn malformed_helper_links_fail_compilation_without_becoming_fallback() {
 }
 
 #[test]
-fn checked_i32_traps_and_budget_failures_keep_the_exact_mir_point() {
+fn checked_i32_traps_keep_the_exact_mir_point() {
     for expression in [
         "2147483647 + 1",
         "(-2147483647 - 1) - 1",
@@ -197,8 +174,8 @@ fn checked_i32_traps_and_budget_failures_keep_the_exact_mir_point() {
         let mir = mir(&format!("fn main() -> i32 {{ {expression} }}"));
         let code = Rc::new(compile(&mut CraneliftBackend::for_host().unwrap(), &mir).unwrap());
         let overflow_offset = code.artifact.traps.last().unwrap().instruction_offset;
-        for limit in 0..=overflow_offset + 2 {
-            let mut runtime = runtime(Some(limit as u64));
+        {
+            let mut runtime = runtime();
             let module = runtime
                 .load_program("native", lower_program_to_bytecode(&mir).unwrap())
                 .unwrap();
@@ -208,21 +185,8 @@ fn checked_i32_traps_and_budget_failures_keep_the_exact_mir_point() {
             let BackendInvocationError::RuntimeFailure(error) = failure.error else {
                 panic!("runtime trap")
             };
-            let (kind, offset, steps) = if limit <= overflow_offset {
-                (RuntimeErrorKind::ResourceLimitExceeded, limit, limit)
-            } else {
-                (
-                    RuntimeErrorKind::ScriptTrap,
-                    overflow_offset,
-                    overflow_offset + 1,
-                )
-            };
-            assert_eq!(error.kind(), kind, "{expression} at budget {limit}");
-            assert_eq!(failure.trace.frames[0].instruction_offset, offset);
-            assert_eq!(
-                runtime.resources().counters().instruction_steps,
-                steps as u64
-            );
+            assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap, "{expression}");
+            assert_eq!(failure.trace.frames[0].instruction_offset, overflow_offset);
             assert_eq!(runtime.resources().counters().current_call_depth, 0);
             assert_eq!(runtime.gc().active_roots(), 0);
         }

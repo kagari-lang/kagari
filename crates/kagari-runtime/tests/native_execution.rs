@@ -43,10 +43,9 @@ impl Drop for Owner {
     }
 }
 
-fn runtime(limit: Option<u64>) -> Runtime {
+fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: limit,
             ..Default::default()
         },
         ..Default::default()
@@ -59,7 +58,9 @@ fn program() -> BytecodeProgram {
             ..Default::default()
         },
         instructions: vec![
-            BytecodeInstruction::BudgetCheckpoint,
+            BytecodeInstruction::Jump {
+                target: kagari_bytecode::instruction::JumpTarget::new(1),
+            },
             BytecodeInstruction::Return(None),
         ],
         ..Default::default()
@@ -138,29 +139,19 @@ fn assert_clean(runtime: &Runtime) {
 }
 
 #[test]
-fn native_calls_use_frames_and_exact_budgets_and_unwind_on_failure() {
-    for limit in [None, Some(1)] {
-        let mut runtime = runtime(limit);
-        let installed = install(&mut runtime, execute);
-        let result = runtime.invoke_native_function(&installed);
-        if limit.is_none() {
-            assert_eq!(result.unwrap(), Value::Unit);
-            assert_eq!(runtime.resources().counters().instruction_steps, 2);
-        } else {
-            let failure = result.unwrap_err();
-            assert!(
-                matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
-            );
-            assert_eq!(failure.trace.frames[0].instruction_offset, 1);
-            assert_eq!(runtime.resources().counters().instruction_steps, 1);
-        }
-        assert_clean(&runtime);
-    }
+fn native_calls_use_checked_frames_and_release_them_on_return() {
+    let mut runtime = runtime();
+    let installed = install(&mut runtime, execute);
+    assert_eq!(
+        runtime.invoke_native_function(&installed).unwrap(),
+        Value::Unit
+    );
+    assert_clean(&runtime);
 }
 
 #[test]
 fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let installed = install(&mut runtime, trap);
     let failure = runtime.invoke_native_function(&installed).unwrap_err();
     assert!(
@@ -168,13 +159,13 @@ fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
     );
     assert_eq!(failure.trace.frames[0].function_name, "main");
     assert_eq!(failure.trace.frames[0].instruction_offset, 0);
-    assert_eq!(runtime.resources().counters().instruction_steps, 1);
+
     assert_clean(&runtime);
 }
 
 #[test]
 fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let module = runtime.load_program("native", program()).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let code = product(execute, dropped.clone());
@@ -216,9 +207,9 @@ fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
 
 #[test]
 fn invocation_checks_runtime_ownership_without_permission_flags() {
-    let mut first = runtime(None);
+    let mut first = runtime();
     let installed = install(&mut first, execute);
-    let second = runtime(None);
+    let second = runtime();
     assert!(
         matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
@@ -232,7 +223,7 @@ fn invocation_checks_runtime_ownership_without_permission_flags() {
 
 #[test]
 fn malformed_native_results_quarantine_and_clean_up() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let installed = install(&mut runtime, bad_result);
     let failure = runtime.invoke_native_function(&installed).unwrap_err();
     assert!(
@@ -244,7 +235,7 @@ fn malformed_native_results_quarantine_and_clean_up() {
 
 #[test]
 fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let module = runtime.load_program("native", program()).unwrap();
     let mut code = product(execute, Arc::default());
     Rc::get_mut(&mut code).unwrap().artifact.entry = ExecutableEntryPoint::Unresolved;
@@ -259,12 +250,11 @@ fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
             .compiled_artifacts,
         0
     );
-    assert_eq!(runtime.resources().counters().instruction_steps, 0);
 }
 
 #[test]
 fn installation_retains_descriptors_and_rejects_unknown_functions_without_leaking_owners() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let module = runtime.load_program("native", program()).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let mut code = product(execute, dropped.clone());
@@ -307,7 +297,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
             .compiled_artifacts,
         1
     );
-    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+
     assert_eq!(
         runtime.invoke_native_function(&installed).unwrap(),
         Value::Unit
@@ -326,7 +316,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
 
 #[test]
 fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let module = runtime.load_program("native", program()).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let installed =
@@ -367,8 +357,8 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
 }
 
 #[test]
-fn native_reentry_preserves_the_callers_frame_and_shared_budget() {
-    let mut runtime = runtime(None);
+fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
+    let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
     let outer = runtime.enter_execution_stack(installed.module()).unwrap();
     outer
@@ -380,14 +370,14 @@ fn native_reentry_preserves_the_callers_frame_and_shared_budget() {
     );
     assert_eq!(outer.frames().unwrap().len(), 1);
     assert_eq!(runtime.resources().counters().current_call_depth, 1);
-    assert_eq!(runtime.resources().counters().instruction_steps, 2);
+
     drop(outer);
     assert_clean(&runtime);
 }
 
 #[test]
 fn cancellation_of_an_active_session_prevents_native_progress() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
     let options = runtime.execution_options();
     let cancel = options.cancellation.clone();
@@ -399,15 +389,15 @@ fn cancellation_of_an_active_session_prevents_native_progress() {
     assert!(
         matches!(failure.error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::Cancelled)
     );
-    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+
     drop(session);
     assert_clean(&runtime);
 }
 
 #[test]
 fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
-    let mut first = runtime(None);
-    let mut second = runtime(None);
+    let mut first = runtime();
+    let mut second = runtime();
     let a = first.load_program("native", program()).unwrap();
     let b = second.load_program("native", program()).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
@@ -416,7 +406,7 @@ fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
     let y = unsafe { second.install_native_function(&b, code.clone()) }.unwrap();
     drop(code);
     assert_eq!(first.invoke_native_function(&x).unwrap(), Value::Unit);
-    assert_eq!(second.resources().counters().instruction_steps, 0);
+
     drop(x);
     drop(first);
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
@@ -428,7 +418,7 @@ fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
 #[test]
 fn incompatible_native_abis_are_rejected_before_installation() {
     for helper in [false, true] {
-        let mut runtime = runtime(None);
+        let mut runtime = runtime();
         let module = runtime.load_program("native", program()).unwrap();
         let mut code = product(execute, Arc::default());
         let artifact = &mut Rc::get_mut(&mut code).unwrap().artifact;
@@ -464,7 +454,7 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         },
     );
     graph.root = ModuleRef::new(1);
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let module = runtime.load_program("native", graph.clone()).unwrap();
     let old_dependency = module.member(ModuleRef::new(0)).unwrap();
     let installed =
@@ -515,7 +505,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
             Ok(())
         }
     }
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
     let session = runtime
         .begin_execution(installed.module(), runtime.execution_options())
@@ -530,7 +520,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
             .error,
         BackendInvocationError::UnsupportedArtifact(_)
     ));
-    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     drop(session);
     assert_clean(&runtime);
@@ -540,8 +530,8 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
 fn shared_verified_program_identity_survives_independent_runtime_linking() {
     let verified = VerifiedProgram::new(program()).unwrap();
     let separate = VerifiedProgram::new(program()).unwrap();
-    let mut first = runtime(None);
-    let mut second = runtime(None);
+    let mut first = runtime();
+    let mut second = runtime();
     let a = first
         .load_verified_program("first", verified.clone())
         .unwrap();

@@ -1,14 +1,11 @@
-//! Execution authority, budgets and entry policy.
+//! Execution cancellation, deterministic inputs and entry policy.
 use crate::{
     RunResult,
     error::{EmbeddingError, RuntimeFailureKind},
 };
 
 use kagari_common::cancellation::CancellationToken;
-use kagari_runtime::{
-    resource::RuntimeLimits,
-    session::{DeterministicInputs, ExecutionOptions, ExecutionPhase},
-};
+use kagari_runtime::session::{DeterministicInputs, ExecutionOptions, ExecutionPhase};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum JitPolicy {

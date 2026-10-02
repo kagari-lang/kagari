@@ -47,7 +47,6 @@ fn disabling_optional_modules_keeps_language_collections_and_removes_algorithms(
                     "memory://missing.kgr",
                     "use std::collections::sort; fn main() { sort([2,1]); }"
                 ),
-                Default::default(),
                 Default::default()
             )
             .is_err()

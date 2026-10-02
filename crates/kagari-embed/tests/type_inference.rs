@@ -24,13 +24,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -177,13 +177,10 @@ fn invalid_numeric_literals_are_rejected_before_execution() {
         let engine = KagariEngine::default();
         assert!(
             engine
-                .compile_source(
-                    SourceFile::new(
-                        "invalid-number.kgr",
-                        format!("fn main() {{ val x = {expression}; }}")
-                    ),
-                    Default::default()
-                )
+                .compile_source(SourceFile::new(
+                    "invalid-number.kgr",
+                    format!("fn main() {{ val x = {expression}; }}")
+                ))
                 .is_err(),
             "{expression}"
         );
@@ -268,10 +265,7 @@ fn invalid_explicit_arguments_and_unresolved_holes_are_rejected() {
     ] {
         assert!(
             KagariEngine::default()
-                .compile_source(
-                    SourceFile::new("invalid-inference.kgr", source),
-                    Default::default()
-                )
+                .compile_source(SourceFile::new("invalid-inference.kgr", source))
                 .is_err(),
             "unexpectedly accepted: {source}"
         );

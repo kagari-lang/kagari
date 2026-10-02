@@ -284,7 +284,7 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
 }
 
 #[test]
-fn trapped_interface_frame_releases_its_roots_and_call_budget() {
+fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self / 0 } } fn main() -> i32 { 42 }",
     );

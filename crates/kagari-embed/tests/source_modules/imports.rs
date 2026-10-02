@@ -11,7 +11,7 @@ fn public_source_glob_reexports_members_through_artifacts() {
         "root",
         "use pkg::facade::*; fn main() -> i32 { value() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     for artifact in [
         artifact.clone(),
         BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
@@ -42,7 +42,7 @@ fn parent_module_can_execute_pub_super_child_function() {
         "root",
         "mod child { pub(super) fn value() -> i32 { 42 } } fn main() -> i32 { child::value() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -72,7 +72,7 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
         "root",
         "use pkg::model::make; fn main() -> i32 { make().read() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     for artifact in [
         artifact.clone(),
         BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
@@ -112,7 +112,6 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
             .compile_snapshot(
                 engine.source_snapshot(),
                 invalid_import,
-                Default::default(),
                 &Default::default()
             )
             .is_err()
@@ -127,7 +126,7 @@ fn parent_module_can_call_pub_super_inherent_method() {
         "root",
         "mod child { pub(super) struct Data { val value: i32 } impl Data { pub(super) fn read(self) -> i32 { self.value } } pub(super) fn make() -> Data { Data { value: 42 } } } fn main() -> i32 { child::make().read() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -158,7 +157,7 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
         "root",
         "use pkg::facade as f; fn main() -> i32 { f::api::visible() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -180,12 +179,7 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
     );
     assert!(
         engine
-            .compile_snapshot(
-                engine.source_snapshot(),
-                private,
-                Default::default(),
-                &Default::default()
-            )
+            .compile_snapshot(engine.source_snapshot(), private, &Default::default())
             .is_err()
     );
 }
@@ -203,7 +197,7 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
         "root",
         "use pkg::library::*; fn main() -> i32 { child::value() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -235,7 +229,7 @@ fn wildcard_import_follows_a_public_module_alias() {
         "root",
         "use pkg::relay::exported::*; fn main() -> i32 { value() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -261,7 +255,7 @@ fn wildcard_import_follows_a_public_native_module_alias() {
         "root",
         "use pkg::facade::collections::*; fn main() -> i32 { val values = [22, 20]; sort(values); values[0] + values[1] }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -302,7 +296,7 @@ fn declared_external_child_module_resolves_qualified_calls() {
         "root",
         "mod child; fn main() -> i32 { child::value() }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -377,7 +371,6 @@ fn reachable_cycles_compile_without_initialization() {
             .compile_snapshot(
                 engine.source_snapshot(),
                 independent,
-                CompileOptions::default(),
                 &CancellationToken::default()
             )
             .is_ok()

@@ -539,7 +539,7 @@ A host object may:
 - participate in `is<T>` and `downcast<T>` if the runtime assigns it a stable concrete type identity
 
 Host borrowing rules do not leak into the script trait model.
-If a host-backed value is exposed through an interface, method calls must still respect host registration, capability, path mutation, and call-boundary rules.
+If a host-backed value is exposed through an interface, method calls must still respect host registration, declared access, path mutation and call-boundary rules.
 Concrete host types with a checked applied trait table satisfy matching static
 trait bounds. Ordered arguments distinguish `Readable<i32>` from
 `Readable<bool>` on the same host type. A specialized bound call selects the
@@ -708,8 +708,8 @@ bound interface such as `Reader<Item = i32>`. The compiler emits a concrete
 interface table and ordinary IR forwarding functions. Each forwarding function
 calls the mapped host method through the normal verified host boundary; there is
 no separate runtime dispatcher or runtime generic specialization. Loading checks
-the mapping and forwarding code before execution. Host effects, exposure,
-capabilities, budget and call-scoped receiver borrowing remain enforced.
+the mapping and forwarding code before execution. Host effects, installed bindings,
+cancellation and call-scoped receiver borrowing remain enforced.
 
 The interface payload may retain a registered durable `HostRoot`, whose registry
 ownership, concrete type and schema are checked. Borrow tokens and path views
@@ -755,7 +755,7 @@ An expected parent type converts a child interface to a parent view. Calls to
 inherited parent methods use that same view. Both views retain the same concrete
 payload and original execution family. Parent method tables, including generic
 instances and host bridges, are compiled and verified before execution. There
-is no runtime generic specialization. GC, rooted host retention, host permissions
+is no runtime generic specialization. GC, rooted host retention, declared host access
 and old-version calls use the existing interface ownership contracts.
 
 See [trait-inheritance.kgr](../../examples/syntax/trait-inheritance.kgr), which
@@ -850,6 +850,6 @@ therefore accept these objects as well as functions and closures.
 `Fn` allows mutation through shared references, including stateful captured
 variables. It does not imply purity, reentrancy, cross-thread safety, consumption,
 or a promise about the number of calls. There are no `FnMut` or `FnOnce` protocols.
-Calling or adapting a callable retains ordinary trap, budget, and resource-cleanup
+Calling or adapting a callable retains ordinary trap, cancellation and resource-cleanup
 behavior. Generic callable constraints reuse specialization; function values retain
 indirect closure dispatch. No inlining guarantee is part of this contract.

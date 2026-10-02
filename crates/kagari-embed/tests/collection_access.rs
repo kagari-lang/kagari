@@ -23,13 +23,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -226,18 +226,16 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
         engine
             .compile_to_artifact(
                 SourceFile::new("host-negative.kgr", "fn main() { demo::values().push(1); }"),
-                options.clone(),
                 Default::default()
             )
             .is_err()
     );
     let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = [source[0], 2]; copy[0] + copy[1] }"),  Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    let mut context = ExecutionContext {
+    let context = ExecutionContext {
         ..Default::default()
     };
-    context.capabilities.host_calls = true;
-    context.host_policy.allowed_host_functions = vec!["demo.values".into()];
+
     let mut runtime = engine.runtime(context.clone());
     runtime
         .register_host_function(HostFunction::new(declaration.clone(), |context, _| {

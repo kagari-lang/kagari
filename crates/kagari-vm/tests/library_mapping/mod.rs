@@ -133,7 +133,7 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
     let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
     let after = vm.runtime().gc().stats();
     assert_eq!(after.allocated_objects - before.allocated_objects, 1);
-    assert_eq!(after.allocation_units - before.allocation_units, 2);
+
     let Value::Enum(id) = result else {
         panic!("Option");
     };

@@ -9,7 +9,7 @@ use {
 
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -33,6 +33,37 @@ use kagari_vm::{
     vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
 };
 
+use kagari_common::cancellation::CancellationToken;
+use kagari_runtime::{
+    error::RuntimeError,
+    frame::ExecutionFrame,
+    session::{ExecutionEvent, ExecutionObserver},
+};
+
+#[derive(Debug)]
+struct CancelAt {
+    seen: Cell<usize>,
+    at: usize,
+    token: CancellationToken,
+}
+impl ExecutionObserver for CancelAt {
+    fn observe(
+        &self,
+        runtime: &Runtime,
+        event: ExecutionEvent,
+        _: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
+        if event == ExecutionEvent::BeforeInstruction {
+            let seen = self.seen.get();
+            self.seen.set(seen + 1);
+            if seen == self.at {
+                self.token.cancel();
+            }
+        }
+        runtime.resources().poll_execution()
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Route {
     Source,
@@ -52,7 +83,6 @@ enum Expected {
     IndexTrap,
     HostFailure,
     ScriptTrap(&'static str),
-    ResourceLimit,
     Cancelled,
 }
 
@@ -90,7 +120,7 @@ struct Case<'a> {
     cancel_call: Option<usize>,
     repeat: usize,
     require_native: bool,
-    max_steps: Option<u64>,
+    cancel_at: Option<usize>,
     reflection: bool,
     iterating: bool,
     array: Option<(&'static [i32], &'static [i32])>,
@@ -110,7 +140,7 @@ impl<'a> Case<'a> {
             cancel_call: None,
             repeat: 1,
             require_native: false,
-            max_steps: None,
+            cancel_at: None,
             reflection: false,
             iterating: false,
             array: None,
@@ -285,8 +315,6 @@ fn assert_outcome(
             if error.kind() == RuntimeErrorKind::HostCallFailure => {}
         (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::ScriptTrap && error.message() == *message => {}
-        (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
-            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded => {}
         (Expected::Cancelled, Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::Cancelled => {}
         (expected, actual) => panic!(
@@ -346,7 +374,6 @@ fn run(
     );
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: case.max_steps,
             ..Default::default()
         },
 
@@ -430,11 +457,20 @@ fn run(
             )
             .unwrap()
     });
-    let session = case.cancel_call.map(|_| {
+    let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
         let mut options = runtime.execution_options();
-        options.cancellation = cancellation;
+        options.cancellation = cancellation.clone();
         runtime.begin_execution(&loaded, options).unwrap()
     });
+    if let Some(at) = case.cancel_at {
+        runtime
+            .attach_execution_observer(Rc::new(CancelAt {
+                seen: Cell::new(0),
+                at,
+                token: cancellation,
+            }))
+            .unwrap();
+    }
     let mut vm = KagariRuntime::new(runtime, Default::default());
     let mut backend = CraneliftBackend::for_host().unwrap();
     for attempt in 0..case.repeat {
@@ -687,13 +723,6 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     ] {
         run_routes(&case);
     }
-    let mut budget_before_overflow = Case::new(
-        "budget_before_overflow",
-        "fn main() -> i32 { 2147483647 + 1 }",
-        Expected::ResourceLimit,
-    )
-    .native();
-    budget_before_overflow.max_steps = Some(2);
     let mut reject = Case::new(
         "host_reject",
         "fn main() { print(\"first\"); print(\"rejected\"); print(\"unreachable\"); }",
@@ -721,13 +750,13 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Expected::Cancelled,
     ).array(&[1], &[42]).effects(&["cancel"], &["cancel"]);
     heap_cancel.cancel_call = Some(2);
-    let mut heap_budget = Case::new(
-        "heap-budget-exhaustion-preserves-earlier-write",
+    let mut heap_loop_cancel = Case::new(
+        "heap-loop-cancellation-preserves-earlier-write",
         "use observe as test; fn main() { val a = test::array(); a[0] = 42; print(\"committed\"); a[0] += spin(); } fn spin() -> i32 { loop {} }",
-        Expected::ResourceLimit,
+        Expected::Cancelled,
     ).array(&[1], &[42]).effects(&["committed"], &["committed"]);
-    heap_budget.max_steps = Some(100);
-    for case in [heap_reject, heap_cancel, heap_budget] {
+    heap_loop_cancel.cancel_at = Some(100);
+    for case in [heap_reject, heap_cancel, heap_loop_cancel] {
         run_routes(&case);
     }
     for operation in [
@@ -905,7 +934,6 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("div_overflow", "fn main() -> i32 { (-2147483647 - 1) / -1 }", Expected::ScriptTrap("integer overflow")),
         Case::new("division_by_zero", "fn main() -> i32 { 1 / 0 }", Expected::ScriptTrap("integer division by zero")),
         Case::new("overflow_effects", "fn left() -> i32 { print(\"left\"); 2147483647 } fn right() -> i32 { print(\"right\"); 1 } fn main() -> i32 { left() + right() }", Expected::ScriptTrap("integer overflow")).effects(&["left", "right"], &["left", "right"]),
-        budget_before_overflow,
         Case::new("scalar", "fn main() -> i32 { (2 + 3) * 4 }", Expected::Value(Value::I32(20))),
         Case::new("alias", "struct P { var n: i32 } fn main() -> i32 { val a = P { n: 1 }; val b = a; b.n = 7; a.n }", Expected::Value(Value::I32(7))),
         Case::new("object_identity", "struct P { var n: i32 } fn main() -> bool { val a = P { n: 1 }; val b = P { n: 1 }; a == b }", Expected::Value(Value::Bool(false))),

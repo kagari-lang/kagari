@@ -392,12 +392,12 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         .unwrap();
     assert_ne!(new_binding.id, binding_a.id);
 
-    // A different profile is a different semantic analysis, even at the same text revision.
+    // Unchanged source and declarations reuse the same semantic identities.
 
     let third = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    assert!(third.declaration(&new_binding.id).is_none());
+    assert_eq!(third.declaration(&new_binding.id), Some(new_binding));
     assert!(third.declaration(&function_a.id).is_some());
     sources.bind_module("a.kgr", module("renamed")).unwrap();
     let rebound = snapshot(&mut db, &sources);

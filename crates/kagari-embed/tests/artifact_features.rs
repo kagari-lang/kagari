@@ -277,9 +277,8 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     let program =
         PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
             .unwrap();
-    let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
+    let context = ExecutionContext::default();
+
     let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let prepared = runtime

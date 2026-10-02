@@ -28,13 +28,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -104,11 +104,7 @@ fn invalid_conversion_implementations_are_diagnostics() {
     ] {
         assert!(
             KagariEngine::default()
-                .compile_to_artifact(
-                    SourceFile::new("bad.kgr", source),
-                    Default::default(),
-                    Default::default()
-                )
+                .compile_to_artifact(SourceFile::new("bad.kgr", source), Default::default())
                 .is_err(),
             "{source}"
         );
@@ -319,7 +315,6 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
             engine
                 .compile_to_artifact(
                     SourceFile::new("invalid-foundation.kgr", source),
-                    Default::default(),
                     Default::default()
                 )
                 .is_err(),

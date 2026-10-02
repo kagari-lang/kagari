@@ -1,5 +1,5 @@
 use super::*;
-use crate::{error::VmError, tests::common};
+use crate::tests::common;
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 
@@ -33,7 +33,7 @@ fn executes_runtime_reflect_type_of_helper() {
 }
 
 #[test]
-fn runtime_reflection_helpers_require_runtime_capability() {
+fn runtime_reflection_helpers_use_declared_metadata() {
     let (runtime, loaded) = load_bytecode_module(
         "reflect_denied.kbc",
         test_function_module(
@@ -56,18 +56,14 @@ fn runtime_reflection_helpers_require_runtime_capability() {
     );
 
     let mut vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("reflection_metadata")
-    ));
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::Str("i32".into())
+    );
 }
 
 #[test]
-fn reflection_metadata_and_read_gates_are_separate() {
+fn declared_reflection_reads_are_available() {
     let mut metadata_only = Runtime::new(RuntimeConfig {
         ..RuntimeConfig::default()
     });
@@ -104,18 +100,14 @@ fn reflection_metadata_and_read_gates_are_separate() {
         )
         .unwrap();
     let mut vm = Vm::new(metadata_only);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("reflection_read")
-    ));
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(1)
+    );
 }
 
 #[test]
-fn reflection_read_and_write_gates_are_separate() {
+fn declared_reflection_writes_are_available() {
     let mut read_only = Runtime::new(RuntimeConfig {
         ..RuntimeConfig::default()
     });
@@ -161,77 +153,7 @@ fn reflection_read_and_write_gates_are_separate() {
         )
         .unwrap();
     let mut vm = Vm::new(read_only);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("reflection_write")
-    ));
-}
-
-#[test]
-fn reflection_helpers_enforce_reflection_operation_resource_limit() {
-    let mut runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_reflection_operations: Some(1),
-            ..RuntimeLimits::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_program(
-            "reflect_operation_limit.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![common::point_function_module(
-                    "main",
-                    vec![
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(0),
-                            constant: ConstantOperand::I32(1),
-                        },
-                        BytecodeInstruction::MakeStruct {
-                            dst: Register::new(1),
-                            structure: StructId::new(0),
-                            fields: vec![Register::new(0)],
-                        },
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(2)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                            args: vec![Register::new(1)],
-                        },
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(3)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                                "x".to_owned(),
-                            )),
-                            args: vec![Register::new(1)],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(3))),
-                    ],
-                    ValueType::I32,
-                    vec![
-                        ValueType::I32,
-                        ValueType::HeapObject,
-                        ValueType::Str,
-                        ValueType::I32,
-                    ],
-                )],
-            },
-        )
-        .unwrap();
-    let mut vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
-                && error.message().contains("reflection operations")
-    ));
-    assert_eq!(vm.runtime().resources().counters().reflection_operations, 1);
+    vm.execute(&loaded, "main").unwrap();
 }
 
 #[test]

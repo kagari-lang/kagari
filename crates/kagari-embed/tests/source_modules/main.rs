@@ -82,7 +82,7 @@ fn host_fixture() -> (
     let context = ExecutionContext {
         ..Default::default()
     };
-    let artifact = compile(&engine, root, CompileOptions {});
+    let artifact = compile(&engine, root);
     (engine, artifact, context, declaration)
 }
 

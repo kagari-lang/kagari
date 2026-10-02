@@ -125,11 +125,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         "queried one body: {:?}",
         body.type_at(text.rfind("answer }").expect("reference"))
     );
-    let snapshot = engine.analyze(
-        engine.source_snapshot(),
-        Default::default(),
-        &Default::default(),
-    )?;
+    let snapshot = engine.analyze(engine.source_snapshot(), &Default::default())?;
     let analysis = snapshot.file(file).expect("source belongs to snapshot");
     assert_eq!(
         analysis.definition_at(payload_point),
@@ -334,11 +330,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         text.replace("value + 1", "value + 2"),
         SourceLayer::Overlay,
     )?;
-    let edited = engine.analyze(
-        engine.source_snapshot(),
-        Default::default(),
-        &Default::default(),
-    )?;
+    let edited = engine.analyze(engine.source_snapshot(), &Default::default())?;
     assert!(edited.declaration(&target.id).is_none());
     let old_facts = analysis.result().facts();
     let old_expr = old_facts
@@ -366,11 +358,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         format!("{text}\r\nenum Point {{ Origin }}"),
         SourceLayer::Overlay,
     )?;
-    let ambiguous = engine.analyze(
-        engine.source_snapshot(),
-        Default::default(),
-        &Default::default(),
-    )?;
+    let ambiguous = engine.analyze(engine.source_snapshot(), &Default::default())?;
     let ambiguous_file = ambiguous.file(file).expect("edited source");
     assert!(
         ambiguous_file
@@ -387,11 +375,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     );
     let applied_text = format!("{text}\r\nfn applied<T>(value: T<>) {{}}");
     engine.set_source(source_name, applied_text.clone(), SourceLayer::Overlay)?;
-    let applied = engine.analyze(
-        engine.source_snapshot(),
-        Default::default(),
-        &Default::default(),
-    )?;
+    let applied = engine.analyze(engine.source_snapshot(), &Default::default())?;
     let applied_file = applied.file(file).expect("edited source");
     let application = applied_text.find("T<>").expect("empty type application");
     assert_eq!(

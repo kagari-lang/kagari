@@ -15,7 +15,7 @@ use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
 };
-use value::{EphemeralValue, Value};
+use value::Value;
 pub mod error_trace;
 #[cfg(test)]
 extern crate self as kagari_runtime;
@@ -58,7 +58,7 @@ use crate::{
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, RootedValue},
     host::{
         FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostFunction, HostFunctionId,
-        HostPathOperation, HostRegistry, HostTypeRegistration,
+        HostRegistry, HostTypeRegistration,
     },
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
@@ -318,7 +318,7 @@ impl Runtime {
         }
         self.validate_loaded_module(candidate.module())?;
         if self.is_candidate_initialization() {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "nested candidate initialization",
             ));
         }
@@ -360,7 +360,7 @@ impl Runtime {
             && self.resources.active_session().is_none()
             && !matches!(entry, ExecutionEntry::Candidate)
         {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "staged modules require the candidate session entry",
             ));
         }
@@ -370,7 +370,7 @@ impl Runtime {
             .active_session()
             .map_or(options.phase, |session| session.options.phase);
         if self.modules.is_staged(module) && phase != ExecutionPhase::CandidateInitialization {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "staged modules require candidate initialization execution",
             ));
         }
@@ -378,7 +378,7 @@ impl Runtime {
             if options.phase == ExecutionPhase::CandidateInitialization
                 && session.options.phase != ExecutionPhase::CandidateInitialization
             {
-                return Err(RuntimeError::capability_denied(
+                return Err(RuntimeError::execution_phase_violation(
                     "candidate initialization requires an isolated root session",
                 ));
             }
@@ -577,9 +577,7 @@ impl Runtime {
         dynamic_args: Vec<value::Value>,
         value: value::Value,
     ) -> Result<(), RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
-        self.reject_candidate_external_access()?;
-        self.resources.ensure_execution_allowed()?;
+        self.resources.poll_execution()?;
         self.reject_candidate_external_access()?;
         let result = self
             .host
@@ -596,9 +594,7 @@ impl Runtime {
         op: BinaryOp,
         value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
-        self.reject_candidate_external_access()?;
-        self.resources.ensure_execution_allowed()?;
+        self.resources.poll_execution()?;
         self.reject_candidate_external_access()?;
         let result =
             self.host
@@ -661,7 +657,7 @@ impl Runtime {
     ) -> Result<RefMut<'_, ModuleInstance>, RuntimeError> {
         self.validate_loaded_module(module)?;
         if !self.modules.allows_instance_access(module.key()) {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "candidate cannot access external module state",
             ));
         }
@@ -741,7 +737,7 @@ impl Runtime {
             .iter()
             .all(|value| self.gc.validate_candidate_value(value))
         {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate host arguments",
             ));
         }
@@ -770,7 +766,6 @@ impl Runtime {
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
         self.resources.poll_execution()?;
         Ok(reflection::type_of(&self.gc, value))
     }
@@ -780,7 +775,6 @@ impl Runtime {
         value: &value::Value,
         field_name: &str,
     ) -> Result<value::Value, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
         self.resources.poll_execution()?;
         reflection::get_field(&self.gc, value, field_name)
             .map_err(|error| RuntimeError::invalid_reflective_read(error.message()))
@@ -792,7 +786,6 @@ impl Runtime {
         field_name: &str,
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
         self.resources.poll_execution()?;
         reflection::set_field(&self.gc, value, field_name, next_value)
             .map_err(ReflectionError::into_write_error)
@@ -804,7 +797,6 @@ impl Runtime {
         index: &value::Value,
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
         self.resources.poll_execution()?;
         reflection::set_index(&self.gc, value, index, next_value)
             .map_err(ReflectionError::into_write_error)

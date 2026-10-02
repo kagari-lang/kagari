@@ -130,9 +130,6 @@ fn assert_source_index_path(field_prefix: bool) {
                     "invalid-host-index.kgr",
                     format!("use game as api; fn main() -> i32 {{ api::make(){prefix}[true] }}"),
                 ),
-                CompileOptions {
-                    language_profile: profile,
-                },
                 Default::default(),
             )
             .is_err()

@@ -19,7 +19,7 @@ fn optimized(module: VerifiedMirModule) -> PassResult {
 }
 
 #[test]
-fn scalar_folding_and_branch_selection_preserve_every_logical_point() {
+fn scalar_folding_removes_dead_points_and_rebuilds_verified_metadata() {
     let input = common::program_ok("fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }");
     let original = lower_to_mir(input.root(), &Default::default()).unwrap();
     let before = common::bytecode_with_edited_root(&input, &original);
@@ -32,12 +32,7 @@ fn scalar_folding_and_branch_selection_preserve_every_logical_point() {
         function.blocks[0].terminator,
         Some(Terminator::Jump(_))
     ));
-    assert!(
-        function.blocks[0]
-            .instructions
-            .iter()
-            .all(|instruction| matches!(instruction, Instruction::BudgetCheckpoint))
-    );
+    assert!(function.blocks[0].instructions.is_empty());
     let before_facts = original.analysis(function.id).unwrap();
     let after_facts = result.module.analysis(function.id).unwrap();
     assert!(function.blocks.iter().enumerate().any(|(index, _)| {
@@ -45,42 +40,18 @@ fn scalar_folding_and_branch_selection_preserve_every_logical_point() {
             && !after_facts.block(BlockId::new(index)).unwrap().reachable()
     }));
     let after = common::bytecode_with_edited_root(&input, &result.module);
-    assert_eq!(
-        before.modules[before.root.index()].functions[0]
-            .metadata
-            .instruction_budgets,
-        after.modules[after.root.index()].functions[0]
-            .metadata
-            .instruction_budgets
-    );
-    assert_eq!(
-        before.modules[before.root.index()].functions[0]
-            .metadata
-            .debug
-            .source_spans,
-        after.modules[after.root.index()].functions[0]
-            .metadata
-            .debug
-            .source_spans
-    );
-    assert_eq!(
-        before.modules[before.root.index()].functions[0]
-            .metadata
-            .debug
-            .line_table,
-        after.modules[after.root.index()].functions[0]
-            .metadata
-            .debug
-            .line_table
-    );
-    assert_eq!(
-        before.modules[before.root.index()].functions[0]
-            .instructions
-            .len(),
+    assert!(
         after.modules[after.root.index()].functions[0]
             .instructions
             .len()
+            < before.modules[before.root.index()].functions[0]
+                .instructions
+                .len()
     );
+    for block in &function.blocks {
+        assert_eq!(block.instructions.len(), block.instruction_spans.len());
+        assert_eq!(block.instructions.len(), block.instruction_scopes.len());
+    }
     assert_eq!(function.debug.source, original.functions[0].debug.source);
 }
 
@@ -250,14 +221,7 @@ fn compiler_options_apply_the_public_frontend_free_pass_pipeline() {
                 }
             ))
     );
-    assert!(
-        module.functions[0].blocks[0]
-            .instructions
-            .iter()
-            .filter(|instruction| matches!(instruction, Instruction::BudgetCheckpoint))
-            .count()
-            >= 2
-    );
+    assert_eq!(module.functions[0].blocks[0].instructions.len(), 1);
     common::bytecode_with_edited_root(&source, &module);
 }
 

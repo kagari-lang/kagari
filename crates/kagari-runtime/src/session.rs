@@ -7,7 +7,7 @@ use crate::{
     host::HostFrameId,
     host_scope::HostScopeState,
     module::{LoadedModule, ModuleEpochRetention, ModuleStore},
-    resource::{ResourceCounters, ResourceState, RuntimeLimits},
+    resource::{ResourceCounters, ResourceState},
     value::Value,
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};

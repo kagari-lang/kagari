@@ -457,7 +457,7 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
 }
 
 #[test]
-fn host_paths_are_unavailable_until_exposed() {
+fn installed_host_paths_are_available() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_read = Arc::clone(&calls);
     let mut runtime = Runtime::default();
@@ -477,18 +477,6 @@ fn host_paths_are_unavailable_until_exposed() {
             }),
         )
         .unwrap();
-
-    let error = runtime
-        .read_host_path(&Value::HostRoot(root), descriptor_id, Vec::new())
-        .unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::CapabilityDenied);
-    assert_eq!(*calls.lock().expect("read counter should lock"), 0);
-
-    runtime.set_host_exposure_policy(HostExposurePolicy {
-        allowed_host_types: vec!["game.Player".to_owned()],
-        allow_host_path_reads: true,
-        ..HostExposurePolicy::default()
-    });
 
     assert_eq!(
         runtime
@@ -597,7 +585,6 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
                 }],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
-                capability_requirements: CapabilitySet::default(),
             })
             .unwrap_err()
             .kind(),

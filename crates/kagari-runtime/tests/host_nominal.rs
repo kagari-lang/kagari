@@ -349,7 +349,6 @@ fn path_fields_are_derived_from_nominal_declarations() {
             segments: vec![HostPathSegmentDeclaration::Field(hp.id.clone())],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
-            capabilities: CapabilitySet::default(),
         }],
         types: vec![owner.clone()],
         functions: vec![],
@@ -431,66 +430,55 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
         host::{HostPathDescriptorRegistration, HostPathSegmentRegistration},
         metadata::{TypeKind, TypeRegistration},
     };
-    let fingerprint = |padding: usize,
-                       docs: &str,
-                       writable: bool,
-                       epoch: usize,
-                       capability: bool,
-                       ty: HostValueType| {
-        let mut runtime = runtime();
-        for index in 0..padding {
-            runtime
-                .types()
-                .register(TypeRegistration::new(
-                    format!("unused{index}"),
-                    TypeKind::Primitive,
-                ))
+    let fingerprint =
+        |padding: usize, docs: &str, writable: bool, epoch: usize, ty: HostValueType| {
+            let mut runtime = runtime();
+            for index in 0..padding {
+                runtime
+                    .types()
+                    .register(TypeRegistration::new(
+                        format!("unused{index}"),
+                        TypeKind::Primitive,
+                    ))
+                    .unwrap();
+            }
+            let mut owner = HostTypeDeclaration::new("game.Player");
+            owner.ownership = HostTypeOwnership::HostRoot;
+            owner.path_access = PathAccess::ReadWrite;
+            owner.documentation = docs.into();
+            let mut field = HostFieldDeclaration::new(&owner.id, "生命", ty);
+            field.writable = writable;
+            field.path_access = if writable {
+                PathAccess::ReadWrite
+            } else {
+                PathAccess::ReadOnly
+            };
+            field.documentation = docs.into();
+            let declaration = field.id.clone();
+            owner.fields.push(field);
+            let root_type = runtime
+                .register_host_type(HostTypeRegistration::new(owner, "Player"))
                 .unwrap();
-        }
-        let mut owner = HostTypeDeclaration::new("game.Player");
-        owner.ownership = HostTypeOwnership::HostRoot;
-        owner.path_access = PathAccess::ReadWrite;
-        owner.documentation = docs.into();
-        let mut field = HostFieldDeclaration::new(&owner.id, "生命", ty);
-        field.writable = writable;
-        field.path_access = if writable {
-            PathAccess::ReadWrite
-        } else {
-            PathAccess::ReadOnly
+            let result_type = runtime.types().get(root_type).unwrap().fields[0].ty;
+            let id = runtime
+                .register_host_path_descriptor(HostPathDescriptorRegistration {
+                    root_type,
+                    result_type,
+                    segments: vec![HostPathSegmentRegistration::Field { declaration }],
+                    access: PathAccess::ReadOnly,
+                    schema_epoch: HostSchemaEpoch::new(epoch),
+                })
+                .unwrap();
+            runtime.host().path_descriptor(id).unwrap().abi_fingerprint
         };
-        field.documentation = docs.into();
-        let declaration = field.id.clone();
-        owner.fields.push(field);
-        let root_type = runtime
-            .register_host_type(HostTypeRegistration::new(owner, "Player"))
-            .unwrap();
-        let result_type = runtime.types().get(root_type).unwrap().fields[0].ty;
-        let id = runtime
-            .register_host_path_descriptor(HostPathDescriptorRegistration {
-                root_type,
-                result_type,
-                segments: vec![HostPathSegmentRegistration::Field { declaration }],
-                access: PathAccess::ReadOnly,
-                schema_epoch: HostSchemaEpoch::new(epoch),
-            })
-            .unwrap();
-        runtime.host().path_descriptor(id).unwrap().abi_fingerprint
-    };
-    let base = fingerprint(0, "", false, 0, false, HostValueType::I32);
+    let base = fingerprint(0, "", false, 0, HostValueType::I32);
     assert_eq!(
         base,
-        fingerprint(3, "changed docs", false, 0, false, HostValueType::I32)
+        fingerprint(3, "changed docs", false, 0, HostValueType::I32)
     );
-    assert_ne!(base, fingerprint(0, "", true, 0, false, HostValueType::I32));
-    assert_ne!(
-        base,
-        fingerprint(0, "", false, 1, false, HostValueType::I32)
-    );
-    assert_ne!(base, fingerprint(0, "", false, 0, true, HostValueType::I32));
-    assert_ne!(
-        base,
-        fingerprint(0, "", false, 0, false, HostValueType::I64)
-    );
+    assert_ne!(base, fingerprint(0, "", true, 0, HostValueType::I32));
+    assert_ne!(base, fingerprint(0, "", false, 1, HostValueType::I32));
+    assert_ne!(base, fingerprint(0, "", false, 0, HostValueType::I64));
 }
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {

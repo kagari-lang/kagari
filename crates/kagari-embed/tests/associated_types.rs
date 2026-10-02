@@ -20,13 +20,13 @@ fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -164,7 +164,6 @@ fn invalid_associated_type_contracts_are_rejected_before_execution() {
             engine
                 .compile_to_artifact(
                     SourceFile::new("invalid-associated.kgr", &source),
-                    Default::default(),
                     Default::default()
                 )
                 .is_err(),
@@ -352,7 +351,6 @@ fn generic_interface_conversion_checks_implementation_bounds() {
             engine
                 .compile_to_artifact(
                     SourceFile::new("invalid-generic-interface.kgr", source),
-                    Default::default(),
                     Default::default()
                 )
                 .is_err(),

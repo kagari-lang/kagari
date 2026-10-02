@@ -9,7 +9,7 @@ rollback. A failed call stops further execution but preserves completed effects.
 closure. Result propagation converts the error payload through the destination's
 `From` implementation when needed and preserves the original Err metadata.
 It does not capture a second origin for the propagated Err, roll back prior
-side effects, catch a trap, or reset an execution budget. Normal frame return
+side effects, catch a trap, or clear root termination. Normal frame return
 releases that frame's iteration guards, roots and host resources. Constructors,
 explicit conversions and matching are defined in [builtins](builtins.md#option-and-result).
 See [error origins and diagnostic stacks](error-reporting.md) for reporting rules.
@@ -20,12 +20,12 @@ A general propagation trait and Error/cause protocol are deferred.
 - Business rejection is an ordinary Result value that scripts can handle.
 - Bounds errors, checked overflow, and invalid handles trap the current root call.
 - Cancellation and resource exhaustion terminate the root call; ordinary Result
-  handling cannot swallow them or reset the root budget through reentry.
+  handling cannot swallow them or clear root termination through reentry.
 - An internal invariant failure makes recovery unsupported; isolate or discard
   the affected runtime rather than presenting it as an ordinary business error.
 
 Ordinary traps and termination release frames, host leases, iteration guards,
-temporary roots, and reentry state. Cleanup does not consume script fuel or invoke
+temporary roots, and reentry state. Cleanup does not poll cancellation or invoke
 arbitrary user code. The runtime may be reused after cleanup; completed business
 mutations are still present. Rust panic recovery is not a transaction mechanism.
 
@@ -37,8 +37,8 @@ destruction are engine invariant failures and quarantine the runtime.
 Missing linked function/module/path slots and unsupported verified call targets
 also indicate broken execution state, not recoverable script traps. Quarantine
 still unwinds frames and releases their roots and call-depth accounting.
-Candidate access to module state outside its pinned program is a capability
-denial instead; it leaves the runtime usable and the active entry unchanged.
+Candidate access to module state outside its pinned program is an execution-phase
+violation instead; it leaves the runtime usable and the active entry unchanged.
 Holding a mutable module-instance borrow across another runtime entry violates
 the execution ownership contract; the second entry reports an engine fault and
 quarantines without a Rust borrow panic.
@@ -59,18 +59,14 @@ temporary roots, and host resources on failure, including after quarantine.
 ## Modification guarantees
 
 Standard container and typed-path mutations validate the target, types,
-permissions, arithmetic, and resource availability before committing. Rejection
+declared access, arithmetic, and capacity before committing. Rejection
 leaves the target unchanged by that operation. This does not undo effects of
 evaluating the receiver, indexes, or RHS, nor earlier operations in the call.
 
-Heap allocations and container growth share the runtime's resource counters.
-Validation, live-heap and cumulative-allocation limit checks, and capacity
-reservation precede the content and counter commit. Failure does not charge
-either counter. Replacing a map entry or adding an existing set key consumes no
-growth units; duplicate constructor keys count only once. Removal and GC reduce
-live occupancy, but do not refund allocation usage within the root call. Runtime
-allocation counters remain cumulative across roots; each root's limits apply to
-its own usage, shared by the entry execution and nested scopes.
+Heap allocations and container growth validate types, checked live occupancy and
+capacity before publishing content and counters. Rejected allocations leave both
+unchanged. Removal and GC reduce live occupancy. No cumulative-allocation or heap
+quota is maintained.
 
 Standard removals returning an Option prepare that result before removing the
 entry. Result allocation failure leaves the entry present. Peak heap occupancy
@@ -87,7 +83,7 @@ HostPathAdapter uses a fallible `with_prepare_write` callback returning a
 `PreparedHostPathWrite` action. Preparation must not change the target. It resolves
 the stable host location, checks host invariants, and reserves anything the action
 needs. Dropping an uncommitted action releases those reservations. The runtime
-reserves ledger capacity and checks `ResourcePolicy::max_dirty_records` before
+reserves ledger capacity before
 running the action and appending the prepared record. There is no fallible write
 callback or synchronous dirty hook. The host consumes the ledger after execution.
 
@@ -102,8 +98,7 @@ target rollback after a broken commit invariant. Other completed effects remain.
 
 Cancellation and resource termination remain recorded for the active session and
 cannot be swallowed to continue executing that root. Releasing its final scope
-clears termination without quarantining the runtime. New root calls use new
-budgets; a reused cancelled token still rejects immediately. Commit actions do not
+clears termination without quarantining the runtime. New root calls use fresh execution state; a reused cancelled token still rejects immediately. Commit actions do not
 poll cancellation, so termination cannot split a field write from its dirty record.
 
 External database writes, network messages, and other irreversible effects belong
@@ -117,4 +112,4 @@ requires a host-owned transaction; Kagari does not infer or emulate one.
 - A failed array insertion or checked path update leaves its target unchanged.
 - Dirty-record preparation failure does not commit the corresponding field write.
 - A trap during nested host reentry clears all execution resources exactly once.
-- Reentry shares the outer version, permissions, and remaining resource budget.
+- Reentry shares the outer version, cancellation state and call-depth limit.

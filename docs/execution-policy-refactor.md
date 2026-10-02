@@ -1,6 +1,6 @@
 # Installation Access and Cooperative Cancellation
 
-Status: active. On 2026-10-02 the user authorized documentation and implementation
+Status: complete (2026-10-02). The user authorized documentation and implementation
 before further standard-library work. This replaces the previous coarse-work
 proposal: no exact charging, `max_work`, general capability matrix or heap quota
 framework remains in scope. The completed native reset is the starting point;
@@ -62,13 +62,13 @@ reload pinning, candidate isolation and invariant-failure quarantine.
 - [x] Delete quota-only counters/paths; preserve real allocation and lifecycle checks.
 - [x] Remove logical charges and charge-only operations across MIR, bytecode,
   optimization, interpreter and JIT; preserve cooperative polling and observation.
-- [ ] Cover cancellation through loops, callbacks/reentry, native work and cleanup.
+- [x] Cover cancellation through loops, callbacks/reentry, native work and cleanup.
 
 ### EP03 Integration
 
-- [ ] Update active specs, SDK examples, feature consumers and future async designs.
-- [ ] Replace obsolete permission/quota tests with meaningful retained-behavior tests.
-- [ ] Run final workspace, JIT, source-free and dependency checks; record measurements
+- [x] Update active specs, SDK examples, feature consumers and future async designs.
+- [x] Replace obsolete permission/quota tests with meaningful retained-behavior tests.
+- [x] Run final workspace, JIT, source-free and dependency checks; record measurements
   without inventing speed claims or a new performance framework.
 
 One coherent commit per completed phase, with breaking API notes and
@@ -137,3 +137,58 @@ machine/toolchain/profile/features/workload and separating build from execution.
   Full test-target compilation remains pending EP03 because removed quota fields,
   logical-charge metadata and old debugger permission assertions still occur in
   legacy tests. Final acceptance is not claimed.
+
+- EP03 integration: migrated SDK/CLI examples and current architecture, security,
+  runtime, embedding, host, reflection, debugger, backend and failure specs.
+  Future async/scope designs now inherit cancellation without coarse work guards
+  or runtime heap quotas. Historical migration ledgers retain their original results.
+- Removed tests whose only contract was a deleted permission or quota rejection.
+  Retained binding/signature/readonly/lifetime checks and replaced mixed tests with
+  installation access, checked allocation rejection, call-depth protection or
+  cancellation. Test-only observers interrupt empty loops and sweep callback
+  boundaries without adding runtime metering. Native polling tests request
+  cancellation within Rust work and verify that returning success cannot swallow
+  it. Primitive operations still finish atomically before the next poll.
+- Renamed the remaining candidate-isolation error to ExecutionPhaseViolation
+  (KG_RUNTIME_EXECUTION_PHASE_VIOLATION); it no longer suggests a permission matrix.
+  Removed the unused profile diagnostic. No ABI/version increment or compatibility
+  layer was introduced. CompileOptions, runtime permission fields, resource-policy
+  overrides and CLI profile flags are intentionally removed APIs.
+- Initial full integration run exposed stale profile/cache and quota assertions;
+  the old empty-loop budget fixture was explicitly terminated and converted to
+  cooperative cancellation. Subsequent failures were in native preparation,
+  offline host/path consumers, source modules, HIR identity reuse, typed paths,
+  VM conformance/reflection and native collection quota cases. These now assert
+  the intended retained behavior. Final reruns and feature checks are pending;
+  no passing acceptance is inferred from the earlier interrupted run.
+
+- EP03 final behavior checks: `cargo test --workspace --no-fail-fast` passed
+  1,498 tests across 86 test/doc-test targets. The subsequently added native polling
+  regression passed separately (one test), including propagation and attempted
+  swallowing of cancellation. CLI JIT passed five tests. Four standalone consumer
+  configurations (artifact-only, source, native, source+native) and all eight
+  production dependency boundaries passed `scripts/check_features.py`.
+  Clippy with -D warnings, formatting and diff checks passed. Structure check:
+  613 Rust files, zero violations/exceptions. Five changed local Markdown links
+  resolve. atomic_host_path, scoped_execution and host_reentry examples execute
+  successfully. No tracked binary artifact or dependency/version change.
+- Measurement environment: Apple M1 Max, aarch64-apple-darwin, Rust 1.98.1
+  (48a229cea), LLVM 22.1.8; workspace dev opt-level=1, default source/native
+  features, default Cargo parallelism/target, warm incremental build. Built the
+  existing architecture_baseline example separately (5.85 s), then executed its
+  binary after validation jobs completed. Its counting allocator adds overhead.
+  The workload is the existing scalar `40 + 2` plus preparation/code-sharing
+  checks; these numbers do not measure collection throughput or prove a speedup.
+  Median source-to-artifact: 430.190 ms (21 samples); native compilation:
+  100.209 us (21); cached preparation/install: 1.750 us (101); SDK interpreter
+  invocation: 1.500 us; SDK native invocation: 1.833 us (10,001 each). The scalar
+  native path's boundary overhead dominates this tiny example. Raw output and
+  build logs are disposable under target/policy-migration/; these recorded
+  conditions and conclusions survive cache deletion.
+
+- EP03 acceptance is complete. The full baseline completed successfully, including
+  shared/unshared preparation at 1/8/32 runtimes. No carried build/test errors remain.
+  EP01 committed as ac018969 and EP02 as 012ba9f4; this final checkpoint owns EP03.
+  Contract/common ownership cleanup and further library work remain separate queued
+  tasks. Cooperative cancellation is not hard preemption; indivisible native
+  operations may finish before observing it, as specified above.

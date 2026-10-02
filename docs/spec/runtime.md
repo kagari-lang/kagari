@@ -13,7 +13,7 @@ Typed path mutation rules are defined in [typed-path-mutation.md](typed-path-mut
 - define a coherent runtime object model for script-owned and host-owned values
 - support GC-managed script values and frame-scoped host borrows in one runtime
 - share runtime type identity across reflection, interface values, and downcast
-- support host capability enforcement and resource accounting
+- support installed host interfaces, cooperative cancellation and lifecycle accounting
 - support hot reload without binding the runtime directly to AST details
 
 ## Implementation Status
@@ -38,7 +38,7 @@ Runtime {
   gc: GcHeap,
   types: TypeRegistry,
   host: HostRegistry,
-  security: SecurityContext,
+  limits: RuntimeLimits,
   epochs: ModuleEpochAllocator,
   modules: ModuleStore
 }
@@ -53,7 +53,7 @@ The runtime is organized around these subsystems:
 - GC heap for script-owned objects
 - type registry for runtime type identity and metadata
 - host registry for exposed functions and types
-- security context for capabilities and resource policy
+- runtime call-depth limits and root cancellation
 - reload coordinator for module epochs
 - module store for loaded code units and runtime module state
 
@@ -113,7 +113,7 @@ Enum objects contain an `EnumTag` and immutable payload slots. Declared variants
 hold an `EnumVariantRef` from a verified module; standard Option/Result have typed
 tags. Names are display metadata. Allocation checks runtime ownership, payload
 arity, storage/representation and nested payload type/schema consistency before
-charging resources. Declared payload structs/enums must match the receiving
+publishing the allocation. Declared payload structs/enums must match the receiving
 version's nominal layout. Standard-enum built-ins reject same-named declared types.
 Enum equality compares tags/layouts and then members using script equality, so
 mutable members compare by identity. Enum objects retain their executable version
@@ -124,13 +124,10 @@ Script struct objects contain a `StructLayoutRef` and positional `Value` slots.
 The layout handle comes from a verified `LoadedModule` and retains that immutable
 executable generation. Objects do not duplicate field names. Allocation requires
 a layout belonging to the receiving runtime and validates field count, payload
-storage boundaries and value representations before charging allocation units.
-`ResourcePolicy` is the sole source of heap and allocation limits. `GcHeapConfig`
-only configures collection scheduling. Runtime and standard-library allocations
-and growth update the same counters on successful commit; heap statistics read
-those counters directly. There is no explicit accounting synchronization API.
-Allocating heap operations return structured runtime errors, including distinct
-heap-limit and cumulative-allocation failures. See the
+storage boundaries and value representations before publishing the allocation.
+GcHeapConfig configures collection scheduling; successful mutations update live
+occupancy used by the collector. Checked capacity and allocation failures preserve
+the target. There are no heap or cumulative-allocation quotas. See the
 [failure contract](failure-semantics.md#modification-guarantees) for commit order.
 Field reads require a matching nominal layout; writes additionally require a
 writable slot and matching value representation before changing the target.
@@ -207,7 +204,7 @@ read/preparation callbacks, including preparation that explicitly collects. Comm
 actions only apply prepared host state; they cannot collect or execute scripts.
 Register/local
 slots stay conservatively rooted until overwritten or their frame is dropped. Trap and
-budget failure drop frame roots through the same frame cleanup path.
+call-depth failure drop frame roots through the same frame cleanup path.
 Commit invariant failures use this cleanup path too, and quarantine the runtime.
 Execution, allocation, collection and mutation entry points then reject further
 work with EngineFault. There is no reset API; inspecting existing counters and
@@ -293,7 +290,7 @@ The host registry manages:
 - exposed host functions
 - exposed host types
 - parameter passing metadata
-- capability requirements for host entry points
+- declared effects for host entry points
 
 This extends the current shape in `host.rs`.
 
@@ -375,51 +372,18 @@ These tokens are:
 
 Host interop rules are defined in [host-interop.md](host-interop.md).
 
-## Security Context
+## Execution Control and Lifecycle Accounting
 
-The runtime carries security-relevant execution state.
+RuntimeLimits contains a runtime-wide optional max_call_depth (default Some(256)).
+ExecutionSession owns a root program, immutable options and cancellation state.
+Initializers, entry execution, callbacks and backend fallback share these inputs.
+There are no instruction, wall-time, allocation, host-call or reflection quotas.
+Live heap occupancy, module count and call depth serve GC and ownership diagnostics.
+Installation determines API availability; member access obeys language/interface
+contracts. See [security](security.md) for the trust boundary.
 
-The model is:
-
-```text
-SecurityContext {
-  profile: LanguageProfile,
-  capabilities: CapabilitySet,
-  resources: ResourcePolicy
-}
-```
-
-This context is the runtime-side anchor for:
-
-- capability checks
-- resource limits
-- feature-gated runtime behavior
-
-Security rules are defined in [security.md](security.md).
-
-## Resource Accounting
-
-The runtime maintains counters or budgets for:
-
-- instruction steps
-- wall-clock or host-supplied time budget
-- current and peak heap size
-- module count
-- call depth
-
-These counters are updated in runtime execution paths, not inferred after the fact.
-
-ExecutionSession owns a root program, immutable execution options, cancellation
-and budget baselines. Initializers, entry execution and backend fallback share
-these inputs. Instruction, allocation, host-call and reflection limits count usage
-since root entry; a subsequent independent call receives its own budget. Runtime
-counters remain cumulative. Live heap, dirty-ledger size and loaded-module limits
-apply to current occupancy, and collection does not refund root allocation usage.
-Host operations outside a session use RuntimeConfig resource defaults directly.
-
-Resource exhaustion remains recorded until the final session scope drops; nested
-entries cannot replace inputs or reset the remaining budget. Effective permissions
-and host policy come from the active session, even if runtime defaults change.
+Termination stays recorded until the final session scope drops. Nested execution
+cannot replace root inputs or swallow cancellation. A fresh root starts clean.
 Nested module entries must belong to its pinned dependency program. ModuleStore
 shares its interior state so owned scopes can retain/release versions without a
 mutable borrow spanning execution. Synchronous host callbacks reenter the existing
@@ -432,7 +396,7 @@ Manual public call-depth entry/exit APIs are removed; only frame scopes update i
 HostResourceScope registers host leases and temporary roots in the same session.
 Host calls and path callbacks use this scope, and cleanup removes its registration
 before dropping the session handle. Host scopes can outlive an outer session handle
-without resetting its budget or permissions. ExecutionSession::host_scope_count
+without clearing its cancellation or termination state. ExecutionSession::host_scope_count
 reports registered host scopes for diagnostics and cleanup assertions.
 Frames own their immutable loaded version; no borrowed bytecode lifetime crosses
 runtime entry. Invalid frame access, suspended-scope mutation and out-of-order
@@ -443,13 +407,13 @@ It cannot be replaced by nested execution or first installed while frames are
 running. Observations hold short immutable stack borrows and must not invoke script
 execution. The VM uses this boundary for shared debugger events during host reentry.
 
-Cancellation and an optional monotonic wall-time budget are checked cooperatively
-at instruction safepoints and before resource-consuming operations. They cannot
-preempt a blocking host callback. A prepared commit is uninterrupted: cancellation
-requested inside it is observed after its target and dirty record are committed.
-ExecutionCounters reports root activity, root peaks and elapsed wall time; the
-unused wall-time field in cumulative ResourceCounters is removed. These operational
-deadlines do not expose a script clock. `ExecutionOptions::inputs` instead supplies
+Cancellation is checked cooperatively at interpreter/JIT safepoints and native
+polling boundaries. It cannot preempt a blocking host callback. Primitive bulk
+operations may finish before the next poll. A prepared commit is uninterrupted:
+cancellation requested inside it is observed after its target and dirty record
+are committed. ExecutionCounters reports lifecycle peaks and elapsed time;
+optional tracing provides observations without execution charging.
+`ExecutionOptions::inputs` supplies
 a fixed logical Unix time in milliseconds and a random seed for the root session.
 Host callbacks access those values through `HostCallContext`; random draws use a
 per-root SplitMix64 stream, including synchronous reentry. A new root starts at
@@ -469,7 +433,7 @@ The model is:
 
 ```text
 VerifiedProgram { root: ModuleRef, code: Arc<[Arc<BytecodeModule>]> }
-Runtime { modules: ModuleStore, heap, host_bindings, execution_cache, budgets }
+Runtime { modules: ModuleStore, heap, host_bindings, execution_cache, limits }
 ModuleStore { loaded: Map<ModuleKey, LoadedModule>, instances: Map<ModuleKey, ModuleInstance> }
 LoadedModule { program: Arc<LinkedProgram>, slot: ModuleRef }
 ```
@@ -509,7 +473,7 @@ The runtime classifies failures clearly.
 
 Script/runtime errors include:
 
-- denied capability checks
+- rejected interface or execution-phase access
 - invalid reflective writes
 - use of an expired host borrow
 - resource limit violations
@@ -532,7 +496,7 @@ The first runtime version includes:
 - explicit host passing styles
 - frame-scoped host borrow handles
 - type registry with stable `TypeId`
-- capability context
+- root cancellation and execution phase
 - module epochs
 
 This supports the current language model without locking in a highly complex VM object model.
@@ -545,7 +509,7 @@ The incremental implementation order is:
 2. add a runtime `TypeRegistry`
 3. extend `HostRegistry` with host type metadata
 4. add `HostCallGuard` and `BorrowTable`
-5. integrate capability checks into host entry points
+5. validate installed contracts at host entry points
 6. connect module epochs and stale-handle checks
 7. grow reflection and interface values on top of the shared type registry
 

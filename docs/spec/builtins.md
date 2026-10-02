@@ -109,7 +109,7 @@ to ordinary assignments, arguments or returns. Source errors are inferred before
 conversion selection; an unconstrained error uses the enclosing error as a
 fallback. An unconstrained closure error can likewise use the source error.
 An independently constrained error is never changed to make a conversion fit.
-Conversion runs in an ordinary script frame, sharing permissions and budget.
+Conversion runs in an ordinary script frame, sharing root cancellation and call-depth limits.
 Its effects are not rolled back if it traps; traps are not converted into Err.
 The outer failure retains the original Err metadata after its payload changes.
 There is no general `Try`/`FromResidual` protocol,
@@ -124,7 +124,7 @@ They support:
 - construction through variants
 - pattern matching
 - type checking as ordinary generic enums
-- reflection metadata when the active profile exposes metadata
+- reflection metadata through declared reflection metadata
 
 They are not magic control-flow constructs.
 
@@ -143,8 +143,8 @@ query, parse and string-iterator helpers are not current foundation methods.
 Unqualified compiler helpers such as print and reflection names are consulted only
 after lexical and declared names. A same-named function is an ordinary script call;
 a non-callable local is a call-target error. Logging requires an explicitly declared
-and installed host.log binding. Reflection remains subject to the existing profile
-and declared metadata; it is not how native libraries dispatch their methods.
+and installed host.log binding. Reflection remains subject to declared member access
+and metadata; it is not how native libraries dispatch their methods.
 
 ## Ordering protocols
 
@@ -251,7 +251,7 @@ trait Iterable {
 once, and repeatedly calls `next`. Some supplies the next item; None ends the
 loop. Continue proceeds to the next call; break and return perform normal resource
 cleanup. The next call is an ordinary script call for custom iterators, with the
-same budget, GC roots, trap behavior and pinned code versions as other methods.
+same cancellation, GC roots, trap behavior and pinned code versions as other methods.
 An Iterator automatically implements identity Iterable, including under generic
 bounds. It cannot also declare a conflicting Iterable implementation.
 Custom iterables return an iterator whose Item agrees with their own Item.
@@ -274,7 +274,7 @@ Native iterators reject structural modification of their source while actively
 iterating. For-loop guards end on exhaustion, break, return or failed execution;
 nested loops retain independent guards. Direct iter/next use keeps its guard
 until None or the end of the root execution session. Root-session cleanup also
-runs after trap, cancellation and budget exhaustion, independently of GC timing.
+runs after trap, cancellation and call-depth failure, independently of GC timing.
 A rooted cursor can survive between calls and resume. Resuming after its source
 was structurally changed traps; nonstructural replacements are visible when their
 positions are subsequently visited. Already yielded values remain ordinary values.

@@ -30,7 +30,6 @@ use {
             PreparedHostPathWrite,
         },
         metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-        resource::RuntimeLimits,
         value::Value,
     },
 };

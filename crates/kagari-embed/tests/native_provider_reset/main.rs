@@ -1,6 +1,7 @@
 #![cfg(feature = "source")]
 mod contracts;
 mod external;
+mod support;
 // The source emitter and standalone artifact consumer share the reviewed provider.
 mod library;
 #[path = "../support/native_provider.rs"]
@@ -114,7 +115,6 @@ fn readonly_interfaces_expose_reads_and_hide_mutators_without_native_access_flag
                     "memory://readonly.kgr",
                     "fn main() { val view: [i32] = [1]; view.push(2); }"
                 ),
-                Default::default(),
                 Default::default(),
             )
             .is_err()
@@ -246,47 +246,56 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
 }
 
 #[test]
-fn every_instruction_budget_boundary_unwinds_nested_provider_callbacks() {
+fn cancellation_boundaries_unwind_nested_provider_callbacks() {
     let program = PreparedProgram::from_artifact(
         artifact("fn main() -> i32 { val values = native::from_fn(2usize, |i| { native::from_fn(1usize, |j| { [21] }) }); values[0usize][0usize][0usize] + values[1usize][0usize][0usize] }"),
         &Default::default(), &Default::default(),
     ).unwrap();
-    let context = ExecutionContext::default();
-    let mut runtime = engine(EngineConfig::default()).runtime(context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    assert_eq!(
-        runtime
-            .execute(&loaded, "main", &[], &context)
-            .unwrap()
-            .return_value,
-        Value::I32(42)
-    );
-    let steps = runtime.runtime().resources().counters().instruction_steps;
-    assert!(steps > 20);
-    for limit in 0..=steps {
-        let mut limited = ExecutionContext::default();
-        limited.resources.max_instruction_steps = Some(limit);
+    let mut cancelled = 0;
+    let mut finished = false;
+    for at in 0..200 {
+        let context = ExecutionContext::default();
         let mut config = EngineConfig::default();
         config.default_runtime.gc.collection_threshold = Some(1);
-        let mut runtime = engine(config).runtime(limited.clone());
+        let mut runtime = engine(config).runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let result = runtime.execute(&loaded, "main", &[], &limited);
-        if limit == steps {
-            assert_eq!(result.unwrap().return_value, Value::I32(42));
-        } else {
-            assert!(result.is_err(), "budget {limit}");
+        let options = kagari_runtime::session::ExecutionOptions {
+            cancellation: context.cancellation.clone(),
+            ..Default::default()
+        };
+        let observer = std::rc::Rc::new(support::CancelAt {
+            seen: Default::default(),
+            at,
+            token: context.cancellation.clone(),
+        });
+        let session = runtime.runtime().begin_execution(&loaded, options).unwrap();
+        runtime
+            .runtime()
+            .attach_execution_observer(observer.clone())
+            .unwrap();
+        match runtime.execute(&loaded, "main", &[], &context) {
+            Ok(report) => {
+                assert_eq!(report.return_value, Value::I32(42));
+                finished = true;
+            }
+            Err(error) => {
+                assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
+                cancelled += 1;
+            }
         }
-        assert_eq!(runtime.runtime().gc().active_roots(), 0, "budget {limit}");
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(
             runtime.runtime().resources().counters().current_call_depth,
             0
         );
+        drop(session);
         runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(
-            runtime.runtime().gc().allocated_objects(),
-            0,
-            "budget {limit}"
-        );
+        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
         assert!(!runtime.runtime().is_quarantined());
+        if finished {
+            break;
+        }
     }
+    assert!(finished);
+    assert!(cancelled > 20);
 }

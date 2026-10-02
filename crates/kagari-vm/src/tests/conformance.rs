@@ -14,7 +14,7 @@ use kagari_runtime::{
     value::{StructValueField, Value},
 };
 
-fn debug_runtime(module_name: &str) -> Runtime {
+fn debug_runtime(_module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
         ..RuntimeConfig::default()
     })
@@ -75,7 +75,7 @@ fn missing_entry_is_rejected_before_execution() {
                 matches!(error, VmError::MissingFunction(ref name) if name == "missing"),
                 "{encoded}/{jit}: {error:?}"
             );
-            assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
+
             assert_eq!(vm.runtime().gc().active_roots(), 0);
         }
     }
@@ -119,7 +119,7 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
                 matches!(error, VmError::AmbiguousFunction(ref name) if name == "first"),
                 "{encoded}/{jit}: {error:?}"
             );
-            assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
+
             assert_eq!(vm.runtime().gc().active_roots(), 0);
         }
     }
@@ -144,8 +144,7 @@ fn interpreter_conformance_classifies_failure_paths() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { 1 + 2 }");
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: Some(1),
-            ..RuntimeLimits::default()
+            max_call_depth: Some(0),
         },
         ..RuntimeConfig::default()
     });

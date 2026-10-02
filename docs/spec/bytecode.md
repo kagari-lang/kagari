@@ -141,7 +141,7 @@ Verification checks the exact implementation identity, concrete arguments, bindi
 and normalized method signature. Native targets enter a rooted callable frame and
 use the same bounded continuation/callback driver as direct native imports.
 They do not require a fabricated script body. The frame pins the implementation
-generation until return and consumes call-depth and logical-step budgets.
+generation until return and obeys call-depth limits and cooperative cancellation.
 
 MIR records each concrete native interface target with its complete native import
 contract. Bytecode lowering consumes these verified applications; it does not
@@ -402,7 +402,7 @@ The semantic properties are:
 - `path_id` identifies a typed path descriptor, not a string path
 - `dynamic_args` contain runtime index values such as `item_id`
 - the path descriptor records root type, result type, access policy, and schema or ABI fingerprint
-- path operations can call host code, trap, check capabilities, validate epochs, and mark dirty state
+- path operations can call host code, trap, validate declared access, validate epochs, and mark dirty state
 
 Example source:
 
@@ -484,7 +484,7 @@ Host calls and runtime helpers remain explicit because they can:
 
 - trap
 - allocate
-- trigger capability checks
+- trigger declared interface checks
 - become safepoints
 - enter frame-scoped host borrow guards
 - interact with hot reload metadata
@@ -501,7 +501,6 @@ Effect flags include:
 - `may_allocate`
 - `may_trap`
 - `may_call_host`
-- `may_check_capability`
 - `may_access_reflection`
 - `may_mutate_script_heap`
 - `may_mutate_host_state`
@@ -515,10 +514,10 @@ Effect classification:
 LoadLocal       no observable effect
 Binary          may_trap for checked arithmetic or invalid operands
 MakeArray       may_allocate, is_safepoint
-Call host       may_call_host, may_trap, may_check_capability, is_safepoint
-ReadPath        may_call_host, may_trap, may_check_capability
-SetPath         may_call_host, may_trap, may_check_capability, may_mutate_host_state, may_mark_dirty
-ModifyPath      may_call_host, may_trap, may_check_capability, may_mutate_host_state, may_mark_dirty
+Call host       may_call_host, may_trap, is_safepoint
+ReadPath        may_call_host, may_trap
+SetPath         may_call_host, may_trap, may_mutate_host_state, may_mark_dirty
+ModifyPath      may_call_host, may_trap, may_mutate_host_state, may_mark_dirty
 ```
 
 This metadata supports:
@@ -565,7 +564,7 @@ The bytecode verifier checks:
   and executable declaration before runtime binding
 
 Verification rejects malformed bytecode before execution.
-Runtime checks are still required for host object liveness, dynamic index validity, capability state, and host-side invariants.
+Runtime checks are still required for host object liveness, dynamic index validity, declared access, and host-side invariants.
 
 ## Hot Reload Metadata
 
@@ -886,8 +885,7 @@ complete offline declaration in BytecodeModule.host_interface. IR and bytecode
 verification check declaration validity, argument count and physical argument and
 result types; conflicting IR contracts cannot collapse into one import. The
 loader resolves identities to registry-owned function slots. Execution does not
-look up a host call by its diagnostic label and still checks current permissions
-and budget at the call boundary. Scalar callback arguments/results are checked
+look up a host call by its diagnostic label and still checks declared effects and cancellation at the call boundary. Scalar callback arguments/results are checked
 against the declaration; nominal opaque-object type validation remains pending.
 
 `VerifiedProgram` checks a complete bytecode dependency closure before splitting

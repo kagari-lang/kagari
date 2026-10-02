@@ -53,7 +53,7 @@ compilation must emit the same contracts as the registered definitions.
 
 Synchronous host calls use the same import table and invocation driver. Their full
 optional HostFunctionDeclaration must match the required HostInterface and installed
-registration; permissions, passing styles, schemas and borrow checks remain.
+registration; declared access, passing styles, schemas and borrow checks remain.
 Source declarations, layouts, interfaces and private dependencies accompany the
 program. Executable contracts have no source-analysis dependency.
 
@@ -66,7 +66,7 @@ and applied trait signature. Both callable targets retain their implementation
 generation and share frame, callback-return and cleanup validation.
 
 Invocation state owns Rust data and explicit roots. Checked callbacks run on shared
-frames; return values stay rooted while receive() runs. Work uses logical budget
+frames; return values stay rooted while receive() runs. Work uses cooperative cancellation
 safepoints and unit mutations retain separate publication. Artifacts contain no
 live heap state/Rust references. Generic persistent traced state remains NR03 work.
 
@@ -177,7 +177,7 @@ remains v6. Prior products are rejected without migration.
 
 Version 60 and runtime ABI v60 preserve source URIs and one-based line/UTF-8 byte
 columns for failure stacks, even without optional debug metadata. Runtime helper
-ABI v6 publishes native instruction offsets before charging their budget.
+ABI v6 publishes native instruction offsets before polling cancellation.
 
 Version 59 and runtime ABI v59 add iteration contracts, Iter ABI types and
 verified native iterator instructions. Script iterators use ordinary linked calls.
@@ -313,8 +313,7 @@ Reload path fingerprints cover the contract and operand shape; diagnostic labels
 are excluded.
 
 Version 21 carries portable field path declarations in required host interfaces.
-KHI v6 uses the same records, including field identities, access, schema and
-capabilities. Linking rejects required field paths without a unique matching
+KHI v6 uses the same records, including field identities, access and schema. Linking rejects required field paths without a unique matching
 runtime binding before program publication.
 Version 26 replaces those field-only records with `HostPathDeclaration`
 records. Ordered field, index and virtual segments share one portable contract;
@@ -539,7 +538,6 @@ Verification metadata includes:
 - public ABI fingerprints
 - dependency fingerprints
 - required host-interface fingerprints
-- security profile requirements
 
 The loader verifies every member even when metadata is present. Root-level function,
 effect, control-flow, public-ABI and path summaries refer to the root ModuleRef;
@@ -585,7 +583,7 @@ Embeddings may require artifact signatures or hashes.
 Signature policy is host-controlled.
 The language runtime only requires that signature metadata, when present, be validated before loading the artifact as trusted cache content.
 
-Unsigned artifacts may still be loaded in development profiles if host policy allows it.
+The host chooses whether unsigned artifacts are accepted.
 
 ## Compatibility Rules
 
@@ -600,7 +598,6 @@ An artifact is compatible only when all required versions and fingerprints match
 - dependency module fingerprints
 - public ABI fingerprints
 - typed path descriptor fingerprints
-- security profile requirements
 
 Incompatible artifacts are rejected or ignored as stale cache entries.
 They must not be partially loaded.
@@ -652,7 +649,7 @@ declaration contracts, excluding documentation. Import slot order is irrelevant
 to this ABI fingerprint; the content checksum still covers the exact module.
 Loading checks the derived fingerprint and resolves every required declaration
 against the actual runtime registry by nominal identity. Signature, borrow,
-effect, permission and cost differences reject the module before publication or
+effect differences reject the module before publication or
 initialization. Unrelated installed host functions do not affect compatibility.
 
 ## Associated type metadata
@@ -814,7 +811,7 @@ failure guarantee. Earlier artifacts are rejected rather than adapted.
 
 KBC/runtime ABI v98 adds private prepared array replacement and retention commits.
 User callbacks execute in ordinary frames under mutation guards. Commit performs
-no script calls, checks structure guards and budgets, and preserves identity while
+no script calls, checks structure guards and cancellation, and preserves identity while
 updating revision and live heap units. Source callback intrinsics are rejected
 unless lowered. Prior formats are rejected.
 

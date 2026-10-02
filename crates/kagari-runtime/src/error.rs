@@ -6,7 +6,7 @@ pub enum RuntimeErrorKind {
     EngineFault,
     ScriptTrap,
     IndexOutOfBounds,
-    CapabilityDenied,
+    ExecutionPhaseViolation,
     InvalidReflectiveRead,
     InvalidReflectiveWrite,
     ExpiredHostBorrow,
@@ -27,7 +27,7 @@ impl RuntimeErrorKind {
             Self::EngineFault => "KG_RUNTIME_ENGINE_FAULT",
             Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
             Self::IndexOutOfBounds => "KG_RUNTIME_INDEX_OUT_OF_BOUNDS",
-            Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
+            Self::ExecutionPhaseViolation => "KG_RUNTIME_EXECUTION_PHASE_VIOLATION",
             Self::InvalidReflectiveRead => "KG_RUNTIME_INVALID_REFLECTIVE_READ",
             Self::InvalidReflectiveWrite => "KG_RUNTIME_INVALID_REFLECTIVE_WRITE",
             Self::ExpiredHostBorrow => "KG_RUNTIME_EXPIRED_HOST_BORROW",
@@ -60,10 +60,10 @@ impl RuntimeError {
         }
     }
 
-    pub fn capability_denied(capability: impl Into<String>) -> Self {
+    pub fn execution_phase_violation(operation: impl Into<String>) -> Self {
         Self::new(
-            RuntimeErrorKind::CapabilityDenied,
-            format!("capability denied: {}", capability.into()),
+            RuntimeErrorKind::ExecutionPhaseViolation,
+            format!("execution phase forbids: {}", operation.into()),
         )
     }
 
@@ -169,14 +169,14 @@ mod tests {
 
     #[test]
     fn runtime_errors_expose_stable_codes() {
-        let error = RuntimeError::capability_denied("host_calls");
+        let error = RuntimeError::execution_phase_violation("external candidate access");
 
         assert_eq!(
-            RuntimeErrorKind::CapabilityDenied.code(),
-            "KG_RUNTIME_CAPABILITY_DENIED"
+            RuntimeErrorKind::ExecutionPhaseViolation.code(),
+            "KG_RUNTIME_EXECUTION_PHASE_VIOLATION"
         );
-        assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
-        assert_eq!(error.kind(), RuntimeErrorKind::CapabilityDenied);
+        assert_eq!(error.code(), "KG_RUNTIME_EXECUTION_PHASE_VIOLATION");
+        assert_eq!(error.kind(), RuntimeErrorKind::ExecutionPhaseViolation);
         assert_eq!(
             RuntimeErrorKind::IndexOutOfBounds.code(),
             "KG_RUNTIME_INDEX_OUT_OF_BOUNDS"

@@ -14,19 +14,12 @@ use kagari_bytecode::{
     program::ModuleRef,
 };
 
-use std::sync::{Arc, Mutex};
-
 use kagari_common::span::Span;
-use {
-    kagari_common::host_interface::HostFunctionDeclaration,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        host::HostFunction,
-        module::ModuleEpochRetention,
-        resource::RuntimeLimits,
-        value::{StructValueField, Value},
-    },
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    module::ModuleEpochRetention,
+    resource::RuntimeLimits,
+    value::{StructValueField, Value},
 };
 
 use crate::{
@@ -170,7 +163,7 @@ fn host_call_runtime() -> Runtime {
     })
 }
 
-fn debug_runtime(module_name: &str) -> Runtime {
+fn debug_runtime(_module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
         ..RuntimeConfig::default()
     })
@@ -255,5 +248,5 @@ fn interface_instruction_module() -> BytecodeModule {
 
 mod debugger;
 mod frames;
-mod host_budgets;
+mod host_effects;
 mod interfaces;

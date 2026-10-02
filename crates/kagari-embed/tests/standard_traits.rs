@@ -1,3 +1,4 @@
+mod support;
 use kagari_abi::language::{self as standard_traits, Protocol};
 use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
 use {
@@ -27,13 +28,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -284,7 +285,6 @@ fn identity_operators_reject_value_types_and_mismatched_objects() {
         assert!(matches!(
             KagariEngine::default().compile_to_artifact(
                 SourceFile::new("bad-identity.kgr", source),
-                Default::default(),
                 Default::default()
             ),
             Err(EmbeddingError::Diagnostics { .. })
@@ -432,7 +432,6 @@ fn comparison_only_types_do_not_inherit_identity_hashing() {
             matches!(
                 KagariEngine::default().compile_to_artifact(
                     SourceFile::new("bad-key.kgr", source),
-                    Default::default(),
                     Default::default()
                 ),
                 Err(EmbeddingError::Diagnostics { .. })
@@ -580,9 +579,9 @@ fn make()->(Test,HashSet<Key>) {
         let Value::Set(id) = values[1] else {
             panic!("set")
         };
-        let mut options = vm.runtime().execution_options();
-        options.resources.max_instruction_steps = Some(limit);
-        let session = vm.runtime().begin_execution(&loaded, options).unwrap();
+        let _options = vm.runtime().execution_options();
+
+        let session = support::cancel_after(vm.runtime(), &loaded, limit);
         let result = vm.invoke_interface_method(&values[0], &method("attempt"), &[]);
         drop(session);
         if result.is_err() {

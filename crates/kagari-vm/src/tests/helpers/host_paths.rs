@@ -422,7 +422,7 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
 }
 
 #[test]
-fn typed_path_helpers_enforce_runtime_capability_boundary() {
+fn installed_typed_path_helpers_need_no_permission_flags() {
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let loaded = runtime
         .load_program(
@@ -453,14 +453,10 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
         .unwrap();
 
     let mut vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("fs_read")
-    ));
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(10)
+    );
 }
 
 #[test]

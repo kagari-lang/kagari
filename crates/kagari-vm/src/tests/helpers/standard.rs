@@ -1,5 +1,5 @@
 use super::*;
-use crate::{error::VmError, tests::common::load_bytecode_program};
+use crate::tests::common::load_bytecode_program;
 use kagari_bytecode::artifact::KbcArtifact;
 
 #[test]
@@ -69,39 +69,6 @@ fn main()->(usize,bool,usize,bool){
             Value::Bool(true),
         ])
     );
-}
-
-#[test]
-fn standard_intrinsic_execution_observes_resource_limits() {
-    let bytecode = compile_test_bytecode(
-        r#"
-fn main() -> usize {
-    val values = [1, 2];
-    values.push(3);
-    values.len()
-}
-"#,
-    );
-    let mut runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_instruction_steps: Some(1),
-            ..RuntimeLimits::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_program("standard_resource_limit.kgr", bytecode)
-        .expect("module should load");
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("standard intrinsic program should hit resource limit");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
-    ));
 }
 
 #[test]

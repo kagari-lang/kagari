@@ -1066,7 +1066,7 @@ impl HostFunction {
             }
         })?;
         if !context.runtime().gc().validate_candidate_value(&result) {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate host result",
             ));
         }

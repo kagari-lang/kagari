@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    host::{HostObjectId, HostRootHandle, HostSchemaEpoch},
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     reload::ReloadValidationError,
 };
@@ -165,39 +164,6 @@ fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
 }
 
 #[test]
-fn load_module_reports_module_resource_limit() {
-    let mut runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_modules: Some(1),
-            ..RuntimeLimits::default()
-        },
-        ..RuntimeConfig::default()
-    });
-
-    runtime
-        .load_program(
-            "first",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-        )
-        .unwrap();
-    let error = runtime
-        .load_program(
-            "second",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-        )
-        .unwrap_err();
-
-    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-    assert_eq!(runtime.resources().counters().loaded_modules, 1);
-}
-
-#[test]
 fn reload_publishes_valid_candidate_after_validation() {
     let mut runtime = Runtime::default();
     let loaded = runtime
@@ -318,50 +284,6 @@ fn reload_rejects_stale_active_epoch_before_publication() {
     assert_eq!(
         runtime.modules().latest("reloadable").unwrap().epoch,
         second.epoch
-    );
-}
-
-#[test]
-fn reload_resource_failure_preserves_active_epoch() {
-    let mut runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_modules: Some(1),
-            ..RuntimeLimits::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_program(
-            "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
-        )
-        .expect("module should load");
-
-    let error = runtime
-        .stage_reload_program(
-            &loaded,
-            "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
-        )
-        .and_then(|candidate| runtime.publish_staged_reload(candidate))
-        .expect_err("resource limit should reject reload before publication");
-
-    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
-    assert!(matches!(
-        error,
-        ReloadValidationError::Runtime(ref error)
-            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
-    ));
-    assert_eq!(runtime.modules().loaded_count(), 1);
-    assert_eq!(
-        runtime.modules().latest("reloadable").unwrap().epoch,
-        loaded.epoch
     );
 }
 

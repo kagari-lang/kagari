@@ -1,3 +1,4 @@
+mod support;
 use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
@@ -51,13 +52,13 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
         .unwrap();
     let mut traces = vec![];
     for jit in [false, true] {
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program = PreparedProgram::from_artifact(
@@ -108,13 +109,13 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -393,7 +394,7 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
 }
 
 #[test]
-fn budget_exhaustion_keeps_the_failing_frame_and_releases_resources() {
+fn cancellation_keeps_the_failing_frame_and_releases_resources() {
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
@@ -404,16 +405,18 @@ fn budget_exhaustion_keeps_the_failing_frame_and_releases_resources() {
             Default::default(),
         )
         .unwrap();
-    let mut context = ExecutionContext::default();
-    context.resources.max_instruction_steps = Some(25);
+    let context = ExecutionContext::default();
+
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
+    let cancellation = support::cancel_after(runtime.runtime(), &loaded, 10);
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
-    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
+    drop(cancellation);
+    assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
     assert_eq!(
         error
             .error_trace()

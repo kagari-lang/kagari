@@ -68,7 +68,7 @@ The language model emphasizes:
 - embeddability
 - host interop
 - reflection
-- security capabilities
+- cancellation and execution phase
 - hot reload
 
 These features all benefit from a stable runtime and VM layer.
@@ -101,7 +101,7 @@ Responsibilities:
 - define the concrete semantics of bytecode
 - provide the first correct implementation of call frames
 - integrate host interop and borrow guards
-- integrate capability checks
+- integrate declared interface checks
 - integrate reflection and type metadata
 - integrate hot reload and module epochs
 
@@ -230,7 +230,7 @@ Examples:
 - GC write barriers
 - host calls
 - typed host path access and mutation
-- capability checks
+- declared interface checks
 - reflection access
 - downcast checks
 - interface dispatch helpers when needed
@@ -261,7 +261,7 @@ Effect flags:
 - may allocate
 - may trap
 - may call host
-- may trigger capability checks
+- may trigger declared interface checks
 - may suspend
 - may become a safepoint
 
@@ -329,7 +329,7 @@ In particular, JIT code must still respect:
 - frame-scoped host borrows
 - host call guards
 - borrow kind checks
-- capability checks
+- declared interface checks
 - no-escape invariants
 
 JIT code calls shared runtime helpers at these boundaries unless a specialization is proven to preserve the same safety checks.

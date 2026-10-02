@@ -32,11 +32,7 @@ fn main() {
             .unwrap();
     }
     let snapshot = engine
-        .analyze(
-            engine.source_snapshot(),
-            Default::default(),
-            &CancellationToken::default(),
-        )
+        .analyze(engine.source_snapshot(), &CancellationToken::default())
         .unwrap();
     for module in snapshot
         .module_graph()

@@ -75,7 +75,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         )
         .unwrap()
     );
-    let before = runtime.runtime().resources().counters().allocation_units;
+
     for fields in [vec![], vec![Value::Bool(true)]] {
         assert_eq!(
             runtime
@@ -105,10 +105,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert_eq!(
-        runtime.runtime().resources().counters().allocation_units,
-        before
-    );
+
     let array = runtime
         .runtime()
         .alloc_array(

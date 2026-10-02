@@ -38,7 +38,6 @@ use {
             HostTypeRegistration,
         },
         metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-        resource::RuntimeLimits,
         value::Value,
     },
 };
@@ -338,43 +337,7 @@ fn analysis_failures_return_structured_diagnostics() {
 }
 
 #[test]
-fn execution_context_resource_limits_surface_as_runtime_failures() {
-    let engine = KagariEngine::default();
-    let context = ExecutionContext {
-        limits: RuntimeLimits {
-            max_instruction_steps: Some(1),
-            ..RuntimeLimits::default()
-        },
-        ..ExecutionContext::default()
-    };
-    let artifact = compile_artifact(&engine, "limited.kgr", "fn main() -> i32 { 1 }");
-    let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime
-        .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
-            LoadOptions {
-                module_name: Some("limited".to_owned()),
-            },
-        )
-        .expect("module should load");
-
-    let error = runtime
-        .execute(&loaded, "main", &[], &context)
-        .expect_err("execution should hit context resource limit");
-
-    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
-    assert!(matches!(
-        error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::ResourceLimitExceeded,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn each_execute_applies_its_context_budget_and_cancellation_without_changing_runtime_defaults() {
+fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
     let engine = KagariEngine::default();
     let mut runtime = engine.runtime(ExecutionContext::default());
     let artifact = compile_artifact(&engine, "scoped.kgr", "fn main() -> i32 { 42 }");
@@ -385,16 +348,8 @@ fn each_execute_applies_its_context_budget_and_cancellation_without_changing_run
             LoadOptions::default(),
         )
         .unwrap();
-    let mut context = ExecutionContext::default();
-    context.resources.max_instruction_steps = Some(0);
-    assert_eq!(
-        runtime
-            .execute(&loaded, "main", &[], &context)
-            .unwrap_err()
-            .code(),
-        "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED"
-    );
-    context.resources.max_instruction_steps = Some(2);
+    let context = ExecutionContext::default();
+
     for _ in 0..2 {
         assert_eq!(
             runtime
@@ -404,14 +359,7 @@ fn each_execute_applies_its_context_budget_and_cancellation_without_changing_run
             Value::I32(42)
         );
     }
-    assert_eq!(
-        runtime.runtime().resources().counters().instruction_steps,
-        4
-    );
-    assert_eq!(
-        runtime.runtime().resources().policy().max_instruction_steps,
-        None
-    );
+
     context.cancellation.cancel();
     assert_eq!(
         runtime
@@ -476,11 +424,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    register_embedding_host_path_runtime(
-        &mut runtime,
-        PathAccess::ReadWrite,
-        CapabilitySet::default(),
-    );
+    register_embedding_host_path_runtime(&mut runtime, PathAccess::ReadWrite);
     let contract = runtime
         .runtime()
         .host()
@@ -576,15 +520,11 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
 }
 
 #[test]
-fn execution_context_denies_host_path_mutation_with_structured_error() {
+fn installed_host_path_mutation_uses_declared_access() {
     let engine = KagariEngine::default();
     let context = host_call_context();
     let mut runtime = engine.runtime(context.clone());
-    register_embedding_host_path_runtime(
-        &mut runtime,
-        PathAccess::ReadWrite,
-        CapabilitySet::default(),
-    );
+    register_embedding_host_path_runtime(&mut runtime, PathAccess::ReadWrite);
     let contract = runtime
         .runtime()
         .host()
@@ -626,33 +566,21 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         )
         .expect("module should load");
 
-    let error = runtime
-        .execute(&loaded, "main", &[], &context)
-        .expect_err("context should deny host path mutation");
-
-    assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
-    assert!(matches!(
-        error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::CapabilityDenied,
-            ..
-        }
-    ));
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::Unit
+    );
 }
 
 #[test]
-fn host_path_capability_denials_surface_as_structured_runtime_errors() {
+fn installed_host_path_reads_need_no_permission_flags() {
     let engine = KagariEngine::default();
     let context = host_call_context();
     let mut runtime = engine.runtime(context.clone());
-    register_embedding_host_path_runtime(
-        &mut runtime,
-        PathAccess::ReadOnly,
-        CapabilitySet {
-            reflection_read: true,
-            ..CapabilitySet::default()
-        },
-    );
+    register_embedding_host_path_runtime(&mut runtime, PathAccess::ReadOnly);
     let contract = runtime
         .runtime()
         .host()
@@ -690,22 +618,17 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         )
         .expect("module should load");
 
-    let error = runtime
-        .execute(&loaded, "main", &[], &context)
-        .expect_err("missing capability should surface through embedding runtime errors");
-
-    assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
-    assert!(matches!(
-        error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::CapabilityDenied,
-            ..
-        }
-    ));
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(10)
+    );
 }
 
 #[test]
-fn execution_context_denies_host_and_reflection_helpers() {
+fn installed_host_and_reflection_helpers_are_available() {
     let engine = KagariEngine::default();
     let print_artifact = compile_artifact(&engine, "print.kgr", r#"fn main() { print("x"); }"#);
     let type_of_artifact = engine
@@ -718,7 +641,7 @@ fn execution_context_denies_host_and_reflection_helpers() {
     runtime
         .register_host_function(HostFunction::new(
             kagari_common::host_interface::standard_log(),
-            |_, _| unreachable!("denied callback must not run"),
+            |_, _| Ok(Value::Unit),
         ))
         .unwrap();
     let print_module = runtime
@@ -748,38 +671,20 @@ fn execution_context_denies_host_and_reflection_helpers() {
         )
         .expect("type_of module should load");
 
-    let host_denied = ExecutionContext {
-        ..ExecutionContext::default()
-    };
-    let error = runtime
-        .execute(&print_module, "main", &[], &host_denied)
-        .expect_err("host function exposure should be denied");
-    assert!(matches!(
-        error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::CapabilityDenied,
-            ..
-        }
-    ));
-
-    let error = runtime
-        .execute(&type_of_module, "main", &[], &ExecutionContext::default())
-        .expect_err("reflection is denied by default context");
-    assert!(matches!(
-        error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::CapabilityDenied,
-            ..
-        }
-    ));
-
-    let reflection_allowed = ExecutionContext {
-        ..ExecutionContext::default()
-    };
-    let report = runtime
-        .execute(&type_of_module, "main", &[], &reflection_allowed)
-        .expect("reflection metadata should execute when profile and capability allow it");
-    assert_eq!(report.return_value, Value::Str("i32".to_owned()));
+    assert_eq!(
+        runtime
+            .execute(&print_module, "main", &[], &ExecutionContext::default())
+            .unwrap()
+            .return_value,
+        Value::Unit
+    );
+    assert_eq!(
+        runtime
+            .execute(&type_of_module, "main", &[], &ExecutionContext::default())
+            .unwrap()
+            .return_value,
+        Value::Str("i32".into())
+    );
 }
 
 fn player_type_declaration() -> HostTypeDeclaration {

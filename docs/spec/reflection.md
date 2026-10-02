@@ -30,7 +30,7 @@ Ordinary game logic does not depend on:
 - dynamic method invocation through reflection
 - reflection as the trait dispatch mechanism
 
-Reflection may exist as an optional, profile-gated capability for debugging, editor tools, diagnostics, inspection, migration tools, and privileged host-controlled workflows.
+Reflection may exist as an declared API for debugging, editor tools, diagnostics, inspection, migration tools, and privileged host-controlled workflows.
 
 ## Design Goals
 
@@ -41,7 +41,7 @@ Reflection may exist as an optional, profile-gated capability for debugging, edi
 - support debugger, editor, and GM tooling inspection
 - share type identity with trait/interface dispatch and downcast
 - keep ordinary script execution statically typed and predictable
-- keep host reflection opt-in and capability-gated
+- keep host reflection bound to declared metadata and adapters
 
 ## Non-Goals
 
@@ -119,18 +119,16 @@ Examples:
 - schema generation tools
 - hot reload compatibility reports
 - migration tools
-- GM tools with host-granted permissions
+- host-installed GM tools
 
 This layer may expose richer metadata than ordinary scripts can access.
-It is controlled by host policy and capabilities.
+It observes declared metadata and member access rules.
 
 ### Script-Visible Reflection
 
-Script-visible reflection is optional.
-It is disabled or restricted in the default game-logic profile unless an embedding explicitly enables it.
-
-When enabled, it starts with read-oriented metadata inspection.
-Mutation and dynamic invocation are separate privileged capabilities, not implied by basic reflection.
+Script-visible reflection uses declared metadata. Mutation requires a writable
+member and appropriate adapter; metadata inspection does not create either.
+Dynamic invocation is a separate feature, not implied by metadata access.
 
 ## Core Metadata Model
 
@@ -272,7 +270,6 @@ MethodInfo {
   params: [ParameterInfo],
   return_type: TypeId,
   origin: MethodOrigin,
-  capability_requirements: CapabilitySet,
   abi_fingerprint: AbiFingerprint
 }
 ```
@@ -340,14 +337,13 @@ It does not imply ordinary dynamic field access or mutation.
 
 ## Reflective Reads
 
-Reflective reads are optional and profile-gated.
+Reflective reads operate on declared members and adapters.
 
 When provided, reflective reads:
 
 - only access members registered for reflection
-- check runtime capabilities
 - perform runtime type checks
-- respect host visibility and exposure policy
+- respect declared visibility and installed adapters
 - return result-like errors rather than panicking on normal misuse
 
 Reflective reads are useful for:
@@ -362,14 +358,10 @@ Reflective reads do not replace ordinary typed field access in game logic.
 
 ## Reflective Writes
 
-Reflective writes are not part of the default script reflection surface.
-
-If an embedding provides reflective writes for privileged tooling, they must be separately gated from metadata reads.
+Reflective writes require declared writable members and supported adapters.
 
 Reflective writes require:
 
-- an enabled language profile feature
-- a runtime capability such as `reflection_write`
 - host type opt-in
 - field-level write exposure
 - runtime type checking
@@ -389,11 +381,11 @@ It introduces complexity around:
 - generic method instantiation
 - runtime argument conversion
 - path-view arguments
-- capability checks
+- declared interface checks
 - error reporting
 - hot reload ABI compatibility
 
-Dynamic invocation requires a separate privileged capability, not a consequence of basic metadata reflection.
+Metadata reflection does not provide dynamic invocation.
 
 ## Relationship to Traits and Interfaces
 
@@ -458,8 +450,7 @@ Reflection must not silently bypass visibility or host exposure rules.
 
 Access controls:
 
-- language profile gates script-visible reflection syntax or APIs
-- runtime capabilities gate metadata read, reflective read, reflective write, and dynamic invocation separately
+- installed declarations and member access rules govern reflection
 - host registrations decide which types and members are exposed
 - field and method metadata carry read/write/invoke policy
 
@@ -474,7 +465,7 @@ The runtime may still contain helper operations such as:
 - `ReflectSetField`
 - `ReflectInvoke`
 
-These helpers are implementation details for optional reflection profiles and tooling integration.
+These helpers are implementation details for declared reflection APIs and tooling integration.
 They are not the preferred lowering target for ordinary typed field access, host-backed path mutation, or trait/interface dispatch.
 
 ## Initial Feature Set
@@ -488,7 +479,7 @@ The initial metadata and reflection scope includes:
 - metadata needed for GC tracing
 - metadata needed for typed path descriptor validation
 - metadata needed for hot reload ABI fingerprints
-- optional `type_of` in profiles that enable script-visible reflection
+- `type_of` for script-visible type metadata
 - optional read-only metadata objects for tooling and diagnostics
 
 ## Initial Scope Exclusions
@@ -516,5 +507,5 @@ The implementation can be staged in this order:
 6. typed path descriptor metadata
 7. ABI fingerprints for hot reload validation
 8. optional read-only `type_of` and metadata APIs
-9. optional reflective reads for tooling profiles
+9. reflective reads through declared metadata
 10. privileged reflective writes only if a concrete embedding needs them

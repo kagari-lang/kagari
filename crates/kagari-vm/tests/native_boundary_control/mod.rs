@@ -86,7 +86,7 @@ fn runtime(limits: RuntimeLimits) -> Runtime {
             collection_threshold: Some(1),
         },
 
-        resources,
+        limits,
     });
     module().install(&mut runtime).unwrap();
     runtime
@@ -122,7 +122,6 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
         for encoded in [false, true] {
             let mut runtime = runtime(RuntimeLimits {
                 max_call_depth: Some(1),
-                ..Default::default()
             });
             let effects = Rc::new(RefCell::new(0));
             let sink = effects.clone();
@@ -413,32 +412,13 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
 }
 
 #[test]
-fn every_budget_cut_preserves_completed_effects_and_cleans_callback_scopes() {
+fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
     let program = compile_test_bytecode(
         "fn main() -> i32 { boundary::choose(true, || { host::log(\"effect\"); 42 }) } fn ready() -> i32 { 7 }",
     );
-    let mut baseline = runtime(Default::default());
-    let observed = Rc::new(RefCell::new(None));
-    let position = observed.clone();
-    baseline
-        .register_host_function(HostFunction::new(standard_log(), move |context, _| {
-            *position.borrow_mut() =
-                Some(context.runtime().resources().counters().instruction_steps);
-            Ok(Value::Unit)
-        }))
-        .unwrap();
-    let loaded = baseline
-        .load_program("native-control", program.clone())
-        .unwrap();
-    let mut baseline = Vm::new(baseline);
-    assert_eq!(
-        baseline.execute(&loaded, "main").unwrap().return_value,
-        Value::I32(42)
-    );
-    let steps = baseline.runtime().resources().counters().instruction_steps;
-    let effect_step = observed.borrow().unwrap();
     for encoded in [false, true] {
-        for limit in 0..=steps {
+        let mut cancellations = 0;
+        for at in 0..80 {
             let mut runtime = runtime(Default::default());
             let effects = Rc::new(RefCell::new(0));
             let sink = effects.clone();
@@ -451,26 +431,29 @@ fn every_budget_cut_preserves_completed_effects_and_cleans_callback_scopes() {
             let loaded = runtime
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();
-            let mut options = runtime.execution_options();
-            options.resources.max_instruction_steps = Some(limit);
+            let options = runtime.execution_options();
+            let observer = Rc::new(crate::support::CancelAt {
+                seen: Default::default(),
+                at,
+                token: options.cancellation.clone(),
+            });
             let session = runtime.begin_execution(&loaded, options).unwrap();
+            runtime.attach_execution_observer(observer.clone()).unwrap();
             let mut vm = Vm::new(runtime);
-            let result = vm.execute(&loaded, "main");
-            if limit < steps {
-                assert!(
-                    matches!(result, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded),
-                    "limit {limit}"
-                );
-                assert!(vm.execute(&loaded, "ready").is_err());
-            } else {
-                assert_eq!(result.unwrap().return_value, Value::I32(42));
+            match vm.execute(&loaded, "main") {
+                Ok(report) => {
+                    assert_eq!(report.return_value, Value::I32(42));
+                    assert_eq!(*effects.borrow(), 1);
+                }
+                Err(error) => {
+                    cancellations += 1;
+                    assert!(
+                        matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::Cancelled)
+                    );
+                    assert!(vm.execute(&loaded, "ready").is_err());
+                }
             }
-            assert_eq!(session.counters().instruction_steps, limit);
-            assert_eq!(
-                *effects.borrow(),
-                usize::from(limit >= effect_step),
-                "limit {limit}"
-            );
+            assert!(*effects.borrow() <= 1);
             assert_clean(&vm);
             drop(session);
             assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -478,6 +461,59 @@ fn every_budget_cut_preserves_completed_effects_and_cleans_callback_scopes() {
                 vm.execute(&loaded, "ready").unwrap().return_value,
                 Value::I32(7)
             );
+            if observer.seen.get() <= at {
+                break;
+            }
         }
+        assert!(cancellations > 5);
+    }
+}
+
+#[test]
+fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
+    for swallow in [false, true] {
+        let token = CancellationToken::default();
+        let cancel = token.clone();
+        let visited = Rc::new(std::cell::Cell::new(0));
+        let observed = visited.clone();
+        let mut native = ModuleBuilder::new("test::polling", &LanguageContracts::default());
+        let work = native
+            .define_function(FunctionDecl::new("work").returns(Type::i32()))
+            .unwrap();
+        native
+            .bind(work, move |cx: &mut CallContext<'_>| -> NativeResult<i32> {
+                for index in 0..8 {
+                    if index == 3 {
+                        cancel.cancel();
+                    }
+                    if let Err(error) = cx.poll() {
+                        return if swallow { Ok(42) } else { Err(error) };
+                    }
+                    observed.set(observed.get() + 1);
+                }
+                Ok(42)
+            })
+            .unwrap();
+        let native = native.finish().unwrap();
+        let program = super::compile_program(
+            "use test::polling; fn main() -> i32 { polling::work() }",
+            Some(&native),
+        );
+        let mut runtime = Runtime::default();
+        native.install(&mut runtime).unwrap();
+        let loaded = runtime.load_program("native-poll", program).unwrap();
+        let mut options = runtime.execution_options();
+        options.cancellation = token;
+        let session = runtime.begin_execution(&loaded, options).unwrap();
+        let mut vm = Vm::new(runtime);
+        let error = vm.execute(&loaded, "main").unwrap_err();
+        assert!(
+            matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::Cancelled)
+        );
+        assert_eq!(visited.get(), 3);
+        assert_eq!(vm.runtime().gc().active_roots(), 0);
+        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+        drop(session);
+        assert!(vm.runtime().resources().poll_execution().is_ok());
     }
 }

@@ -303,7 +303,7 @@ impl DebugSession {
         let member = frame.loaded();
         let module_id = member.id;
         let epoch = member.epoch.0;
-        let module_name = &member.name;
+        let _module_name = &member.name;
         let offset = frame.instruction_offset();
         let Some(function) = frame.function() else {
             return Ok(());

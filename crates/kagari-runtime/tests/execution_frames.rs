@@ -285,7 +285,7 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
             )
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::CapabilityDenied
+        RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     stack
@@ -335,12 +335,11 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
 }
 
 #[test]
-fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
-    use kagari_abi::native_call::{JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT};
+fn native_polling_preserves_cancellation_offsets_and_cleanup() {
+    use kagari_abi::native_call::{JIT_STATUS_CANCELLED, JIT_STATUS_OK};
     use kagari_runtime::{RuntimeConfig, jit_abi::jit_poll_execution, resource::RuntimeLimits};
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: Some(2),
             ..Default::default()
         },
         ..Default::default()
@@ -348,11 +347,19 @@ fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
     let module = loaded_with_instructions(
         &mut runtime,
         vec![
-            BytecodeInstruction::BudgetCheckpoint,
-            BytecodeInstruction::BudgetCheckpoint,
+            BytecodeInstruction::Jump {
+                target: kagari_bytecode::instruction::JumpTarget::new(1),
+            },
+            BytecodeInstruction::Jump {
+                target: kagari_bytecode::instruction::JumpTarget::new(1),
+            },
             BytecodeInstruction::Return(None),
         ],
     );
+    let token = kagari_common::cancellation::CancellationToken::default();
+    let mut options = runtime.execution_options();
+    options.cancellation = token.clone();
+    let _session = runtime.begin_execution(&module, options).unwrap();
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
         .push(module.slot(), FunctionRef::new(0), &[], None)
@@ -362,13 +369,13 @@ fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
             unsafe { jit_poll_execution(&runtime, offset) },
             JIT_STATUS_OK
         );
-        assert_eq!(runtime.resources().counters().instruction_steps, offset + 1);
     }
+    token.cancel();
     assert_eq!(
         unsafe { jit_poll_execution(&runtime, 2) },
-        JIT_STATUS_RESOURCE_LIMIT
+        JIT_STATUS_CANCELLED
     );
-    assert_eq!(runtime.resources().counters().instruction_steps, 2);
+
     assert_eq!(
         runtime.capture_error_trace().frames[0].instruction_offset,
         2
@@ -379,7 +386,7 @@ fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
 }
 
 #[test]
-fn native_budget_checks_require_an_active_validated_program_point() {
+fn native_polling_requires_an_active_validated_program_point() {
     use kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT;
     use kagari_runtime::jit_abi::jit_poll_execution;
     let runtime = Runtime::default();
@@ -387,7 +394,7 @@ fn native_budget_checks_require_an_active_validated_program_point() {
         unsafe { jit_poll_execution(&runtime, 0) },
         JIT_STATUS_ENGINE_FAULT
     );
-    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+
     let mut runtime = Runtime::default();
     let module = loaded(&mut runtime);
     let stack = runtime.enter_execution_stack(&module).unwrap();
@@ -398,16 +405,17 @@ fn native_budget_checks_require_an_active_validated_program_point() {
         unsafe { jit_poll_execution(&runtime, 1) },
         JIT_STATUS_ENGINE_FAULT
     );
-    assert_eq!(runtime.resources().counters().instruction_steps, 0);
 }
 
 #[test]
-fn interpreter_frame_fetch_exposes_the_checked_charge_for_each_point() {
+fn interpreter_frame_fetch_preserves_instruction_offsets() {
     let mut runtime = Runtime::default();
     let module = loaded_with_instructions(
         &mut runtime,
         vec![
-            BytecodeInstruction::BudgetCheckpoint,
+            BytecodeInstruction::Jump {
+                target: kagari_bytecode::instruction::JumpTarget::new(1),
+            },
             BytecodeInstruction::Return(None),
         ],
     );
@@ -416,15 +424,14 @@ fn interpreter_frame_fetch_exposes_the_checked_charge_for_each_point() {
         .push(module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     for index in 0..2 {
-        let (instruction, charge) = stack.current_mut().unwrap().next_instruction().unwrap();
-        assert_eq!(charge, LogicalBudgetCharge::Step);
+        let instruction = stack.current_mut().unwrap().next_instruction().unwrap();
         assert_eq!(stack.current().unwrap().instruction_offset(), index);
         assert_eq!(
-            matches!(instruction, BytecodeInstruction::BudgetCheckpoint),
+            matches!(instruction, BytecodeInstruction::Jump { .. }),
             index == 0
         );
         runtime.resources().poll_execution().unwrap();
     }
-    assert_eq!(runtime.resources().counters().instruction_steps, 2);
+
     assert!(stack.current_mut().unwrap().next_instruction().is_none());
 }

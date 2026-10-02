@@ -278,15 +278,10 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
     ] {
         assert!(
             engine
-                .compile_source(
-                    SourceFile::new(
-                        "host-context-invalid.kgr",
-                        format!("fn main() -> i32 {{ demo::take({argument}) }}")
-                    ),
-                    CompileOptions {
-                        language_profile: profile
-                    },
-                )
+                .compile_source(SourceFile::new(
+                    "host-context-invalid.kgr",
+                    format!("fn main() -> i32 {{ demo::take({argument}) }}")
+                ),)
                 .is_err(),
             "{argument}"
         );

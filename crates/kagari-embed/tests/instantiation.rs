@@ -286,14 +286,10 @@ fn execute_contextual_source(source: &str, expected: i32) {
     execute_contextual_source_with_writes(source, expected, false);
 }
 
-fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection_write: bool) {
+fn execute_contextual_source_with_writes(source: &str, expected: i32, _reflection_write: bool) {
     let engine = KagariEngine::default();
     let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.language_profile.allow_reflection = true;
-    context.language_profile.allow_reflection_write = reflection_write;
-    context.capabilities.reflection_write = reflection_write;
-    context.capabilities.jit = true;
+
     let artifact = engine
         .compile_to_artifact(SourceFile::new("context.kgr", source), Default::default())
         .unwrap();

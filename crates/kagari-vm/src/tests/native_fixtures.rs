@@ -95,7 +95,7 @@ pub(super) fn install_i32<const VALUE: i32>(
         };
     }
     // SAFETY: the assertion above binds this static C-ABI implementation to the
-    // exact bytecode. Each logical point uses the runtime helper for GC, budget,
+    // exact bytecode. Each logical point uses the runtime helper for GC, cancellation,
     // cancellation and traps; static code remains callable for the process life.
     unsafe {
         runtime.install_native_function(

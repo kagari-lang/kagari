@@ -39,25 +39,24 @@ retain dependency-owned locations, even for unused imports. Both snapshot entry
 points accept a cancellation token. Program IR verifies declaration-to-module/
 function bindings without executing script code. Artifact emission includes the
 complete program. Loading preflights every member's bytecode and host bindings
-before publication or resource accounting. Execution-context policy checks cover
-every member before an entry function runs.
+before publication or resource accounting. Binding validation covers every member before an entry function runs.
 `compile_source` supplies base text through this same database, so an active
-overlay still takes precedence. Language profiles are analysis inputs: changing
-permissions cannot reuse a result accepted under another profile.
+overlay still takes precedence. Installed declarations are analysis inputs: changing an interface invalidates
+results derived from the previous analysis environment.
 
 `declarations(source_snapshot, cancel)` returns a `DeclarationSnapshot` with
 per-file module names, named declarations and parse/declaration diagnostics.
 `signatures(source_snapshot, cancel)` returns a `SignatureSnapshot` with checked
 signature facts and signature diagnostics. Neither entry resolves body names,
 collects local bindings, checks bodies or evaluates constants. These queries are
-profile-independent tools; their results cannot be passed to code generation.
+body-independent tools; their results cannot be passed to code generation.
 `FileSignatures::definition_at(byte_offset)` follows declaration sites and
 checked signature type names, including imported source types. It does not
 offer body-reference navigation before that body has been analyzed.
 `FileSignatures::host_type_at(byte_offset)` returns the checked offline host
 declaration for a signature type name. Host declarations have no synthetic
 source location; this query reads the interface catalog without registration.
-Full `analyze` and compilation still enforce the requested language profile.
+Full `analyze` and compilation enforce the same language semantics.
 
 Signature queries build the shared aggregate catalog after declaration signatures
 are available, then validate applied struct/enum bounds in parameters, returns,
@@ -83,7 +82,7 @@ Function queries resolve and check module constants as prerequisites, then only
 the selected function body. Their diagnostics cover those constants and that body;
 parse/declaration/signature diagnostics remain on the retained signature snapshot.
 They do not produce checked modules and cannot bypass full compilation or language
-profile validation. Exact cached results retain their original source/signature
+semantic validation. Exact cached results retain their original source/signature
 snapshot. Unchanged user and impl bodies can reuse remapped facts after other body
 edits, while local binding identities are recreated for the new analysis. Header
 and dependency changes invalidate reuse. Deleted declarations and stale queries
@@ -114,9 +113,9 @@ checked facts. Import paths still need dedicated navigation.
 `TypeTable::call_resolution` owns each recognized call's target, optional receiver,
 and inferred type arguments in declaration parameter order. Arguments can refer
 to enclosing generic parameters while a template is being analyzed.
-IR generation and reflection permission checks consume this semantic fact. A user
+IR generation consumes this semantic fact. A user
 binding with a helper's spelling is resolved as that binding; it does not acquire
-the helper's behavior or permission requirements. An unresolved or invalid call
+the helper's behavior. An unresolved or invalid call
 still prevents code generation. Trait-call analysis does not yet imply executable
 interface dispatch, which requires the planned linked implementation tables.
 
@@ -137,7 +136,7 @@ Semantic Struct/Enum/Trait TypeId values now carry the same DefinitionId used by
 navigation. Generic TypeId equality and hashing use owner and parameter position;
 the retained parameter name is diagnostic metadata. Implicit Self has its own
 trait-owned type identity, distinct from an ordinary parameter named Self.
-Impl ABI types and interface permission checks
+Impl ABI types and interface validation
 consume type-reference facts instead of reinterpreting HIR type syntax.
 
 LoweredModule owns its source origin. Lowering accepts SourceFile; the origin-free
@@ -316,7 +315,7 @@ with the same display name cannot enter their built-in dispatch.
 
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached
-analysis retains its local identities; text or profile changes create new ones.
+analysis retains its local identities; source text or analysis-environment changes create new ones.
 The original snapshot remains usable after edits. See the runnable
 `crates/kagari-embed/examples/source_queries.rs` example.
 
@@ -324,7 +323,7 @@ The original snapshot remains usable after edits. See the runnable
 
 - expose a small, stable host API for compiling, loading, running, and reloading scripts
 - keep host state ownership explicit
-- keep host registrations typed and capability-aware
+- keep host registrations typed with explicit effects
 - make hot reload and module epochs visible to the embedding layer
 - keep interpreter and JIT selection behind runtime policy
 - return structured diagnostics and runtime errors
@@ -353,7 +352,7 @@ LoadedModule
   identifies a successfully loaded module epoch
 
 ExecutionContext
-  carries capabilities, resource limits, host access policy, fixed logical time,
+  carries cancellation, fixed logical time,
   a random seed, and tracing hooks
 ```
 
@@ -389,9 +388,9 @@ At the runtime layer, `stage_reload_verified_program` (used by the SDK),
 `stage_reload_program` and `stage_reload_artifact` return an owned
 `StagedReload`. A driver may enter `begin_candidate_initialization` to explicitly
 evaluate candidate functions, then calls `publish_staged_reload` after that session.
-Dropping the candidate discards its instances and module quota. Ordinary VM reload
+Dropping the candidate discards its instances and module retention. Ordinary VM reload
 does not execute candidate functions.
-Candidate sessions inherit permissions and cancellation, apply host-effect restrictions,
+Candidate sessions inherit cancellation, apply host-effect restrictions,
 and restore a suspended ordinary root when they end. Drivers must finish every nested
 candidate execution scope before dropping the candidate session.
 The candidate session borrows its staged owner. Ordinary execution rejects staged
@@ -408,7 +407,7 @@ and failures after entering native code remain errors. No codegen/MIR dependency
 is added to runtime or VM. See [artifacts](artifacts.md#sdk-feature-boundary) for
 source-only, artifact-only and frontend-free native configurations.
 
-Each call applies that call's ExecutionContext resources, capabilities and host
+Each call applies that call's ExecutionContext cancellation and execution
 policy to an owned execution session, without replacing runtime defaults.
 The entry and interpreter/JIT fallback share this session. Its
 fixed time and random seed are passed to host callbacks; nested execution shares
@@ -427,10 +426,11 @@ data; it does not automatically replay host results.
 At the lower-level API, Vm starts a session from Runtime defaults automatically.
 Hosts can select explicit ExecutionOptions with Runtime::begin_execution and keep
 the returned ExecutionSession alive while driving the VM. Nested scopes inherit
-the pinned dependency program, permissions, cancellation and remaining budget.
+the pinned dependency program, cancellation and call-depth limit.
 Dropping the final scope releases the session; dropping an outer handle early does
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
-usage and peaks; Runtime resource counters remain cumulative. Synchronous script
+lifecycle peaks and elapsed time; Runtime counters track live occupancy and
+runtime peaks. Synchronous script
 reentry is available through HostCallContext and kagari_vm::reenter, using a
 LoadedModule and FunctionRef from the pinned root program. Its returned
 RootedValue remains alive across collection; ordinary raw Value copies do not.
@@ -440,7 +440,7 @@ It also installs an ExecutionObserver on an explicit root scope to observe both
 the suspended outer frame and the nested frame in the session-owned stack.
 The example keeps scratch values with HostCallContext::retain_temporaries and checks
 that ExecutionSession::host_scope_count returns to zero before ending the root.
-The `scoped_execution` embedding example demonstrates independent budgets and
+The `scoped_execution` embedding example demonstrates independent execution sessions and
 cancellation: `cargo run -p kagari-embed --example scoped_execution`.
 
 Execution reports contain raw Value results. Retain a heap result with
@@ -460,8 +460,7 @@ The host registry supports explicit registration of:
 - host-backed roots
 - typed path descriptors
 - trait/interface implementations for host values
-- reflection metadata exposed to tooling or privileged profiles
-- capability requirements
+- declared reflection metadata exposed to tooling
 
 Registration must produce stable metadata identities used by type checking, bytecode validation, typed path mutation, hot reload, and optional JIT compilation.
 
@@ -473,8 +472,6 @@ Host function registration records:
 - parameter types
 - return type
 - passing style for each parameter
-- capability requirements
-- resource cost hints, if provided
 - whether the call may allocate, trap, call host services, mutate host state, or suspend
 
 Host type registration records:
@@ -496,11 +493,8 @@ Every host-initiated execution uses an execution context.
 
 The context carries:
 
-- language profile
-- runtime capabilities
-- resource limits
-- host API exposure policy
-- reflection policy
+- root cancellation
+- deterministic inputs and optional host-call recording
 - JIT enablement policy
 - tracing or audit hooks
 - panic and engine-bug reporting policy
@@ -524,7 +518,7 @@ Runtime failures return classified errors:
 
 - script trap
 - type or bytecode verification failure
-- capability denial
+- execution-phase violation
 - resource limit exceeded
 - host call failure
 - typed path validation failure
@@ -608,7 +602,7 @@ Debugger operations include:
 - receive debugger events
 
 The debugger API is not script-visible.
-Debugger attachment and inspection require runtime capabilities and host policy.
+The host may attach a debugger; inspection validates handles and declared member access.
 
 Debug sessions use the model defined in [debugger.md](debugger.md).
 The VM adapter boundary is documented in [debugger-adapter.md](../debugger-adapter.md) and exposes request, response, event, and event-sink types for IDE or DAP integrations.
@@ -627,7 +621,7 @@ The embedding API is complete when:
 
 - host applications can compile, load, execute, and reload modules through stable entry points
 - host registrations produce metadata used by checking, bytecode, runtime, reload, and JIT
-- execution contexts enforce capabilities and resource limits
+- execution contexts preserve cancellation and runtime call-depth limits
 - errors and diagnostics are structured
 - bytecode artifacts and source modules can be loaded through the same module identity model
 - JIT can be enabled or disabled without changing semantics

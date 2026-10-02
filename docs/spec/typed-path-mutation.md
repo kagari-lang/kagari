@@ -56,7 +56,7 @@ checks with declared host-function borrows and release leases on every exit.
 Adapter callbacks now receive HostCallContext followed by HostPathContext (then
 the operation/value or mutation record). Read, validate and prepare callbacks can
 reenter initialized functions in the pinned program, subject to the same borrow
-conflicts, permissions, cancellation and remaining budget. Borrowed read results
+conflicts, declared access and cancellation. Borrowed read results
 cannot escape. PreparedHostPathWrite retains the existing infallible commit rule:
 its commit action cannot invoke scripts or runtime mutations. No resource-table
 borrow spans user callbacks; dropping a rejected prepared action releases its host
@@ -236,7 +236,7 @@ combat = HostPathView(root = player, base_path = combat)
 Host path views may be copied as ordinary small values inside one VM isolate.
 Copying a view copies root and path identity; it does not duplicate or borrow the underlying Rust data.
 
-Storage of host path views in GC-managed objects, globals, or closures is controlled by the host and language profile.
+Storage of host path views in GC-managed objects, globals, or closures is governed by language no-escape and lifetime rules.
 Initial rule:
 
 - host roots and host path views may be stored in locals
@@ -267,7 +267,7 @@ Runtime path operations validate:
 - root handle validity
 - root object epoch or generation, if tracked
 - schema epoch or path ABI compatibility
-- capability and host policy requirements
+- declared access and host adapter requirements
 - dynamic index validity
 - host-side invariants and validation hooks
 
@@ -426,18 +426,10 @@ New calls use the latest successfully published module and its validated path me
 
 ## Relationship to Security
 
-Host path access is a host-controlled capability.
-
-The host defines:
-
-- which root types are visible
-- which fields are readable
-- which fields are writable
-- which paths require capabilities
-- which paths are unavailable in restricted profiles
-- which validation and preparation callbacks run before mutation
-
-Path mutation must not bypass host API exposure, language profile checks, capability checks, or resource policy.
+Host path access requires installed types, roots, descriptors and adapters. The
+host declares which members are readable or writable. These interface rules,
+visibility, borrow validity, object liveness and schema/generation checks remain
+mandatory. There is no additional language profile or per-call permission matrix.
 
 ## IR and Bytecode Contract
 
@@ -473,7 +465,7 @@ The first usable typed path mutation version includes:
 - local host path views
 - read-only path rejection
 - dynamic index arguments for registered indexable fields
-- runtime capability and liveness checks
+- runtime declared-access and liveness checks
 - an engine-owned dirty-record ledger, consumed by the host after execution
 
 ## V1 Exclusions

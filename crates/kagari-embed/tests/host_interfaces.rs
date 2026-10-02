@@ -356,7 +356,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     use kagari_runtime::{Runtime, RuntimeConfig, host::HostError};
     use kagari_vm::vm::Vm;
     let (engine, artifact, host, make) = fixture();
-    let context = context(false);
+    let _context = context(false);
     let mut vm = Vm::new(Runtime::new(RuntimeConfig {
         ..Default::default()
     }));
@@ -613,7 +613,7 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
     use kagari_runtime::{Runtime, RuntimeConfig};
     use kagari_vm::vm::Vm;
     let (_, artifact, host, make) = fixture();
-    let context = context(false);
+    let _context = context(false);
     let mut vm = Vm::new(Runtime::new(RuntimeConfig {
         ..Default::default()
     }));
@@ -648,27 +648,7 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
     let value = vm.execute(&loaded, "boxed").unwrap().return_value;
     let rooted = vm.runtime().root_value(value).unwrap();
     let method = &host.trait_implementations[0].methods[0].trait_method;
-    let mut denied = context.security_context();
-    denied.capabilities.host_calls = false;
-    vm.runtime_mut().set_security_context(denied);
-    assert!(
-        vm.invoke_interface_method(&rooted.value(), method, &[Value::I32(42)])
-            .is_err()
-    );
-    vm.runtime_mut()
-        .set_security_context(context.security_context());
-    vm.runtime_mut()
-        .set_host_exposure_policy(HostExposurePolicy {
-            allowed_host_functions: vec!["demo.make".into()],
-            ..Default::default()
-        });
-    assert!(
-        vm.invoke_interface_method(&rooted.value(), method, &[Value::I32(42)])
-            .is_err()
-    );
-    assert_eq!(*calls.borrow(), 0);
-    vm.runtime_mut()
-        .set_host_exposure_policy(context.host_policy.clone());
+
     assert_eq!(
         vm.invoke_interface_method(&rooted.value(), method, &[Value::I32(42)])
             .unwrap(),

@@ -50,10 +50,7 @@ fn prepare(bytes: &[u8]) -> PreparedProgram {
 }
 
 fn context() -> ExecutionContext {
-    let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
-    context
+    ExecutionContext::default()
 }
 
 fn sharing(bytes: &[u8], count: usize, shared: bool) {

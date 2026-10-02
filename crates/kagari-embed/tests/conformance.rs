@@ -5,7 +5,6 @@ use kagari_bytecode::artifact::{
 use kagari_embed::{
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    error::{EmbeddingError, RuntimeFailureKind},
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{LoadOptions, ReloadOptions},
 };
@@ -15,7 +14,7 @@ use kagari_common::{
     source::SourceFile,
 };
 
-use kagari_runtime::{resource::RuntimeLimits, value::Value};
+use kagari_runtime::value::Value;
 
 fn exact_compatibility(
     artifact: &kagari_embed::BytecodeArtifact,
@@ -279,54 +278,4 @@ pub fn main() -> usize {
             .epoch,
         reloaded.epoch
     );
-}
-
-#[test]
-fn embedding_conformance_surfaces_standard_intrinsic_resource_limits() {
-    let engine = KagariEngine::default();
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "stdlib_resource.kgr",
-                r#"
-fn main() -> usize {
-    val values = [1, 2];
-    values.push(3);
-    values.len()
-}
-"#,
-            ),
-            ArtifactOptions::default(),
-        )
-        .expect("standard resource source should compile");
-    let context = ExecutionContext {
-        limits: RuntimeLimits {
-            max_instruction_steps: Some(1),
-            ..RuntimeLimits::default()
-        },
-        ..ExecutionContext::default()
-    };
-    let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime
-        .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &context.cancellation)
-                .unwrap(),
-            LoadOptions {
-                module_name: Some("stdlib_resource".to_owned()),
-            },
-        )
-        .expect("standard resource artifact should load");
-
-    let error = runtime
-        .execute(&loaded, "main", &[], &context)
-        .expect_err("standard intrinsic execution should hit context resource limit");
-
-    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
-    assert!(matches!(
-        error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::ResourceLimitExceeded,
-            ..
-        }
-    ));
 }

@@ -40,60 +40,6 @@ fn executes_simple_arithmetic_function() {
 }
 
 #[test]
-fn reports_runtime_instruction_step_limit() {
-    let bytecode = compile_test_bytecode("fn main() -> i32 { 1 }");
-    let mut runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_instruction_steps: Some(1),
-            ..RuntimeLimits::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_program("limited.kgr", bytecode)
-        .expect("limited module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("execution should hit instruction step limit");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
-    ));
-}
-
-#[test]
-fn reports_runtime_allocation_unit_limit() {
-    let bytecode = compile_test_bytecode("fn main() -> i32 { val values = [1, 2]; 0 }");
-    let mut runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_allocation_units: Some(2),
-            ..RuntimeLimits::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_program("allocation_limited.kgr", bytecode)
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("array allocation should exceed allocation unit limit");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
-                && err.message().contains("allocation units")
-    ));
-    assert_eq!(vm.runtime().resources().counters().allocation_units, 0);
-}
-
-#[test]
 fn rejects_unverified_bytecode_before_publication() {
     let mut bytecode = verified_module(vec![test_function(
         0,
@@ -111,7 +57,6 @@ fn rejects_unverified_bytecode_before_publication() {
     bytecode.function_table.clear();
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: Some(0),
             ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
@@ -186,7 +131,7 @@ fn rejects_unsupported_bytecode_before_publication() {
 }
 
 #[test]
-fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
+fn unsupported_dynamic_invocation_is_rejected() {
     let dynamic_call = verified_module(vec![test_function(
         0,
         "main",
@@ -212,7 +157,7 @@ fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
                 modules: vec![dynamic_call],
             },
         )
-        .expect_err("capability cannot authorize an unimplemented call form");
+        .expect_err("unimplemented call forms remain rejected");
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert_eq!(runtime.modules().loaded_count(), 0);
 }
@@ -275,7 +220,6 @@ fn main() -> i32 { middle() }
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
             max_call_depth: Some(2),
-            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });

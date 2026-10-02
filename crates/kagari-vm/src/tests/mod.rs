@@ -4,10 +4,10 @@ mod debug_protocol;
 mod execution;
 mod gc;
 mod helpers;
+mod installed_access;
 mod jit;
 mod mutation_resources;
 mod reentry_debug;
-mod security;
 mod sessions;
 mod source_programs;
 

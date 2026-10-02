@@ -13,17 +13,14 @@ use kagari_runtime::{
     Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
 };
 
-fn runtime(max_steps: Option<u64>) -> Runtime {
+fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
         },
         limits: RuntimeLimits {
-            max_instruction_steps: max_steps,
             ..Default::default()
         },
-
-        ..Default::default()
     })
 }
 
@@ -34,7 +31,7 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
     );
     for encoded in [false, true] {
         for jit in [false, true] {
-            let mut runtime = runtime(None);
+            let mut runtime = runtime();
             let program = module.clone();
             let program = if encoded {
                 let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
@@ -93,7 +90,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let loaded = runtime.load_program("closure_gc.kgr", module).unwrap();
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").unwrap();
@@ -105,8 +102,8 @@ fn main() -> i32 {
 #[test]
 fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
     let module = compile_test_bytecode("fn make() -> fn() -> i32 { || 42 }");
-    let foreign_runtime = runtime(None);
-    let mut owner_runtime = runtime(None);
+    let foreign_runtime = runtime();
+    let mut owner_runtime = runtime();
     let loaded = owner_runtime
         .load_program("closure_handles.kgr", module)
         .unwrap();
@@ -136,7 +133,7 @@ fn malformed_closure_function_is_rejected_before_execution() {
     if let BytecodeInstruction::MakeClosure { function, .. } = instruction {
         *function = FunctionRef::new(999);
     }
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     assert!(
         runtime
             .load_program("malformed_closure.kgr", module)
@@ -148,7 +145,7 @@ fn malformed_closure_function_is_rejected_before_execution() {
 fn rooted_closure_retains_its_old_program_after_new_publish() {
     let old = compile_test_bytecode("fn make() -> fn() -> i32 { || 41 }");
     let new = compile_test_bytecode("fn make() -> fn() -> i32 { || 42 }");
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let loaded = runtime.load_program("closure_epoch.kgr", old).unwrap();
     let mut vm = Vm::new(runtime);
     let closure = vm.execute(&loaded, "make").unwrap().return_value;
@@ -169,7 +166,7 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
 
 #[test]
 fn native_scalar_execution_visits_the_same_collection_safepoint() {
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
     let loaded = runtime.load_program("gc.kgr", module).unwrap();
     let dead = runtime
@@ -190,10 +187,10 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
 }
 
 #[test]
-fn trap_and_budget_exhaustion_release_frame_roots_and_call_depth() {
+fn traps_release_frame_roots_and_call_depth() {
     let module = compile_test_bytecode("fn main() -> i32 { val temporary = [1, 2]; 1 / 0 }");
-    for max_steps in [None, Some(4)] {
-        let mut runtime = runtime(max_steps);
+    {
+        let mut runtime = runtime();
         let loaded = runtime.load_program("gc.kgr", module.clone()).unwrap();
         let mut vm = Vm::new(runtime);
         assert!(vm.execute(&loaded, "main").is_err());

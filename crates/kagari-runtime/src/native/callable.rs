@@ -32,7 +32,7 @@ impl PreparedClosure {
             ));
         }
         if !runtime.gc().validate_candidate_value(&self.value) {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "external closure in candidate execution",
             ));
         }

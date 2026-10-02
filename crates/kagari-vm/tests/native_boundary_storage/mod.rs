@@ -449,12 +449,12 @@ fn native_map_and_set_allocations_update_resource_counters() {
     assert_eq!(runtime.gc().map_len(*map), Some(2));
     assert_eq!(runtime.gc().set_len(*set), Some(2));
     let counters = runtime.resources().counters();
-    assert_eq!(counters.allocation_units, 6);
+
     assert_eq!(counters.current_heap_units, 6);
     assert_eq!(counters.peak_heap_units, 6);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
     assert_eq!(runtime.resources().counters().current_heap_units, 6);
-    assert_eq!(runtime.resources().counters().allocation_units, 6);
+
     drop(root);
 }
 

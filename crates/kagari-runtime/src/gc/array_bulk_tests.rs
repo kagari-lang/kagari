@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Runtime, RuntimeConfig, layout_fixtures::allocation_owner, resource::RuntimeLimits};
+use crate::{Runtime, layout_fixtures::allocation_owner};
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
 
 #[test]
@@ -37,29 +37,6 @@ fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
     assert_eq!(heap.stats().current_heap_units, before);
     heap.array_fill(array, Value::I32(7)).unwrap();
     assert_eq!(heap.stats().current_heap_units, before);
-    assert!(heap.stats().allocation_units > before);
-    let mut limited_runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            max_heap_units: Some(3),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-    let limited_owner = allocation_owner(&mut limited_runtime);
-    let limited = limited_runtime.gc();
-    let target = limited_runtime
-        .alloc_array(
-            &limited_owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(1), Value::I32(2)],
-        )
-        .unwrap();
-    assert!(limited.array_fill(target, Value::I32(9)).is_err());
-    assert_eq!(
-        limited.array_snapshot(target).unwrap(),
-        vec![Value::I32(1), Value::I32(2)]
-    );
-    assert_eq!(limited.stats().current_heap_units, 3);
 }
 #[test]
 fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
@@ -98,35 +75,4 @@ fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
     );
     assert_eq!(heap.stats().current_heap_units, before);
     drop(guard);
-    for policy in [
-        RuntimeLimits {
-            max_heap_units: Some(5),
-            ..Default::default()
-        },
-        RuntimeLimits {
-            max_instruction_steps: Some(0),
-            ..Default::default()
-        },
-    ] {
-        let mut limited_runtime = Runtime::new(RuntimeConfig {
-            resources: policy,
-            ..Default::default()
-        });
-        let limited_owner = allocation_owner(&mut limited_runtime);
-        let limited = limited_runtime.gc();
-        let target = limited_runtime
-            .alloc_array(
-                &limited_owner,
-                AbiType::Builtin(BuiltinType::I32),
-                original.clone(),
-            )
-            .unwrap();
-        assert!(
-            limited
-                .array_copy_within(target, Included(0), Excluded(3), 1)
-                .is_err()
-        );
-        assert_eq!(limited.array_snapshot(target).unwrap(), original);
-        assert_eq!(limited.stats().current_heap_units, 5);
-    }
 }

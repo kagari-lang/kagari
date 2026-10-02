@@ -28,10 +28,10 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         let program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
-        let mut context = ExecutionContext::default();
-        context.language_profile.allow_jit = true;
-        context.capabilities.jit = true;
-        context.jit_policy = JitPolicy::Enabled;
+        let context = ExecutionContext {
+            jit_policy: JitPolicy::Enabled,
+            ..Default::default()
+        };
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let prepared = runtime
@@ -44,20 +44,14 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             )
             .unwrap();
         assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
-        assert_eq!(
-            runtime.runtime().resources().counters().instruction_steps,
-            0
-        );
+
         drop(program);
         let report = runtime
             .execute_prepared(&loaded, "main", &[], &context, &prepared)
             .unwrap();
         assert_eq!(report.return_value, Value::I32(42));
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
-        assert_eq!(
-            runtime.runtime().resources().counters().instruction_steps,
-            4
-        );
+
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }
@@ -80,10 +74,10 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
         let program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
-        let mut context = ExecutionContext::default();
-        context.language_profile.allow_jit = true;
-        context.capabilities.jit = true;
-        context.jit_policy = JitPolicy::Enabled;
+        let context = ExecutionContext {
+            jit_policy: JitPolicy::Enabled,
+            ..Default::default()
+        };
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let prepared = runtime
@@ -96,10 +90,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
             )
             .unwrap();
         assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
-        assert_eq!(
-            runtime.runtime().resources().counters().instruction_steps,
-            0
-        );
+
         let report = runtime
             .execute_prepared(&loaded, "main", &[], &context, &prepared)
             .unwrap();
@@ -133,10 +124,10 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     };
     let old_program = prepare(42);
     let candidate = prepare(43);
-    let mut context = ExecutionContext::default();
-    context.language_profile.allow_jit = true;
-    context.capabilities.jit = true;
-    context.jit_policy = JitPolicy::Enabled;
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    };
     let mut runtime = KagariRuntime::new(
         Runtime::new(RuntimeConfig {
             gc: GcHeapConfig {

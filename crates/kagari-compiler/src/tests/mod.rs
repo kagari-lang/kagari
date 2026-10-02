@@ -1,6 +1,5 @@
 mod abi_contracts;
 mod analysis;
-mod budgets;
 mod bytecode;
 mod codec;
 pub(crate) mod common;
@@ -8,4 +7,5 @@ mod lower;
 mod never;
 mod origins;
 mod passes;
+mod program_points;
 mod verify;

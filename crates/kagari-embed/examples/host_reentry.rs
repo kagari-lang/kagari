@@ -37,13 +37,8 @@ impl ExecutionObserver for StackDepth {
 
 fn main() {
     let engine = KagariEngine::default();
-    let mut context = ExecutionContext::default();
-    context.language_profile.allow_host_calls = true;
-    context.capabilities.host_calls = true;
-    context
-        .host_policy
-        .allowed_host_functions
-        .push("host.log".into());
+    let context = ExecutionContext::default();
+
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

@@ -2,7 +2,7 @@
 
 The JIT is an optional function compiler. Language semantics, verified MIR and the
 shared runtime contracts govern both it and the bytecode interpreter. Native code
-must preserve results, traps, logical budgets, completed effects and version identity.
+must preserve results, traps, cooperative cancellation, completed effects and version identity.
 The exact compilation/installation API is specified in
 [codegen-backend.md](codegen-backend.md).
 
@@ -20,7 +20,7 @@ Invalid bytecode, malformed MIR, mismatched versions or inconsistent metadata ar
 errors; none authorize fallback to unvalidated execution.
 
 The backend owns emission, legalization, target configuration and executable pages.
-Runtime owns installation, invocation, frames, GC, capabilities, budgets, generations
+Runtime owns installation, invocation, frames, GC, cancellation, generations
 and reload. VM owns interpreter execution and selection from a prepared entry.
 SDK owns preparation/cache orchestration. The CLI selects this path only when built
 with its `jit` feature and invoked with `--jit`.
@@ -28,7 +28,7 @@ with its `jit` feature and invoked with `--jit`.
 ## Supported Native Subset
 
 The implemented backend supports zero-argument functions with a single return block
-and Unit/Bool/i32 values: constants, moves, logical budget checkpoints, checked i32
+and Unit/Bool/i32 values: constants, moves, checked i32
 add/subtract/multiply/negation, boolean not, supported equality/order comparisons and
 return. Native tests explicitly assert native entry/status; interpreter success alone
 is not evidence that a function compiled.
@@ -54,7 +54,7 @@ with the interpreter in trap order, source location and completed effects.
 Current scalar safepoints have empty root maps. Future GC-bearing support requires
 physical maps implementing MIR's logical liveness/root facts. Missing native support
 for a valid root contract selects fallback before entry. Host calls and typed paths
-must preserve capability/exposure checks, scoped borrows, no-escape rules, generation
+must preserve installed interface checks, scoped borrows, no-escape rules, generation
 validation and mutation commit guarantees through shared runtime services.
 
 ## Preparation and Fallback
@@ -72,7 +72,7 @@ Execution reports expose Native or InterpreterFallback with diagnostics.
 
 `JitPolicy` includes future scheduling choices, but automatic compile-on-load,
 first-call and threshold scheduling are not implemented. Hosts schedule explicit
-preparation. Policy cannot change source-visible semantics or grant capabilities.
+preparation. Policy cannot change source-visible semantics or bypass installed interface contracts.
 
 ## Debugging
 
@@ -96,11 +96,10 @@ unchanged. Interpreter cache invalidation is separate from native page ownership
 
 ## Acceptance
 
-- Native-supported cases match interpreter values, traps, origins and every relevant
-  logical budget boundary, for source and encoded artifacts.
+- Native-supported cases match interpreter values, traps, origins and completed effects, for source and encoded artifacts.
 - Unsupported and observer/policy cases select fallback before any native effects.
 - Native failures preserve traces and do not restart execution.
-- GC, cancellation, budget exhaustion and faults release roots and frames.
+- GC, cancellation, call-depth failures and faults release roots and frames.
 - Old/new native entries retain their exact code and dependency versions across reload.
 - Native-only artifact consumers compile and run without frontend dependencies.
 - Workspace checks and optional feature tests pass; follow-up coverage expansion must

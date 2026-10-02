@@ -108,7 +108,7 @@ fn same_frame_numbers_in_different_runtimes_do_not_authorize_foreign_borrows() {
 }
 
 #[test]
-fn host_scopes_keep_the_root_budget_until_all_resources_are_released() {
+fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
     let mut runtime = runtime();
     let loaded = runtime
         .load_program(
@@ -119,8 +119,9 @@ fn host_scopes_keep_the_root_budget_until_all_resources_are_released() {
             },
         )
         .unwrap();
-    let mut options = runtime.execution_options();
-    options.resources.max_instruction_steps = Some(1);
+    let options = runtime.execution_options();
+
+    let cancel = options.cancellation.clone();
     let session = runtime.begin_execution(&loaded, options).unwrap();
     let a = Value::Array(
         runtime
@@ -152,9 +153,10 @@ fn host_scopes_keep_the_root_budget_until_all_resources_are_released() {
     assert!(runtime.gc().validate_value(&b));
     drop(session);
     runtime.resources().poll_execution().unwrap();
+    cancel.cancel();
     assert_eq!(
         runtime.resources().poll_execution().unwrap_err().kind(),
-        RuntimeErrorKind::ResourceLimitExceeded
+        RuntimeErrorKind::Cancelled
     );
     assert!(runtime.host_scope(&[]).is_err());
     assert!(

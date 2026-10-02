@@ -26,7 +26,6 @@ use {
 fn main() {
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_dirty_records: Some(1),
             ..Default::default()
         },
         ..Default::default()
@@ -107,9 +106,9 @@ fn main() {
         .set_host_path(&root, path, vec![], Value::I32(20))
         .unwrap();
     let error = runtime
-        .set_host_path(&root, path, vec![], Value::I32(30))
+        .set_host_path(&root, preview, vec![], Value::I32(30))
         .unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+    assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
     assert_eq!(hp.get(), 20);
     assert_eq!(runtime.host_dirty_paths().len(), 1);
     assert!(!runtime.is_quarantined());
@@ -122,5 +121,5 @@ fn main() {
         .set_host_path(&root, path, vec![], Value::I32(30))
         .unwrap();
     assert_eq!(hp.get(), 30);
-    println!("full ledger preserved hp=20; after draining the ledger, hp=30");
+    println!("readonly view preserved hp=20; writable path updated hp=30");
 }

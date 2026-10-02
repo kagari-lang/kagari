@@ -227,7 +227,7 @@ impl ExecutionStack {
             .iter()
             .all(|value| self.heap.validate_candidate_value(value))
         {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate call arguments",
             ));
         }

@@ -77,10 +77,7 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
                     args: vec![],
                 },
             );
-        forged.program.modules[forged.program.root.index()].functions[0]
-            .metadata
-            .instruction_budgets
-            .insert(0, LogicalBudgetCharge::Step);
+
         let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
         assert!(matches!(
             decoded.validate_for_loader(&ArtifactCompatibility::default()),

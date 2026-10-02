@@ -79,7 +79,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
 }
 
 #[test]
-fn dependency_bindings_and_execution_policy_are_checked_before_execution() {
+fn dependency_bindings_are_checked_before_execution() {
     use std::sync::{Arc, Mutex};
     let (engine, _, context, declaration) = host_fixture();
     let root = insert(
@@ -87,7 +87,7 @@ fn dependency_bindings_and_execution_policy_are_checked_before_execution() {
         "root",
         "use pkg::left; use pkg::right; fn main() -> i32 { 42 }",
     );
-    let artifact = compile(&engine, root, CompileOptions {});
+    let artifact = compile(&engine, root);
     assert!(
         artifact.program.modules[artifact.program.root.index()]
             .host_interface
@@ -126,10 +126,12 @@ fn dependency_bindings_and_execution_policy_are_checked_before_execution() {
         .load_program(&loaded_program, Default::default())
         .unwrap();
     assert_eq!(loaded.epoch.0, 1);
-    assert!(
+    assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &ExecutionContext::default())
-            .is_err()
+            .unwrap()
+            .return_value,
+        Value::I32(42)
     );
     assert!(calls.lock().unwrap().is_empty());
 }
@@ -149,7 +151,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
                 "use pkg::left; use pkg::right; use pkg::{side}::Item; pub fn expose(value: Item) -> Item {{ value }} fn main() -> i32 {{ {result} }}"
             ),
         );
-        artifacts.push(compile(&engine, root, Default::default()));
+        artifacts.push(compile(&engine, root));
     }
     for encoded in [false, true] {
         let prepare = |artifact: &BytecodeArtifact| {
@@ -194,9 +196,9 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
         "root",
         "use pkg::dependency::value; fn main() -> i32 { value() }",
     );
-    let first = compile(&engine, root, Default::default());
+    let first = compile(&engine, root);
     insert(&engine, "dependency", "pub fn value() -> i32 { 2 }");
-    let second = compile(&engine, root, Default::default());
+    let second = compile(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let old_program =
@@ -300,7 +302,7 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         "root",
         "use pkg::dependency::number; fn main() -> i32 { number(42) }",
     );
-    let artifact = compile(&engine, root, Default::default());
+    let artifact = compile(&engine, root);
     let program = &artifact.program;
     let dependency = ModuleRef::new(
         program

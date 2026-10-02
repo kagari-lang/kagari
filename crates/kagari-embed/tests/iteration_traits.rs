@@ -1,3 +1,4 @@
+mod support;
 use kagari_bytecode::program::verify_program;
 use kagari_common::{collection::CollectionAccess, source::SourceFile};
 use {
@@ -26,13 +27,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -157,11 +158,11 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         .load_program(&loaded_program, Default::default())
         .unwrap();
     for entry in ["fail", "nested", "manual", "trap", "exhaust"] {
-        let mut options = context.clone();
-        if entry == "exhaust" {
-            options.resources.max_instruction_steps = Some(40);
-        }
+        let options = context.clone();
+        let cancellation =
+            (entry == "exhaust").then(|| support::cancel_after(runtime.runtime(), &loaded, 30));
         let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
+        drop(cancellation);
         assert!(!format!("{error:?}").contains("UnsupportedExecution"));
         assert!(!runtime.runtime().is_quarantined());
         assert_eq!(runtime.runtime().gc().active_roots(), 0, "{entry}");
@@ -260,7 +261,6 @@ fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
             KagariEngine::default()
                 .compile_to_artifact(
                     SourceFile::new("invalid-iterator.kgr", source),
-                    Default::default(),
                     Default::default()
                 )
                 .is_err(),
@@ -346,7 +346,6 @@ fn main()->i32 {
             KagariEngine::default()
                 .compile_to_artifact(
                     SourceFile::new("removed-iterator-api.kgr", source),
-                    Default::default(),
                     Default::default(),
                 )
                 .is_err(),

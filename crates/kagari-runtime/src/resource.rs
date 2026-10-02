@@ -249,40 +249,11 @@ impl Default for ResourceState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::RuntimeErrorKind;
-
-    #[test]
-    fn enforces_instruction_step_limits() {
-        let resources = ResourceState::new(RuntimeLimits {
-            max_instruction_steps: Some(1),
-            ..RuntimeLimits::default()
-        });
-
-        assert!(resources.poll_execution().is_ok());
-        let error = resources.poll_execution().unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-        assert_eq!(resources.counters().instruction_steps, 1);
-    }
-
-    #[test]
-    fn enforces_bulk_instruction_step_limits() {
-        let resources = ResourceState::new(RuntimeLimits {
-            max_instruction_steps: Some(3),
-            ..RuntimeLimits::default()
-        });
-
-        resources.poll_execution();
-        let error = resources.poll_execution();
-
-        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-        assert_eq!(resources.counters().instruction_steps, 2);
-    }
 
     #[test]
     fn tracks_call_depth_peaks() {
         let resources = ResourceState::new(RuntimeLimits {
             max_call_depth: Some(2),
-            ..RuntimeLimits::default()
         });
 
         resources.enter_call().unwrap();
@@ -291,36 +262,5 @@ mod tests {
         assert!(resources.enter_call().is_err());
         resources.leave_call();
         assert_eq!(resources.counters().current_call_depth, 1);
-    }
-
-    #[test]
-    fn enforces_allocation_host_and_reflection_limits() {
-        let resources = ResourceState::new(RuntimeLimits {
-            max_allocation_units: Some(2),
-            max_host_calls: Some(1),
-            max_reflection_operations: Some(1),
-            ..RuntimeLimits::default()
-        });
-
-        resources.prepare_heap_growth(2).unwrap().commit();
-        assert_eq!(
-            resources.prepare_heap_growth(1).err().unwrap().kind(),
-            RuntimeErrorKind::ResourceLimitExceeded
-        );
-        assert_eq!(resources.counters().allocation_units, 2);
-
-        resources.poll_execution().unwrap();
-        assert_eq!(
-            resources.poll_execution().unwrap_err().kind(),
-            RuntimeErrorKind::ResourceLimitExceeded
-        );
-        assert_eq!(resources.counters().host_calls, 1);
-
-        resources.poll_execution().unwrap();
-        assert_eq!(
-            resources.poll_execution().unwrap_err().kind(),
-            RuntimeErrorKind::ResourceLimitExceeded
-        );
-        assert_eq!(resources.counters().reflection_operations, 1);
     }
 }

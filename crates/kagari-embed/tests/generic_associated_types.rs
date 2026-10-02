@@ -19,13 +19,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -166,11 +166,7 @@ fn invalid_family_declarations_projections_and_dynamic_interfaces_are_rejected()
     ] {
         assert!(
             KagariEngine::default()
-                .compile_to_artifact(
-                    SourceFile::new("invalid.kgr", source),
-                    Default::default(),
-                    Default::default()
-                )
+                .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
                 .is_err(),
             "accepted {source}"
         );

@@ -24,13 +24,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -162,11 +162,10 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
             Default::default(),
         )
         .unwrap();
-    let mut context = ExecutionContext {
+    let context = ExecutionContext {
         ..Default::default()
     };
-    context.capabilities.host_calls = true;
-    context.host_policy.allowed_host_functions = vec!["demo.memory".into()];
+
     let mut runtime = engine.runtime(context.clone());
     let memory_slot = Rc::new(RefCell::new(None));
     let captured_memory = memory_slot.clone();
@@ -334,7 +333,6 @@ fn ordinary_narrow_remainder_and_compound_arithmetic_still_trap() {
                     "checked-const.kgr",
                     "const VALUE: i8 = -128i8 % -1i8; fn main() -> i8 { VALUE }"
                 ),
-                Default::default(),
                 Default::default()
             )
             .is_err()

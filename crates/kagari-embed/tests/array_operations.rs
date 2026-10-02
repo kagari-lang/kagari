@@ -22,13 +22,13 @@ fn execute(source: &str) {
         } else {
             artifact.clone()
         };
-        let mut context = ExecutionContext::default();
-        context.capabilities.jit = jit;
-        context.language_profile.allow_jit = jit;
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
+        let context = ExecutionContext {
+            jit_policy: if jit {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -101,11 +101,7 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
     ] {
         assert!(
             engine
-                .compile_to_artifact(
-                    SourceFile::new("invalid.kgr", source),
-                    Default::default(),
-                    Default::default()
-                )
+                .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
                 .is_err(),
             "{source}"
         );

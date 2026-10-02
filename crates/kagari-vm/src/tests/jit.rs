@@ -246,7 +246,6 @@ fn jit_native_execution_reports_installed_artifact() {
     assert_eq!(jit.status, JitExecutionStatus::Native);
     assert!(jit.artifact.is_some());
     assert!(jit.diagnostics.is_empty());
-    assert_eq!(vm.runtime().resources().counters().instruction_steps, 2);
 }
 
 #[test]
@@ -345,7 +344,7 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
     );
 }
 
-fn debug_runtime(module_name: &str) -> Runtime {
+fn debug_runtime(_module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
         ..RuntimeConfig::default()
     })

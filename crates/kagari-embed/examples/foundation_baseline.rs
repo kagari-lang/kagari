@@ -38,11 +38,7 @@ fn main() {
         .set_source("baseline.kgr", source.clone(), SourceLayer::Base)
         .unwrap();
     let first = engine
-        .analyze(
-            engine.source_snapshot(),
-            Default::default(),
-            &Default::default(),
-        )
+        .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
     let initial = &first.file(file).unwrap().result().facts().typed;
     assert_eq!(initial.checked_bodies, 33);
@@ -52,11 +48,7 @@ fn main() {
         .unwrap();
     let start = Instant::now();
     let second = engine
-        .analyze(
-            engine.source_snapshot(),
-            Default::default(),
-            &Default::default(),
-        )
+        .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
     let edit_us = start.elapsed().as_micros();
     let changed = &second.file(file).unwrap().result().facts().typed;

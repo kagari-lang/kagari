@@ -176,13 +176,6 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let mut denied = context.clone();
-        denied.jit_policy = JitPolicy::Disabled;
-        denied.capabilities.fs_write = false;
-        assert!(runtime.execute(&loaded, "main", &[], &denied).is_err());
-        assert_eq!(total.get(), 40);
-        assert_eq!(*trace.borrow(), ["receiver", "argument"]);
-        trace.borrow_mut().clear();
         let mut backend =
             jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for expected in [42, 44] {

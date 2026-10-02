@@ -20,10 +20,9 @@ use kagari_runtime::{
     value::Value,
 };
 
-fn runtime(limit: Option<u64>) -> Runtime {
+fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: limit,
             ..Default::default()
         },
         ..Default::default()
@@ -57,7 +56,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 .id;
             let retained = Rc::new(RefCell::new(None));
             let result = retained.clone();
-            let mut runtime = runtime(None);
+            let mut runtime = runtime();
             runtime
                 .register_host_function(HostFunction::new(standard_log(), move |context, args| {
                     let runtime = context.runtime();
@@ -165,7 +164,12 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     .id;
                 let token = CancellationToken::default();
                 let cancellation = token.clone();
-                let mut runtime = runtime(None);
+                let mut runtime = Runtime::new(RuntimeConfig {
+                    limits: RuntimeLimits {
+                        max_call_depth: if cancel { Some(256) } else { Some(1) },
+                    },
+                    ..Default::default()
+                });
                 runtime.register_host_function(HostFunction::new(standard_log(), move |context, args| {
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
                     let temporary = Value::Array(context.runtime().alloc_array(&context.runtime().execution_root().unwrap(), AbiType::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
@@ -186,9 +190,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     .unwrap();
                 let mut options = runtime.execution_options();
                 options.cancellation = token;
-                if !cancel {
-                    options.resources.max_call_depth = Some(1);
-                }
+
                 let scope = runtime.begin_execution(&loaded, options).unwrap();
                 let mut vm = Vm::new(runtime);
                 let prepared = native_fixtures::unsupported();
@@ -263,7 +265,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
             .alloc_array(&foreign_module, AbiType::Builtin(BuiltinType::I32), vec![])
             .unwrap(),
     );
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
         called.set(called.get() + 1);
         let runtime = context.runtime();
@@ -315,7 +317,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
         let observed = Rc::new(RefCell::new(Vec::new()));
         let targets = versions.clone();
         let values = observed.clone();
-        let mut runtime = runtime(None);
+        let mut runtime = runtime();
         runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
             let root = context.runtime().execution_root().unwrap();
             for version in targets.borrow().iter() {
@@ -354,7 +356,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         .find(|f| f.name == "fail")
         .unwrap()
         .id;
-    let mut runtime = runtime(None);
+    let mut runtime = runtime();
     runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
         let root = context.runtime().execution_root().unwrap();
         let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
@@ -375,8 +377,8 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
 }
 
 #[test]
-fn native_safepoint_reports_cancellation_before_charging_the_instruction() {
-    let mut runtime = runtime(None);
+fn native_safepoint_reports_cancellation_at_the_current_instruction() {
+    let mut runtime = runtime();
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
     let loaded = runtime.load_program("native-cancel.kgr", module).unwrap();
     let native = native_fixtures::install_i32::<42>(&runtime, &loaded, false);
@@ -387,7 +389,7 @@ fn native_safepoint_reports_cancellation_before_charging_the_instruction() {
     token.cancel();
     assert!(matches!(runtime.invoke_native_function(&native),
         Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(error), .. }) if error.kind() == RuntimeErrorKind::Cancelled));
-    assert_eq!(session.counters().instruction_steps, 0);
+
     drop(session);
     assert_eq!(
         runtime.invoke_native_function(&native).unwrap(),
@@ -400,7 +402,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
     use std::{cell::Cell, rc::Rc};
     for encoded in [false, true] {
         for jit in [false, true] {
-            let mut runtime = runtime(None);
+            let mut runtime = runtime();
             let token = CancellationToken::default();
             let cancel = token.clone();
             let calls = Rc::new(Cell::new(0));
@@ -459,7 +461,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         };
         let calls = Rc::new(Cell::new(0));
         let observed = calls.clone();
-        let mut runtime = runtime(None);
+        let mut runtime = runtime();
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |_, _| {
                 observed.set(observed.get() + 1);
@@ -473,7 +475,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let mut vm = Vm::new(runtime);
         let error = vm.execute(candidate.module(), "main").unwrap_err();
         assert!(
-            matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+            matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
         assert!(vm.runtime().execution_root().is_none());
         assert_eq!(calls.get(), 0);
@@ -488,7 +490,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         );
         let error = vm.execute(candidate.module(), "main").unwrap_err();
         assert!(
-            matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+            matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
         assert_eq!(calls.get(), 0);
         drop(session);
@@ -517,7 +519,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
             .id;
         let captured = Rc::new(RefCell::new(None));
         let saved = captured.clone();
-        let mut runtime = runtime(None);
+        let mut runtime = runtime();
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |context, _| {
                 let value = Value::Enum(

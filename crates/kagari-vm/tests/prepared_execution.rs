@@ -43,10 +43,9 @@ fn compile(source: &str, optimize: bool) -> BytecodeProgram {
     .unwrap();
     lower_program_to_bytecode(&mir).unwrap()
 }
-fn setup(bytecode: BytecodeProgram, limit: Option<u64>) -> (Vm, LoadedModule) {
+fn setup(bytecode: BytecodeProgram) -> (Vm, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
-            max_instruction_steps: limit,
             ..Default::default()
         },
         ..Default::default()
@@ -99,7 +98,7 @@ fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> Prepa
 
 #[test]
 fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames() {
-    let (mut vm, module) = setup(compile("fn main() {}", false), None);
+    let (mut vm, module) = setup(compile("fn main() {}", false));
     assert_eq!(module.bytecode.functions[0].instructions.len(), 2);
     let preparation = prepared(&vm, &module, native_unit);
     let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
@@ -108,13 +107,13 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
     assert_eq!(jit.status, JitExecutionStatus::Native);
     assert_eq!(jit.artifact.unwrap().function, FunctionRef::new(0));
     assert!(jit.diagnostics.is_empty());
-    assert_eq!(vm.runtime().resources().counters().instruction_steps, 2);
+
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
 
 #[test]
 fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
-    let (mut vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false), None);
+    let (mut vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false));
     let preparation = PreparedNativeEntry::Unsupported {
         backend: BackendId::new("fixture"),
         diagnostics: vec!["unsupported operation".into()],
@@ -129,7 +128,7 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
 
 #[test]
 fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
-    let (mut vm, module) = setup(compile("fn main() {}", false), None);
+    let (mut vm, module) = setup(compile("fn main() {}", false));
     let preparation = prepared(&vm, &module, native_trap);
     let error = vm
         .execute_prepared(&module, "main", &preparation)
@@ -139,27 +138,14 @@ fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
     );
     assert_eq!(error.trace().unwrap().frames[0].instruction_offset, 0);
     // An interpreter restart would add the function's return charge and succeed.
-    assert_eq!(vm.runtime().resources().counters().instruction_steps, 1);
-    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
-}
 
-#[test]
-fn policy_changes_fall_back_before_native_entry() {
-    let (mut vm, module) = setup(compile("fn main() {}", false), None);
-    let preparation = prepared(&vm, &module, native_trap);
-    vm.runtime_mut().set_security_context(Default::default());
-    let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
-    assert_eq!(
-        report.jit.unwrap().status,
-        JitExecutionStatus::InterpreterFallback
-    );
-    assert_eq!(vm.runtime().resources().counters().instruction_steps, 2);
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
 
 #[test]
 fn prepared_function_identity_must_match_the_requested_entry() {
     let bytecode = compile("fn main() {} fn other() {}", false);
-    let (mut vm, module) = setup(bytecode, None);
+    let (mut vm, module) = setup(bytecode);
     let preparation = prepared(&vm, &module, native_unit);
     let error = vm
         .execute_prepared(&module, "other", &preparation)
@@ -167,11 +153,10 @@ fn prepared_function_identity_must_match_the_requested_entry() {
     assert!(
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
-    assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
 }
 
 #[test]
-fn optimized_execution_preserves_results_traps_and_every_budget_failure_point() {
+fn optimized_execution_preserves_results_traps_and_source_origins() {
     for source in [
         "fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }",
         "fn main() -> i8 { 127i8 + 1i8 }",
@@ -181,14 +166,14 @@ fn optimized_execution_preserves_results_traps_and_every_budget_failure_point() 
     ] {
         let original = compile(source, false);
         let optimized = compile(source, true);
-        for budget in 0..40 {
-            let (mut before, a) = setup(original.clone(), Some(budget));
-            let (mut after, b) = setup(optimized.clone(), Some(budget));
+        {
+            let (mut before, a) = setup(original.clone());
+            let (mut after, b) = setup(optimized.clone());
             let a = before.execute(&a, "main");
             let b = after.execute(&b, "main");
             match (a, b) {
                 (Ok(a), Ok(b)) => {
-                    assert_eq!(a.return_value, b.return_value, "{source} budget={budget}")
+                    assert_eq!(a.return_value, b.return_value, "{source}")
                 }
                 (Err(a), Err(b)) => {
                     let describe = |error: &VmError| match error.cause() {
@@ -196,19 +181,19 @@ fn optimized_execution_preserves_results_traps_and_every_budget_failure_point() 
                         VmError::BuiltinError(error) => (error.kind(), error.message().to_owned()),
                         error => panic!("unexpected error: {error:?}"),
                     };
-                    assert_eq!(describe(&a), describe(&b), "{source} budget={budget}");
+                    assert_eq!(describe(&a), describe(&b), "{source}");
                     let locations = |error: &VmError| {
                         error
                             .trace()
                             .unwrap()
                             .frames
                             .iter()
-                            .map(|frame| (frame.instruction_offset, frame.source_span))
+                            .map(|frame| frame.source_span)
                             .collect::<Vec<_>>()
                     };
-                    assert_eq!(locations(&a), locations(&b), "{source} budget={budget}");
+                    assert_eq!(locations(&a), locations(&b), "{source}");
                 }
-                (a, b) => panic!("execution differs for {source} budget={budget}: {a:?}, {b:?}"),
+                (a, b) => panic!("execution differs for {source}: {a:?}, {b:?}"),
             }
             assert_eq!(
                 before.runtime().resources().counters(),
@@ -222,17 +207,9 @@ fn optimized_execution_preserves_results_traps_and_every_budget_failure_point() 
 #[test]
 fn debugging_selects_interpreter_before_entering_native_code() {
     use kagari_vm::debug::DebugSession;
-    let (mut vm, module) = setup(compile("fn main() {}", false), None);
+    let (mut vm, module) = setup(compile("fn main() {}", false));
     let preparation = prepared(&vm, &module, native_trap);
-    let mut security = vm.runtime().security();
-    security.profile.allow_debugger = true;
-    security.capabilities.debug_attach = true;
-    vm.runtime_mut().set_security_context(security);
-    vm.runtime_mut()
-        .set_debug_visibility_policy(DebugVisibilityPolicy {
-            allow_all_modules: true,
-            ..Default::default()
-        });
+
     vm.attach_debug_session(DebugSession::new(vm.runtime()).unwrap())
         .unwrap();
     let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
@@ -240,20 +217,19 @@ fn debugging_selects_interpreter_before_entering_native_code() {
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none());
     assert!(jit.diagnostics[0].contains("observer"));
-    assert_eq!(vm.runtime().resources().counters().instruction_steps, 2);
 }
 
 #[test]
 fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
     let program = compile("fn main() {}", false);
-    let (mut vm, module) = setup(program.clone(), None);
+    let (mut vm, module) = setup(program.clone());
     let preparation = prepared(&vm, &module, native_unit);
     let new = vm.reload_program(&module, "test", program).unwrap();
     let error = vm.execute_prepared(&new, "main", &preparation).unwrap_err();
     assert!(
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
-    assert_eq!(vm.runtime().resources().counters().instruction_steps, 0);
+
     assert_eq!(
         vm.execute_prepared(&module, "main", &preparation)
             .unwrap()

@@ -4,7 +4,7 @@ This document defines Kagari debugger support.
 The target user experience is close to debugging Kotlin in IntelliJ IDEA: source breakpoints, stepping, stack frames, variable inspection, watch expressions, and stable behavior across hot reload.
 
 Debugger support is a host/tooling capability.
-It is not an ordinary script API and it must not bypass runtime security, host exposure policy, typed path mutation policy, or hot reload validation.
+It is not an ordinary script API and it must not bypass runtime security, installed interface contracts, typed path mutation policy, or hot reload validation.
 
 ## Design Goals
 
@@ -79,8 +79,7 @@ A debug session is created by the host.
 The session records:
 
 - runtime isolate id
-- security profile
-- debugger capabilities
+- host debugger configuration
 - visible module set
 - host object inspection policy
 - watch/evaluate policy
@@ -131,7 +130,7 @@ The baseline debugger supports:
 - temporary breakpoints
 - trap breakpoints
 - host call failure breakpoints
-- capability denial breakpoints
+- rejected access breakpoints
 
 Data breakpoints and watchpoint-style field mutation breakpoints are not baseline requirements.
 They may be added later by observing the committed typed-path dirty-record ledger.
@@ -236,7 +235,7 @@ The value inspector supports:
 - host handles as opaque values unless host policy exposes metadata
 - host path views through typed path read policy
 
-Value expansion must respect reflection and host exposure policy.
+Value expansion must respect reflection and installed interface contracts.
 Debugger inspection must not become an unrestricted reflection backdoor.
 
 ## Watch Expressions
@@ -256,18 +255,18 @@ The evaluator rejects:
 
 - assignment
 - path mutation
-- host calls without debug-evaluation permission
+- host calls outside supported debug evaluation
 - allocation-heavy operations beyond resource limits
 - suspension
 - operations requiring unavailable frame-scoped host borrows
 
 ## Evaluate Expression
 
-Evaluate Expression is optional and profile-gated.
+Evaluate Expression is an optional host tooling feature.
 
 When enabled, it uses the same evaluator as watch expressions but may allow a larger expression subset according to host policy.
 Side-effecting evaluation is disabled by default.
-If an embedding enables side effects, they must run through ordinary runtime capability checks, host exposure checks, typed path policy, and resource limits.
+If an embedding enables side effects, they must run through ordinary installed interfaces, typed path contracts, cancellation and call-depth limits.
 
 ## Trap and Exception Breakpoints
 
@@ -276,7 +275,7 @@ The debugger can pause on:
 - script traps
 - runtime type errors
 - bytecode verification failures during load
-- capability denials
+- rejected interface access
 - resource limit failures
 - host call failures
 - reload validation failures
@@ -325,23 +324,13 @@ observer forces pre-entry interpreter fallback even when descriptor flags claim
 complete debug metadata. Native debugger participation requires actual callbacks,
 not flags alone. Arbitrary native instruction debugging is outside the baseline.
 
-## Security
+## Host Tooling Boundary
 
-Debugger capabilities are separate from reflection capabilities.
-
-Useful debugger capabilities include:
-
-- attach debugger
-- set breakpoints
-- pause execution
-- inspect stack
-- inspect local values
-- inspect host-exposed values
-- evaluate read-only expressions
-- evaluate side-effecting expressions
-
-Restricted profiles may disable debugger attachment entirely.
-Debugger operations must observe resource limits and host exposure policy.
+The host chooses whether to attach a debugger. Breakpoints, stepping and inspection
+use ordinary runtime validation without a separate permission matrix. Inspecting
+host values respects declared metadata, member visibility and valid lifetimes.
+Expression evaluation retains its supported read-only semantics; this change does
+not add side-effecting evaluation or native observer support.
 
 ## Debug Metadata Requirements
 

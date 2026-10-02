@@ -250,14 +250,15 @@ attribute_value ::= literal
 Notes:
 
 - `const` is the syntax for compile-time immutable values.
-- attributes provide the extensibility point for features such as reflection and security annotations
+- attributes provide the extensibility point for features such as reflection and tooling annotations
 - Only outer `#[...]` attributes are supported. The legacy `@...` form and
   inner `#![...]` attributes are rejected. This syntax does not introduce macros.
-- examples of intended uses include `#[reflect]`, `#[requires(...)]`, and `#[profile(...)]`
+- an intended future use is `#[reflect]`
 - `#[meta(...)]` and names under `#[tool::...]` are preserved as structured,
   source-positioned analysis metadata. They do not change runtime behavior.
-  `#[reflect]`, `#[requires]`, and `#[profile]` are reserved and diagnosed until their
-  behavior is implemented; other unqualified names are diagnosed as unknown.
+  `#[reflect]` is reserved and diagnosed until its behavior is implemented.
+  Legacy `#[requires]` and `#[profile]` remain rejected; they do not establish
+  runtime permissions. Other unqualified names are diagnosed as unknown.
 - `pub` and `pub(super)` are the explicit visibility markers in the source syntax
 - unmarked declarations are private in their containing scope
 - public top-level items form the module's public interface
@@ -782,8 +783,8 @@ can eliminate a value of an uninhabited type. User-defined zero-variant enums
 remain distinct types. No arbitrary trait obligations
 are waived because a value or expression is uninhabited.
 
-Never does not mean unbudgeted execution: loops and recursive calls retain their
-logical budgets, cancellation points, roots and cleanup. It does not change trap
+Loops and recursive calls returning Never retain cooperative cancellation,
+call-depth limits, roots and cleanup. It does not change trap
 categories or roll back side effects completed before a trap.
 
 ### Expressions
@@ -911,7 +912,7 @@ literal         ::= INTEGER
   lazy ascending cursor. `..` excludes the end and `..=` includes it. Reversed
   finite bounds iterate zero times. Inclusive iteration through the integer maximum
   terminates normally. Open-ended iteration traps when the next value would exceed
-  its integer type. Iteration consumes execution budget per step.
+  its integer type. Iteration retains cooperative cancellation points.
 - Collect explicitly when storage is needed, for example
   `(0..4).iter().collect::<ArrayList<i32>>()`. Ranges without a start are bounds
   descriptions, not iterable sequences. All six forms implement `RangeBounds<T>`
@@ -1161,7 +1162,7 @@ and may contain blocks, closures, strings or nested interpolated strings.
 
 Each expression is evaluated once and immediately formatted, from left to right.
 The next expression runs only after the previous formatting call returns. `?`,
-return, trap, cancellation and budget exhaustion keep their ordinary behavior;
+return, trap, cancellation and call-depth failure keep their ordinary behavior;
 when evaluation exits, later holes do not run. Completed effects are not rolled
 back. Display/Debug implementations may themselves contain interpolation.
 

@@ -92,13 +92,13 @@ implementation to this scope. `kagari-ffi` is recorded only as the future extern
 C adapter boundary. Activation, phase breakdown and implementation acceptance
 checks remain pending; this queue entry is the progress record until activation.
 
-## Installation access and cancellation (active)
+## Installation access and cancellation (complete)
 
-The [execution policy plan](execution-policy-refactor.md) is now active before
-further standard-library work. Remove duplicate authorization and execution
-charging; retain installation-defined access, cooperative root cancellation,
-runtime call-depth protection and correctness checks. No max_work or general heap
-quota replaces the removed budget system. The plan owns EP01-EP03 and its ledger.
+The [execution policy plan](execution-policy-refactor.md) completed EP01-EP03 on
+2026-10-02. Duplicate authorization and execution charging are removed; installed
+interfaces, cooperative root cancellation, runtime call-depth protection and
+correctness checks remain. No max_work or general heap quota replaces charging.
+The plan records the passing workspace, standalone feature/JIT checks and baseline.
 ABI/common ownership cleanup remains queued separately; capability and cost fields
 are deleted here rather than moved to the future contract crate.
 

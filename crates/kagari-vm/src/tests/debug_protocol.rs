@@ -9,7 +9,7 @@ use crate::{
     vm::Vm,
 };
 
-fn debug_runtime(module_name: &str) -> Runtime {
+fn debug_runtime(_module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
         ..RuntimeConfig::default()
     })

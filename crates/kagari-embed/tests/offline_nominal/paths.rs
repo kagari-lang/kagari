@@ -111,12 +111,6 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let mut denied = context.clone();
-        denied.capabilities.fs_read = false;
-        denied.jit_policy = JitPolicy::Disabled;
-        let denied_error = runtime.execute(&loaded, "main", &[], &denied).unwrap_err();
-        assert_eq!(*trace.borrow(), ["root"], "{denied_error:?}");
-        trace.borrow_mut().clear();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             let prepared = runtime
@@ -389,20 +383,6 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     Default::default(),
                 )
                 .unwrap();
-            assert!(
-                engine
-                    .compile_to_artifact(
-                        SourceFile::new("denied.kgr", text),
-                        CompileOptions {
-                            language_profile: LanguageProfile {
-                                allow_path_mutation: false,
-                                ..profile
-                            }
-                        },
-                        Default::default()
-                    )
-                    .is_err()
-            );
             for (encoded, jit) in [(false, false), (true, false), (true, true)] {
                 let artifact = if encoded {
                     KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()

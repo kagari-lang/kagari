@@ -282,9 +282,6 @@ pub enum DiagnosticKind {
     },
     BreakOutsideLoop,
     ContinueOutsideLoop,
-    ProfileFeatureDisabled {
-        feature: &'static str,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -442,7 +439,6 @@ impl DiagnosticKind {
             Self::ReturnTypeMismatch { .. } => "KG_TYPE_RETURN_TYPE_MISMATCH",
             Self::BreakOutsideLoop => "KG_TYPE_BREAK_OUTSIDE_LOOP",
             Self::ContinueOutsideLoop => "KG_TYPE_CONTINUE_OUTSIDE_LOOP",
-            Self::ProfileFeatureDisabled { .. } => "KG_PROFILE_FEATURE_DISABLED",
         }
     }
 }
@@ -766,9 +762,6 @@ impl Display for DiagnosticKind {
             ),
             Self::BreakOutsideLoop => write!(f, "`break` used outside of a loop"),
             Self::ContinueOutsideLoop => write!(f, "`continue` used outside of a loop"),
-            Self::ProfileFeatureDisabled { feature } => {
-                write!(f, "language profile disables {feature}")
-            }
         }
     }
 }

@@ -6,9 +6,8 @@
 //! survive. Pass work limits bound compilation, not script execution.
 use kagari_common::cancellation::CancellationToken;
 
-use crate::{
-    instruction::Instruction,
-    verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir},
+use crate::verify::{
+    MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir,
 };
 mod constants;
 mod dead;

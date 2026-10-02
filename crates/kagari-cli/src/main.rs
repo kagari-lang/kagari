@@ -492,7 +492,7 @@ impl CliError {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, CliProfile, Command, run_cli};
+    use super::{Cli, Command, run_cli};
     use kagari_embed::BytecodeArtifact;
     use std::{
         fs,
@@ -506,14 +506,14 @@ mod tests {
     }
 
     #[test]
-    fn parses_pipeline_commands_and_profiles() {
+    fn parses_pipeline_commands() {
         assert_eq!(
-            parse(&["parse", "--profile", "restricted", "main.kgr"]),
+            parse(&["parse", "main.kgr"]),
             Cli {
                 command: Command::Parse {
                     source: PathBuf::from("main.kgr"),
                 },
-                profile: CliProfile::Restricted,
+
                 jit: false,
             }
         );
@@ -535,12 +535,12 @@ mod tests {
     #[test]
     fn parses_leading_options_for_implicit_run() {
         assert_eq!(
-            parse(&["--profile", "restricted", "main.kgr"]),
+            parse(&["main.kgr"]),
             Cli {
                 command: Command::RunSource {
                     source: PathBuf::from("main.kgr"),
                 },
-                profile: CliProfile::Restricted,
+
                 jit: false,
             }
         );
@@ -549,12 +549,12 @@ mod tests {
     #[test]
     fn parses_source_artifact_and_jit_run_modes() {
         assert_eq!(
-            parse(&["run", "--jit", "--profile", "tooling", "main.kgr"]),
+            parse(&["run", "--jit", "main.kgr"]),
             Cli {
                 command: Command::RunSource {
                     source: PathBuf::from("main.kgr"),
                 },
-                profile: CliProfile::Tooling,
+
                 jit: true,
             }
         );
@@ -610,7 +610,7 @@ mod tests {
         })
         .expect("emit command should succeed");
 
-        let emitted =
+        let _emitted =
             BytecodeArtifact::from_bytes(&fs::read(&artifact).expect("artifact should exist"))
                 .expect("artifact should decode");
 

@@ -1594,7 +1594,7 @@ Implemented foundation slices:
   release frames, temporary roots, candidate quota and retention, and leave a later
   ordinary root and a fresh reload attempt usable without quarantining the runtime.
   Candidate handles cache terminal initialization errors across session teardown.
-  Entry cancellation, cancellation observed on session exit, and budget exhaustion
+  Entry cancellation, call-depth failure observed on session exit, and budget exhaustion
   prevent both retry and publication even for modules without initializer code.
   Staged root sessions require the dedicated candidate entry; setting the phase on
   an ordinary execution request cannot bypass that lifecycle.

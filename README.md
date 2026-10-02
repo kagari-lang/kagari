@@ -6,7 +6,7 @@ The current goal of the project is to build a language system suitable for embed
 
 ## Project Status
 
-Kagari is still an early language, but the repository now contains an end-to-end implementation slice. The implemented pipeline includes parsing, semantic analysis, IR lowering, bytecode lowering and verification, `.kbc` artifact construction and validation, VM execution, hot-reload validation metadata, host registration boundaries, runtime security profiles, debugger hooks, and an optional baseline Cranelift JIT backend.
+Kagari is still an early language, but the repository now contains an end-to-end implementation slice. The implemented pipeline includes parsing, semantic analysis, IR lowering, bytecode lowering and verification, `.kbc` artifact construction and validation, VM execution, hot-reload validation metadata, host registration boundaries, cooperative cancellation, debugger hooks, and an optional baseline Cranelift JIT backend.
 
 This currently means:
 
@@ -107,7 +107,7 @@ cargo run -p kagari-cli -- run-artifact path/to/main.kbc
 ```
 
 An implicit path selects `run-artifact` for `.kbc` files and `run` for other paths.
-Profiles are selected with `--profile restricted`, `--profile dev`, or `--profile tooling`.
+Installed interfaces determine available APIs; execution supports cancellation and a runtime call-depth limit.
 `--jit` requests JIT execution when the binary is built with the `jit` feature; `--no-jit` forces interpreter execution.
 
 ## Standard Library
@@ -148,7 +148,7 @@ The current codebase includes:
 - Bounded lowering from checked source to concrete verified MIR, sealed analyses and bytecode
 - A complete typed core standard library surface for arrays, maps, sets, strings, options, results, iterables, math, and debug helpers
 - `.kbc` artifact metadata, validation, and current Rust serialization helpers
-- Runtime values, host function/type registration, capability checks, resource policy, module epochs, and reload validation
+- Runtime values, host function/type registration, declared access checks, cancellation, module epochs, and reload validation
 - A bytecode VM with debugger hooks, breakpoint resolution, stepping state, watch evaluation, and adapter-boundary request/event types
 - An optional verified-MIR Cranelift compiler behind `CodegenBackend`, with runtime-owned invocation
 - A CLI and embedding facade that share compile, artifact, load, execute, and reload boundaries

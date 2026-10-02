@@ -16,7 +16,7 @@ impl Runtime {
 
     pub(super) fn reject_candidate_external_access(&self) -> Result<(), RuntimeError> {
         if self.is_candidate_initialization() {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "external state access during candidate initialization",
             ));
         }
@@ -50,7 +50,7 @@ impl Runtime {
                     .iter()
                     .any(|parameter| parameter.passing != HostPassingStyle::Owned))
         {
-            return Err(RuntimeError::capability_denied(
+            return Err(RuntimeError::execution_phase_violation(
                 "external host effects during candidate initialization",
             ));
         }

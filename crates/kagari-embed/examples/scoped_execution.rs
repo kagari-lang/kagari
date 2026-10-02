@@ -1,4 +1,4 @@
-//! Per-call budgets and cooperative cancellation without changing runtime defaults.
+//! Independent execution sessions and cooperative cancellation.
 
 use kagari_common::source::SourceFile;
 use kagari_embed::{
@@ -29,21 +29,15 @@ fn main() {
             .execute(&loaded, "missing", &[], &ExecutionContext::default())
             .is_err()
     );
-    assert_eq!(
-        runtime.runtime().resources().counters().instruction_steps,
-        0
-    );
+
     println!("missing entry was rejected before any initializer instruction");
-    let mut context = ExecutionContext::default();
-    context.resources.max_instruction_steps = Some(2);
+    let context = ExecutionContext::default();
+
     for _ in 0..2 {
         let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
         assert_eq!(report.return_value, Value::I32(42));
     }
-    assert_eq!(
-        runtime.runtime().resources().counters().instruction_steps,
-        4
-    );
+
     // A host can keep a clone of this token to request cancellation.
     context.cancellation.cancel();
     assert_eq!(
@@ -61,7 +55,9 @@ fn main() {
             .return_value,
         Value::I32(42)
     );
-    println!("two independent budgets completed; cancellation left the runtime reusable");
+    println!(
+        "two independent execution sessions completed; cancellation left the runtime reusable"
+    );
     // A crafted product with two equally named entry functions must not pick one.
     let ambiguous = engine
         .compile_to_artifact(
@@ -88,7 +84,7 @@ fn main() {
     let loaded = runtime
         .load_program(&program, LoadOptions::default())
         .unwrap();
-    let before = runtime.runtime().resources().counters().instruction_steps;
+
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &fresh)
@@ -96,9 +92,6 @@ fn main() {
             .code(),
         "KG_BYTECODE_VERIFICATION_FAILED"
     );
-    assert_eq!(
-        runtime.runtime().resources().counters().instruction_steps,
-        before
-    );
+
     println!("ambiguous entry was rejected before script execution");
 }

@@ -67,23 +67,23 @@ fn deterministic_inputs_and_random_stream_belong_to_the_root_session() {
 }
 
 #[test]
-fn nested_scopes_inherit_permissions_budget_and_lifetime_even_if_outer_drops_first() {
+fn nested_scopes_share_cancellation_and_lifetime_even_if_outer_drops_first() {
     let mut runtime = Runtime::default();
     let module = load(&mut runtime, "main");
-    let mut options = runtime.execution_options();
-    options.resources.max_instruction_steps = Some(2);
+    let options = runtime.execution_options();
+
+    let token = options.cancellation.clone();
     let outer = runtime.begin_execution(&module, options.clone()).unwrap();
     runtime.resources().poll_execution().unwrap();
-    let mut escalation = options.clone();
-    escalation.resources.max_instruction_steps = None;
-    escalation.security.profile.allow_host_calls = true;
-    escalation.security.capabilities.host_calls = true;
+    let escalation = options.clone();
+
     let nested = runtime.begin_execution(&module, escalation).unwrap();
-    assert!(!runtime.security().allows_host_calls());
+
     runtime.resources().poll_execution().unwrap();
+    token.cancel();
     let error = runtime.resources().poll_execution().unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-    assert_eq!(nested.counters().instruction_steps, 2);
+    assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
+
     drop(outer);
     assert!(runtime.resources().poll_execution().is_err());
     assert_eq!(
@@ -102,32 +102,11 @@ fn nested_scopes_inherit_permissions_budget_and_lifetime_even_if_outer_drops_fir
         0
     );
     assert!(runtime.resources().termination().is_none());
-    let next = runtime.begin_execution(&module, options).unwrap();
-    runtime.resources().poll_execution().unwrap();
-    runtime.resources().poll_execution().unwrap();
-    assert_eq!(next.counters().instruction_steps, 2);
-    assert_eq!(runtime.resources().counters().instruction_steps, 4);
-}
-
-#[test]
-fn root_permissions_and_host_policy_are_fixed_until_last_scope_exits() {
-    let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
-    let session = runtime
+    let _next = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
-    let mut security = runtime.security();
-    security.profile.allow_host_calls = true;
-    security.capabilities.host_calls = true;
-    runtime.set_security_context(security);
-    let mut exposure = (*runtime.host_exposure()).clone();
-    exposure.allowed_host_functions.push("new.host".into());
-    runtime.set_host_exposure_policy(exposure);
-    assert!(!runtime.security().allows_host_calls());
-    assert!(!runtime.host_exposure().exposes_host_function("new.host"));
-    drop(session);
-    assert!(runtime.security().allows_host_calls());
-    assert!(runtime.host_exposure().exposes_host_function("new.host"));
+    runtime.resources().poll_execution().unwrap();
+    runtime.resources().poll_execution().unwrap();
 }
 
 #[test]
@@ -200,46 +179,12 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
             .active_calls,
         0
     );
-    let next = runtime
+    let _next = runtime
         .begin_execution(&module, runtime.execution_options())
         .unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().array_len(object).is_none());
     runtime.resources().poll_execution().unwrap();
-    assert_eq!(next.counters().instruction_steps, 1);
-}
-
-#[test]
-fn each_root_gets_an_allocation_budget_while_live_heap_and_cumulative_counts_persist() {
-    let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
-    let mut options = runtime.execution_options();
-    options.resources.max_allocation_units = Some(2);
-    let mut roots = Vec::new();
-    for index in 1..=2 {
-        let session = runtime.begin_execution(&module, options.clone()).unwrap();
-        let array = runtime
-            .alloc_array(
-                &module,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(index)],
-            )
-            .unwrap();
-        roots.push(runtime.root_value(Value::Array(array)).unwrap());
-        assert_eq!(session.counters().allocation_units, 2);
-        assert!(
-            runtime
-                .alloc_array(&module, AbiType::Builtin(BuiltinType::I32), vec![])
-                .is_err()
-        );
-        drop(session);
-    }
-    assert_eq!(runtime.resources().counters().allocation_units, 4);
-    assert_eq!(runtime.resources().counters().current_heap_units, 4);
-    drop(roots);
-    runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.resources().counters().current_heap_units, 0);
-    assert_eq!(runtime.resources().counters().allocation_units, 4);
 }
 
 #[test]
@@ -266,26 +211,6 @@ fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
 }
 
 #[test]
-fn zero_wall_budget_rejects_before_counter_charges() {
-    let mut runtime = Runtime::default();
-    let module = load(&mut runtime, "main");
-    let mut options = runtime.execution_options();
-    options.resources.max_wall_time_ms = Some(0);
-    let before = runtime.resources().counters();
-    let error = runtime.begin_execution(&module, options).err().unwrap();
-    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-    assert!(error.message().contains("wall time"));
-    assert_eq!(runtime.resources().counters(), before);
-    assert_eq!(
-        runtime
-            .modules()
-            .retention_counts(module.key())
-            .active_calls,
-        0
-    );
-}
-
-#[test]
 fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session() {
     use kagari_common::host_interface::{
         HostFunctionDeclaration, HostFunctionEffects, value_type::HostValueType,
@@ -294,14 +219,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     use std::{cell::Cell, rc::Rc};
 
     let mut runtime = Runtime::default();
-    let mut security = runtime.security();
-    security.profile.allow_host_calls = true;
-    security.capabilities.host_calls = true;
-    runtime.set_security_context(security);
-    runtime.set_host_exposure_policy(HostExposurePolicy {
-        allow_host_functions: true,
-        ..Default::default()
-    });
+
     let calls = Rc::new(Cell::new(0));
     for (symbol, effects) in [
         (
@@ -369,7 +287,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     for symbol in ["service", "mutation", "suspend"] {
         assert_eq!(
             runtime.invoke_host(symbol, &[]).unwrap_err().kind(),
-            RuntimeErrorKind::CapabilityDenied
+            RuntimeErrorKind::ExecutionPhaseViolation
         );
     }
     // Reject before descriptor lookup, argument traversal, adapters or dirty records.
@@ -379,14 +297,14 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
             .read_host_path(&Value::Unit, missing, vec![])
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::CapabilityDenied
+        RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert_eq!(
         runtime
             .set_host_path(&Value::Unit, missing, vec![], Value::Unit)
             .unwrap_err()
             .kind(),
-        RuntimeErrorKind::CapabilityDenied
+        RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert!(runtime.host_dirty_paths().is_empty());
     assert_eq!(runtime.resources().counters(), before);
@@ -413,7 +331,7 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
             .err()
             .expect("ordinary session must reject candidate entry")
             .kind(),
-        RuntimeErrorKind::CapabilityDenied
+        RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
 }
@@ -423,14 +341,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     use kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
     use kagari_runtime::host::HostFunction;
     let mut runtime = Runtime::default();
-    let mut security = runtime.security();
-    security.profile.allow_host_calls = true;
-    security.capabilities.host_calls = true;
-    runtime.set_security_context(security);
-    runtime.set_host_exposure_policy(HostExposurePolicy {
-        allow_host_functions: true,
-        ..Default::default()
-    });
+
     let baseline = load(&mut runtime, "main");
     let old_object = runtime
         .alloc_array(
@@ -513,7 +424,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     assert_eq!(
         runtime.invoke_host("old", &[]).unwrap_err().kind(),
-        RuntimeErrorKind::CapabilityDenied
+        RuntimeErrorKind::ExecutionPhaseViolation
     );
     let fresh = runtime.invoke_host("fresh", &[]).unwrap();
     let fresh = runtime.root_value(fresh).unwrap();
@@ -545,7 +456,7 @@ fn candidate_module_state_access_is_limited_to_its_program() {
         assert!(runtime.module_instance_snapshot(external).is_none());
         assert_eq!(
             runtime.module_instance_mut(external).unwrap_err().kind(),
-            RuntimeErrorKind::CapabilityDenied
+            RuntimeErrorKind::ExecutionPhaseViolation
         );
         assert!(
             runtime
@@ -622,7 +533,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
                 .unwrap();
             let error = runtime.publish_staged_reload(candidate).unwrap_err();
             assert!(
-                matches!(error, ReloadValidationError::Runtime(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+                matches!(error, ReloadValidationError::Runtime(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
             );
             assert_eq!(
                 runtime.modules().latest("main").unwrap().key(),
@@ -653,7 +564,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
 
 #[test]
 fn candidate_termination_is_cached_after_the_session_is_dropped() {
-    for mode in 0..3 {
+    for mode in 0..2 {
         let mut runtime = Runtime::default();
         let baseline = load(&mut runtime, "main");
         let candidate = runtime
@@ -672,27 +583,16 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
         let mut options = runtime.execution_options();
         let token = CancellationToken::default();
         options.cancellation = token.clone();
-        if mode == 2 {
-            options.resources.max_instruction_steps = Some(0);
-        }
         let outer = runtime.begin_execution(&baseline, options).unwrap();
         if mode == 0 {
             token.cancel();
         }
-        let expected = if mode == 2 {
-            RuntimeErrorKind::ResourceLimitExceeded
-        } else {
-            RuntimeErrorKind::Cancelled
-        };
+        let expected = RuntimeErrorKind::Cancelled;
         if mode == 0 {
             assert!(runtime.begin_candidate_initialization(&candidate).is_err());
         } else {
             let session = runtime.begin_candidate_initialization(&candidate).unwrap();
-            if mode == 1 {
-                token.cancel();
-            } else {
-                assert!(runtime.resources().poll_execution().is_err());
-            }
+            token.cancel();
             drop(session);
         }
         assert_eq!(candidate.initialization_error().unwrap().kind(), expected);

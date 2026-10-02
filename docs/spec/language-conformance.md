@@ -18,8 +18,7 @@ fixtures must fail the checked-analysis boundary before any backend runs.
 
 Selected scalar overflow fixtures require a recorded native invocation on both
 source/JIT and artifact/JIT routes. They
-cover add/subtract/multiply/negate, intermediate overflow, and budget exhaustion
-before arithmetic. Division uses the existing interpreter fallback. Runtime
+cover add/subtract/multiply/negate and intermediate overflow. Division uses the existing interpreter fallback. Runtime
 failures retain their structured category across the native ABI; they never
 trigger a second execution through fallback. Path arithmetic has focused tests
 for unchanged target state, zero write callbacks and zero dirty records on failure.
@@ -41,7 +40,7 @@ explicit rooted handle in each runtime. Calls are recorded alongside ordinary ho
 calls. After execution the fixture checks that only the observer root remains,
 collects garbage and compares the retained array contents. This covers completed
 writes surviving overflow/index traps, host rejection, cancellation and instruction
-budget exhaustion, removed targets staying removed, and compound
+cancellation, removed targets staying removed, and compound
 assignment reading a value changed by its RHS. It exercises JIT fallback for these
 container operations. Heap mutation event records and observers for other object
 kinds remain pending; final contents do not establish a full write-event trace.
@@ -55,8 +54,8 @@ test is evidence of conformance.
 
 Cancellation fixtures install an explicit execution session and request cancellation
 from a committed host log callback. Rejection is a distinct outcome: it records the
-call without committing its log append. Budget fixtures finish their initial heap
-and host writes, then exhaust the instruction budget in the compound assignment's
+call without committing its log append. Loop-cancellation fixtures finish their initial heap
+and host writes, then request cancellation in the compound assignment's
 RHS. In all three cases no final assignment is committed, and call-depth/root
 cleanup is checked before post-execution collection and observation. Cancellation
 and host-rejection positions count the full host-call sequence, including the array
@@ -100,7 +99,7 @@ R02 acceptance evidence (run the shared command above):
 | Source and expected value/diagnostic | `Case`, `compile`, `assert_outcome`; invalid programs stop before code generation |
 | Host calls and modification records | `RecordingHost`, ordered arguments, commits and final log; rejection has no commit |
 | Value/expression contract | Scalar/tuple/enum values, mutable identity and aliases, shallow copies, evaluation order, overflow and compound assignment |
-| Failure contract | Rooted post-trap array contents, rejected writes, cancellation/budget termination and cleanup |
+| Failure contract | Rooted post-trap array contents, rejected writes, cancellation and call-depth termination and cleanup |
 | Module contract | Diamond and cyclic imports link without executing code at load time |
 | Activation contract | Successful publication, stale candidate rejection, pinned old dependency closure |
 | Backend/load equivalence | Fresh source/artifact × interpreter/JIT runtimes; selected scalar fixtures require native invocation |

@@ -7,6 +7,7 @@ mod native_boundary_interfaces;
 mod native_boundary_resources;
 mod native_boundary_sessions;
 mod native_boundary_storage;
+mod support;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
