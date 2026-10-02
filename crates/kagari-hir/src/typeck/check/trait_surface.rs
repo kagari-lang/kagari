@@ -212,7 +212,10 @@ pub(super) fn validate_trait_surface(
                     && kind != Protocol::From
                     && !matches!(
                         for_ty,
-                        TypeId::Struct(_) | TypeId::Enum(_) | TypeId::Host(_)
+                        TypeId::NativeObject(_)
+                            | TypeId::Struct(_)
+                            | TypeId::Enum(_)
+                            | TypeId::Host(_)
                     )
         }) {
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidTraitImpl { trait_name: trait_name.clone(), type_name: type_name.clone(), reason: "standard operator/equality impls require a script Struct or enum; formatting requires a nominal receiver".into() }).with_span(lowered.source_map.impl_span(impl_block.id)));
@@ -315,7 +318,11 @@ pub(super) fn validate_interface_type(
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
-    if let TypeId::Struct(nominal) | TypeId::Enum(nominal) | TypeId::Trait(nominal) = ty {
+    if let TypeId::NativeObject(nominal)
+    | TypeId::Struct(nominal)
+    | TypeId::Enum(nominal)
+    | TypeId::Trait(nominal) = ty
+    {
         for argument in &nominal.arguments {
             validate_interface_type(
                 lowered,

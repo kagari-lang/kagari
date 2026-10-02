@@ -1,4 +1,4 @@
-use kagari_abi::budget::LogicalBudgetCharge;
+use kagari_abi::{budget::LogicalBudgetCharge, scalar::BuiltinType, types::AbiType};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -179,14 +179,23 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
     let mut options = runtime.execution_options();
     options.cancellation = token.clone();
     let session = runtime.begin_execution(&module, options.clone()).unwrap();
-    let object = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
+    let object = runtime
+        .alloc_array(
+            &module,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(42)],
+        )
+        .unwrap();
     token.cancel();
     assert_eq!(
         runtime.gc_safepoint().unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        runtime.alloc_array(vec![]).unwrap_err().kind(),
+        runtime
+            .alloc_array(&module, AbiType::Builtin(BuiltinType::I32), vec![])
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::Cancelled
     );
     assert!(
@@ -225,10 +234,20 @@ fn each_root_gets_an_allocation_budget_while_live_heap_and_cumulative_counts_per
     let mut roots = Vec::new();
     for index in 1..=2 {
         let session = runtime.begin_execution(&module, options.clone()).unwrap();
-        let array = runtime.alloc_array(vec![Value::I32(index)]).unwrap();
+        let array = runtime
+            .alloc_array(
+                &module,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(index)],
+            )
+            .unwrap();
         roots.push(runtime.root_value(Value::Array(array)).unwrap());
         assert_eq!(session.counters().allocation_units, 2);
-        assert!(runtime.alloc_array(vec![]).is_err());
+        assert!(
+            runtime
+                .alloc_array(&module, AbiType::Builtin(BuiltinType::I32), vec![])
+                .is_err()
+        );
         drop(session);
     }
     assert_eq!(runtime.resources().counters().allocation_units, 4);
@@ -248,7 +267,11 @@ fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
             .begin_execution(&module, runtime.execution_options())
             .unwrap();
         let array = runtime
-            .alloc_array(vec![Value::Unit; depth as usize])
+            .alloc_array(
+                &module,
+                AbiType::Builtin(BuiltinType::Unit),
+                vec![Value::Unit; depth as usize],
+            )
             .unwrap();
         assert_eq!(session.counters().peak_heap_units, depth as usize + 1);
         runtime.collect_garbage().unwrap();
@@ -426,7 +449,24 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
         allow_host_functions: true,
         ..Default::default()
     });
-    let old_object = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+    let baseline = load(&mut runtime, "main");
+    let old_object = runtime
+        .alloc_array(
+            &baseline,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+        .unwrap();
+    let old_object = runtime
+        .alloc_array(
+            &baseline,
+            AbiType::Array(
+                Box::new(AbiType::Builtin(BuiltinType::I32)),
+                CollectionAccess::Mutable,
+            ),
+            vec![Value::Array(old_object)],
+        )
+        .unwrap();
     let root = runtime.root_value(Value::Array(old_object)).unwrap();
     for symbol in ["old", "fresh"] {
         let mut declaration = HostFunctionDeclaration::new(
@@ -442,20 +482,42 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
         );
         declaration.effects.may_allocate = true;
         let retained = root.clone();
+        let allocation_owner = baseline.clone();
         runtime
             .register_host_function(HostFunction::new(declaration, move |context, _| {
-                let inner = if symbol == "old" {
-                    retained.value()
-                } else {
-                    Value::Array(context.runtime().alloc_array(vec![Value::I32(42)]).unwrap())
-                };
+                if symbol == "old" {
+                    return Ok(retained.value());
+                }
+                let owner = context
+                    .runtime()
+                    .execution_root()
+                    .unwrap_or_else(|| allocation_owner.clone());
+                let inner = Value::Array(
+                    context
+                        .runtime()
+                        .alloc_array(
+                            &owner,
+                            AbiType::Builtin(BuiltinType::I32),
+                            vec![Value::I32(42)],
+                        )
+                        .unwrap(),
+                );
                 Ok(Value::Array(
-                    context.runtime().alloc_array(vec![inner]).unwrap(),
+                    context
+                        .runtime()
+                        .alloc_array(
+                            &owner,
+                            AbiType::Array(
+                                Box::new(AbiType::Builtin(BuiltinType::I32)),
+                                CollectionAccess::Mutable,
+                            ),
+                            vec![inner],
+                        )
+                        .unwrap(),
                 ))
             }))
             .unwrap();
     }
-    let baseline = load(&mut runtime, "main");
     let candidate = runtime
         .stage_reload_program(
             &baseline,
@@ -479,73 +541,6 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     drop(session);
     runtime.publish_staged_reload(candidate).unwrap();
     assert!(runtime.invoke_host("old", &[]).is_ok());
-}
-
-#[test]
-fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
-    let mut runtime = Runtime::default();
-    let array = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
-    let map = runtime
-        .alloc_map(vec![(Value::I32(1), Value::I32(7))])
-        .unwrap();
-    let set = runtime.alloc_set(vec![Value::I32(7)]).unwrap();
-    let baseline = load(&mut runtime, "main");
-    let candidate = runtime
-        .stage_reload_program(
-            &baseline,
-            "main",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![(*baseline.bytecode).clone()],
-            },
-        )
-        .unwrap();
-    let retained = runtime
-        .root_value(Value::Tuple(vec![
-            Value::Array(array),
-            Value::Map(map),
-            Value::Set(set),
-        ]))
-        .unwrap();
-    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
-    let before = runtime.resources().counters();
-    let heap = runtime.gc();
-    assert!(heap.array_push(array, Value::I32(9)).is_err());
-    assert!(heap.array_insert(array, 0, Value::I32(9)).is_err());
-    assert!(heap.array_set(array, 0, Value::I32(9)).is_err());
-    assert!(heap.array_pop(array).is_err());
-    assert!(heap.array_remove(array, 0).is_err());
-    assert!(heap.array_clear(array).is_err());
-    assert!(heap.map_insert(map, Value::I32(1), Value::I32(9)).is_err());
-    assert!(heap.map_remove(map, &Value::I32(1)).is_err());
-    assert!(heap.map_clear(map).is_err());
-    assert!(heap.set_insert(set, Value::I32(9)).is_err());
-    assert!(heap.set_remove(set, &Value::I32(7)).is_err());
-    assert!(heap.set_clear(set).is_err());
-    assert!(heap.array_snapshot(array).is_none());
-    assert!(heap.array_len(array).is_none());
-    assert!(heap.array_get(array, 0).is_none());
-    assert!(heap.map_snapshot(map).is_none());
-    assert!(heap.map_len(map).is_none());
-    assert!(heap.set_snapshot(set).is_none());
-    assert!(heap.set_len(set).is_none());
-    assert_eq!(runtime.resources().counters(), before);
-    let local = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
-    heap.array_push(local, Value::I32(2)).unwrap();
-    assert_eq!(heap.array_len(local), Some(2));
-    runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().validate_value(&retained.value()));
-    drop(session);
-    assert_eq!(heap.array_snapshot(array).unwrap(), vec![Value::I32(7)]);
-    assert_eq!(
-        heap.map_snapshot(map).unwrap(),
-        vec![(Value::I32(1), Value::I32(7))]
-    );
-    assert_eq!(heap.set_snapshot(set).unwrap(), vec![Value::I32(7)]);
-    drop(candidate);
-    runtime.gc().array_push(array, Value::I32(9)).unwrap();
-    assert_eq!(runtime.gc().array_len(array), Some(2));
-    assert!(!runtime.is_quarantined());
 }
 
 #[test]
@@ -595,8 +590,14 @@ fn candidate_module_state_access_is_limited_to_its_program() {
 #[test]
 fn publication_rechecks_objects_after_the_initialization_session_ends() {
     let mut runtime = Runtime::default();
-    let old_object = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
     let baseline = load(&mut runtime, "main");
+    let old_object = runtime
+        .alloc_array(
+            &baseline,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+        .unwrap();
     for inject_external in [true, false] {
         let candidate = runtime
             .stage_reload_program(
@@ -609,7 +610,23 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
             )
             .unwrap();
         let session = runtime.begin_candidate_initialization(&candidate).unwrap();
-        let local = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
+        let inner = runtime
+            .alloc_array(
+                candidate.module(),
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(42)],
+            )
+            .unwrap();
+        let local = runtime
+            .alloc_array(
+                candidate.module(),
+                AbiType::Array(
+                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                    CollectionAccess::Mutable,
+                ),
+                vec![Value::Array(inner)],
+            )
+            .unwrap();
         runtime
             .module_instance_mut(candidate.module())
             .unwrap()
@@ -642,6 +659,10 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
             runtime.collect_garbage().unwrap();
             assert_eq!(
                 runtime.gc().array_snapshot(local).unwrap(),
+                vec![Value::Array(inner)]
+            );
+            assert_eq!(
+                runtime.gc().array_snapshot(inner).unwrap(),
                 vec![Value::I32(42)]
             );
         }

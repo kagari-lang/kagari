@@ -1,102 +1,181 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, HeapObject, HeapObjectId},
-    resource::TemporaryHeap,
+    module::LoadedModule,
+    native::{
+        sequence::{SequencePayload, SequenceStorage},
+        storage_type::StorageType,
+    },
     value::Value,
 };
-use std::ops::Bound;
+use kagari_abi::types::AbiType;
+use kagari_common::collection::CollectionAccess;
+use std::{mem, ops::Bound, rc::Rc};
 
+fn invalid() -> RuntimeError {
+    RuntimeError::new(
+        RuntimeErrorKind::ScriptTrap,
+        "invalid array target or payload",
+    )
+}
 impl GcHeap {
-    pub fn alloc_array(&self, elements: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        if !elements.iter().all(|value| self.valid_payload(value)) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap target, index, or payload",
-            ));
-        }
-        self.alloc_object(HeapObject::Array(elements))
-    }
-
-    pub fn alloc_array_repeat(
+    pub(crate) fn alloc_array(
         &self,
+        owner: &LoadedModule,
+        element: AbiType,
+        elements: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let contract = Rc::new(StorageType::prepare(element.clone(), owner)?);
+        let values = self.prepare_array_values(&contract, elements)?;
+        let ty = AbiType::Array(Box::new(element.clone()), CollectionAccess::Mutable);
+        let object = self.sequence_storage.prepare_payload(
+            self,
+            &ty,
+            SequencePayload {
+                element,
+                contract,
+                values,
+            },
+            owner,
+        )?;
+        self.alloc_native(object)
+    }
+    pub(crate) fn alloc_array_repeat(
+        &self,
+        owner: &LoadedModule,
+        element: AbiType,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        if !self.valid_payload(&value) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid repeat array value",
-            ));
+        if !self.valid_payload(&value) || !self.matches_abi(&value, &element, owner) {
+            return Err(invalid());
         }
         self.resources.consume_instruction_steps(count as u64)?;
-        // Check the final allocation before reserving host storage.
         let units = count
             .checked_add(1)
             .ok_or_else(|| self.resource_limit("array length"))?;
         drop(self.resources.prepare_heap_growth(units)?);
-        let mut elements = Vec::new();
-        elements
-            .try_reserve_exact(count)
+        let contract = Rc::new(StorageType::prepare(element.clone(), owner)?);
+        let mut values = SequenceStorage::empty(&element);
+        values
+            .try_reserve(count)
             .map_err(|_| self.resource_limit("allocation capacity"))?;
-        for index in 0..count {
-            if index % 1024 == 0 {
-                self.ensure_execution_allowed()?;
-            }
-            elements.push(value.clone());
+        for start in (0..count).step_by(1024) {
+            self.ensure_execution_allowed()?;
+            values.append_repeated(value.clone(), (count - start).min(1024))?;
         }
-        self.alloc_array(elements)
+        let ty = AbiType::Array(Box::new(element.clone()), CollectionAccess::Mutable);
+        let object = self.sequence_storage.prepare_payload(
+            self,
+            &ty,
+            SequencePayload {
+                element,
+                contract,
+                values,
+            },
+            owner,
+        )?;
+        self.alloc_native(object)
     }
-
+    pub(super) fn alloc_array_from(
+        &self,
+        source: HeapObjectId,
+        values: SequenceStorage,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let contract = self.array_contract(source).ok_or_else(invalid)?;
+        if mem::discriminant(&values) != mem::discriminant(&SequenceStorage::empty(&contract.ty)) {
+            return Err(invalid());
+        }
+        let object = {
+            let objects = self.objects.borrow();
+            let HeapObject::Native(object) =
+                self.readable_object(&objects, source).ok_or_else(invalid)?
+            else {
+                return Err(invalid());
+            };
+            object.replaced_payload(SequencePayload {
+                element: contract.ty.clone(),
+                contract,
+                values,
+            })?
+        };
+        self.alloc_native(object)
+    }
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
-        self.with_array(id, |elements| elements.len())
+        self.with_array(id, SequenceStorage::len)
     }
-
     pub fn array_snapshot(&self, id: HeapObjectId) -> Option<Vec<Value>> {
-        self.with_array(id, |elements| elements.clone())
+        self.with_array(id, SequenceStorage::snapshot)
     }
-
     pub fn array_get(&self, id: HeapObjectId, index: usize) -> Option<Value> {
-        self.with_array(id, |elements| elements.get(index).cloned())
-            .flatten()
+        self.with_array(id, |values| values.get(index)).flatten()
     }
-
+    pub(super) fn array_contract(&self, id: HeapObjectId) -> Option<Rc<StorageType>> {
+        let objects = self.objects.borrow();
+        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
+            return None;
+        };
+        if !matches!(object.ty, AbiType::Array(..)) {
+            return None;
+        }
+        Some(object.payload::<SequencePayload>().ok()?.contract.clone())
+    }
+    fn validate_array_value(&self, id: HeapObjectId, value: &Value) -> Result<(), RuntimeError> {
+        let contract = self.array_contract(id).ok_or_else(invalid)?;
+        if self.valid_payload(value) && self.matches_abi(value, &contract.ty, &contract.owner) {
+            Ok(())
+        } else {
+            Err(invalid())
+        }
+    }
+    pub(super) fn prepare_array_values(
+        &self,
+        contract: &StorageType,
+        elements: Vec<Value>,
+    ) -> Result<SequenceStorage, RuntimeError> {
+        let mut values = SequenceStorage::empty(&contract.ty);
+        values
+            .try_reserve(elements.len())
+            .map_err(|_| self.resource_limit("allocation capacity"))?;
+        for value in elements {
+            if !self.valid_payload(&value)
+                || !self.matches_abi(&value, &contract.ty, &contract.owner)
+            {
+                return Err(invalid());
+            }
+            values.push(value)?;
+        }
+        Ok(values)
+    }
     pub fn array_push(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
-        if !self.valid_payload(&value) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap target, index, or payload",
-            ));
-        }
-        self.with_array_mut(id, |elements| {
-            let growth = self.resources.prepare_heap_growth(1)?;
-            elements
+        self.validate_array_value(id, &value)?;
+        let growth = self.resources.prepare_heap_growth(1)?;
+        self.with_array_mut(id, |values| {
+            values
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            elements.push(value);
-            growth.commit();
-            Ok(())
+            values.push(value)
         })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
+        .ok_or_else(invalid)??;
+        growth.commit();
+        Ok(())
     }
-
     pub fn array_pop(&self, id: HeapObjectId) -> Result<Option<Value>, RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let value = self
-            .with_array_mut(id, |elements| elements.pop())
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
-            })?;
+            .with_array_mut(id, SequenceStorage::pop)
+            .ok_or_else(invalid)?;
         if value.is_some() {
             self.release_heap_units(1);
         }
         Ok(value)
     }
-
     pub fn array_insert(
         &self,
         id: HeapObjectId,
@@ -105,30 +184,21 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
-        if !self.valid_payload(&value) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap target, index, or payload",
-            ));
+        self.validate_array_value(id, &value)?;
+        if index > self.array_len(id).ok_or_else(invalid)? {
+            return Err(invalid());
         }
-        self.with_array_mut(id, |elements| {
-            if index > elements.len() {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    "invalid heap target, index, or payload",
-                ));
-            }
-            let growth = self.resources.prepare_heap_growth(1)?;
-            elements
+        let growth = self.resources.prepare_heap_growth(1)?;
+        self.with_array_mut(id, |values| {
+            values
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            elements.insert(index, value);
-            growth.commit();
-            Ok(())
+            values.insert(index, value)
         })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
+        .ok_or_else(invalid)??;
+        growth.commit();
+        Ok(())
     }
-
     pub fn array_remove(
         &self,
         id: HeapObjectId,
@@ -137,57 +207,46 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let value = self
-            .with_array_mut(id, |elements| {
-                (index < elements.len()).then(|| elements.remove(index))
-            })
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
-            })?;
+            .with_array_mut(id, |values| values.remove(index))
+            .ok_or_else(invalid)?;
         if value.is_some() {
             self.release_heap_units(1);
         }
         Ok(value)
     }
-
     pub fn array_clear(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let removed = self
-            .with_array_mut(id, |elements| {
-                let removed = elements.len();
-                elements.clear();
-                removed
+            .with_array_mut(id, |values| {
+                let length = values.len();
+                values.clear();
+                length
             })
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
-            })?;
+            .ok_or_else(invalid)?;
         self.release_heap_units(removed);
         Ok(())
     }
-
-    /// Prepare all shallow copies before replacing any target slot.
     pub fn array_fill(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(id)?;
-        if !self.valid_payload(&value) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid array fill payload",
-            ));
+        self.validate_array_value(id, &value)?;
+        let length = self.array_len(id).ok_or_else(invalid)?;
+        self.resources.consume_instruction_steps(length as u64)?;
+        let _temporary = self.resources.reserve_temporary_heap(length)?;
+        let contract = self.array_contract(id).ok_or_else(invalid)?;
+        let mut prepared = SequenceStorage::empty(&contract.ty);
+        prepared
+            .try_reserve(length)
+            .map_err(|_| self.resource_limit("array fill capacity"))?;
+        for start in (0..length).step_by(1024) {
+            self.ensure_execution_allowed()?;
+            prepared.append_repeated(value.clone(), (length - start).min(1024))?;
         }
-        let length = self.array_len(id).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array target")
-        })?;
-        let (mut prepared, _temporary) = self.prepare_array_copy(length)?;
-        for index in 0..length {
-            if index % 1024 == 0 {
-                self.ensure_execution_allowed()?;
-            }
-            prepared.push(value.clone());
-        }
-        self.commit_array_copy(id, prepared)
+        self.ensure_execution_allowed()?;
+        self.with_array_mut(id, |values| *values = prepared)
+            .ok_or_else(invalid)
     }
-
     pub fn array_copy_from(
         &self,
         target: HeapObjectId,
@@ -195,29 +254,27 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(target)?;
-        let length = self.array_len(target).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array target")
-        })?;
+        let length = self.array_len(target).ok_or_else(invalid)?;
         if self.array_len(source) != Some(length) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "array copy requires equal lengths",
             ));
         }
-        let (mut prepared, _temporary) = self.prepare_array_copy(length)?;
-        self.with_array(source, |values| {
-            for (index, value) in values.iter().enumerate() {
-                if index % 1024 == 0 {
-                    self.ensure_execution_allowed()?;
-                }
-                prepared.push(value.clone());
-            }
-            Ok::<_, RuntimeError>(())
-        })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array source"))??;
-        self.commit_array_copy(target, prepared)
+        let target_contract = self.array_contract(target).ok_or_else(invalid)?;
+        let source_contract = self.array_contract(source).ok_or_else(invalid)?;
+        if !source_contract.matches(&target_contract.ty, &target_contract.owner) {
+            return Err(invalid());
+        }
+        self.resources.consume_instruction_steps(length as u64)?;
+        let _temporary = self.resources.reserve_temporary_heap(length)?;
+        let prepared = self
+            .with_array(source, |values| values.copy_range(0, length))
+            .ok_or_else(invalid)??;
+        self.ensure_execution_allowed()?;
+        self.with_array_mut(target, |values| *values = prepared)
+            .ok_or_else(invalid)
     }
-
     pub fn array_copy_within(
         &self,
         target: HeapObjectId,
@@ -227,76 +284,36 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(target)?;
-        let invalid = || {
+        let bounds = || {
             RuntimeError::new(
                 RuntimeErrorKind::IndexOutOfBounds,
                 "array copy range is out of bounds",
             )
         };
-        let length = self.array_len(target).ok_or_else(invalid)?;
+        let length = self.array_len(target).ok_or_else(bounds)?;
         let start = match start {
             Bound::Unbounded => 0,
             Bound::Included(n) => n,
-            Bound::Excluded(n) => n.checked_add(1).ok_or_else(invalid)?,
+            Bound::Excluded(n) => n.checked_add(1).ok_or_else(bounds)?,
         };
         let end = match end {
             Bound::Unbounded => length,
             Bound::Excluded(n) => n,
-            Bound::Included(n) => n.checked_add(1).ok_or_else(invalid)?,
+            Bound::Included(n) => n.checked_add(1).ok_or_else(bounds)?,
         };
         if start > end || end > length || destination > length || end - start > length - destination
         {
-            return Err(invalid());
+            return Err(bounds());
         }
-        let (mut prepared, _temporary) = self.prepare_array_copy(end - start)?;
-        self.with_array(target, |values| {
-            for (index, value) in values[start..end].iter().enumerate() {
-                if index % 1024 == 0 {
-                    self.ensure_execution_allowed()?;
-                }
-                prepared.push(value.clone());
-            }
-            Ok::<_, RuntimeError>(())
-        })
-        .ok_or_else(invalid)??;
+        self.resources
+            .consume_instruction_steps((end - start) as u64)?;
+        let _temporary = self.resources.reserve_temporary_heap(end - start)?;
+        let prepared = self
+            .with_array(target, |values| values.copy_range(start, end))
+            .ok_or_else(bounds)??;
         self.ensure_execution_allowed()?;
-        self.with_array_mut(target, |values| {
-            for (slot, value) in values[destination..destination + prepared.len()]
-                .iter_mut()
-                .zip(prepared)
-            {
-                *slot = value;
-            }
-        })
-        .ok_or_else(invalid)
-    }
-
-    pub(super) fn prepare_array_copy(
-        &self,
-        length: usize,
-    ) -> Result<(Vec<Value>, TemporaryHeap<'_>), RuntimeError> {
-        self.resources.consume_instruction_steps(length as u64)?;
-        // Temporary copies must fit the session's allocation and memory limits.
-        let temporary = self.resources.reserve_temporary_heap(length)?;
-        let mut prepared = Vec::new();
-        prepared
-            .try_reserve_exact(length)
-            .map_err(|_| self.resource_limit("allocation capacity"))?;
-        Ok((prepared, temporary))
-    }
-
-    pub(super) fn commit_array_copy(
-        &self,
-        target: HeapObjectId,
-        prepared: Vec<Value>,
-    ) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        self.ensure_callback_mutable(target)?;
-        self.with_array_mut(target, |values| {
-            debug_assert_eq!(values.len(), prepared.len());
-            *values = prepared;
-        })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array target"))
+        self.with_array_mut(target, |values| values.overwrite(destination, prepared))
+            .ok_or_else(bounds)?
     }
 
     pub fn array_set(
@@ -307,66 +324,43 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(id)?;
-        if !self.valid_payload(&value) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap payload",
-            ));
-        }
-        self.with_array_mut(id, |elements| {
-            let slot = elements.get_mut(index).ok_or_else(|| {
-                RuntimeError::new(
-                    RuntimeErrorKind::IndexOutOfBounds,
-                    format!("invalid index `{index}`"),
-                )
-            })?;
-            *slot = value;
-            Ok(())
-        })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
+        self.validate_array_value(id, &value)?;
+        self.with_array_mut(id, |values| values.set(index, value))
+            .ok_or_else(invalid)?
     }
-
     pub(crate) fn with_array<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&Vec<Value>) -> R,
+        f: impl FnOnce(&SequenceStorage) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        match self.readable_object(&objects, id)? {
-            HeapObject::Array(elements) => Some(f(elements)),
-            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(..) => None,
-            HeapObject::Struct { .. }
-            | HeapObject::Interface { .. }
-            | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::ManagedIter(_) => None,
+        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
+            return None;
+        };
+        if !matches!(object.ty, AbiType::Array(..)) {
+            return None;
         }
+        Some(f(&object.payload::<SequencePayload>().ok()?.values))
     }
-
     pub(super) fn with_array_mut<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&mut Vec<Value>) -> R,
+        f: impl FnOnce(&mut SequenceStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
         let revision = objects.get(id.slot)?.revision.checked_add(1)?;
-        match self.object_mut(&mut objects, id)? {
-            HeapObject::Array(elements) => {
-                let old_len = elements.len();
-                let result = f(elements);
-                if elements.len() != old_len {
-                    objects[id.slot].revision = revision;
-                }
-                Some(result)
-            }
-            HeapObject::Map(_) | HeapObject::Set(_) | HeapObject::Enum(..) => None,
-            HeapObject::Struct { .. }
-            | HeapObject::Interface { .. }
-            | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::ManagedIter(_) => None,
+        let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
+            return None;
+        };
+        if !matches!(object.ty, AbiType::Array(..)) {
+            return None;
         }
+        let values = &mut object.payload_mut::<SequencePayload>().ok()?.values;
+        let old_len = values.len();
+        let result = f(values);
+        if values.len() != old_len {
+            objects[id.slot].revision = revision;
+        }
+        Some(result)
     }
 }

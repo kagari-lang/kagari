@@ -29,8 +29,8 @@ use crate::{
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
     use kagari_bytecode::{
-        HostImportId,
         artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+        instruction::NativeImportId,
     };
     use kagari_common::host_interface::{
         HostFunctionDeclaration, standard_log, value_type::HostValueType,
@@ -88,7 +88,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                 }))
                 .unwrap();
             let loaded = runtime.load_program("linked", module).unwrap();
-            assert_eq!(loaded.host_binding(HostImportId::new(0)), Some(binding));
+            assert!(loaded.native_binding(NativeImportId::new(0)).is_some());
             assert_eq!(binding.index(), 1);
             let mut vm = Vm::new(runtime);
             let report = if jit {

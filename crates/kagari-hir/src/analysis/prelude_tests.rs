@@ -23,7 +23,7 @@ fn analyze(text: &str) -> (AnalysisSnapshot, FileId) {
     let file = sources
         .set("prelude.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let result = AnalysisDatabase::default()
+    let result = crate::tests::native::database()
         .snapshot(
             sources.snapshot(),
             LanguageFeatureProfile {
@@ -140,11 +140,11 @@ fn non_value_names_are_rejected_in_hir_while_retaining_targets() {
         "Point",
         "Mode",
         "View",
-        "std::math::clamp",
-        "std::math",
+        "native::choose",
+        "native",
     ] {
         let text = format!(
-            "fn answer() -> i32 {{ 42 }} struct Point {{}} enum Mode {{ Ready }} trait View {{}} fn bad() {{ val value = {name}; }} fn good(x: i32) -> i32 {{ x }}"
+            "use demo::native; fn answer() -> i32 {{ 42 }} struct Point {{}} enum Mode {{ Ready }} trait View {{}} fn bad() {{ val value = {name}; }} fn good(x: i32) -> i32 {{ x }}"
         );
         let (snapshot, file) = analyze(&text);
         let file = snapshot.file(file).unwrap();

@@ -1,8 +1,8 @@
 //! Complete syntax/value contracts, explicitly expressed in Kagari's type model.
-use kagari_abi::{
+use crate::{
     callable::{CallableImplementation, MethodPolicy},
+    declaration::ModuleDecl,
     language::{self, Protocol, primitive},
-    native_api::NativeModule,
     scalar::BuiltinType,
     standard::surface::StandardEnum,
     types::{
@@ -107,7 +107,7 @@ pub(super) fn applied_item(kind: Protocol, item: AbiType) -> NominalAbiType {
     applied
 }
 
-pub(super) fn declare(module: &mut NativeModule) {
+pub(super) fn declare(module: &mut ModuleDecl) {
     for kind in [
         Protocol::PartialEq,
         Protocol::Eq,
@@ -131,7 +131,7 @@ pub(super) fn declare(module: &mut NativeModule) {
             Protocol::Hash => declaration.methods.push(method(
                 "hash",
                 vec![this],
-                AbiType::Builtin(BuiltinType::U64),
+                AbiType::Builtin(BuiltinType::I64),
             )),
             Protocol::PartialOrd => {
                 declaration
@@ -228,6 +228,12 @@ pub(super) fn declare(module: &mut NativeModule) {
         method("end_bound", vec![receiver(Protocol::RangeBounds)], bound),
     ]);
     module.traits.push(bounds);
+    module.documentation.insert(language::identity(Protocol::Iterator),
+        "A shared cursor. Each next call advances it and returns Some(item), or None when exhausted.".into());
+    module.documentation.insert(
+        language::identity(Protocol::Iterable),
+        "Produces an iterator whose Item matches this collection or sequence.".into(),
+    );
     let mut iterator = contract(Protocol::Iterator, &[]);
     iterator.associated_types.push(associated(
         &language::identity(Protocol::Iterator),

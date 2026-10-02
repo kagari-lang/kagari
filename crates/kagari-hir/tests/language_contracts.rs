@@ -1,3 +1,4 @@
+use kagari_abi::language::catalog as language;
 use kagari_abi::{
     language::primitive,
     language::{self as identities, Protocol},
@@ -10,7 +11,7 @@ use kagari_common::{
     identity::{DefinitionId, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_hir::{analysis::AnalysisDatabase, language};
+use kagari_hir::analysis::AnalysisDatabase;
 
 #[test]
 fn portable_language_catalog_has_complete_contracts() {
@@ -60,8 +61,17 @@ fn portable_language_catalog_has_complete_contracts() {
         assert_eq!(
             module.types.iter().find(|t| t.name == kind).unwrap().bounds[0]
                 .constraints
-                .len(),
-            2
+                .iter()
+                .map(|bound| match bound {
+                    ConstraintAbi::Trait(interface) => Protocol::from_id(&interface.declaration),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                Some(Protocol::Eq),
+                Some(Protocol::Hash),
+                Some(Protocol::PartialEq)
+            ]
         );
     }
     let generated = module.declaration_source().unwrap();

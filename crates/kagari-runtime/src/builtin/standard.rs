@@ -3,6 +3,7 @@ use crate::{
     builtin::BuiltinError,
     error::RuntimeError,
     gc::GcHeap,
+    native::sequence::SequenceStorage,
     value::{EnumTag, MapKey, Value},
     value_semantics,
 };
@@ -77,6 +78,9 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         ));
     };
     gc.with_array(*handle, |values| {
+        let SequenceStorage::Traced(values) = values else {
+            return Err(BuiltinError::new("array.join expects string elements"));
+        };
         let overflow = || BuiltinError::from(RuntimeError::resource_limit("joined string size"));
         let mut length = separator
             .len()

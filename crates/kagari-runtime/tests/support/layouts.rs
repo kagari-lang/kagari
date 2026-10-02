@@ -11,7 +11,11 @@ use kagari_bytecode::{
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
 };
-use kagari_runtime::{Runtime, module::StructLayoutRef, value::Value};
+use kagari_runtime::{
+    Runtime,
+    module::{LoadedModule, StructLayoutRef},
+    value::Value,
+};
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value(runtime: &mut Runtime) -> Value {
@@ -75,6 +79,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                         })),
                     ],
                     interface_tables: vec![InterfaceTableRecord {
+                        view: None,
                         arguments: Vec::new(),
                         declaration: impl_id,
                         methods: vec![],
@@ -134,4 +139,17 @@ pub fn layout(
         )
         .unwrap();
     module.struct_layout(StructId::new(0)).unwrap()
+}
+
+#[allow(dead_code)] // Shared fixture is compiled by tests that only need nominal layouts.
+pub fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+    runtime
+        .load_program(
+            "allocation-owner",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap()
 }

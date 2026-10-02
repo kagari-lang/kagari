@@ -226,7 +226,7 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
-    if protocol.collection() {
+    if protocol.collection() || protocol == Protocol::RangeBounds {
         return false;
     }
     if protocol.iteration() {
@@ -297,7 +297,11 @@ pub fn intrinsic_holds(
                 if Protocol::from_id(&interface.declaration).is_some_and(Protocol::collection)
                     && protocol != Protocol::Display => {}
             TypeId::Enum(_) | TypeId::Host(_) if protocol == Protocol::Debug => {}
-            TypeId::Struct(_) | TypeId::Array(_, _) | TypeId::Map { .. } | TypeId::Set(_, _)
+            TypeId::NativeObject(_)
+            | TypeId::Struct(_)
+            | TypeId::Array(_, _)
+            | TypeId::Map { .. }
+            | TypeId::Set(_, _)
                 if protocol != Protocol::Display => {}
             TypeId::Tuple(elements) | TypeId::StandardEnum { args: elements, .. }
                 if protocol != Protocol::Display =>

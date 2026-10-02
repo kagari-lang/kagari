@@ -1,11 +1,15 @@
-//! Portable identities of language protocols. Complete declarations belong to HIR.
+//! Portable identities of language protocols. Complete declarations live in the shared catalog.
 //! Recognition uses nominal identity; an application trait with the same name
 //! never acquires syntax or implicit-value semantics.
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
 
+pub mod catalog;
 pub mod primitive;
+
+/// Public source spelling; the portable package identity is independent.
+pub const SOURCE_PACKAGE: &str = "core";
 
 pub fn module_identity() -> ModuleIdentity {
     ModuleIdentity {

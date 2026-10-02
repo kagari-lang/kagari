@@ -1,4 +1,4 @@
-use crate::source::types::{lower_native_constructor, raise_type};
+use crate::source::types::{lower_native_kind, raise_type};
 use kagari_hir::{
     AnalyzedModule,
     aggregates::traits::MethodDefault,
@@ -134,7 +134,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     .expect("checked native type representation");
                 public_items.push(PublicAbiItem::Type(TypeAbi {
                     name: item.name.clone(),
-                    kind: TypeAbiKind::Native(lower_native_constructor(representation)),
+                    kind: lower_native_kind(representation),
                     generic_params: generic_param_abi(module, &item.generic_params),
                     bounds: parameter_bounds(module, &item.generic_params),
                     fields: Vec::new(),
@@ -152,8 +152,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     kind: module
                         .declarations
                         .native_enum(id)
-                        .map(lower_native_constructor)
-                        .map(TypeAbiKind::Native)
+                        .map(lower_native_kind)
                         .unwrap_or(TypeAbiKind::Enum),
                     generic_params: generic_param_abi(module, &enum_item.generic_params),
                     bounds: parameter_bounds(module, &enum_item.generic_params),

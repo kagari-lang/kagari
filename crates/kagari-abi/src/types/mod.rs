@@ -16,7 +16,7 @@ use crate::{
     scalar::BuiltinType,
     standard::surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
     types::{
-        native::NativeTypeConstructor,
+        native::{NativeStorageLayout, NativeTypeConstructor},
         substitution::{TypeSubstitution, resolve_associated_outputs},
     },
 };
@@ -147,6 +147,7 @@ pub enum TypeAbiKind {
     Struct,
     Enum,
     Native(NativeTypeConstructor),
+    NativeStorage(NativeStorageLayout),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,6 +220,8 @@ pub enum AbiType {
     },
     Set(Box<AbiType>, CollectionAccess),
     Struct(NominalAbiType),
+    /// A nominal script-heap object backed by a registered traced Rust payload.
+    NativeObject(NominalAbiType),
     Enum(NominalAbiType),
     Trait(NominalAbiType),
     StandardEnum {
@@ -233,7 +236,7 @@ impl AbiType {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Projection { .. } => return true,
-                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                Self::Struct(ty) | Self::NativeObject(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
                 }
@@ -316,7 +319,7 @@ impl AbiType {
                     pending.push(ty)
                 }
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                Self::Struct(ty) | Self::NativeObject(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
                 }
@@ -620,4 +623,28 @@ pub fn trait_contract<'a>(
 /// Whether a canonical standard interface uses collection identity semantics.
 pub fn is_collection_interface(id: &DefinitionId) -> bool {
     Protocol::from_id(id).is_some_and(Protocol::collection)
+}
+
+/// Find a declared native storage type by its exact owning identity.
+pub fn native_storage_contract<'a>(
+    owner: &ModuleIdentity,
+    items: &'a [PublicAbiItem],
+    id: &DefinitionId,
+) -> Option<&'a TypeAbi> {
+    if id.module != *owner
+        || id.path.len() != 1
+        || id.path[0].kind != DefinitionKind::AssociatedType
+        || id.path[0].occurrence != 0
+    {
+        return None;
+    }
+    items.iter().find_map(|item| match item {
+        PublicAbiItem::Type(record)
+            if record.name == id.path[0].name
+                && matches!(record.kind, TypeAbiKind::NativeStorage(_)) =>
+        {
+            Some(record)
+        }
+        _ => None,
+    })
 }

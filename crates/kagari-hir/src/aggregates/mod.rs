@@ -61,6 +61,15 @@ pub struct StructSignature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTypeSignature {
+    pub id: DefinitionId,
+    pub generic_params: Vec<GenericParameterType>,
+    pub bounds: GenericBounds,
+    pub declaration: Declaration,
+    pub representation: NativeTypeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantSignature {
     pub id: DefinitionId,
     pub owner: DefinitionId,
@@ -88,6 +97,7 @@ pub struct AggregateCatalog {
     implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
     inherent_methods: BTreeMap<DefinitionId, Arc<InherentMethodSignature>>,
+    native_types: BTreeMap<DefinitionId, Arc<NativeTypeSignature>>,
     structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
     fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
     enumerations: BTreeMap<DefinitionId, Arc<EnumSignature>>,
@@ -95,6 +105,9 @@ pub struct AggregateCatalog {
 }
 
 impl AggregateCatalog {
+    pub fn native_type(&self, id: &DefinitionId) -> Option<&NativeTypeSignature> {
+        self.native_types.get(id).map(Arc::as_ref)
+    }
     pub fn intrinsic_implementation(
         &self,
         interface: &NominalType,
@@ -151,6 +164,31 @@ impl AggregateCatalog {
         signatures: &ModuleSignatures,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
+        for item in &lowered.module.opaque_types {
+            cancel.check()?;
+            let Some(declaration) = declarations.target(ResolvedName::OpaqueType(item.id)) else {
+                continue;
+            };
+            let DeclarationId::Definition(id) = &declaration.id else {
+                continue;
+            };
+            let Some(representation) = declarations.native_type(item.id) else {
+                continue;
+            };
+            self.native_types.insert(
+                id.clone(),
+                Arc::new(NativeTypeSignature {
+                    id: id.clone(),
+                    generic_params: declarations.parameters_of(id),
+                    bounds: signatures
+                        .type_bounds(id)
+                        .expect("checked native type constraints")
+                        .clone(),
+                    declaration: declaration.clone(),
+                    representation,
+                }),
+            );
+        }
         for structure in &lowered.module.structs {
             cancel.check()?;
             let Some(declaration) = declarations.target(ResolvedName::Struct(structure.id)) else {
@@ -397,6 +435,14 @@ impl AggregateCatalog {
             {
                 cancel.check()?;
                 result.inherent_methods.insert(id.clone(), method.clone());
+            }
+            for (id, native_type) in self
+                .native_types
+                .range(start.clone()..)
+                .take_while(|(id, _)| id.module == module)
+            {
+                cancel.check()?;
+                result.native_types.insert(id.clone(), native_type.clone());
             }
             for (id, structure) in self
                 .structures

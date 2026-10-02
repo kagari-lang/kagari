@@ -331,7 +331,10 @@ pub fn references(
             }
             AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Iter(ty) => pending.push(ty),
             AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-            AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
+            AbiType::NativeObject(ty)
+            | AbiType::Struct(ty)
+            | AbiType::Enum(ty)
+            | AbiType::Trait(ty) => {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());
             }

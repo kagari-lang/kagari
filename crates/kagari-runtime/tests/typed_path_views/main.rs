@@ -1,3 +1,8 @@
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_common::{
     collection::CollectionAccess,
     host_interface::{
@@ -6,6 +11,7 @@ use kagari_common::{
         value_type::HostValueType,
     },
 };
+use kagari_runtime::module::LoadedModule;
 
 use std::sync::{Arc, Mutex};
 use {
@@ -29,6 +35,18 @@ use {
 };
 
 use kagari_bytecode::instruction::BinaryOp;
+
+fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+    runtime
+        .load_program(
+            "allocation-owner",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap()
+}
 
 fn path_mutation_runtime() -> Runtime {
     Runtime::new(path_mutation_config())

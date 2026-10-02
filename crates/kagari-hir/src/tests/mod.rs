@@ -5,3 +5,5 @@ mod profile;
 mod recovery;
 mod resolver;
 mod typeck;
+
+pub(crate) mod native;

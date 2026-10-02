@@ -2,7 +2,7 @@
 use kagari_abi::{
     numeric::NumericOperation,
     scalar::BuiltinType,
-    types::{AbiType, NominalAbiType, native::NativeTypeConstructor},
+    types::{AbiType, NominalAbiType, TypeAbiKind, native::NativeTypeConstructor},
 };
 use kagari_common::integer::IntegerOp;
 use kagari_hir::{
@@ -11,15 +11,16 @@ use kagari_hir::{
     types::{GenericParameterType, NominalType, TypeId},
 };
 
-pub(crate) fn lower_native_constructor(kind: NativeTypeKind) -> NativeTypeConstructor {
+pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeAbiKind {
     match kind {
-        NativeTypeKind::String => NativeTypeConstructor::String,
-        NativeTypeKind::ArrayList => NativeTypeConstructor::Array,
-        NativeTypeKind::HashMap => NativeTypeConstructor::Map,
-        NativeTypeKind::HashSet => NativeTypeConstructor::Set,
-        NativeTypeKind::Iter => NativeTypeConstructor::Iter,
-        NativeTypeKind::Range(kind) => NativeTypeConstructor::Range(kind),
-        NativeTypeKind::Enum(kind) => NativeTypeConstructor::Enum(kind),
+        NativeTypeKind::Storage { layout, .. } => TypeAbiKind::NativeStorage(layout),
+        NativeTypeKind::String => TypeAbiKind::Native(NativeTypeConstructor::String),
+        NativeTypeKind::ArrayList => TypeAbiKind::Native(NativeTypeConstructor::Array),
+        NativeTypeKind::HashMap => TypeAbiKind::Native(NativeTypeConstructor::Map),
+        NativeTypeKind::HashSet => TypeAbiKind::Native(NativeTypeConstructor::Set),
+        NativeTypeKind::Iter => TypeAbiKind::Native(NativeTypeConstructor::Iter),
+        NativeTypeKind::Range(kind) => TypeAbiKind::Native(NativeTypeConstructor::Range(kind)),
+        NativeTypeKind::Enum(kind) => TypeAbiKind::Native(NativeTypeConstructor::Enum(kind)),
     }
 }
 pub(crate) fn lower_numeric_operation(
@@ -95,6 +96,7 @@ pub(crate) fn raise_type(ty: &AbiType) -> TypeId {
             access: *access,
         },
         AbiType::Set(ty, access) => TypeId::Set(Box::new(raise_type(ty)), *access),
+        AbiType::NativeObject(ty) => TypeId::NativeObject(raise_nominal_type(ty)),
         AbiType::Struct(ty) => TypeId::Struct(raise_nominal_type(ty)),
         AbiType::Enum(ty) => TypeId::Enum(raise_nominal_type(ty)),
         AbiType::Trait(ty) => TypeId::Trait(raise_nominal_type(ty)),

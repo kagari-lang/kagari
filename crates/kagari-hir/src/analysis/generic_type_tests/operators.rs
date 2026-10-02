@@ -1,3 +1,4 @@
+use super::contracts::analyze_contracts;
 use super::*;
 use crate::profile::LanguageFeatureProfile;
 use {crate::hir::expr::ExprKind, kagari_common::diagnostic::DiagnosticKind};
@@ -59,26 +60,23 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
 }
 
 #[test]
-fn standard_arguments_suppress_dependent_errors_but_keep_known_member_conflicts() {
+fn declared_arguments_suppress_dependent_errors_but_keep_known_member_conflicts() {
     for (body, mismatch) in [
         ("values.push((1, missing));", false),
         ("values.push((true, missing));", true),
-        ("std::array::ArrayList::push(values, (1, missing));", false),
-        (
-            "std::array::ArrayList::push(values, (true, missing));",
-            true,
-        ),
-        ("std::array::ArrayList::len(missing);", false),
-        ("std::array::ArrayList::len((1, missing));", true),
-        ("std::string::String::contains(missing, \"x\");", false),
-        ("std::string::String::contains(\"x\", missing);", false),
-        ("std::string::String::contains(\"x\", (1, missing));", true),
+        ("put(values, (1, missing));", false),
+        ("put(values, (true, missing));", true),
+        ("list_count(missing);", false),
+        ("list_count((1, missing));", true),
+        ("text_pair(missing, \"x\");", false),
+        ("text_pair(\"x\", missing);", false),
+        ("text_pair(\"x\", (1, missing));", true),
     ] {
         let source = SourceFile::new(
             "standard-recovery.kgr",
             format!("fn bad() {{ val values = [(1, true)]; {body} }} fn good() -> i32 {{ 42 }}"),
         );
-        let analysis = crate::analyze_source(&source, Default::default());
+        let analysis = analyze_contracts(&source, Default::default());
         assert_eq!(
             analysis.diagnostics().len(),
             1 + usize::from(mismatch),
@@ -98,37 +96,25 @@ fn standard_arguments_suppress_dependent_errors_but_keep_known_member_conflicts(
 }
 
 #[test]
-fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
+fn declared_container_operands_supply_constructor_context_in_both_call_forms() {
     for (body, valid) in [
         ("values.push(Marker { value: 7 });", true),
-        ("map.get(1).unwrap_or(Marker { value: 7 });", true),
-        (
-            "std::option::Option::unwrap_or(map.get(1), Marker { value: 7 });",
-            true,
-        ),
-        (
-            "std::array::ArrayList::push(values, Marker { value: 7 });",
-            true,
-        ),
+        ("get_or(map.get(1), Marker { value: 7 });", true),
+        ("get_or(map.get(1), Marker { value: 7 });", true),
+        ("put(values, Marker { value: 7 });", true),
         ("map.insert(1, Marker { value: 7 });", true),
-        (
-            "std::map::LinkedHashMap::insert(map, 1, Marker { value: 7 });",
-            true,
-        ),
+        ("put_map(map, 1, Marker { value: 7 });", true),
         ("values.push(Marker<bool> { value: 7 });", false),
-        (
-            "std::map::LinkedHashMap::insert(map, 1, Marker<bool> { value: 7 });",
-            false,
-        ),
+        ("put_map(map, 1, Marker<bool> { value: 7 });", false),
         ("values.push(Marker { value: true });", false),
     ] {
         let source = SourceFile::new(
             "standard-context.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: ArrayList<Marker<i32>> = []; val map: LinkedHashMap<i32, Marker<i32>> = LinkedHashMap::new(); {body} }}"
+                "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: ArrayList<Marker<i32>> = []; val map: HashMap<i32, Marker<i32>> = HashMap::new(); {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, Default::default());
+        let analysis = analyze_contracts(&source, Default::default());
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -140,18 +126,18 @@ fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
 }
 
 #[test]
-fn standard_set_and_result_context_preserves_concrete_receiver_arguments() {
+fn declared_set_and_result_context_preserves_concrete_receiver_arguments() {
     for body in [
-        "keys.union(LinkedHashSet::new());",
-        "val readonly: Set<i32> = keys; readonly.intersection(LinkedHashSet::new());",
-        "result.unwrap_or(Marker { value: 7 });",
-        "std::result::Result::unwrap_or(result, Marker { value: 7 });",
+        "same_set(keys, HashSet::new());",
+        "val readonly: Set<i32> = keys; same_set(readonly, HashSet::new());",
+        "result_or(result, Marker { value: 7 });",
+        "result_or(result, Marker { value: 7 });",
     ] {
-        let analysis = crate::analyze_source(
+        let analysis = analyze_contracts(
             &SourceFile::new(
                 "standard-fallback-context.kgr",
                 format!(
-                    "struct Marker<T> {{ val value: i32 }} fn check(keys: LinkedHashSet<i32>, result: Result<Marker<i32>, String>) {{ {body} }}"
+                    "struct Marker<T> {{ val value: i32 }} fn check(keys: HashSet<i32>, result: Result<Marker<i32>, String>) {{ {body} }}"
                 ),
             ),
             Default::default(),
@@ -263,24 +249,18 @@ fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
 }
 
 #[test]
-fn standard_math_and_equality_check_each_known_operand_after_recovery() {
+fn declared_math_and_equality_check_each_known_operand_after_recovery() {
     for (body, extra) in [
-        ("std::math::min(missing, 7);", 0),
-        ("std::math::min(missing, true);", 1),
+        ("ordered_pair(missing, 7);", 0),
+        ("ordered_pair(missing, true);", 1),
         // The ordinary declaration infers T = i32 from the known operand.
         // Its bound holds once; the conflicting max argument is still checked.
-        ("std::math::clamp(missing, 7, true);", 1),
-        (
-            "std::debug::assert_eq((1, missing), (1, true), \"test\");",
-            0,
-        ),
-        (
-            "std::debug::assert_eq((1, missing), (false, true), \"test\");",
-            1,
-        ),
-        ("std::debug::assert_eq(missing, view, \"test\");", 1),
+        ("ordered_three(missing, 7, true);", 1),
+        ("check_equal((1, missing), (1, true), \"test\");", 0),
+        ("check_equal((1, missing), (false, true), \"test\");", 1),
+        ("check_equal(missing, view, \"test\");", 1),
     ] {
-        let analysis = crate::analyze_source(
+        let analysis = analyze_contracts(
             &SourceFile::new(
                 "standard-operand-recovery.kgr",
                 format!("trait View {{}} fn bad(view: View) {{ {body} }}"),
@@ -296,11 +276,11 @@ fn standard_math_and_equality_check_each_known_operand_after_recovery() {
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
             &diagnostic.kind, DiagnosticKind::UnknownName { name } if name == "missing"
         )));
-        if body.starts_with("std::math::clamp") {
+        if body.starts_with("ordered_three") {
             let diagnostic = analysis.diagnostics().iter().find(|diagnostic| matches!(
                 &diagnostic.kind,
                 DiagnosticKind::ArgumentTypeMismatch { function_name, parameter_name, expected, found }
-                    if function_name == "clamp" && parameter_name == "max" && expected == "i32" && found == "bool"
+                    if function_name == "ordered_three" && parameter_name == "max" && expected == "i32" && found == "bool"
             )).expect("the remaining known operand must be checked after recovery");
             let span = diagnostic.span.unwrap();
             assert_eq!(

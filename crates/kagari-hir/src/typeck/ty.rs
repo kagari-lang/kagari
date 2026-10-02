@@ -33,12 +33,11 @@ pub(super) fn native_type(
     match target? {
         TypeTarget::OpaqueType(id) => declarations.native_type(id),
         TypeTarget::Enum(id) => declarations.native_enum(id),
-        TypeTarget::Source(id) => {
-            declarations
-                .imported_types()
-                .by_declaration(&id)?
-                .native_type
-        }
+        TypeTarget::Source(id) => declarations
+            .imported_types()
+            .by_declaration(&id)?
+            .native_type
+            .clone(),
         _ => None,
     }
 }
@@ -244,7 +243,10 @@ pub(super) fn resolve_type_in(
                 {
                     TypeId::Error
                 }
-                TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)
+                TypeId::NativeObject(ty)
+                | TypeId::Struct(ty)
+                | TypeId::Enum(ty)
+                | TypeId::Trait(ty)
                     if !ty.arguments.is_empty() =>
                 {
                     TypeId::Error

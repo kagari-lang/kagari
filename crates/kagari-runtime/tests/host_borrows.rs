@@ -1,3 +1,8 @@
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -100,7 +105,16 @@ fn guard_rejects_borrow_tokens_from_another_live_frame() {
 
 #[test]
 fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
+    let module = runtime
+        .load_program(
+            "borrow-storage",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap();
     let resources = runtime.host_scope(&[]).unwrap();
     let frame = resources.borrows();
     let token = frame
@@ -126,8 +140,11 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
 
     assert!(
         runtime
-            .gc()
-            .alloc_array(vec![borrow_value.clone()])
+            .alloc_array(
+                &module,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![borrow_value.clone()]
+            )
             .is_err()
     );
     assert!(runtime.root_value(borrow_value).is_none());

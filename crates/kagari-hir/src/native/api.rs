@@ -21,9 +21,9 @@ use crate::{
 };
 use kagari_abi::{
     callable::{CallableImplementation, MethodPolicy},
-    native_api::{
-        NativeApiError, NativeModule,
-        render::{NativeApiSource, NativeBoundSite},
+    declaration::{
+        DeclarationError, ModuleDecl,
+        render::{DeclarationSource, NativeBoundSite},
     },
     scalar::BuiltinType,
     standard::surface::builtin_type_spec,
@@ -46,20 +46,20 @@ use std::{
 };
 
 pub(crate) fn import(
-    definition: &NativeModule,
-    providers: &[Arc<NativeModule>],
+    definition: &ModuleDecl,
+    providers: &[Arc<ModuleDecl>],
     limits: ParseLimits,
     cancel: &CancellationToken,
-) -> Result<(Parse, Arc<LoweredModule>), NativeApiError> {
+) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
     definition.validate()?;
     let generated = definition.declaration_source()?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())
-        .map_err(NativeApiError)?;
+        .map_err(DeclarationError)?;
     let id = sources
         .set(&generated.uri, generated.text.clone(), SourceLayer::Base)
-        .map_err(NativeApiError)?;
+        .map_err(DeclarationError)?;
     let source = sources
         .snapshot()
         .file(id)
@@ -67,9 +67,9 @@ pub(crate) fn import(
         .clone();
     // Tool queries expose lossless syntax and docs; declaration checking below consumes records directly.
     let parsed = parse_declarations(&source, limits, cancel)
-        .map_err(|_| NativeApiError("native declaration presentation cancelled".into()))?;
+        .map_err(|_| DeclarationError("native declaration presentation cancelled".into()))?;
     if !parsed.diagnostics().is_empty() {
-        return Err(NativeApiError(format!(
+        return Err(DeclarationError(format!(
             "invalid generated declaration syntax: {:?}",
             parsed.diagnostics().first()
         )));
@@ -144,9 +144,9 @@ pub(crate) fn import(
 }
 
 struct Importer<'a> {
-    definition: &'a NativeModule,
-    providers: &'a [Arc<NativeModule>],
-    generated: &'a NativeApiSource,
+    definition: &'a ModuleDecl,
+    providers: &'a [Arc<ModuleDecl>],
+    generated: &'a DeclarationSource,
     lowerer: Lowerer,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     native_enums: HashMap<EnumId, NativeTypeKind>,
@@ -156,16 +156,24 @@ struct Importer<'a> {
 }
 
 impl Importer<'_> {
-    fn import_types(&mut self) -> Result<(), NativeApiError> {
+    fn import_types(&mut self) -> Result<(), DeclarationError> {
         let definition = self.definition;
         let generated = self.generated;
         for ty in &definition.types {
-            let TypeAbiKind::Native(constructor) = ty.kind else {
-                return Err(NativeApiError("missing native representation".into()));
+            let (constructor, layout) = match ty.kind {
+                TypeAbiKind::Native(constructor) => (Some(constructor), None),
+                TypeAbiKind::NativeStorage(layout) => (None, Some(layout)),
+                _ => return Err(DeclarationError("missing native representation".into())),
             };
-            let owner = definition.definition(constructor.declaration_kind(), &ty.name);
+            let owner = definition.definition(
+                constructor.map_or(
+                    DefinitionKind::AssociatedType,
+                    NativeTypeConstructor::declaration_kind,
+                ),
+                &ty.name,
+            );
             let site = &generated.sites[&owner];
-            if let NativeTypeConstructor::Enum(kind) = constructor {
+            if let Some(NativeTypeConstructor::Enum(kind)) = constructor {
                 let id = self.lowerer.source_map.push_enum(site.span);
                 self.lowerer
                     .source_map
@@ -241,20 +249,28 @@ impl Importer<'_> {
             });
             self.native_types.insert(
                 id,
-                match constructor {
-                    NativeTypeConstructor::Array => NativeTypeKind::ArrayList,
-                    NativeTypeConstructor::String => NativeTypeKind::String,
-                    NativeTypeConstructor::Map => NativeTypeKind::HashMap,
-                    NativeTypeConstructor::Set => NativeTypeKind::HashSet,
-                    NativeTypeConstructor::Iter => NativeTypeKind::Iter,
-                    NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
-                    NativeTypeConstructor::Enum(_) => unreachable!("enum imported separately"),
+                match (constructor, layout) {
+                    (None, Some(layout)) => NativeTypeKind::Storage {
+                        declaration: owner,
+                        arity: ty.generic_params.len(),
+                        layout,
+                    },
+                    (Some(NativeTypeConstructor::Array), _) => NativeTypeKind::ArrayList,
+                    (Some(NativeTypeConstructor::String), _) => NativeTypeKind::String,
+                    (Some(NativeTypeConstructor::Map), _) => NativeTypeKind::HashMap,
+                    (Some(NativeTypeConstructor::Set), _) => NativeTypeKind::HashSet,
+                    (Some(NativeTypeConstructor::Iter), _) => NativeTypeKind::Iter,
+                    (Some(NativeTypeConstructor::Range(kind)), _) => NativeTypeKind::Range(kind),
+                    (Some(NativeTypeConstructor::Enum(_)), _) => {
+                        unreachable!("enum imported separately")
+                    }
+                    (None, None) => unreachable!("validated native representation"),
                 },
             );
         }
         Ok(())
     }
-    fn import_traits(&mut self) -> Result<(), NativeApiError> {
+    fn import_traits(&mut self) -> Result<(), DeclarationError> {
         let definition = self.definition;
         let generated = self.generated;
         for item in &definition.traits {
@@ -280,7 +296,7 @@ impl Importer<'_> {
                     .declaration
                     .path
                     .last()
-                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
                     .name
                     .clone();
                 let name_ref = self.lowerer.alloc_type(
@@ -306,7 +322,7 @@ impl Importer<'_> {
             }
             let mut methods = vec![];
             for method in &item.methods {
-                let method_owner = NativeModule::method_id(&owner, &method.name);
+                let method_owner = ModuleDecl::method_id(&owner, &method.name);
                 let function = self.function(
                     &method_owner,
                     method,
@@ -347,7 +363,7 @@ impl Importer<'_> {
         }
         Ok(())
     }
-    fn import_implementations(&mut self) -> Result<(), NativeApiError> {
+    fn import_implementations(&mut self) -> Result<(), DeclarationError> {
         let definition = self.definition;
         let generated = self.generated;
         for (index, implementation) in definition.implementations.iter().enumerate() {
@@ -372,7 +388,7 @@ impl Importer<'_> {
                     let name = member
                         .path
                         .last()
-                        .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                        .ok_or_else(|| DeclarationError("missing associated name".into()))?
                         .name
                         .clone();
                     let site = &generated.sites[&associated_type_id(&owner, &name)];
@@ -394,7 +410,7 @@ impl Importer<'_> {
             }
             let mut methods = vec![];
             for method in &implementation.methods {
-                let method_owner = NativeModule::method_id(&owner, &method.name);
+                let method_owner = ModuleDecl::method_id(&owner, &method.name);
                 let function = self.function(
                     &method_owner,
                     method,
@@ -422,7 +438,7 @@ impl Importer<'_> {
         }
         Ok(())
     }
-    fn import_functions(&mut self) -> Result<(), NativeApiError> {
+    fn import_functions(&mut self) -> Result<(), DeclarationError> {
         let definition = self.definition;
         for function in &definition.functions {
             let owner = definition.definition(DefinitionKind::Function, &function.name);
@@ -464,7 +480,7 @@ impl Importer<'_> {
         kind: FunctionKind,
         generic_params: Vec<GenericParam>,
         receiver: Option<TypeRefId>,
-    ) -> Result<FunctionId, NativeApiError> {
+    ) -> Result<FunctionId, DeclarationError> {
         let site = &self.generated.sites[owner];
         let id = self.lowerer.source_map.push_function(site.span);
         self.lowerer
@@ -531,7 +547,7 @@ impl Importer<'_> {
         &mut self,
         bounds: &[GenericBoundAbi],
         sites: &[NativeBoundSite],
-    ) -> Result<Vec<TraitBound>, NativeApiError> {
+    ) -> Result<Vec<TraitBound>, DeclarationError> {
         let mut result = vec![];
         for (bound, site) in bounds.iter().zip(sites) {
             let target_ref = self.ty(&bound.ty, site.target)?;
@@ -557,13 +573,13 @@ impl Importer<'_> {
         &mut self,
         constraint: &ConstraintAbi,
         span: Span,
-    ) -> Result<TraitRef, NativeApiError> {
+    ) -> Result<TraitRef, DeclarationError> {
         let ty = match constraint {
             ConstraintAbi::Trait(trait_type) => self.nominal_type(trait_type, span)?,
             ConstraintAbi::Standard(kind) => {
                 let name = kind
                     .source_bound_name()
-                    .ok_or_else(|| NativeApiError("native bound has no source name".into()))?;
+                    .ok_or_else(|| DeclarationError("native bound has no source name".into()))?;
                 self.lowerer.alloc_type(
                     span,
                     TypeData {
@@ -579,12 +595,12 @@ impl Importer<'_> {
         &mut self,
         nominal: &NominalAbiType,
         span: Span,
-    ) -> Result<TypeRefId, NativeApiError> {
+    ) -> Result<TypeRefId, DeclarationError> {
         let name = nominal
             .declaration
             .path
             .last()
-            .ok_or_else(|| NativeApiError("missing nominal name".into()))?;
+            .ok_or_else(|| DeclarationError("missing nominal name".into()))?;
         let name = if nominal.declaration.module == self.definition.identity {
             name.name.clone()
         } else {
@@ -622,12 +638,12 @@ impl Importer<'_> {
                 let name = id
                     .path
                     .last()
-                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
                     .name
                     .clone();
                 Ok((name, self.ty(ty, span)?))
             })
-            .collect::<Result<_, NativeApiError>>()?;
+            .collect::<Result<_, DeclarationError>>()?;
         if nominal.arguments.is_empty() && nominal.associated_types.is_empty() {
             return Ok(self.lowerer.alloc_type(
                 span,
@@ -649,7 +665,7 @@ impl Importer<'_> {
             },
         ))
     }
-    fn ty(&mut self, ty: &AbiType, span: Span) -> Result<TypeRefId, NativeApiError> {
+    fn ty(&mut self, ty: &AbiType, span: Span) -> Result<TypeRefId, DeclarationError> {
         let kind = match ty {
             AbiType::Builtin(BuiltinType::String) => TypeKind::Named(self.representation_name(
                 NativeTypeConstructor::String,
@@ -658,13 +674,13 @@ impl Importer<'_> {
             )?),
             AbiType::Builtin(kind) => TypeKind::Named(
                 builtin_type_spec(*kind)
-                    .ok_or_else(|| NativeApiError("unknown native scalar".into()))?
+                    .ok_or_else(|| DeclarationError("unknown native scalar".into()))?
                     .name
                     .into(),
             ),
             AbiType::Parameter { position, .. } => TypeKind::Named(format!("T{position}")),
             AbiType::SelfType(_) => TypeKind::Named("Self".into()),
-            AbiType::Trait(ty) => return self.nominal_type(ty, span),
+            AbiType::Trait(ty) | AbiType::NativeObject(ty) => return self.nominal_type(ty, span),
             AbiType::Projection {
                 receiver,
                 interface,
@@ -680,7 +696,7 @@ impl Importer<'_> {
                 member: member
                     .path
                     .last()
-                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
                     .name
                     .clone(),
             },
@@ -779,7 +795,7 @@ impl Importer<'_> {
                     }
                 }
             }
-            _ => return Err(NativeApiError("unsupported native HIR type".into())),
+            _ => return Err(DeclarationError("unsupported native HIR type".into())),
         };
         Ok(self.lowerer.alloc_type(span, TypeData { kind }))
     }
@@ -789,7 +805,7 @@ impl Importer<'_> {
         constructor: NativeTypeConstructor,
         fallback: &str,
         span: Span,
-    ) -> Result<String, NativeApiError> {
+    ) -> Result<String, DeclarationError> {
         if let Some(owned) = self
             .definition
             .types
@@ -820,7 +836,7 @@ impl Importer<'_> {
             &preferred
         };
         let [(module, ty)] = candidates.as_slice() else {
-            return Err(NativeApiError(
+            return Err(DeclarationError(
                 "missing or ambiguous native representation declaration".into(),
             ));
         };

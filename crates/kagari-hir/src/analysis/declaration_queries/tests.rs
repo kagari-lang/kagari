@@ -15,19 +15,14 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnap
 }
 
 #[test]
-fn installed_package_is_shared_across_user_revisions_and_retained_by_snapshots() {
+fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshots() {
     let mut sources = SourceDatabase::default();
     sources
         .set("main.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let first = query(&mut db, &sources);
-    let installed = db.stdlib.get().unwrap().clone();
-    let module = installed
-        .modules
-        .iter()
-        .find(|module| module.source.name() == "kagari://std/array.kgr")
-        .unwrap();
+    let module = db.native_files.get().unwrap()[0].1.clone();
     let file = first.file(module.source.id()).unwrap();
     assert!(
         file.declarations()
@@ -42,7 +37,7 @@ fn installed_package_is_shared_across_user_revisions_and_retained_by_snapshots()
         )
         .unwrap();
     let second = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(&installed, db.stdlib.get().unwrap()));
+    assert!(Arc::ptr_eq(&module, &db.native_files.get().unwrap()[0].1));
     assert!(Arc::ptr_eq(file, second.file(module.source.id()).unwrap()));
     drop(db);
     assert_eq!(
@@ -52,7 +47,7 @@ fn installed_package_is_shared_across_user_revisions_and_retained_by_snapshots()
 }
 
 #[test]
-fn cancelled_or_invalid_installation_never_publishes_a_package_or_snapshot() {
+fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
     let sources = SourceDatabase::default();
     let mut db = AnalysisDatabase::default();
     let cancelled = CancellationToken::default();
@@ -61,7 +56,7 @@ fn cancelled_or_invalid_installation_never_publishes_a_package_or_snapshot() {
         db.declarations(sources.snapshot(), &cancelled),
         Err(AnalysisError::Cancelled)
     ));
-    assert!(db.stdlib.get().is_none());
+    assert!(db.native_files.get().is_none());
     assert!(db.declaration_cache.is_none());
     db.set_parse_limits(parser::ParseLimits {
         max_tree_depth: 1,
@@ -69,16 +64,13 @@ fn cancelled_or_invalid_installation_never_publishes_a_package_or_snapshot() {
     });
     assert!(matches!(
         db.declarations(sources.snapshot(), &Default::default()),
-        Err(AnalysisError::StandardLibrary(_))
+        Err(AnalysisError::NativeApi(_))
     ));
-    assert!(db.stdlib.get().is_none());
+    assert!(db.native_files.get().is_none());
     assert!(db.declaration_cache.is_none());
     db.set_parse_limits(Default::default());
     let complete = query(&mut db, &sources);
-    assert_eq!(
-        complete.files.len(),
-        db.stdlib.get().unwrap().package.files().len()
-    );
+    assert_eq!(complete.files.len(), db.native_files.get().unwrap().len());
 }
 
 #[test]

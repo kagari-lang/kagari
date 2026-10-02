@@ -43,6 +43,7 @@ pub fn lower_type(ty: &TypeId) -> AbiType {
             access: *access,
         },
         TypeId::Set(element, access) => AbiType::Set(Box::new(lower_type(element)), *access),
+        TypeId::NativeObject(ty) => AbiType::NativeObject(lower_nominal_type(ty)),
         TypeId::Struct(ty) => AbiType::Struct(lower_nominal_type(ty)),
         TypeId::Enum(ty) => AbiType::Enum(lower_nominal_type(ty)),
         TypeId::Trait(ty) => AbiType::Trait(lower_nominal_type(ty)),

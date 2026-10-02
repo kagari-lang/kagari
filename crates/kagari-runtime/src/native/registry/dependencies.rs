@@ -1,15 +1,20 @@
 //! Match required registration authority against the verified executable closure.
-use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::NativeCatalog};
+use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::DeclarationCatalog};
 use kagari_abi::{
-    native_api::NativeImplementation,
+    declaration::ImplDecl,
     types::{AbiType, InterfaceTableAbi, PublicAbiItem},
 };
 use kagari_common::identity::DefinitionId;
 
 pub(super) fn validate(
-    required: &NativeCatalog,
+    required: &DeclarationCatalog,
     program: &VerifiedProgram,
 ) -> Result<(), RuntimeError> {
+    for (id, expected) in required.types.iter() {
+        if !program.modules().iter().any(|module| module.identity == id.module && module.public_items.iter().any(|item| matches!(item, PublicAbiItem::Type(declaration) if declaration == expected))) {
+            return Err(RuntimeError::module_validation("native storage type differs from its registered contract"));
+        }
+    }
     for (id, expected) in required.traits.iter() {
         if !program.modules().iter().any(|module| {
             module.identity == id.module
@@ -48,7 +53,7 @@ pub(super) fn validate(
 
 fn implementation_matches(
     id: &DefinitionId,
-    expected: &NativeImplementation,
+    expected: &ImplDecl,
     actual: &InterfaceTableAbi,
 ) -> bool {
     // The compiler materializes omitted defaults on its real executable table.

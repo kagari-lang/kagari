@@ -18,9 +18,9 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
     insert(
         &mut db,
         "facade",
-        "pub use pkg::library as api; pub use std::math::abs; pub use std::math;",
+        "pub use pkg::library as api; pub use core::language::ArrayList::new; pub use core::language;",
     );
-    let text = "use pkg::facade::api as lib; use pkg::facade; fn main() -> lib::Data { lib::Data { value: facade::abs(facade::math::abs(lib::answer())) } }";
+    let text = "use pkg::facade::api as lib; use pkg::facade; fn main() -> lib::Data { lib::Data { value: { val a: ArrayList<i32> = facade::new(); val b: ArrayList<i32> = facade::language::ArrayList::new(); lib::answer() } } }";
     let root = insert(&mut db, "root", text);
     let snapshot = analyze(&db);
     let file = snapshot.file(root).unwrap();

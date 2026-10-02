@@ -191,7 +191,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                         && kind != Protocol::From
                         && !matches!(
                             table.for_type,
-                            AbiType::Struct(_) | AbiType::Enum(_) | AbiType::Host(_)
+                            AbiType::NativeObject(_)
+                                | AbiType::Struct(_)
+                                | AbiType::Enum(_)
+                                | AbiType::Host(_)
                         ))
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);

@@ -1,5 +1,6 @@
 use super::*;
 use crate::{error::VmError, tests::common};
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 
 #[test]
@@ -335,6 +336,7 @@ fn executes_runtime_reflect_set_index_helper() {
                     constant: ConstantOperand::I32(2),
                 },
                 BytecodeInstruction::MakeArray {
+                    element: AbiType::Builtin(BuiltinType::I32),
                     dst: Register::new(2),
                     elements: vec![Register::new(0), Register::new(1)],
                 },
@@ -446,46 +448,14 @@ fn main() -> i32 {
 
 #[test]
 fn standard_collection_reflection_metadata_reports_runtime_categories() {
-    let (runtime, loaded) = load_reflection_bytecode_module(
-        "standard_reflection.kbc",
-        test_function_module(
-            "main",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(0)),
-                    callee: CallTarget::RuntimePrimitive(RuntimePrimitive::LinkedHashMapNew),
-                    args: vec![],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(1)),
-                    callee: CallTarget::RuntimePrimitive(RuntimePrimitive::LinkedHashSetNew),
-                    args: vec![],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(2)),
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                    args: vec![Register::new(0)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(3)),
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                    args: vec![Register::new(1)],
-                },
-                BytecodeInstruction::MakeTuple {
-                    dst: Register::new(4),
-                    elements: vec![Register::new(2), Register::new(3)],
-                },
-                BytecodeInstruction::Return(Some(Register::new(4))),
-            ],
-            ValueType::HeapObject,
-            vec![
-                ValueType::HeapObject,
-                ValueType::HeapObject,
-                ValueType::Str,
-                ValueType::Str,
-                ValueType::HeapObject,
-            ],
-        ),
+    let (runtime, loaded) = load_reflection_test_module(
+        r#"
+        fn main() -> (String, String) {
+            val map: HashMap<i32,i32> = HashMap::new();
+            val set: HashSet<i32> = HashSet::new();
+            (type_of(map), type_of(set))
+        }
+    "#,
     );
 
     let mut vm = Vm::new(runtime);

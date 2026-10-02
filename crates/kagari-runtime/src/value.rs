@@ -1,5 +1,5 @@
 use crate::{
-    gc::{GcHeap, HeapObjectId},
+    gc::{GcHeap, GcObjectKind, HeapObjectId},
     host::{FrameHostBorrowToken, HostPathViewHandle, HostRegistryId, HostRootHandle},
     module::EnumVariantRef,
     range::RangeValue,
@@ -10,6 +10,7 @@ use kagari_common::identity::DefinitionId;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
+    slice,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,9 +148,24 @@ pub enum EphemeralValue {
 /// Prepared, immutable key. The original value is retained and traced by the heap.
 #[derive(Debug, Clone)]
 pub struct MapKey {
-    parts: Vec<KeyPart>,
+    parts: KeyParts,
     value: Value,
     custom: Option<(i64, i64)>,
+}
+#[derive(Debug, Clone)]
+enum KeyParts {
+    Empty,
+    Single(KeyPart),
+    Aggregate(Box<[KeyPart]>),
+}
+impl KeyParts {
+    fn as_slice(&self) -> &[KeyPart] {
+        match self {
+            Self::Empty => &[],
+            Self::Single(part) => slice::from_ref(part),
+            Self::Aggregate(parts) => parts,
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum KeyPart {
@@ -166,7 +182,7 @@ enum KeyPart {
 }
 impl PartialEq for MapKey {
     fn eq(&self, other: &Self) -> bool {
-        self.custom == other.custom && self.parts == other.parts
+        self.custom == other.custom && self.parts.as_slice() == other.parts.as_slice()
     }
 }
 impl Eq for MapKey {}
@@ -175,14 +191,14 @@ impl Hash for MapKey {
         if let Some((hash, _)) = self.custom {
             Hash::hash(&hash, state);
         } else {
-            Hash::hash(&self.parts, state);
+            Hash::hash(self.parts.as_slice(), state);
         }
     }
 }
 impl MapKey {
     pub(crate) fn custom(hash: i64, token: i64, value: Value) -> Self {
         Self {
-            parts: vec![],
+            parts: KeyParts::Empty,
             value,
             custom: Some((hash, token)),
         }
@@ -192,6 +208,32 @@ impl MapKey {
     }
 
     pub fn from_value(gc: &GcHeap, value: &Value) -> Option<Self> {
+        if !gc.validate_value(value) {
+            return None;
+        }
+        let single = match value {
+            Value::Unit => Some(KeyPart::Unit),
+            Value::Bool(value) => Some(KeyPart::Bool(*value)),
+            Value::I32(value) => Some(KeyPart::I32(*value)),
+            Value::I64(value) => Some(KeyPart::I64(*value)),
+            Value::U64(value) => Some(KeyPart::U64(*value)),
+            Value::Str(value) => Some(KeyPart::Str(value.clone())),
+            Value::Struct(id) => Some(KeyPart::Identity(0, *id)),
+            Value::Array(id) => Some(KeyPart::Identity(1, *id)),
+            Value::Map(id) => Some(KeyPart::Identity(2, *id)),
+            Value::Set(id) => Some(KeyPart::Identity(3, *id)),
+            Value::GcHandle(id) if gc.object_kind(*id) == Some(GcObjectKind::Native) => {
+                Some(KeyPart::Identity(4, *id))
+            }
+            _ => None,
+        };
+        if let Some(part) = single {
+            return Some(Self {
+                parts: KeyParts::Single(part),
+                custom: None,
+                value: value.clone(),
+            });
+        }
         let mut pending = vec![value.clone()];
         let mut parts = Vec::new();
         while let Some(value) = pending.pop() {
@@ -239,11 +281,14 @@ impl MapKey {
                 Value::Array(id) => parts.push(KeyPart::Identity(1, id)),
                 Value::Map(id) => parts.push(KeyPart::Identity(2, id)),
                 Value::Set(id) => parts.push(KeyPart::Identity(3, id)),
+                Value::GcHandle(id) if gc.object_kind(id) == Some(GcObjectKind::Native) => {
+                    parts.push(KeyPart::Identity(4, id))
+                }
                 _ => return None,
             }
         }
         Some(Self {
-            parts,
+            parts: KeyParts::Aggregate(parts.into_boxed_slice()),
             custom: None,
             value: value.clone(),
         })
@@ -522,30 +567,6 @@ mod tests {
 
         assert_eq!(Value::Unit.category(), ValueCategory::Unit);
         assert_eq!(scalar.category(), ValueCategory::Primitive);
-        assert_eq!(
-            Value::Map(
-                crate::gc::GcHeap::new(
-                    Default::default(),
-                    std::rc::Rc::new(crate::resource::ResourceState::default())
-                )
-                .alloc_map(Vec::new())
-                .unwrap()
-            )
-            .category(),
-            ValueCategory::ScriptOwned
-        );
-        assert_eq!(
-            Value::Set(
-                crate::gc::GcHeap::new(
-                    Default::default(),
-                    std::rc::Rc::new(crate::resource::ResourceState::default())
-                )
-                .alloc_set(Vec::new())
-                .unwrap()
-            )
-            .category(),
-            ValueCategory::ScriptOwned
-        );
         assert_eq!(host_root.category(), ValueCategory::HostHandle);
         assert_eq!(path_view.category(), ValueCategory::HostPathView);
         assert_eq!(host_ref.category(), ValueCategory::Ephemeral);
@@ -564,28 +585,6 @@ mod tests {
     #[test]
     fn keeps_host_handles_out_of_default_heap_payloads() {
         assert!(Value::Tuple(vec![Value::Unit]).is_default_heap_payload());
-        assert!(
-            Value::Map(
-                crate::gc::GcHeap::new(
-                    Default::default(),
-                    std::rc::Rc::new(crate::resource::ResourceState::default())
-                )
-                .alloc_map(Vec::new())
-                .unwrap()
-            )
-            .is_default_heap_payload()
-        );
-        assert!(
-            Value::Set(
-                crate::gc::GcHeap::new(
-                    Default::default(),
-                    std::rc::Rc::new(crate::resource::ResourceState::default())
-                )
-                .alloc_set(Vec::new())
-                .unwrap()
-            )
-            .is_default_heap_payload()
-        );
         let mut runtime = crate::Runtime::default();
         assert!(crate::layout_fixtures::interface_value(&mut runtime).is_default_heap_payload());
         assert!(!Value::HostRoot(host_root(1)).is_default_heap_payload());

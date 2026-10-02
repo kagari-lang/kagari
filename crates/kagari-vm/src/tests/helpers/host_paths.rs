@@ -1,4 +1,5 @@
 use super::*;
+use kagari_bytecode::instruction::NativeImportId;
 use {crate::error::VmError, kagari_common::host_interface::value_type::HostValueType};
 use {crate::reentry::reenter, kagari_runtime::host::HostPathDescriptorId};
 
@@ -54,9 +55,7 @@ fn executes_runtime_host_helper_call() {
                             },
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(2)),
-                                callee: CallTarget::Native(NativeCall::Host(
-                                    kagari_bytecode::HostImportId::new(0),
-                                )),
+                                callee: CallTarget::Native(NativeImportId::new(0)),
                                 args: vec![Register::new(0), Register::new(1)],
                             },
                             BytecodeInstruction::Return(Some(Register::new(2))),
@@ -136,9 +135,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeCall::Host(
-                                kagari_bytecode::HostImportId::new(0),
-                            )),
+                            callee: CallTarget::Native(NativeImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::LoadConst {
@@ -210,7 +207,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
     use kagari_bytecode::artifact::KbcArtifact;
     use std::{cell::RefCell, rc::Rc};
-    fn reenter(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
+    fn assert_reentry(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
         let scope = call
             .runtime()
@@ -252,17 +249,17 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                     descriptor,
                     HostPathAdapter::new()
                         .with_validate(move |call, _, _, _| {
-                            reenter(call, compute);
+                            assert_reentry(call, compute);
                             validation.borrow_mut().push("validate");
                             Ok(())
                         })
                         .with_read(move |call, _| {
-                            reenter(call, compute);
+                            assert_reentry(call, compute);
                             reading.borrow_mut().push("read");
                             Ok(Value::I32(10))
                         })
                         .with_prepare_write(move |call, _, record| {
-                            reenter(call, compute);
+                            assert_reentry(call, compute);
                             preparing.borrow_mut().push("prepare");
                             let Value::I32(next) = record.new_value else {
                                 panic!("i32")
@@ -341,9 +338,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeCall::Host(
-                                kagari_bytecode::HostImportId::new(0),
-                            )),
+                            callee: CallTarget::Native(NativeImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::ReadPath {
@@ -410,9 +405,7 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeCall::Host(
-                                kagari_bytecode::HostImportId::new(0),
-                            )),
+                            callee: CallTarget::Native(NativeImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::LoadConst {
@@ -456,9 +449,7 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeCall::Host(
-                                kagari_bytecode::HostImportId::new(0),
-                            )),
+                            callee: CallTarget::Native(NativeImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::ReadPath {
@@ -529,9 +520,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::Native(NativeCall::Host(
-                            kagari_bytecode::HostImportId::new(0),
-                        )),
+                        callee: CallTarget::Native(NativeImportId::new(0)),
                         args: vec![],
                     },
                     BytecodeInstruction::ReadPath {
@@ -676,9 +665,7 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::Native(NativeCall::Host(
-                            kagari_bytecode::HostImportId::new(0),
-                        )),
+                        callee: CallTarget::Native(NativeImportId::new(0)),
                         args: vec![],
                     },
                     BytecodeInstruction::LoadConst {

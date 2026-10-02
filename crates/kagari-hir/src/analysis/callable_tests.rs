@@ -6,37 +6,30 @@ use crate::{
     native::NativeBinding,
     profile::LanguageFeatureProfile,
     resolver::resolved::ResolvedName,
+    tests::native as fixture,
     typeck::{FunctionImplementation, table::CallTarget},
     types::TypeId,
 };
 
-use kagari_abi::{
-    callable::EngineNativeBinding,
-    scalar::BuiltinType,
-    standard::{RuntimePrimitive, bindings::NativeDefaultMethod, surface::StandardEnum},
-};
+use kagari_abi::{callable::NativeDefaultApplication, scalar::BuiltinType};
 use kagari_common::{
     diagnostic::DiagnosticKind,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         value_type::HostValueType,
     },
-    integer::IntegerMethod,
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 
 #[test]
-fn primitive_methods_and_associated_functions_keep_their_declared_scalar_owner() {
-    let text = r#"
-fn narrow() { (1i8).wrapping_add(2i8); i8::from_str_radix("7f", 16u32); }
-fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
-"#;
+fn native_generic_scalar_calls_keep_their_exact_declared_types() {
+    let text = "use demo::native::{echo, choose}; fn narrow() { echo(1i8); choose(1i8, 2i8, 3i8); } fn wide() { echo(1u64); choose(1u64, 2u64, 3u64); }";
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("numeric-bindings.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = fixture::database()
         .snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
@@ -48,47 +41,44 @@ fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
     let facts = analysis.result().facts();
     let mut seen = 0;
     for function in &facts.lowered.module.functions {
-        let expected = if function.name == "narrow" {
+        let expected = TypeId::Builtin(if function.name == "narrow" {
             BuiltinType::I8
         } else {
             BuiltinType::U64
-        };
+        });
         let block = facts.lowered.module.block(function.body.unwrap());
         for statement in &block.statements {
             let StmtKind::Expr(expression) = facts.lowered.module.stmt(*statement).kind else {
-                panic!("call statement")
+                panic!("call statement");
             };
             let call = facts.typed.type_table.call_resolution(expression).unwrap();
             let CallTarget::SourceFunction(id) = &call.target else {
-                panic!("checked source impl member")
+                panic!("checked native declaration");
             };
             let imported = facts.imported_functions.target(id).unwrap();
-            assert_eq!(imported.declaration.module.path, ["numeric"]);
-            assert!(call.type_arguments.is_empty());
-            match imported.signature.implementation {
-                FunctionImplementation::Native(NativeBinding::Entry(
-                    EngineNativeBinding::Integer(IntegerMethod::WrappingAdd),
-                )) => {
-                    assert_eq!(imported.signature.params[0].ty, TypeId::Builtin(expected));
-                    assert_eq!(
-                        facts.typed.type_table.expr_type(expression),
-                        Some(TypeId::Builtin(expected))
-                    );
-                }
-                FunctionImplementation::Native(NativeBinding::Entry(
-                    EngineNativeBinding::ParseRadix,
-                )) => {
-                    let TypeId::StandardEnum { args, .. } = &imported.signature.return_type else {
-                        panic!("radix result")
-                    };
-                    assert_eq!(args[0], TypeId::Builtin(expected));
-                }
-                other => panic!("unexpected primitive implementation: {other:?}"),
-            }
-            let signature = analysis
-                .call_signature_at(facts.lowered.source_map.expr_span(expression).start)
-                .unwrap();
-            assert_eq!(signature.declaration, imported.site.id);
+            assert_eq!(imported.declaration.module, fixture::module().identity);
+            assert!(matches!(
+                imported.signature.implementation,
+                FunctionImplementation::Native(NativeBinding::Entry(_))
+            ));
+            assert_eq!(
+                call.type_arguments.as_slice(),
+                std::slice::from_ref(&expected)
+            );
+            let applied = call.signature.as_ref().unwrap();
+            assert_eq!(applied.return_type, expected);
+            assert!(applied.params.iter().all(|ty| *ty == expected));
+            assert_eq!(
+                facts.typed.type_table.expr_type(expression),
+                Some(expected.clone())
+            );
+            assert_eq!(
+                analysis
+                    .call_signature_at(facts.lowered.source_map.expr_span(expression).start)
+                    .unwrap()
+                    .declaration,
+                imported.site.id
+            );
             seen += 1;
         }
     }
@@ -101,11 +91,11 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
     let root = sources
         .set(
             "implementations.kgr",
-            "trait Local { fn required(self)->i32; fn defaulted(self)->i32 { 42 } }".into(),
+            "use demo::native::NativeRead; trait Local { fn required(self)->i32; fn defaulted(self)->i32 { 42 } }".into(),
             SourceLayer::Base,
         )
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = fixture::database()
         .snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap();
     let facts = snapshot.file(root).unwrap().result().facts();
@@ -127,18 +117,18 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
     let iterator = facts
         .aggregates
         .traits()
-        .find(|item| item.declaration.name == "Iterator")
+        .find(|item| item.declaration.name == "NativeRead")
         .unwrap();
     let file = snapshot.file(iterator.declaration.location.file).unwrap();
-    for (name, expected) in [
-        ("next", FunctionImplementation::Required),
-        (
-            "map",
-            FunctionImplementation::Native(NativeBinding::Entry(
-                EngineNativeBinding::TraitDefault(NativeDefaultMethod::Map),
-            )),
-        ),
-    ] {
+    for name in ["read", "fixed"] {
+        let expected =
+            FunctionImplementation::Native(NativeBinding::Default(NativeDefaultApplication {
+                declaration: fixture::module().definition(
+                    kagari_common::identity::DefinitionKind::Function,
+                    &format!("default_{name}"),
+                ),
+                arguments: vec![kagari_abi::types::AbiType::SelfType(iterator.id.clone())],
+            }));
         let method = iterator
             .methods
             .iter()
@@ -165,19 +155,18 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
 #[test]
 fn native_generic_calls_use_source_signatures_and_ordinary_inference() {
     let text = r#"
-use std::math::clamp as bound;
+use demo::native::{choose as bound, echo};
 fn identity<T>(value: T) -> T { value }
 fn main() -> i32 {
     val value = bound(identity(42), 0, 100);
-    val optional: Option<i32> = Some(value);
-    optional.unwrap_or(0)
+    echo(value)
 }
 "#;
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("callables.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = fixture::database()
         .snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
@@ -198,12 +187,12 @@ fn main() -> i32 {
         };
         let expected = match name {
             "identity" => FunctionImplementation::Script,
-            "bound" => FunctionImplementation::Native(NativeBinding::Entry(
-                EngineNativeBinding::Intrinsic(RuntimePrimitive::MathClamp),
-            )),
-            "unwrap_or" => FunctionImplementation::Native(NativeBinding::Entry(
-                EngineNativeBinding::Intrinsic(RuntimePrimitive::OptionUnwrapOr),
-            )),
+            "bound" | "echo" => {
+                FunctionImplementation::Native(NativeBinding::Entry(fixture::module().definition(
+                    kagari_common::identity::DefinitionKind::Function,
+                    if name == "bound" { "choose" } else { "echo" },
+                )))
+            }
             _ => continue,
         };
         let call = facts.typed.type_table.call_resolution(id).unwrap();
@@ -217,7 +206,7 @@ fn main() -> i32 {
             CallTarget::SourceFunction(target) if name != "identity" => {
                 let imported = facts.imported_functions.target(target).unwrap();
                 assert_ne!(imported.site.location.file, root);
-                assert_eq!(imported.declaration.module.package.0, "kagari-std");
+                assert_eq!(imported.declaration.module, fixture::module().identity);
                 &imported.signature
             }
             other => panic!("{name} must retain its checked declaration target: {other:?}"),
@@ -232,13 +221,7 @@ fn main() -> i32 {
         let expected_params = match name {
             "bound" => vec![scalar.clone(); 3],
             "identity" => vec![scalar.clone()],
-            "unwrap_or" => vec![
-                TypeId::StandardEnum {
-                    kind: StandardEnum::Option,
-                    args: vec![scalar.clone()],
-                },
-                scalar,
-            ],
+            "echo" => vec![scalar],
             _ => unreachable!(),
         };
         assert_eq!(applied.params, expected_params, "{name}");
@@ -268,7 +251,7 @@ fn main() -> i32 {
         seen.push(name);
     }
     seen.sort_unstable();
-    assert_eq!(seen, ["bound", "identity", "unwrap_or"]);
+    assert_eq!(seen, ["bound", "echo", "identity"]);
 }
 
 #[test]
@@ -370,19 +353,19 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
 fn native_generic_permissions_do_not_bypass_bounds_or_script_export_rules() {
     for (text, native) in [
         (
-            "use std::math::clamp as bound; fn main() { bound(true, false, true); }",
+            "use demo::native::choose as bound; fn main() { bound(1.0, 2.0, 3.0); }",
             true,
         ),
         (
-            "#[intrinsic(MathClamp)] pub fn bound<T>(value:T)->T { value } fn main() { bound(1); }",
+            "#[native(fake)] pub fn bound<T>(value:T)->T { value } fn main() { bound(1); }",
             false,
         ),
     ] {
         let mut sources = SourceDatabase::default();
         let root = sources
-            .set("kagari://std/math.kgr", text.into(), SourceLayer::Base)
+            .set("native-authority.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = fixture::database()
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(root).unwrap();
@@ -391,7 +374,7 @@ fn native_generic_permissions_do_not_bypass_bounds_or_script_export_rules() {
             assert!(
                 diagnostics.iter().any(|diagnostic| matches!(
                     diagnostic.kind,
-                    DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                    DiagnosticKind::GenericBoundNotSatisfied { .. }
                 )),
                 "{diagnostics:?}"
             );
@@ -462,11 +445,10 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
 #[test]
 fn applied_signatures_preserve_parameter_contracts_through_coercion_and_divergence() {
     let text = r#"
-use std::array::List;
-use std::debug::panic;
+use core::language::List;
 fn read(values: List<i32>) -> i32 { 42 }
 fn consume(value: i32) -> i32 { value }
-fn stop() -> ! { panic("stop") }
+fn stop() -> ! { loop {} }
 fn run(callback: fn(i32) -> bool) {
     read([1, 2]);
     callback(1);

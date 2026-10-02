@@ -95,10 +95,10 @@ impl From<ResolvedName> for DeclarationKey {
 
 impl Declarations {
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
-        self.native_types.get(&id).copied()
+        self.native_types.get(&id).cloned()
     }
     pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind> {
-        self.native_enums.get(&id).copied()
+        self.native_enums.get(&id).cloned()
     }
     pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionId> {
         self.impl_identities.get(&id)

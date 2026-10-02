@@ -132,7 +132,12 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
             TypeId::Generic(foreign.clone()),
         ],
     });
-    for make in [TypeId::Struct, TypeId::Enum, TypeId::Trait] {
+    for make in [
+        TypeId::NativeObject,
+        TypeId::Struct,
+        TypeId::Enum,
+        TypeId::Trait,
+    ] {
         let template = make(NominalType {
             associated_types: Default::default(),
             declaration: owner.clone(),

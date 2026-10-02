@@ -10,7 +10,7 @@ use {
 
 #[path = "support/layouts.rs"]
 mod layouts;
-use kagari_abi::types::AbiType;
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::module::BytecodeModule;
 use {
     kagari_common::{
@@ -123,7 +123,6 @@ fn value_categories_and_storage_boundaries_match_runtime_spec() {
 #[test]
 fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
     let mut runtime = Runtime::default();
-    let leaf = runtime.gc().alloc_array(vec![Value::I32(1)]).unwrap();
     let record_layout = layouts::layout(
         &mut runtime,
         "Record",
@@ -136,6 +135,13 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
             true,
         )],
     );
+    let leaf = runtime
+        .alloc_array(
+            record_layout.module(),
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
     let record = runtime
         .alloc_struct(record_layout, vec![Value::Array(leaf)])
         .unwrap();
@@ -261,7 +267,6 @@ fn metadata_registry_carries_reload_and_path_validation_records() {
 fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let mut runtime = Runtime::default();
 
-    assert!(runtime.gc().alloc_array(vec![host_root_value(1)]).is_err());
     let record_layout = layouts::layout(
         &mut runtime,
         "HostBacked",
@@ -276,10 +281,25 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
     );
     assert!(
         runtime
+            .alloc_array(
+                record_layout.module(),
+                AbiType::Builtin(BuiltinType::I32),
+                vec![host_root_value(1)]
+            )
+            .is_err()
+    );
+    let script = runtime
+        .alloc_array(
+            record_layout.module(),
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
+    assert!(
+        runtime
             .alloc_struct(record_layout, vec![path_view_value(2)])
             .is_err()
     );
-    let script = runtime.gc().alloc_array(vec![Value::I32(1)]).unwrap();
     assert!(runtime.root_value(host_root_value(3)).is_none());
     assert!(runtime.root_value(path_view_value(4)).is_none());
     let _root = runtime

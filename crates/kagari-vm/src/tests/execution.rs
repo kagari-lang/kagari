@@ -285,6 +285,7 @@ fn interface_instruction_module() -> BytecodeModule {
         })),
     ];
     module.interface_tables = vec![InterfaceTableRecord {
+        view: None,
         arguments: Vec::new(),
         declaration: impl_id,
         methods: vec![],

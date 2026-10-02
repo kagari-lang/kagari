@@ -1,8 +1,8 @@
 //! Retain referenced contracts, not arbitrary authority from an authoring view.
-use crate::{error::RuntimeError, native::catalog::NativeCatalog};
+use crate::{error::RuntimeError, native::catalog::DeclarationCatalog};
 use kagari_abi::{
     callable::CallableImplementation,
-    native_api::NativeModule,
+    declaration::ModuleDecl,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, NativeDeclaration, NominalAbiType,
         matching::{ImplementationPattern, match_pattern},
@@ -14,6 +14,7 @@ use std::{collections::BTreeSet, iter};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Reference {
+    Type(DefinitionId),
     Trait(DefinitionId),
     Template(DefinitionId),
     Obligation(AbiType, NominalAbiType),
@@ -46,7 +47,14 @@ impl References {
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {
             match ty {
-                AbiType::Trait(nominal) | AbiType::Struct(nominal) | AbiType::Enum(nominal) => {
+                AbiType::NativeObject(nominal)
+                | AbiType::Trait(nominal)
+                | AbiType::Struct(nominal)
+                | AbiType::Enum(nominal) => {
+                    if matches!(ty, AbiType::NativeObject(_)) {
+                        self.pending
+                            .push(Reference::Type(nominal.declaration.clone()));
+                    }
                     if matches!(ty, AbiType::Trait(_)) {
                         self.pending
                             .push(Reference::Trait(nominal.declaration.clone()));
@@ -143,12 +151,12 @@ impl References {
     }
 }
 
-impl NativeCatalog {
+impl DeclarationCatalog {
     pub(crate) fn dependencies<'a>(
         &self,
         traits: impl IntoIterator<Item = &'a DefinitionId>,
         declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
-        modules: impl IntoIterator<Item = &'a NativeModule>,
+        modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<Self, RuntimeError> {
         let mut references = References::default();
         references
@@ -216,12 +224,21 @@ impl NativeCatalog {
                     for method in &implementation.methods {
                         references
                             .pending
-                            .push(Reference::Template(NativeModule::method_id(
+                            .push(Reference::Template(ModuleDecl::method_id(
                                 &id,
                                 &method.name,
                             )));
                     }
                     result.insert_implementation(id, implementation.clone())?;
+                }
+                Reference::Type(id) => {
+                    let declaration = self.types.get(&id).ok_or_else(|| {
+                        RuntimeError::metadata_conflict(
+                            "native storage type is absent from the declaration catalog",
+                        )
+                    })?;
+                    references.bounds(&declaration.bounds)?;
+                    result.insert_type(id, declaration.clone())?;
                 }
                 Reference::Trait(id) => {
                     let contract = self.get(&id).ok_or_else(|| {

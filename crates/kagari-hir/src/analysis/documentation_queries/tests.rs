@@ -1,5 +1,5 @@
 use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
-use kagari_abi::language::{self as standard_traits, Protocol};
+use kagari_abi::language::{self as standard_traits, Protocol, catalog};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use std::collections::HashSet;
 
@@ -10,48 +10,51 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let installed = database.stdlib.get().unwrap().clone();
+    let installed = catalog::shared();
+    let generated = installed.declaration_source().unwrap();
     let independent = AnalysisDatabase::default()
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     drop(database);
-    assert_eq!(snapshot.files().count(), installed.package.files().len());
+    assert_eq!(snapshot.files().count(), 1);
     let mut identities = HashSet::new();
     let mut count = 0;
-    for source in installed.package.files() {
-        let file = snapshot.file(source.source().id()).unwrap();
-        for site in source.declarations() {
-            let Some(range) = site.name_span else {
-                continue;
-            };
-            let declaration = file.declarations().site_at(range.start).unwrap_or_else(|| {
-                panic!(
-                    "missing declaration in {} at {range:?}",
-                    file.source().name()
-                )
-            });
-            assert_eq!(declaration.location.range, range);
-            assert_eq!(
-                &file.source().text()[range.start..range.end],
-                declaration.name
-            );
-            assert!(
-                identities.insert(declaration.id.clone()),
-                "{:?}",
-                declaration.id
-            );
-            let metadata = snapshot.documentation(&declaration.id).unwrap();
-            assert_eq!(metadata.declaration, *declaration);
-            assert_eq!(metadata.documentation, site.documentation);
-            assert_eq!(metadata.written_signature, site.written_signature);
-            let other = independent.documentation(&declaration.id).unwrap();
-            assert_eq!(other.declaration.id, declaration.id);
-            assert_eq!(other.declaration.name, declaration.name);
-            assert_eq!(other.declaration.location.range, range);
-            assert_eq!(other.documentation, metadata.documentation);
-            assert_eq!(other.written_signature, metadata.written_signature);
-            count += 1;
+    let file = snapshot
+        .files()
+        .find(|file| file.source().name() == generated.uri)
+        .unwrap();
+    for (id, site) in &generated.sites {
+        let range = site.name_span;
+        // Impl header spans name a receiver type, not a named declaration.
+        if range.start == range.end
+            || id
+                .path
+                .last()
+                .is_some_and(|part| part.kind == kagari_common::identity::DefinitionKind::Impl)
+        {
+            continue;
         }
+        let declaration = snapshot
+            .declaration(&DeclarationId::Definition(id.clone()))
+            .unwrap_or_else(|| panic!("missing generated declaration: {id:?}"));
+        assert_eq!(declaration.location.range, range);
+        assert_eq!(&generated.text[range.start..range.end], declaration.name);
+        assert!(identities.insert(declaration.id.clone()));
+        let metadata = snapshot.documentation(&declaration.id).unwrap();
+        assert_eq!(metadata.declaration, *declaration);
+        assert_eq!(
+            metadata.documentation,
+            installed.documentation.get(id).cloned().unwrap_or_default()
+        );
+        assert!(metadata.written_signature.contains(&declaration.name));
+        let other = independent.documentation(&declaration.id).unwrap();
+        assert_eq!(other.declaration.id, declaration.id);
+        assert_eq!(other.declaration.name, declaration.name);
+        assert_eq!(other.declaration.location.range, range);
+        assert_eq!(other.documentation, metadata.documentation);
+        assert_eq!(other.written_signature, metadata.written_signature);
+        assert_eq!(file.source().span(range), Some(declaration.location));
+        count += 1;
     }
     assert!(count > 0);
     for kind in Protocol::ALL {
@@ -196,22 +199,14 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let installed = database.stdlib.get().unwrap().clone();
+    let uri = catalog::shared().declaration_source().unwrap().uri;
     drop(database);
-    for (uri, name) in [
-        ("array", "ArrayList"),
-        ("option", "Option"),
-        ("option", "Some"),
-        ("iter", "next"),
-    ] {
-        let source = installed
-            .package
-            .files()
-            .iter()
-            .find(|file| file.source().name() == format!("kagari://std/{uri}.kgr"))
-            .unwrap()
-            .source();
-        let file = snapshot.file(source.id()).unwrap();
+    let file = snapshot
+        .files()
+        .find(|file| file.source().name() == uri)
+        .unwrap();
+    let source = file.source();
+    for name in ["ArrayList", "Option", "Iterator"] {
         let declaration = file
             .declarations()
             .iter()
@@ -221,7 +216,10 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
             .unwrap();
         let docs = snapshot.documentation(&declaration.id).unwrap();
         assert_eq!(docs.declaration, *declaration);
-        assert!(!docs.documentation.is_empty());
+        assert!(
+            !docs.documentation.is_empty(),
+            "missing docs for {name}: {docs:?}"
+        );
         assert!(docs.written_signature.contains(name));
         assert_eq!(
             source.span(declaration.location.range),

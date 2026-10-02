@@ -174,6 +174,7 @@ pub enum TypeId {
         access: CollectionAccess,
     },
     Set(Box<TypeId>, CollectionAccess),
+    NativeObject(NominalType),
     Struct(NominalType),
     Enum(NominalType),
     Trait(NominalType),
@@ -277,7 +278,7 @@ impl TypeId {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Projection { .. } => return true,
-                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
                 }
@@ -318,7 +319,10 @@ impl TypeId {
                 | Self::Iter(item)
                 | Self::Range(item, _) => pending.push(item),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values())
                 }
@@ -356,7 +360,7 @@ impl TypeId {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values())
                 }
@@ -398,6 +402,7 @@ impl TypeId {
                 params: params.iter().map(&mut map).collect(),
                 result: Box::new(map(result)),
             },
+            Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(map)),
             Self::Struct(ty) => Self::Struct(ty.map_arguments(map)),
             Self::Enum(ty) => Self::Enum(ty.map_arguments(map)),
             Self::Trait(ty) => Self::Trait(ty.map_arguments(map)),
@@ -448,6 +453,7 @@ impl TypeId {
                 continue;
             }
             *target = match source {
+                Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(|_| Self::Unknown)),
                 Self::Struct(ty) => Self::Struct(ty.map_arguments(|_| Self::Unknown)),
                 Self::Enum(ty) => Self::Enum(ty.map_arguments(|_| Self::Unknown)),
                 Self::Trait(ty) => Self::Trait(ty.map_arguments(|_| Self::Unknown)),
@@ -483,7 +489,8 @@ impl TypeId {
                 _ => source.clone(),
             };
             match (source, target) {
-                (Self::Struct(source), Self::Struct(target))
+                (Self::NativeObject(source), Self::NativeObject(target))
+                | (Self::Struct(source), Self::Struct(target))
                 | (Self::Enum(source), Self::Enum(target))
                 | (Self::Trait(source), Self::Trait(target)) => {
                     pending.extend(
@@ -603,7 +610,10 @@ impl TypeId {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
-                Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
                 }
@@ -682,6 +692,7 @@ impl TypeId {
                 Self::Function { .. } | Self::Iter(_) | Self::Range(_, _) => return false,
                 // The elements of mutable containers do not participate in identity equality.
                 Self::Builtin(_)
+                | Self::NativeObject(_)
                 | Self::Struct(_)
                 | Self::Enum(_)
                 | Self::Array(_, _)
@@ -697,7 +708,10 @@ impl TypeId {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
-                Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
                 }
@@ -747,7 +761,7 @@ impl TypeId {
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items)
                 }
-                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values())
                 }
@@ -813,7 +827,8 @@ impl TypeId {
                     pending.push((left_result, right_result));
                     pending.extend(left_params.iter_mut().zip(right_params).rev());
                 }
-                (Self::Struct(left), Self::Struct(right))
+                (Self::NativeObject(left), Self::NativeObject(right))
+                | (Self::Struct(left), Self::Struct(right))
                 | (Self::Enum(left), Self::Enum(right))
                 | (Self::Trait(left), Self::Trait(right))
                     if left.declaration == right.declaration
@@ -903,7 +918,8 @@ impl TypeId {
                     pending.push((left_result, right_result));
                     pending.extend(left_params.iter().zip(right_params).rev());
                 }
-                (Self::Struct(left), Self::Struct(right))
+                (Self::NativeObject(left), Self::NativeObject(right))
+                | (Self::Struct(left), Self::Struct(right))
                 | (Self::Enum(left), Self::Enum(right))
                 | (Self::Trait(left), Self::Trait(right)) => {
                     if left.declaration != right.declaration
@@ -1009,7 +1025,7 @@ impl TypeId {
                         pending.push(Part::Text(", "));
                         pending.push(Part::Type(key));
                         pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "LinkedHashMap<"
+                            "HashMap<"
                         } else {
                             "Map<"
                         }));
@@ -1018,12 +1034,15 @@ impl TypeId {
                         pending.push(Part::Text(">"));
                         pending.push(Part::Type(item));
                         pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "LinkedHashSet<"
+                            "HashSet<"
                         } else {
                             "Set<"
                         }));
                     }
-                    Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
+                    Self::NativeObject(nominal)
+                    | Self::Struct(nominal)
+                    | Self::Enum(nominal)
+                    | Self::Trait(nominal) => {
                         if !nominal.arguments.is_empty() || !nominal.associated_types.is_empty() {
                             pending.push(Part::Text(">"));
                             for (index, (member, ty)) in
@@ -1116,6 +1135,7 @@ impl TypeId {
             | Self::Array(_, _)
             | Self::Map { .. }
             | Self::Set(_, _)
+            | Self::NativeObject(_)
             | Self::Struct(_)
             | Self::Enum(_)
             | Self::Trait(_)

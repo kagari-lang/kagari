@@ -266,11 +266,37 @@ pub(super) fn verify(
                 }));
             }
         }
-        Instruction::RepeatArray { dst, count, .. } => {
+        Instruction::RepeatArray {
+            dst,
+            element,
+            value,
+            count,
+        } => {
             context.expect(dst.ty, ValueType::HeapObject, "repeat array destination")?;
             context.expect(count.ty, ValueType::U64, "repeat array count")?;
+            context.expect(value.ty, element.representation(), "repeat array element")?;
+            if !element.within_wire_limits() || !element.is_concrete() {
+                return Err(contract(ContractError::InvalidOperation {
+                    reason: "unresolved or oversized array element",
+                }));
+            }
         }
-        Instruction::MakeTuple { dst, .. } | Instruction::MakeArray { dst, .. } => {
+        Instruction::MakeArray {
+            dst,
+            element,
+            elements,
+        } => {
+            context.expect(dst.ty, ValueType::HeapObject, "array destination")?;
+            if !element.within_wire_limits() || !element.is_concrete() {
+                return Err(contract(ContractError::InvalidOperation {
+                    reason: "unresolved or oversized array element",
+                }));
+            }
+            for value in elements {
+                context.expect(value.ty, element.representation(), "array element")?;
+            }
+        }
+        Instruction::MakeTuple { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
         }
         Instruction::MakeClosure {

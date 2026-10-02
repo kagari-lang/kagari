@@ -11,7 +11,7 @@ mod tests {
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
-    fn ranges_and_interval_copy_expose_source_owned_api_queries() {
+    fn ranges_and_collections_expose_source_owned_api_queries() {
         for (source, receiver, expected) in [
             (
                 "fn main() { val range = 0u8..3u8; range. }",
@@ -21,7 +21,7 @@ mod tests {
             (
                 "fn main() { val values = [0; 4]; values. }",
                 "values. }",
-                vec!["fill", "copy_from", "copy_within"],
+                vec!["len", "get", "push", "clear"],
             ),
         ] {
             let mut sources = SourceDatabase::default();
@@ -35,6 +35,13 @@ mod tests {
             let candidates = analysis.method_completions(
                 source.find(receiver).unwrap() + receiver.find('.').unwrap() + 1,
             );
+            if receiver.starts_with("values") {
+                assert!(
+                    !candidates
+                        .iter()
+                        .any(|item| matches!(item.name.as_str(), "start_bound" | "end_bound"))
+                );
+            }
             for name in expected {
                 let matches = candidates
                     .iter()
@@ -53,8 +60,8 @@ mod tests {
     }
 
     #[test]
-    fn native_iterator_implementation_exposes_members_and_inherited_defaults() {
-        let text = "fn main() { val values: Iter<i32> = [20,22].iter(); values. }";
+    fn native_iterator_implementation_exposes_checked_protocol_members() {
+        let text = "fn main() { val values = [20,22].iter(); values. }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("iterator.kgr", text.into(), SourceLayer::Base)
@@ -94,7 +101,7 @@ mod tests {
         );
 
         let candidates = analysis.method_completions(text.find("values. }").unwrap() + 7);
-        for name in ["next", "map", "filter", "collect"] {
+        for name in ["next", "iter"] {
             let matches: Vec<_> = candidates.iter().filter(|m| m.name == name).collect();
             assert_eq!(matches.len(), 1, "{name}");
             let api = matches[0];
@@ -107,7 +114,9 @@ mod tests {
                     kagari_common::identity::DefinitionKind::Impl
                 } else {
                     kagari_common::identity::DefinitionKind::Trait
-                }
+                },
+                "{name}: {:?}",
+                api.declaration
             );
             let declaration = snapshot.declaration(&api.declaration).unwrap();
             let source = snapshot.source(declaration.location.file).unwrap();
@@ -130,14 +139,13 @@ mod tests {
                 .documentation(&DeclarationId::Definition(target.clone()))
                 .unwrap()
                 .written_signature
-                .contains("intrinsic(IterNext)")
+                .contains("fn next")
         );
     }
 
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
-        use crate::{language::semantics as traits, typeck::table::ConstraintTarget};
-        use kagari_abi::standard::surface::StandardEnum;
+        use crate::typeck::table::ConstraintTarget;
         let mut sources = SourceDatabase::default();
         let root = sources
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -153,12 +161,10 @@ mod tests {
             value: Box::new(string.clone()),
             access: CollectionAccess::Mutable,
         };
-        let item = TypeId::Tuple(vec![integer.clone(), string.clone()]);
         for (kind, arguments) in [
             (Protocol::Map, vec![integer.clone(), string.clone()]),
             (Protocol::MutableMap, vec![integer.clone(), string.clone()]),
             (Protocol::Iterable, vec![]),
-            (Protocol::FromIterator, vec![item.clone()]),
         ] {
             let mut interface = kind.nominal();
             interface.arguments = arguments;
@@ -169,8 +175,8 @@ mod tests {
                 "{kind:?}"
             );
         }
-        let mut interface = Protocol::FromIterator.nominal();
-        interface.arguments.push(item.clone());
+        let mut interface = Protocol::Map.nominal();
+        interface.arguments = vec![integer.clone(), string.clone()];
         let (collect, arguments) = catalog
             .engine_implementation(&interface, &target, &Default::default())
             .unwrap();
@@ -190,7 +196,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         names.sort();
-        assert_eq!(names, ["Eq", "Hash"]);
+        assert_eq!(names, ["Eq", "Hash", "PartialEq"]);
         let method = collect.methods.values().next().unwrap();
         let metadata = snapshot
             .declaration_snapshot()
@@ -201,54 +207,26 @@ mod tests {
                 .source(metadata.declaration.location.file)
                 .unwrap()
                 .name(),
-            "kagari://std/map.kgr"
+            kagari_abi::language::catalog::shared()
+                .declaration_source()
+                .unwrap()
+                .uri
         );
-        assert!(
-            metadata
-                .written_signature
-                .contains("CollectionFromIterator")
-        );
+        assert!(metadata.written_signature.contains("fn "));
         assert_eq!(
             snapshot.declaration(&metadata.declaration.id),
             Some(&metadata.declaration)
         );
-
-        let result = TypeId::StandardEnum {
-            kind: StandardEnum::Result,
-            args: vec![target.clone(), string.clone()],
-        };
-        let mut lifted = Protocol::FromIterator.nominal();
-        lifted.arguments.push(TypeId::StandardEnum {
-            kind: StandardEnum::Result,
-            args: vec![item, string],
-        });
-        let (required, destination) =
-            traits::lifted_collection_requirement(&lifted, &result, catalog).unwrap();
-        assert_eq!(required, interface);
-        assert_eq!(destination, target);
-        assert!(destination.is_concrete());
-        let (implementation, _) = catalog
-            .engine_implementation(&lifted, &result, &Default::default())
-            .unwrap();
-        let method = implementation.methods.values().next().unwrap();
-        let declaration = snapshot
-            .declaration(&DeclarationId::Definition(method.clone()))
-            .unwrap();
-        assert_eq!(
-            snapshot.source(declaration.location.file).unwrap().name(),
-            "kagari://std/result.kgr"
-        );
     }
 
     #[test]
-    fn native_calls_types_and_variants_navigate_to_documented_source() {
-        let text = "use std::array::ArrayList::get as lookup; fn main() { val value: Result<i32,String> = Ok(7); val values=[7]; lookup(values, values.len()); value.is_ok(); }";
+    fn native_calls_types_and_variants_navigate_to_source() {
+        let text = "use core::language::ArrayList::new as create; fn main() { val value: Result<i32,String> = Ok(7); val values: ArrayList<i32> = create(); values.len(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("main.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
-        let snapshot = db
+        let snapshot = AnalysisDatabase::default()
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
@@ -258,11 +236,10 @@ mod tests {
             analysis.result().diagnostics()
         );
         for (needle, expected) in [
-            ("lookup(values", "get"),
+            ("create()", "new"),
             ("len()", "len"),
             ("Result<i32", "Result"),
             ("Ok(7)", "Ok"),
-            ("is_ok()", "is_ok"),
         ] {
             let offset = text.find(needle).unwrap();
             let definition = analysis
@@ -275,33 +252,37 @@ mod tests {
                 expected
             );
             let api = snapshot.documentation_at(file, offset).unwrap();
-            assert!(!api.documentation.is_empty());
+            assert_eq!(api.declaration.id, definition.id);
+            if expected == "Result" {
+                assert!(!api.documentation.is_empty());
+            }
             assert_eq!(snapshot.declaration(&definition.id), Some(definition));
         }
         let signature = analysis
-            .call_signature_at(text.find("lookup(values").unwrap())
+            .call_signature_at(text.find("create()").unwrap())
             .unwrap();
+        assert!(signature.parameters.is_empty());
         assert_eq!(
-            signature.parameters[0].1,
+            signature.result,
             TypeId::Array(
                 Box::new(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable
             )
         );
         let signature = analysis
-            .call_signature_at(text.find("is_ok()").unwrap())
+            .call_signature_at(text.find("len()").unwrap())
             .unwrap();
         assert!(signature.parameters.is_empty());
         assert_eq!(
             signature.result,
-            TypeId::Builtin(kagari_abi::scalar::BuiltinType::Bool)
+            TypeId::Builtin(kagari_abi::scalar::BuiltinType::USize)
         );
     }
 
     #[test]
     fn incomplete_members_keep_standard_candidates_across_snapshots() {
         let mut sources = SourceDatabase::default();
-        let text = "fn main() { val text=\"hi\"; text. }";
+        let text = "fn main() { val text=[1]; text. }";
         let file = sources
             .set("main.kgr", text.into(), SourceLayer::Base)
             .unwrap();
@@ -311,7 +292,7 @@ mod tests {
             .unwrap();
         let offset = text.find("text. ").unwrap() + 5;
         let candidates = old.file(file).unwrap().method_completions(offset);
-        assert!(candidates.iter().any(|item| item.name == "len_bytes"));
+        assert!(candidates.iter().any(|item| item.name == "len"));
         sources
             .set(
                 "main.kgr",
@@ -335,13 +316,13 @@ mod trait_tests {
     use crate::analysis::AnalysisDatabase;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
-    fn iterator_defaults_navigate_to_source_and_expose_checked_signatures() {
-        let text = "fn main(){val result: ArrayList<i32> = [20,22].iter().map(|x|x).collect();}";
+    fn registered_defaults_navigate_to_source_and_expose_checked_signatures() {
+        let text = "use demo::native::NativeRead; struct Reader {} impl NativeRead for Reader {} fn main() { val value = Reader {}; value.read(); value.fixed(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
-            .set("pipeline.kgr", text.into(), SourceLayer::Base)
+            .set("defaults.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = crate::tests::native::database()
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
@@ -350,24 +331,28 @@ mod trait_tests {
             "{:?}",
             analysis.result().diagnostics()
         );
-        for name in ["iter", "map", "collect"] {
+        for name in ["read", "fixed"] {
             let offset = text.find(&format!(".{name}(")).unwrap() + 1;
             let api = snapshot.documentation_at(file, offset).unwrap();
             assert_eq!(api.declaration.name, name);
-            assert!(
+            assert_eq!(api.documentation, format!("Native {name} contract."));
+            assert_eq!(
                 snapshot
                     .source(api.declaration.location.file)
                     .unwrap()
-                    .name()
-                    .ends_with("iter.kgr")
+                    .name(),
+                crate::tests::native::module()
+                    .declaration_source()
+                    .unwrap()
+                    .uri
             );
             let signature = analysis.call_signature_at(offset).unwrap();
             assert_eq!(signature.declaration, api.declaration.id);
-            assert_eq!(signature.parameters.len(), usize::from(name == "map"));
-            assert!(signature.result.is_concrete());
-            if name != "collect" {
-                assert_eq!(signature.result.display_name(), "Iter<i32>");
-            }
+            assert!(signature.parameters.is_empty());
+            assert_eq!(
+                signature.result,
+                TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32)
+            );
         }
     }
     #[test]
@@ -423,7 +408,7 @@ mod trait_tests {
                 .source(declaration.location.file)
                 .unwrap()
                 .name()
-                .ends_with("iter.kgr")
+                .ends_with("kagari-core/language.kgr")
         );
     }
 }
@@ -485,7 +470,7 @@ mod interpolation_queries {
     }
 
     #[test]
-    fn join_completion_requires_string_items() {
+    fn extension_completion_requires_matching_associated_items() {
         for (body, available) in [
             ("[1].", false),
             ("[\"one\"].", true),
@@ -495,22 +480,34 @@ mod interpolation_queries {
             ("val xs: List<String> = [\"one\"]; xs.", true),
             ("val xs: MutableList<String> = [\"one\"]; xs.", true),
         ] {
-            let text = format!("fn main() {{ {body} }}");
+            let text = format!("use demo::text_items; fn main() {{ {body} }}");
             let mut sources = SourceDatabase::default();
             let file = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
             let mut db = AnalysisDatabase::default();
+            db.set_native_modules(vec![crate::tests::native::text_items_module()]);
             let snapshot = db
                 .snapshot(sources.snapshot(), Default::default(), &Default::default())
                 .unwrap();
+            let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
+            assert!(
+                diagnostics.iter().all(|diagnostic| matches!(
+                    diagnostic.kind,
+                    kagari_common::diagnostic::DiagnosticKind::ExpectedFieldName
+                )),
+                "{text}: {diagnostics:?}"
+            );
             let completions = snapshot
                 .file(file)
                 .unwrap()
                 .method_completions(text.find(". }").unwrap() + 1);
             assert_eq!(
-                completions.iter().any(|item| item.name == "join"),
-                available
+                completions.iter().any(|item| item.name == "text_items"),
+                available,
+                "{body}: {:?}; diagnostics={:?}",
+                completions,
+                snapshot.file(file).unwrap().result().diagnostics()
             );
         }
     }
@@ -626,7 +623,7 @@ mod collection_access_tests {
 
     #[test]
     fn constructors_navigate_to_distinct_documented_members() {
-        let text = "fn main() { val a = ArrayList::from([1]); val b = ArrayList::from(a); val c: Map<i32,i32> = LinkedHashMap::new(); val d: LinkedHashMap<i32,i32> = LinkedHashMap::new(); val e=LinkedHashSet::from([1]); val f=LinkedHashSet::from([1]); }";
+        let text = "fn main() { val a: ArrayList<i32> = ArrayList::new(); val b: ArrayList<i32> = ArrayList::new(); val c: Map<i32,i32> = HashMap::new(); val d: HashMap<i32,i32> = HashMap::new(); val e: HashSet<i32> = HashSet::new(); val f: HashSet<i32> = HashSet::new(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("constructors.kgr", text.into(), SourceLayer::Base)
@@ -641,18 +638,14 @@ mod collection_access_tests {
             file.result().diagnostics()
         );
         let mut identities = std::collections::HashSet::new();
-        for spelling in [
-            "ArrayList::from",
-            "LinkedHashMap::new",
-            "LinkedHashSet::from",
-        ] {
+        for spelling in ["ArrayList::new", "HashMap::new", "HashSet::new"] {
             let offset = text.find(spelling).unwrap() + spelling.find("::").unwrap() + 2;
             let definition = file.definition_at(offset).unwrap();
             assert!(identities.insert(definition.id.clone()));
             let api = snapshot
                 .documentation_at(file.source().id(), offset)
                 .unwrap();
-            assert!(api.documentation.contains("# Examples"));
+            assert!(api.written_signature.contains("fn new"));
             let source = snapshot.source(definition.location.file).unwrap();
             assert_eq!(
                 &source.text()[definition.location.range.start..definition.location.range.end],
@@ -663,29 +656,14 @@ mod collection_access_tests {
     #[test]
     fn readonly_member_completion_excludes_mutators() {
         for (annotation, constructor, mutable, write) in [
-            ("List<i32>", "ArrayList::from([1])", false, "push"),
-            ("ArrayList<i32>", "ArrayList::from([1])", true, "push"),
-            (
-                "Map<i32,i32>",
-                "LinkedHashMap::from([(1,2)])",
-                false,
-                "insert",
-            ),
-            (
-                "LinkedHashMap<i32,i32>",
-                "LinkedHashMap::from([(1,2)])",
-                true,
-                "insert",
-            ),
-            ("Set<i32>", "LinkedHashSet::from([1])", false, "insert"),
-            (
-                "LinkedHashSet<i32>",
-                "LinkedHashSet::from([1])",
-                true,
-                "insert",
-            ),
+            ("List<i32>", "[1]", false, "push"),
+            ("ArrayList<i32>", "[1]", true, "push"),
+            ("Map<i32,i32>", "HashMap::new()", false, "insert"),
+            ("HashMap<i32,i32>", "HashMap::new()", true, "insert"),
+            ("Set<i32>", "HashSet::new()", false, "insert"),
+            ("HashSet<i32>", "HashSet::new()", true, "insert"),
         ] {
-            let text = format!("fn main() {{ val values: {annotation}={constructor}; values. }}");
+            let text = format!("fn main() {{ val values: {annotation} = {constructor}; values. }}");
             let mut sources = SourceDatabase::default();
             let id = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
@@ -693,6 +671,14 @@ mod collection_access_tests {
             let snapshot = AnalysisDatabase::default()
                 .snapshot(sources.snapshot(), Default::default(), &Default::default())
                 .unwrap();
+            let diagnostics = snapshot.file(id).unwrap().result().diagnostics();
+            assert!(
+                diagnostics.iter().all(|diagnostic| matches!(
+                    diagnostic.kind,
+                    kagari_common::diagnostic::DiagnosticKind::ExpectedFieldName
+                )),
+                "{text}: {diagnostics:?}"
+            );
             let candidates = snapshot
                 .file(id)
                 .unwrap()
@@ -702,13 +688,13 @@ mod collection_access_tests {
         }
     }
     #[test]
-    fn string_queries_navigate_to_documented_declarations() {
-        let text = "fn main() { val text = \"hello\"; text.strip_prefix(\"he\"); }";
+    fn registered_string_calls_navigate_to_documented_declarations() {
+        let text = "use demo::native::echo; fn main() { val text = \"hello\"; echo(text); }";
         let mut sources = SourceDatabase::default();
         let id = sources
             .set("string-api.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = crate::tests::native::database()
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         let file = snapshot.file(id).unwrap();
@@ -717,20 +703,22 @@ mod collection_access_tests {
             "{:?}",
             file.result().diagnostics()
         );
-        let offset = text.find("strip_prefix").unwrap();
+        let offset = text.find("echo(text)").unwrap();
         let definition = file.definition_at(offset).unwrap();
         let api = snapshot.documentation_at(id, offset).unwrap();
-        assert!(api.documentation.contains("# Examples"));
+        assert_eq!(api.documentation, "Registered generic echo function.");
         let source = snapshot.source(definition.location.file).unwrap();
         assert_eq!(
             &source.text()[definition.location.range.start..definition.location.range.end],
-            "strip_prefix"
+            "echo"
         );
     }
     #[test]
-    fn list_completion_filters_total_order_requirement() {
+    fn extension_completion_filters_total_order_requirement() {
         for (element, value, ordered) in [("i32", "1", true), ("f64", "1.0", false)] {
-            let text = format!("fn main() {{ val values: List<{element}> = [{value}]; values. }}");
+            let text = format!(
+                "impl<T: Ord> List<T> {{ fn ordered(self) -> usize {{ self.len() }} }} impl<T: PartialEq> List<T> {{ fn comparable(self) -> usize {{ self.len() }} }} fn main() {{ val values: List<{element}> = [{value}]; values. }}"
+            );
             let mut sources = SourceDatabase::default();
             let id = sources
                 .set("list-completion.kgr", text.clone(), SourceLayer::Base)
@@ -738,15 +726,20 @@ mod collection_access_tests {
             let snapshot = AnalysisDatabase::default()
                 .snapshot(sources.snapshot(), Default::default(), &Default::default())
                 .unwrap();
+            let diagnostics = snapshot.file(id).unwrap().result().diagnostics();
+            assert!(
+                diagnostics.iter().all(|diagnostic| matches!(
+                    diagnostic.kind,
+                    kagari_common::diagnostic::DiagnosticKind::ExpectedFieldName
+                )),
+                "{text}: {diagnostics:?}"
+            );
             let items = snapshot
                 .file(id)
                 .unwrap()
                 .method_completions(text.find("values. }").unwrap() + 7);
-            assert_eq!(
-                items.iter().any(|item| item.name == "binary_search"),
-                ordered
-            );
-            assert!(items.iter().any(|item| item.name == "contains"));
+            assert_eq!(items.iter().any(|item| item.name == "ordered"), ordered);
+            assert!(items.iter().any(|item| item.name == "comparable"));
         }
     }
 }

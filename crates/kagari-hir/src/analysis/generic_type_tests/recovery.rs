@@ -148,7 +148,7 @@ fn composite_annotations_retain_structure_without_authorizing_codegen() {
     for annotation in [
         "(i32, Missing)",
         "[Missing]",
-        "LinkedHashMap<i32, Missing>",
+        "HashMap<i32, Missing>",
         "Cell<Missing>",
     ] {
         for declaration in [
@@ -382,7 +382,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
     }
     let source = SourceFile::new(
         "bounds.kgr",
-        "struct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(LinkedHashSet<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
+        "struct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(HashSet<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
     );
     let analysis = crate::analyze_source(&source, Default::default());
     assert!(
@@ -496,8 +496,8 @@ fn generic_parameter_context_preserves_known_members_beside_uninferred_binders()
         ("take((Token<i32>::Empty, true));", true),
         ("take((Token<bool>::Empty, true));", false),
         ("unseeded(Token::Empty);", false),
-        ("identity(LinkedHashMap::new());", false),
-        ("identity(LinkedHashSet::new());", false),
+        ("identity(HashMap::new());", false),
+        ("identity(HashSet::new());", false),
     ] {
         let source = SourceFile::new(
             "partial-parameter-context.kgr",
@@ -534,7 +534,7 @@ fn constructor_fields_share_partial_argument_context_and_reject_unseeded_members
             false,
         ),
         (
-            "val item = Pair { pair: (Token::Empty, LinkedHashMap::new()) };",
+            "val item = Pair { pair: (Token::Empty, HashMap::new()) };",
             false,
         ),
     ] {
@@ -560,17 +560,17 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
     for (declaration, initializer, nominal) in [
         (
             "fn identity<T>(value: T) -> T { value }",
-            "identity((7, LinkedHashMap::new()))",
+            "identity((7, HashMap::new()))",
             false,
         ),
         (
             "struct Wrap<T> { val value: T }",
-            "Wrap { value: (7, LinkedHashMap::new()) }",
+            "Wrap { value: (7, HashMap::new()) }",
             true,
         ),
         (
             "enum Wrap<T> { Value(T) }",
-            "Wrap::Value((7, LinkedHashMap::new()))",
+            "Wrap::Value((7, HashMap::new()))",
             true,
         ),
     ] {
@@ -626,11 +626,11 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
     for (declaration, initializer) in [
         (
             "struct Pair<T> { val first: T, val second: T }",
-            "Pair { first: (1, LinkedHashMap::new()), second: (true, LinkedHashMap::new()) }",
+            "Pair { first: (1, HashMap::new()), second: (true, HashMap::new()) }",
         ),
         (
             "enum Pair<T> { Values(T, T) }",
-            "Pair::Values((1, LinkedHashMap::new()), (true, LinkedHashMap::new()))",
+            "Pair::Values((1, HashMap::new()), (true, HashMap::new()))",
         ),
     ] {
         let source = SourceFile::new(
@@ -648,7 +648,7 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
             })
             .expect("known i32/bool conflict survives recovery");
         assert_eq!(
-            mismatch, "(i32, LinkedHashMap<<error>, <error>>)",
+            mismatch, "(i32, HashMap<<error>, <error>>)",
             "{initializer}"
         );
         assert!(analysis.into_codegen().is_err());

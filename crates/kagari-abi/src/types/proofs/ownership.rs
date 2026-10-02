@@ -111,12 +111,14 @@ impl ProofCatalog<'_> {
             {
                 return Ok(false);
             }
-            return Ok(iter::once(table.receiver()).chain(&interface.arguments).any(|ty| matches!(ty, AbiType::Struct(n) | AbiType::Enum(n) if n.declaration.module == table.declaration().module)));
+            return Ok(iter::once(table.receiver()).chain(&interface.arguments).any(|ty| matches!(ty, AbiType::Struct(n) | AbiType::NativeObject(n) | AbiType::Enum(n) if n.declaration.module == table.declaration().module)));
         }
         if kind.host_implementable() {
             return Ok(true);
         }
-        let (AbiType::Struct(nominal) | AbiType::Enum(nominal)) = table.receiver() else {
+        let (AbiType::NativeObject(nominal) | AbiType::Struct(nominal) | AbiType::Enum(nominal)) =
+            table.receiver()
+        else {
             return Ok(interface.declaration.module == table.declaration().module);
         };
         if nominal.declaration.module != table.declaration().module {
@@ -155,6 +157,7 @@ fn overlapping(left: &AbiType, right: &AbiType) -> bool {
     }
     match (left, right) {
         (AbiType::Struct(left), AbiType::Struct(right))
+        | (AbiType::NativeObject(left), AbiType::NativeObject(right))
         | (AbiType::Enum(left), AbiType::Enum(right)) => left.declaration == right.declaration,
         (AbiType::StandardEnum { kind: left, .. }, AbiType::StandardEnum { kind: right, .. }) => {
             left == right
@@ -179,7 +182,9 @@ fn occurs_in_constructor(parameter: &AbiType, ty: &AbiType) -> bool {
             return true;
         }
         match ty {
-            AbiType::Struct(n) | AbiType::Enum(n) => pending.extend(&n.arguments),
+            AbiType::Struct(n) | AbiType::NativeObject(n) | AbiType::Enum(n) => {
+                pending.extend(&n.arguments)
+            }
             AbiType::Tuple(items) | AbiType::StandardEnum { args: items, .. } => {
                 pending.extend(items)
             }

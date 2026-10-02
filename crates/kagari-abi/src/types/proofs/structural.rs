@@ -47,8 +47,10 @@ impl ProofCatalog<'_> {
         {
             return Ok(true);
         }
-        if matches!(receiver, AbiType::Struct(_) | AbiType::Enum(_))
-            && matches!(kind, Protocol::Eq | Protocol::Hash)
+        if matches!(
+            receiver,
+            AbiType::Struct(_) | AbiType::NativeObject(_) | AbiType::Enum(_)
+        ) && matches!(kind, Protocol::Eq | Protocol::Hash)
             && self.explicit(
                 &intrinsic::applied(Protocol::PartialEq, vec![]),
                 receiver,
@@ -71,6 +73,7 @@ impl ProofCatalog<'_> {
             AbiType::Host(_) => return Ok(kind == Protocol::Debug),
             AbiType::Enum(_) if kind == Protocol::Debug => return Ok(true),
             AbiType::Struct(_)
+            | AbiType::NativeObject(_)
             | AbiType::Array(_, _)
             | AbiType::Map { .. }
             | AbiType::Set(_, _) => return Ok(true),

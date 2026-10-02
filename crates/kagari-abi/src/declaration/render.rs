@@ -1,6 +1,7 @@
 //! Generated declaration text and coordinates; never an executable input.
-use super::{NativeApiError, NativeModule};
+use super::{DeclarationError, ModuleDecl};
 use crate::{
+    language,
     scalar::BuiltinType,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
@@ -30,39 +31,49 @@ pub struct NativeBoundSite {
 }
 
 #[derive(Debug, Clone)]
-pub struct NativeApiSource {
+pub struct DeclarationSource {
     pub uri: String,
     pub text: String,
     pub sites: BTreeMap<DefinitionId, NativeDeclarationSite>,
 }
 
-impl NativeModule {
-    pub fn declaration_source(&self) -> Result<NativeApiSource, NativeApiError> {
+impl ModuleDecl {
+    pub fn declaration_source(&self) -> Result<DeclarationSource, DeclarationError> {
         let mut output = Renderer {
             module: self,
             text: "// Generated from native registration definitions. Do not edit.\n\n".into(),
             sites: BTreeMap::new(),
         };
         for ty in &self.types {
-            let TypeAbiKind::Native(constructor) = ty.kind else {
-                return Err(NativeApiError(
-                    "native declaration requires an engine representation".into(),
-                ));
+            let constructor = match ty.kind {
+                TypeAbiKind::Native(constructor) => Some(constructor),
+                TypeAbiKind::NativeStorage(_) => None,
+                _ => {
+                    return Err(DeclarationError(
+                        "native declaration requires a registered representation".into(),
+                    ));
+                }
             };
-            let id = self.definition(constructor.declaration_kind(), &ty.name);
+            let id = self.definition(
+                constructor.map_or(
+                    DefinitionKind::AssociatedType,
+                    NativeTypeConstructor::declaration_kind,
+                ),
+                &ty.name,
+            );
             output.doc(&id);
             let start = output.text.len();
-            output
-                .text
-                .push_str(if matches!(constructor, NativeTypeConstructor::Enum(_)) {
+            output.text.push_str(
+                if matches!(constructor, Some(NativeTypeConstructor::Enum(_))) {
                     "pub enum "
                 } else {
                     "pub type "
-                });
+                },
+            );
             let name_span = output.name(&ty.name);
             let generics = output.generics(&ty.generic_params);
             let bounds = output.bounds(&ty.bounds)?;
-            if matches!(constructor, NativeTypeConstructor::Enum(_)) {
+            if matches!(constructor, Some(NativeTypeConstructor::Enum(_))) {
                 output.text.push_str(" {\n");
                 for variant in &ty.variants {
                     let start = output.text.len();
@@ -132,7 +143,7 @@ impl NativeModule {
                     .declaration
                     .path
                     .last()
-                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
                     .name;
                 output.doc(&member.declaration);
                 let start = output.text.len();
@@ -176,7 +187,7 @@ impl NativeModule {
                     let name = &member
                         .path
                         .last()
-                        .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                        .ok_or_else(|| DeclarationError("missing associated name".into()))?
                         .name;
                     let member_id = associated_type_id(&id, name);
                     let start = output.text.len();
@@ -209,7 +220,7 @@ impl NativeModule {
         while output.text.ends_with("\n\n") {
             output.text.pop();
         }
-        Ok(NativeApiSource {
+        Ok(DeclarationSource {
             uri: format!(
                 "kagari://native/{}/{}.kgr",
                 self.identity.package.0,
@@ -220,15 +231,15 @@ impl NativeModule {
         })
     }
 
-    fn type_spelling(&self, ty: &AbiType) -> Result<String, NativeApiError> {
+    fn type_spelling(&self, ty: &AbiType) -> Result<String, DeclarationError> {
         if !ty.within_wire_limits() {
-            return Err(NativeApiError("type exceeds native API limits".into()));
+            return Err(DeclarationError("type exceeds native API limits".into()));
         }
         self.spell(ty)
     }
 
-    fn spell(&self, ty: &AbiType) -> Result<String, NativeApiError> {
-        let join = |items: &[AbiType]| -> Result<String, NativeApiError> {
+    fn spell(&self, ty: &AbiType) -> Result<String, DeclarationError> {
+        let join = |items: &[AbiType]| -> Result<String, DeclarationError> {
             Ok(items
                 .iter()
                 .map(|item| self.spell(item))
@@ -287,7 +298,7 @@ impl NativeModule {
             AbiType::Function { params, result } => {
                 format!("fn({}) -> {}", join(params)?, self.spell(result)?)
             }
-            AbiType::Trait(ty) => self.nominal_spelling(ty)?,
+            AbiType::Trait(ty) | AbiType::NativeObject(ty) => self.nominal_spelling(ty)?,
             AbiType::Projection {
                 receiver,
                 interface,
@@ -297,7 +308,7 @@ impl NativeModule {
                 let name = &member
                     .path
                     .last()
-                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
                     .name;
                 format!(
                     "<{} as {}>::{name}",
@@ -328,7 +339,7 @@ impl NativeModule {
                 }
             }
             _ => {
-                return Err(NativeApiError(
+                return Err(DeclarationError(
                     "unsupported type in initial native API importer".into(),
                 ));
             }
@@ -347,14 +358,16 @@ impl NativeModule {
             .unwrap_or(fallback)
     }
 
-    fn nominal_spelling(&self, ty: &NominalAbiType) -> Result<String, NativeApiError> {
+    fn nominal_spelling(&self, ty: &NominalAbiType) -> Result<String, DeclarationError> {
         let name = ty
             .declaration
             .path
             .last()
-            .ok_or_else(|| NativeApiError("missing declaration name".into()))?;
+            .ok_or_else(|| DeclarationError("missing declaration name".into()))?;
         let mut text = if ty.declaration.module == self.identity {
             name.name.clone()
+        } else if ty.declaration.module == language::module_identity() {
+            format!("{}::language::{}", language::SOURCE_PACKAGE, name.name)
         } else {
             let module = &ty.declaration.module;
             format!("{}::{}", module, name.name)
@@ -369,7 +382,7 @@ impl NativeModule {
                 "{} = {}",
                 id.path
                     .last()
-                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
                     .name,
                 self.type_spelling(value)?
             ));
@@ -382,7 +395,7 @@ impl NativeModule {
 }
 
 struct Renderer<'a> {
-    module: &'a NativeModule,
+    module: &'a ModuleDecl,
     text: String,
     sites: BTreeMap<DefinitionId, NativeDeclarationSite>,
 }
@@ -444,7 +457,7 @@ impl Renderer<'_> {
         id: DefinitionId,
         function: &FunctionAbi,
         method: bool,
-    ) -> Result<(), NativeApiError> {
+    ) -> Result<(), DeclarationError> {
         self.doc(&id);
         let start = self.text.len();
         self.text
@@ -496,7 +509,7 @@ impl Renderer<'_> {
     fn bounds(
         &mut self,
         bounds: &[GenericBoundAbi],
-    ) -> Result<Vec<NativeBoundSite>, NativeApiError> {
+    ) -> Result<Vec<NativeBoundSite>, DeclarationError> {
         let mut sites = vec![];
         if !bounds.is_empty() {
             self.text.push_str(" where ");
@@ -515,7 +528,10 @@ impl Renderer<'_> {
         Ok(sites)
     }
 
-    fn constraints(&mut self, constraints: &[ConstraintAbi]) -> Result<Vec<Span>, NativeApiError> {
+    fn constraints(
+        &mut self,
+        constraints: &[ConstraintAbi],
+    ) -> Result<Vec<Span>, DeclarationError> {
         let mut spans = vec![];
         if !constraints.is_empty() {
             self.text.push_str(": ");
@@ -528,7 +544,7 @@ impl Renderer<'_> {
                 ConstraintAbi::Trait(trait_type) => self.module.nominal_spelling(trait_type)?,
                 ConstraintAbi::Standard(kind) => kind
                     .source_bound_name()
-                    .ok_or_else(|| NativeApiError("native bound has no source name".into()))?
+                    .ok_or_else(|| DeclarationError("native bound has no source name".into()))?
                     .into(),
             };
             spans.push(self.name(&name));

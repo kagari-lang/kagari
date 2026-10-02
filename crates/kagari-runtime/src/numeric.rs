@@ -257,8 +257,6 @@ pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, Runti
 #[cfg(test)]
 mod boundary_tests {
     use super::*;
-    use crate::builtin::invoke_standard;
-    use kagari_abi::standard::RuntimePrimitive;
 
     #[test]
     fn native_integer_results_and_error_context_preserve_the_declared_contract() {
@@ -306,29 +304,13 @@ mod boundary_tests {
         let result = gc.enum_snapshot(result).unwrap();
         assert_eq!(result.tag, EnumTag::OptionNone);
         assert!(result.fields.is_empty());
-        for (method, receiver, label) in [
-            (
-                IntegerMethod::WrappingAdd,
-                BuiltinType::I8,
-                "std::numeric::i8::wrapping_add",
-            ),
-            (
-                IntegerMethod::RotateRight,
-                BuiltinType::U32,
-                "std::numeric::u32::rotate_right",
-            ),
-            (
-                IntegerMethod::WrappingAddSigned,
-                BuiltinType::USize,
-                "std::numeric::usize::wrapping_add_signed",
-            ),
+        for (method, receiver) in [
+            (IntegerMethod::WrappingAdd, BuiltinType::I8),
+            (IntegerMethod::RotateRight, BuiltinType::U32),
+            (IntegerMethod::WrappingAddSigned, BuiltinType::USize),
         ] {
-            let error =
-                invoke_standard(gc, RuntimePrimitive::Integer(method, receiver), &[]).unwrap_err();
-            assert_eq!(
-                error.message(),
-                format!("{label}: integer method requires two arguments")
-            );
+            let error = integer_method(gc, method, receiver, &[]).unwrap_err();
+            assert_eq!(error.message(), "integer method requires two arguments");
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
         }
         assert_eq!(gc.active_roots(), 0);

@@ -272,7 +272,12 @@ fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIden
                     .map(|callable| callable.instance.declaration.module.clone()),
             )
         });
-    callables.chain(native)
+    callables.chain(native).chain(
+        module
+            .interface_instances
+            .iter()
+            .map(|instance| instance.declaration.module.clone()),
+    )
 }
 
 fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {

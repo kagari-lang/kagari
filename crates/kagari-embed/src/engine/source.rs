@@ -45,9 +45,6 @@ use std::sync::Arc;
 fn analysis_error(error: AnalysisError) -> EmbeddingError {
     match error {
         AnalysisError::Cancelled => EmbeddingError::Cancelled,
-        AnalysisError::StandardLibrary(error) => EmbeddingError::Source {
-            message: format!("invalid installed standard library: {error}"),
-        },
         AnalysisError::NativeApi(error) => EmbeddingError::Source {
             message: error.to_string(),
         },

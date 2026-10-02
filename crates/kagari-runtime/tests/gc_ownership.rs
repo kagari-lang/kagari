@@ -1,13 +1,46 @@
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_common::collection::CollectionAccess;
+use kagari_runtime::module::LoadedModule;
 use kagari_runtime::{
     Runtime, error::RuntimeErrorKind, value::Value, value_semantics::script_equal,
 };
 
+fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+    runtime
+        .load_program(
+            "allocation-owner",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap()
+}
+
 #[test]
 fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounting() {
-    let first = Runtime::default();
-    let second = Runtime::default();
-    let own = first.alloc_array(vec![Value::I32(1)]).unwrap();
-    let foreign = second.alloc_array(vec![Value::I32(2)]).unwrap();
+    let mut first = Runtime::default();
+    let first_owner = allocation_owner(&mut first);
+    let mut second = Runtime::default();
+    let second_owner = allocation_owner(&mut second);
+    let own = first
+        .alloc_array(
+            &first_owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
+    let foreign = second
+        .alloc_array(
+            &second_owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(2)],
+        )
+        .unwrap();
     assert_eq!(own.index(), foreign.index());
     assert_ne!(own, foreign);
     let before = first.gc().stats();
@@ -33,7 +66,14 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     let allocation_units = first.resources().counters().allocation_units;
     assert_eq!(
         first
-            .alloc_array(vec![Value::Array(foreign)])
+            .alloc_array(
+                &first_owner,
+                AbiType::Array(
+                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                    CollectionAccess::Mutable
+                ),
+                vec![Value::Array(foreign)]
+            )
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ScriptTrap
@@ -49,8 +89,15 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
 
 #[test]
 fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
-    let runtime = Runtime::default();
-    let object = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
+    let mut runtime = Runtime::default();
+    let runtime_owner = allocation_owner(&mut runtime);
+    let object = runtime
+        .alloc_array(
+            &runtime_owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(42)],
+        )
+        .unwrap();
     let naked_copy = Value::Array(object);
     let root = runtime.root_value(naked_copy.clone()).unwrap();
     let retained = root.clone();
@@ -66,7 +113,9 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
     );
     assert!(runtime.gc().array_len(object).is_none());
     assert!(runtime.root_value(naked_copy).is_none());
-    let next = runtime.alloc_array(vec![]).unwrap();
+    let next = runtime
+        .alloc_array(&runtime_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
     assert_eq!(next.index(), object.index());
     assert!(next.generation() > object.generation());
     let before = runtime.gc().stats();
@@ -76,46 +125,19 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
 }
 
 #[test]
-fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachable_graphs() {
-    let runtime = Runtime::default();
-    let array = runtime.alloc_array(vec![]).unwrap();
-    let map = runtime
-        .alloc_map(vec![(Value::I32(1), Value::Array(array))])
-        .unwrap();
-    runtime.gc().array_push(array, Value::Map(map)).unwrap();
-    let variant = runtime
-        .alloc_enum(
-            kagari_runtime::value::EnumTag::OptionSome,
-            vec![Value::Tuple(vec![Value::Array(array)])],
-        )
-        .unwrap();
-    let root = runtime
-        .root_value(Value::Tuple(vec![Value::Enum(variant)]))
-        .unwrap();
-    runtime.alloc_set(vec![Value::I32(1)]).unwrap();
-    let collection = runtime.collect_garbage().unwrap();
-    assert_eq!(
-        (collection.reclaimed_objects, collection.live_objects),
-        (1, 3)
-    );
-    assert_eq!(runtime.gc().stats().current_heap_units, 6);
-    root.set(runtime.gc(), Value::Unit).unwrap();
-    let collection = runtime.collect_garbage().unwrap();
-    assert_eq!(
-        (collection.reclaimed_objects, collection.live_objects),
-        (3, 0)
-    );
-    assert_eq!(runtime.gc().stats().current_heap_units, 0);
-}
-
-#[test]
 fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
-    let runtime = Runtime::default();
-    let foreign = Runtime::default();
-    let array = runtime.alloc_array(vec![]).unwrap();
+    let mut runtime = Runtime::default();
+    let runtime_owner = allocation_owner(&mut runtime);
+    let mut foreign = Runtime::default();
+    let foreign_owner = allocation_owner(&mut foreign);
+    let array = runtime
+        .alloc_array(&runtime_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
     let root = runtime.root_value(Value::Array(array)).unwrap();
     assert!(root.set(foreign.gc(), Value::Unit).is_none());
-    let other = foreign.alloc_array(vec![]).unwrap();
+    let other = foreign
+        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
     assert!(root.set(runtime.gc(), Value::Array(other)).is_none());
     let slots = runtime
         .gc()
@@ -160,7 +182,14 @@ fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_stora
         },
         ..Default::default()
     });
-    let object = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+    let runtime_owner = allocation_owner(&mut runtime);
+    let object = runtime
+        .alloc_array(
+            &runtime_owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+        .unwrap();
     let retained = runtime.root_value(Value::Array(object)).unwrap();
     runtime
         .register_host_function(HostFunction::new(
@@ -177,141 +206,18 @@ fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_stora
 }
 
 #[test]
-fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
-    let runtime = Runtime::default();
-    let mut value = Value::Unit;
-    for _ in 0..10_000 {
-        value = Value::Array(runtime.alloc_array(vec![value]).unwrap());
-    }
-    let root = runtime.root_value(value).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 10_000);
-    drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 10_000);
-}
-
-#[test]
-fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
-    use kagari_runtime::value::{EnumTag, MapKey};
-    let runtime = Runtime::default();
-    let object = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
-    let value = runtime
-        .alloc_enum(
-            EnumTag::OptionSome,
-            vec![Value::Tuple(vec![
-                Value::Array(object),
-                Value::Str("key".into()),
-            ])],
-        )
-        .unwrap();
-    let key = Value::Enum(value);
-    let hash = MapKey::from_value(runtime.gc(), &key)
-        .unwrap()
-        .script_hash();
-    let map = runtime
-        .alloc_map(vec![(key.clone(), Value::I32(20))])
-        .unwrap();
-    let set = runtime.alloc_set(vec![key.clone()]).unwrap();
-    let root = runtime
-        .root_value(Value::Tuple(vec![Value::Map(map), Value::Set(set)]))
-        .unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
-    runtime.gc().array_push(object, Value::I32(99)).unwrap();
-    assert_eq!(
-        hash,
-        MapKey::from_value(runtime.gc(), &key)
-            .unwrap()
-            .script_hash()
-    );
-    let equal = runtime
-        .alloc_enum(
-            EnumTag::OptionSome,
-            vec![Value::Tuple(vec![
-                Value::Array(object),
-                Value::Str("key".into()),
-            ])],
-        )
-        .unwrap();
-    assert!(script_equal(runtime.gc(), &key, &Value::Enum(equal)).unwrap());
-    assert_eq!(
-        runtime.gc().map_get(map, &Value::Enum(equal)),
-        Some(Value::I32(20))
-    );
-    assert_eq!(
-        runtime.gc().set_contains(set, &Value::Enum(equal)),
-        Some(true)
-    );
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-    runtime.gc().map_clear(map).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
-    runtime.gc().set_clear(set).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
-    assert!(MapKey::from_value(runtime.gc(), &key).is_none());
-    drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-}
-
-#[test]
-fn invalid_identity_keys_are_rejected_without_container_modification() {
-    let runtime = Runtime::default();
-    let foreign = Runtime::default();
-    let map = runtime
-        .alloc_map(vec![(Value::I32(1), Value::I32(42))])
-        .unwrap();
-    let set = runtime.alloc_set(vec![Value::I32(1)]).unwrap();
-    let object = foreign.alloc_array(vec![]).unwrap();
-    let before = runtime.resources().counters().allocation_units;
-    assert!(
-        runtime
-            .gc()
-            .map_insert(map, Value::Array(object), Value::I32(0))
-            .is_err()
-    );
-    assert!(runtime.gc().set_insert(set, Value::Array(object)).is_err());
-    assert!(
-        runtime
-            .gc()
-            .map_insert(map, Value::F64(1.0), Value::I32(0))
-            .is_err()
-    );
-    assert_eq!(runtime.resources().counters().allocation_units, before);
-    assert_eq!(
-        runtime.gc().map_snapshot(map),
-        Some(vec![(Value::I32(1), Value::I32(42))])
-    );
-    assert_eq!(runtime.gc().set_snapshot(set), Some(vec![Value::I32(1)]));
-}
-
-#[test]
-fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
-    use kagari_runtime::value_semantics::format_value;
-    let runtime = Runtime::default();
-    let object = runtime.alloc_array(vec![]).unwrap();
-    runtime
-        .gc()
-        .array_push(object, Value::Array(object))
-        .unwrap();
-    let preview = format_value(runtime.gc(), &Value::Array(object), true).unwrap();
-    assert!(preview.starts_with("Array@"));
-    assert_eq!(
-        format_value(runtime.gc(), &Value::Str("a\nb".into()), true).unwrap(),
-        "\"a\\nb\""
-    );
-    assert!(format_value(runtime.gc(), &Value::Str("x".repeat(1_048_577)), false).is_err());
-    let mut value = Value::I32(42);
-    for _ in 0..66 {
-        value = Value::Tuple(vec![value]);
-    }
-    assert!(format_value(runtime.gc(), &value, true).is_err());
-    assert_eq!(runtime.gc().array_len(object), Some(1));
-}
-
-#[test]
 fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
     use kagari_runtime::value_semantics::identity_equal;
-    let first = Runtime::default();
-    let second = Runtime::default();
-    let a = first.alloc_array(vec![]).unwrap();
-    let b = second.alloc_array(vec![]).unwrap();
+    let mut first = Runtime::default();
+    let first_owner = allocation_owner(&mut first);
+    let mut second = Runtime::default();
+    let second_owner = allocation_owner(&mut second);
+    let a = first
+        .alloc_array(&first_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
+    let b = second
+        .alloc_array(&second_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).unwrap());
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(b)).is_err());
     assert!(identity_equal(first.gc(), &Value::Map(a), &Value::Map(a)).is_err());

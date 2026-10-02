@@ -32,6 +32,9 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
         Value::Array(id) => Some((*id, GcObjectKind::Array)),
         Value::Map(id) => Some((*id, GcObjectKind::Map)),
         Value::Set(id) => Some((*id, GcObjectKind::Set)),
+        Value::GcHandle(id) if gc.object_kind(*id) == Some(GcObjectKind::Native) => {
+            Some((*id, GcObjectKind::Native))
+        }
         _ => None,
     };
     let (Some((a, a_kind)), Some((b, b_kind))) = (object(lhs), object(rhs)) else {
@@ -104,6 +107,17 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
                 return Err(invalid());
             }
             a == b
+        }
+        (Value::GcHandle(a), Value::GcHandle(b))
+            if gc.object_kind(*a) == Some(GcObjectKind::Native)
+                && gc.object_kind(*b) == Some(GcObjectKind::Native) =>
+        {
+            a == b
+        }
+        (Value::GcHandle(id), _) | (_, Value::GcHandle(id))
+            if gc.object_kind(*id) == Some(GcObjectKind::Native) =>
+        {
+            false
         }
         (Value::GcHandle(_), _) | (_, Value::GcHandle(_)) => {
             return Err(RuntimeError::new(
@@ -216,6 +230,10 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
                 write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
             }
             Value::HostRoot(_) if debug => out.push_str("<host>"),
+            Value::GcHandle(id) if debug => {
+                let name = gc.native_type_name(*id)?;
+                write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
+            }
             Value::Interface(_) if debug => out.push_str("<interface>"),
             Value::Closure(_) if debug => out.push_str("<function>"),
             Value::HostPathView(_) if debug => out.push_str("<host path>"),
@@ -272,6 +290,7 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
 
 #[cfg(test)]
 mod tests {
+    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::EnumId;
 
     use super::*;
@@ -383,6 +402,7 @@ mod tests {
     fn enum_members_use_script_semantics_including_identity_and_nan() {
         let mut runtime = crate::Runtime::default();
         let interface = crate::layout_fixtures::interface_value(&mut runtime);
+        let owner = crate::layout_fixtures::allocation_owner(&mut runtime);
         let gc = runtime.gc();
         let make = |value| {
             Value::Enum(
@@ -397,10 +417,34 @@ mod tests {
             "Rust equality is deliberately not the script operation"
         );
         assert!(script_equal(gc, &a, &b).unwrap());
-        let array = Value::Array(gc.alloc_array(vec![Value::I32(3)]).unwrap());
+        let array = Value::Array(
+            runtime
+                .alloc_array(
+                    &owner,
+                    AbiType::Builtin(BuiltinType::I32),
+                    vec![Value::I32(3)],
+                )
+                .unwrap(),
+        );
         assert!(script_equal(gc, &make(array.clone()), &make(array)).unwrap());
-        let first = make(Value::Array(gc.alloc_array(vec![Value::I32(3)]).unwrap()));
-        let second = make(Value::Array(gc.alloc_array(vec![Value::I32(3)]).unwrap()));
+        let first = make(Value::Array(
+            runtime
+                .alloc_array(
+                    &owner,
+                    AbiType::Builtin(BuiltinType::I32),
+                    vec![Value::I32(3)],
+                )
+                .unwrap(),
+        ));
+        let second = make(Value::Array(
+            runtime
+                .alloc_array(
+                    &owner,
+                    AbiType::Builtin(BuiltinType::I32),
+                    vec![Value::I32(3)],
+                )
+                .unwrap(),
+        ));
         assert!(!script_equal(gc, &first, &second).unwrap());
         let nan = make(Value::F64(f64::NAN));
         assert!(!script_equal(gc, &nan, &nan).unwrap());

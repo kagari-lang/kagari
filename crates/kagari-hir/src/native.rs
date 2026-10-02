@@ -1,7 +1,11 @@
 //! HIR representation hooks supplied only by an installed native declaration.
-use crate::{host::HostFunctionId, types::TypeId};
+use crate::{
+    host::HostFunctionId,
+    types::{NominalType, TypeId},
+};
 use kagari_abi::{
     callable::NativeDefaultApplication, scalar::BuiltinType, standard::surface::StandardEnum,
+    types::native::NativeStorageLayout,
 };
 use kagari_common::{collection::CollectionAccess, identity::DefinitionId, range::RangeKind};
 
@@ -17,8 +21,13 @@ pub enum NativeBinding {
     Default(NativeDefaultApplication),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeTypeKind {
+    Storage {
+        declaration: DefinitionId,
+        arity: usize,
+        layout: NativeStorageLayout,
+    },
     String,
     ArrayList,
     HashMap,
@@ -43,8 +52,9 @@ pub(crate) fn enum_display_name(kind: StandardEnum) -> &'static str {
 }
 
 impl NativeTypeKind {
-    pub fn arity(self) -> usize {
+    pub fn arity(&self) -> usize {
         match self {
+            Self::Storage { arity, .. } => *arity,
             Self::Enum(kind) => kind.arity(),
             Self::String | Self::Range(RangeKind::Full) => 0,
             Self::HashMap => 2,
@@ -52,14 +62,19 @@ impl NativeTypeKind {
         }
     }
 
-    pub fn apply(self, arguments: &[TypeId]) -> Option<TypeId> {
+    pub fn apply(&self, arguments: &[TypeId]) -> Option<TypeId> {
         if arguments.len() != self.arity() {
             return None;
         }
         let first = || Box::new(arguments[0].clone());
         Some(match self {
+            Self::Storage { declaration, .. } => TypeId::NativeObject(NominalType {
+                declaration: declaration.clone(),
+                arguments: arguments.to_vec(),
+                associated_types: Default::default(),
+            }),
             Self::Enum(kind) => TypeId::StandardEnum {
-                kind,
+                kind: *kind,
                 args: arguments.to_vec(),
             },
             Self::String => TypeId::Builtin(BuiltinType::String),
@@ -75,7 +90,7 @@ impl NativeTypeKind {
                 Box::new(TypeId::Builtin(BuiltinType::Unit)),
                 RangeKind::Full,
             ),
-            Self::Range(kind) => TypeId::Range(first(), kind),
+            Self::Range(kind) => TypeId::Range(first(), *kind),
         })
     }
 }

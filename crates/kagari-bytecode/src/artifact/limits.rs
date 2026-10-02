@@ -94,6 +94,17 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         }
     }
     for table in &module.interface_tables {
+        if let Some(view) = &table.view
+            && (!add(view.results.len())
+                || !add(view.interface.arguments.len())
+                || !add(view.interface.associated_types.len())
+                || view
+                    .results
+                    .iter()
+                    .any(|adapter| !add(adapter.implementation.arguments.len())))
+        {
+            return false;
+        }
         if !add(table.arguments.len()) || !add(table.methods.len()) {
             return false;
         }
@@ -321,7 +332,14 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 })
         })
         && module.interface_tables.iter().all(|table| {
-            table.declaration.within_path_limit()
+            table.view.as_ref().is_none_or(|view| {
+                valid(&AbiType::Trait(view.interface.clone()))
+                    && view.results.iter().all(|adapter| {
+                        adapter.method.within_path_limit()
+                            && adapter.implementation.declaration.within_path_limit()
+                            && adapter.implementation.arguments.iter().all(&valid)
+                    })
+            }) && table.declaration.within_path_limit()
                 && table.arguments.iter().all(&valid)
                 && table
                     .methods

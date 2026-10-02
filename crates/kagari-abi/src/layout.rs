@@ -243,12 +243,16 @@ pub fn validate_enum_layouts(
                 }
                 pending.extend(args);
             }
-            AbiType::Struct(instance) | AbiType::Enum(instance) | AbiType::Trait(instance) => {
+            AbiType::Struct(instance)
+            | AbiType::NativeObject(instance)
+            | AbiType::Enum(instance)
+            | AbiType::Trait(instance) => {
                 pending.extend(&instance.arguments);
                 pending.extend(instance.associated_types.values());
                 let id = &instance.declaration;
                 let kind = match ty {
                     AbiType::Struct(_) => DefinitionKind::Struct,
+                    AbiType::NativeObject(_) => DefinitionKind::AssociatedType,
                     AbiType::Enum(_) => DefinitionKind::Enum,
                     _ => DefinitionKind::Trait,
                 };

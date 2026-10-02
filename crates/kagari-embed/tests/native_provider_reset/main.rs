@@ -15,10 +15,21 @@ use kagari_embed::{
 };
 use kagari_runtime::value::Value;
 
+fn engine(config: EngineConfig) -> KagariEngine {
+    KagariEngine::builder()
+        .config(config)
+        .install(external::module())
+        .build()
+        .unwrap()
+}
+
 fn artifact(source: &str) -> KbcArtifact {
-    KagariEngine::default()
+    engine(EngineConfig::default())
         .compile_to_artifact(
-            SourceFile::new("memory://provider-reset.kgr", source),
+            SourceFile::new(
+                "memory://provider-reset.kgr",
+                format!("use external::fixture as native;\n{source}"),
+            ),
             Default::default(),
             Default::default(),
         )
@@ -36,7 +47,7 @@ fn execute(source: &str) {
     let context = ExecutionContext::default();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let mut runtime = KagariEngine::new(config).runtime(context.clone());
+    let mut runtime = engine(config).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     for _ in 0..3 {
         assert_eq!(
@@ -68,7 +79,7 @@ fn provider_callback_retains_captures_partial_output_and_heap_results() {
     execute(
         r#"fn main() -> i32 {
         val count = [18];
-        val arrays = ArrayList::from_fn(2usize, |index| {
+        val arrays = native::from_fn(2usize, |index| {
             count[0usize] = count[0usize] + 2;
             [count[0usize]]
         });
@@ -82,7 +93,7 @@ fn zero_length_initialization_does_not_call_the_callback() {
     execute(
         r#"fn main() -> i32 {
         val count = [42];
-        val a = ArrayList::from_fn(0usize, |index| { count[0usize] = 0; 1 });
+        val a = native::from_fn(0usize, |index| { count[0usize] = 0; 1 });
         if a.len() == 0usize { count[0usize] } else { 0 }
     }"#,
     );
@@ -129,7 +140,7 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
         alter_bindings(&mut original, |id| match change {
             0 => id.module.package.0.push_str("-unknown"),
             1 => id.path.last_mut().unwrap().name.push_str("-unknown"),
-            _ => id.path.last_mut().unwrap().name = "array_new".into(),
+            _ => id.path.last_mut().unwrap().name = "$foundation_list_new".into(),
         });
         // Consistent unsigned contract assertions remain structurally checkable.
         let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
@@ -137,7 +148,7 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
             PreparedProgram::from_artifact(forged, &Default::default(), &Default::default())
                 .unwrap();
         let context = ExecutionContext::default();
-        let mut runtime = KagariEngine::default().runtime(context);
+        let mut runtime = engine(EngineConfig::default()).runtime(context);
         assert!(runtime.load_program(&program, Default::default()).is_err());
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(
@@ -202,7 +213,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
     let program =
         PreparedProgram::from_artifact(forged, &Default::default(), &Default::default()).unwrap();
-    let mut runtime = KagariEngine::default().runtime(Default::default());
+    let mut runtime = engine(EngineConfig::default()).runtime(Default::default());
     assert!(runtime.load_program(&program, Default::default()).is_err());
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
@@ -210,12 +221,12 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
 #[test]
 fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
     let original = artifact(
-        "fn main() -> i32 { val values = ArrayList::from_fn(3usize, |i| { if i == 1usize { 1 / 0 } else { 20 } }); values[0usize] }",
+        "fn main() -> i32 { val values = native::from_fn(3usize, |i| { if i == 1usize { 1 / 0 } else { 20 } }); values[0usize] }",
     );
     let program =
         PreparedProgram::from_artifact(original, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime = engine(EngineConfig::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert!(runtime.execute(&loaded, "main", &[], &context).is_err());
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -231,11 +242,11 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
 #[test]
 fn every_instruction_budget_boundary_unwinds_nested_provider_callbacks() {
     let program = PreparedProgram::from_artifact(
-        artifact("fn main() -> i32 { val values = ArrayList::from_fn(2usize, |i| { ArrayList::from_fn(1usize, |j| { [21] }) }); values[0usize][0usize][0usize] + values[1usize][0usize][0usize] }"),
+        artifact("fn main() -> i32 { val values = native::from_fn(2usize, |i| { native::from_fn(1usize, |j| { [21] }) }); values[0usize][0usize][0usize] + values[1usize][0usize][0usize] }"),
         &Default::default(), &Default::default(),
     ).unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime = engine(EngineConfig::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         runtime
@@ -251,7 +262,7 @@ fn every_instruction_budget_boundary_unwinds_nested_provider_callbacks() {
         limited.resources.max_instruction_steps = Some(limit);
         let mut config = EngineConfig::default();
         config.default_runtime.gc.collection_threshold = Some(1);
-        let mut runtime = KagariEngine::new(config).runtime(limited.clone());
+        let mut runtime = engine(config).runtime(limited.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let result = runtime.execute(&loaded, "main", &[], &limited);
         if limit == steps {

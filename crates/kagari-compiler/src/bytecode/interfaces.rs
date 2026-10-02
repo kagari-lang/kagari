@@ -200,6 +200,7 @@ pub(super) fn collect_interface_tables(
                 }
             }
             Ok(InterfaceTableRecord {
+                view: None,
                 declaration: instance.declaration,
                 arguments: instance.arguments,
                 methods,

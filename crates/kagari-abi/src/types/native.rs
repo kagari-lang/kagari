@@ -5,6 +5,27 @@ use crate::{standard::surface::StandardEnum, types::TypeAbi};
 use kagari_common::{identity::DefinitionKind, range::RangeKind};
 use serde::{Deserialize, Serialize};
 
+/// Portable storage capabilities contain parameter positions, never Rust types,
+/// function pointers or container names interpreted by the compiler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeStorageLayout {
+    Opaque,
+    Sequence { element: usize },
+    Map { key: usize, value: usize },
+    Set { element: usize },
+    Iterator { item: usize },
+}
+impl NativeStorageLayout {
+    pub fn valid_parameters(self, arity: usize) -> bool {
+        match self {
+            Self::Opaque => true,
+            Self::Sequence { element } | Self::Set { element } => element < arity,
+            Self::Iterator { item } => item < arity,
+            Self::Map { key, value } => key < arity && value < arity && key != value,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

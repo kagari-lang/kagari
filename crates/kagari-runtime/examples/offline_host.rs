@@ -1,7 +1,4 @@
-use kagari_bytecode::{
-    HostImportId,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostInterface, value_type::HostValueType,
 };
@@ -48,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ..Default::default()
     });
     let immutable_limit = 42;
-    runtime.register_host_function(HostFunction::new(declaration, move |_, _| {
+    let binding = runtime.register_host_function(HostFunction::new(declaration, move |_, _| {
         Ok(Value::I32(immutable_limit))
     }))?;
     let loaded = runtime.load_program(
@@ -61,7 +58,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             }],
         },
     )?;
-    let binding = loaded.host_binding(HostImportId::new(0)).unwrap();
     let mut options = runtime.execution_options();
     options.record_host_calls = true;
     options.inputs.unix_time_millis = 1_000;

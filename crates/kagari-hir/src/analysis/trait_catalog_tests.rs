@@ -1,11 +1,10 @@
 use super::*;
+use crate::tests::native as fixture;
 use crate::{
     aggregates::traits::MethodDefault, declarations::DeclarationId, native::NativeBinding,
     typeck::table::CallTarget, types::NominalType,
 };
-use kagari_abi::{
-    callable::EngineNativeBinding, scalar::BuiltinType, standard::bindings::NativeDefaultMethod,
-};
+use kagari_abi::{callable::NativeDefaultApplication, scalar::BuiltinType};
 use kagari_common::{
     diagnostic::DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
@@ -25,6 +24,9 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     sources.set(name, text.into(), SourceLayer::Base).unwrap()
 }
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
+    if db.native_modules.is_empty() {
+        db.set_native_modules(vec![fixture::module()]);
+    }
     db.snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap()
 }
@@ -35,7 +37,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
     let root = insert(
         &mut sources,
         "root",
-        "trait Local { fn required(self) -> i32; fn map(self) -> i32 { 1 } fn join(self) -> i32 { 2 } } struct Point {} impl Local for Point { fn required(self) -> i32 { 3 } fn join(self) -> i32 { 4 } }",
+        "use demo::native::NativeRead; trait Local { fn required(self) -> i32; fn map(self) -> i32 { 1 } fn join(self) -> i32 { 2 } } struct Point {} impl Local for Point { fn required(self) -> i32 { 3 } fn join(self) -> i32 { 4 } }",
     );
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let file = snapshot.file(root).unwrap();
@@ -57,35 +59,33 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
     }
     let iterator = catalog
         .traits()
-        .find(|item| item.declaration.name == "Iterator")
+        .find(|item| item.declaration.name == "NativeRead")
         .unwrap();
-    assert_eq!(
-        iterator
-            .methods
-            .iter()
-            .find(|method| method.name == "next")
-            .unwrap()
-            .default,
-        None
-    );
-    for (name, binding, overridable) in [
-        ("map", NativeDefaultMethod::Map, true),
-        ("join", NativeDefaultMethod::Join, false),
-    ] {
+    for (name, overridable) in [("read", true), ("fixed", false)] {
         let method = iterator
             .methods
             .iter()
             .find(|method| method.name == name)
             .unwrap();
+        let template = fixture::module().definition(
+            kagari_common::identity::DefinitionKind::Function,
+            &format!("default_{name}"),
+        );
         assert_eq!(
             method.default,
-            Some(MethodDefault::Native(NativeBinding::Entry(
-                EngineNativeBinding::TraitDefault(binding)
+            Some(MethodDefault::Native(NativeBinding::Default(
+                NativeDefaultApplication {
+                    declaration: template,
+                    arguments: vec![kagari_abi::types::AbiType::SelfType(iterator.id.clone())],
+                }
             )))
         );
         assert_eq!(method.allows_override(), overridable);
         let source = snapshot.source(method.declaration.location.file).unwrap();
-        assert_eq!(source.name(), "kagari://std/iter.kgr");
+        assert_eq!(
+            source.name(),
+            fixture::module().declaration_source().unwrap().uri
+        );
         let range = method.declaration.location.range;
         assert_eq!(&source.text()[range.start..range.end], name);
     }
@@ -123,7 +123,7 @@ fn native_defaults_do_not_create_script_implementation_bodies() {
     let root = insert(
         &mut sources,
         "root",
-        "struct Values {} impl Iterator for Values { type Item = i32; fn next(self) -> Option<i32> { None } }",
+        "use demo::native::NativeRead; struct Values {} impl NativeRead for Values {}",
     );
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let file = snapshot.file(root).unwrap();
@@ -133,47 +133,22 @@ fn native_defaults_do_not_create_script_implementation_bodies() {
         file.result().diagnostics()
     );
     let catalog = &file.result().facts().aggregates;
-    let iterator = catalog
-        .traits()
-        .find(|item| item.declaration.name == "Iterator")
+    let implementation = catalog
+        .implementations()
+        .find(|item| !item.engine_owned)
         .unwrap();
-    let values = TypeId::Struct(NominalType {
-        declaration: catalog
-            .structures()
-            .find(|item| item.declaration.name == "Values")
-            .unwrap()
-            .id
-            .clone(),
-        arguments: vec![],
-        associated_types: Default::default(),
-    });
-    let interface = NominalType {
-        declaration: iterator.id.clone(),
-        arguments: vec![],
-        associated_types: Default::default(),
-    };
-    let next = iterator
-        .methods
-        .iter()
-        .find(|method| method.name == "next")
+    assert!(implementation.methods.is_empty());
+    assert_eq!(catalog.implementation_methods(implementation).len(), 2);
+    assert!(file.result().facts().typed.functions.is_empty());
+    let contract = catalog
+        .trait_(&implementation.trait_type.declaration)
         .unwrap();
-    let (target, _) = catalog
-        .implementation_method(&next.id, &interface, &values)
-        .unwrap();
-    let mut owner = target;
-    owner.path.pop();
-    let implementation = catalog.implementation_signature(&owner).unwrap();
-    assert_eq!(catalog.implementation_methods(implementation).len(), 1);
-    for method in iterator
-        .methods
-        .iter()
-        .filter(|method| method.default.is_some())
-    {
-        assert!(
-            catalog
-                .implementation_method(&method.id, &interface, &values)
-                .is_none()
-        );
+    assert_eq!(contract.methods.len(), 2);
+    for method in &contract.methods {
+        assert!(matches!(
+            method.default,
+            Some(MethodDefault::Native(NativeBinding::Default(_)))
+        ));
     }
 }
 
@@ -183,14 +158,14 @@ fn installed_non_overridable_default_rejects_a_script_replacement() {
     let root = insert(
         &mut sources,
         "root",
-        "struct Values {} impl Iterator for Values { type Item = String; fn next(self) -> Option<String> { None } fn join(self, separator: String) -> String { separator } }",
+        "use demo::native::NativeRead; struct Values {} impl NativeRead for Values { fn fixed(self) -> i32 { 7 } }",
     );
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let file = snapshot.file(root).unwrap();
     assert!(file.result().diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind,
         DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
-            if method_name == "join" && reason == "this method declaration forbids overriding"
+            if method_name == "fixed" && reason == "this method declaration forbids overriding"
     )));
     assert!(file.result().clone().into_codegen().is_err());
 }
@@ -254,7 +229,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
     let method = &facts
         .aggregates
         .traits()
-        .find(|t| t.id.module.package.0 != "kagari-std")
+        .find(|t| t.declaration.name == "Reader")
         .unwrap()
         .methods[0];
     let signature = facts
@@ -306,7 +281,7 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
         facts
             .aggregates
             .traits()
-            .filter(|t| t.id.module.package.0 != "kagari-std")
+            .filter(|t| t.id.module.package.0 == "pkg")
             .count(),
         2
     );
@@ -394,7 +369,7 @@ fn invalid_method_parameter_does_not_discard_later_parameters_or_cascade_errors(
         .facts()
         .aggregates
         .traits()
-        .find(|t| t.id.module.package.0 != "kagari-std")
+        .find(|t| t.declaration.name == "View")
         .unwrap()
         .methods[0];
     assert_eq!(method.params.len(), 3);

@@ -9,5 +9,6 @@ use kagari_common::{
 
 mod completion;
 mod context;
+mod contracts;
 mod operators;
 mod recovery;

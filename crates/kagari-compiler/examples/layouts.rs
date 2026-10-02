@@ -1,7 +1,7 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
 
 use kagari_abi::{
-    native_api::NativeModule,
+    declaration::ModuleDecl,
     scalar::BuiltinType,
     types::{
         AbiType, GenericParameterAbi, PublicAbiItem, TypeAbi, TypeAbiKind,
@@ -23,7 +23,7 @@ use std::sync::Arc;
 fn main() {
     let source = SourceFile::new(
         "layouts.kgr",
-        "use demo::storage::Samples; pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: Samples<i32> } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
+        "use demo::storage::Samples; pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: Samples<i32> } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val generic: Number = Deferred { payload: 1 }; generic.get(); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
     );
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -31,7 +31,7 @@ fn main() {
         .unwrap();
     // This compiler-only consumer receives an application storage declaration.
     // The array constructor is an engine representation; no runtime handler runs.
-    let mut storage = NativeModule::new(ModuleIdentity {
+    let mut storage = ModuleDecl::new(ModuleIdentity {
         package: PackageId("demo".into()),
         path: vec!["storage".into()],
     });
@@ -121,10 +121,15 @@ fn main() {
             .name,
         "get"
     );
+    // Static generic calls need no boxed table; the explicit Number value above
+    // requests the concrete dynamic instance inspected here.
     let generic_table = bytecode
         .interface_tables
         .iter()
-        .find(|table| table.declaration != interface.declaration)
+        .find(|table| {
+            table.declaration != interface.declaration
+                && table.arguments == [AbiType::Builtin(BuiltinType::I32)]
+        })
         .expect("specialized generic interface table");
     assert_eq!(generic_table.methods.len(), 1);
     let CallableTarget::Script(function) = generic_table.methods[0].target else {

@@ -100,8 +100,8 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     // installed source universe; its declaration locations must compare exactly.
     let mut fresh_db = AnalysisDatabase::default();
     fresh_db
-        .stdlib
-        .set(db.stdlib.get().unwrap().clone())
+        .native_files
+        .set(db.native_files.get().unwrap().clone())
         .unwrap();
     let fresh = analyze(&mut fresh_db, &sources);
     let fresh = fresh.file(file).unwrap().result().facts();
@@ -162,9 +162,9 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
     assert_eq!(
         catalog
             .enumerations()
-            .filter(|item| item.id.module.package.0 == "kagari-std")
+            .filter(|item| item.id.module.package.0 == "kagari-core")
             .count(),
-        7
+        4
     );
     let a = old
         .file(left)

@@ -1,7 +1,8 @@
-use crate::gc::hash_storage::{HashMapStorage, HashSetStorage};
+use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::GcHeap,
+    native::sequence::SequenceStorage,
     value::Value,
 };
 
@@ -12,7 +13,7 @@ impl GcHeap {
     pub fn collection_capacity(&self, value: &Value) -> Result<usize, RuntimeError> {
         self.ensure_execution_allowed()?;
         match value {
-            Value::Array(id) => self.with_array(*id, Vec::capacity),
+            Value::Array(id) => self.with_array(*id, SequenceStorage::capacity),
             Value::Map(id) => self.with_map(*id, HashMapStorage::capacity),
             Value::Set(id) => self.with_set(*id, HashSetStorage::capacity),
             _ => None,

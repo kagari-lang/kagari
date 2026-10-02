@@ -2,27 +2,15 @@ use kagari_abi::{operations::IterOp, standard::RuntimePrimitive, types::AbiType}
 use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
 };
-use kagari_runtime::{
-    host::HostPathDescriptorId, native::NativeProgress, numeric, range::RangeValue, value::Value,
-};
+use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
 use std::iter;
 
-use crate::{error::VmError, executor::Executor};
+use crate::{
+    error::VmError,
+    executor::{Executor, native::invoke_script},
+};
 
 impl<'a> Executor<'a> {
-    pub(crate) fn dispatch_native_progress(
-        &mut self,
-        progress: NativeProgress,
-    ) -> Result<(), VmError> {
-        match progress {
-            NativeProgress::Continue | NativeProgress::Finished => Ok(()),
-            NativeProgress::Callback(request) => self
-                .stack
-                .push_native_callback(self.runtime, request)
-                .map_err(VmError::RuntimeError),
-        }
-    }
-
     fn dispatch_iterator(
         &mut self,
         source: &Value,
@@ -252,7 +240,12 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(dst, Value::Range(value))?;
             }
-            BytecodeInstruction::RepeatArray { dst, value, count } => {
+            BytecodeInstruction::RepeatArray {
+                dst,
+                value,
+                count,
+                element,
+            } => {
                 let value = self.current_frame()?.read_register(value)?;
                 let Value::U64(count) = self.current_frame()?.read_register(count)? else {
                     return Err(VmError::Trap("invalid repeat array count"));
@@ -261,14 +254,17 @@ impl<'a> Executor<'a> {
                     .map_err(|_| VmError::Trap("array length exceeds platform capacity"))?;
                 let array = self
                     .runtime
-                    .gc()
-                    .alloc_array_repeat(value, count)
+                    .alloc_array_repeat(&self.current_loaded()?, element, value, count)
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?
                     .write_register(dst, Value::Array(array))?;
             }
-            BytecodeInstruction::MakeArray { dst, elements } => {
-                let value = self.make_array(&elements)?;
+            BytecodeInstruction::MakeArray {
+                dst,
+                elements,
+                element,
+            } => {
+                let value = self.make_array(&element, &elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::MakeClosure {
@@ -464,12 +460,19 @@ impl<'a> Executor<'a> {
         callee: CallTarget,
         args: Vec<Register>,
     ) -> Result<(), VmError> {
+        if let CallTarget::Native(import) = callee {
+            return self
+                .stack
+                .invoke_native(self.runtime, import, &args, dst, invoke_script)
+                .map_err(VmError::RuntimeError);
+        }
         let arg_values = args
             .iter()
             .map(|arg| Ok::<_, VmError>(self.current_frame()?.read_register(*arg)?))
             .collect::<Result<Vec<_>, _>>()?;
 
         match callee {
+            CallTarget::Native(_) => unreachable!("native calls execute before argument packing"),
             CallTarget::ModuleFunction { module, function } => {
                 self.current_loaded()?
                     .member_data(module)
@@ -505,13 +508,6 @@ impl<'a> Executor<'a> {
                     .push_interface_method(self.runtime, resolved, &arguments, dst)
                     .map_err(VmError::RuntimeError)
             }
-            CallTarget::Native(import) => {
-                let progress = self
-                    .stack
-                    .begin_native(self.runtime, import, &arg_values, dst)?;
-                self.dispatch_native_progress(progress)
-            }
-
             CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(Box::new(callee))),
             CallTarget::ClosureRegister {
                 register,
@@ -536,7 +532,7 @@ impl<'a> Executor<'a> {
                     return Err(VmError::TypeMismatch("closure call contract"));
                 }
                 self.stack
-                    .push_closure(self.runtime, closure, &arg_values, dst)
+                    .push_closure(self.runtime, &closure, &arg_values, dst)
                     .map_err(VmError::RuntimeError)
             }
             CallTarget::RuntimePrimitive(intrinsic) => {

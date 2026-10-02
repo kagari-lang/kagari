@@ -13,7 +13,7 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 
 #[test]
 fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
-    let text = "use std as library; use std::string::String as Text; use std::option::Option as Maybe; fn inspect(a: String, b: Text, c: library::string::String, d: std::option::Option<i32>, e: Maybe<i32>, f: library::ops::RangeFull, g: RangeFull) {}";
+    let text = "use core::language as library; use core::language; use core::language::String as Text; use core::language::Option as Maybe; fn inspect(a: String, b: Text, c: library::String, d: language::Option<i32>, e: Maybe<i32>, f: library::RangeFull, g: RangeFull) {}";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("native-types.kgr", text.into(), SourceLayer::Base)
@@ -50,8 +50,8 @@ fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
 }
 
 #[test]
-fn native_collection_conversion_infers_items_through_source_aliases() {
-    let text = "use std::array::ArrayList as Sequence; use std::map::LinkedHashMap as Dictionary; fn collect() -> ArrayList<i32> { Sequence::from_iter([1, 2]) } fn pairs() -> LinkedHashMap<i32, bool> { Dictionary::from_iter([(1, true)]) }";
+fn native_collection_constructors_infer_items_through_source_aliases() {
+    let text = "use core::language::ArrayList as Sequence; use core::language::HashMap as Dictionary; fn collect() -> ArrayList<i32> { Sequence::new() } fn pairs() -> HashMap<i32, bool> { Dictionary::new() }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("conversion-aliases.kgr", text.into(), SourceLayer::Base)
@@ -81,11 +81,11 @@ fn native_collection_conversion_infers_items_through_source_aliases() {
             })
     };
     assert!(matches!(
-        call_type("Sequence::from_iter"),
+        call_type("Sequence::new"),
         Some(TypeId::Array(item, _)) if *item == TypeId::Builtin(BuiltinType::I32)
     ));
     assert!(matches!(
-        call_type("Dictionary::from_iter"),
+        call_type("Dictionary::new"),
         Some(TypeId::Map { key, value, .. })
             if *key == TypeId::Builtin(BuiltinType::I32)
                 && *value == TypeId::Builtin(BuiltinType::Bool)
@@ -119,8 +119,12 @@ fn source_bindings_shadow_native_types_and_the_standard_namespace() {
             id
         );
     }
-    for binding in ["struct std {}", "use std::math as std;", "use absent::std;"] {
-        let text = format!("{binding} fn bad(value: std::ops::RangeFull) {{}}");
+    for binding in [
+        "struct language {}",
+        "use core::language::ArrayList as language;",
+        "use absent::language;",
+    ] {
+        let text = format!("{binding} fn bad(value: language::RangeFull) {{}}");
         let mut sources = SourceDatabase::default();
         let id = sources
             .set("namespace-shadow.kgr", text.clone(), SourceLayer::Base)
@@ -269,7 +273,7 @@ fn annotation_navigation_uses_type_names_not_application_punctuation() {
 #[test]
 fn explicit_bindings_shadow_all_standard_type_constructors() {
     for (name, args) in [
-        ("LinkedHashMap", "i32, String"),
+        ("HashMap", "i32, String"),
         ("Set", "i32"),
         ("Option", "i32"),
         ("Result", "i32, String"),

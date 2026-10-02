@@ -1,4 +1,5 @@
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::instruction::NativeImportId;
 use {
     crate::debug::SourceBreakpoint,
     kagari_bytecode::program::{BytecodeProgram, ModuleRef},
@@ -81,9 +82,7 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
                         vec![
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
-                                callee: CallTarget::Native(NativeCall::Host(
-                                    kagari_bytecode::HostImportId::new(0),
-                                )),
+                                callee: CallTarget::Native(NativeImportId::new(0)),
                                 args: vec![],
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),
@@ -331,9 +330,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
                         vec![
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
-                                callee: CallTarget::Native(NativeCall::Host(
-                                    kagari_bytecode::HostImportId::new(0),
-                                )),
+                                callee: CallTarget::Native(NativeImportId::new(0)),
                                 args: vec![],
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),

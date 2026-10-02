@@ -15,7 +15,7 @@ use kagari_abi::{
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
     scalar::BuiltinType,
-    types::NominalAbiType,
+    types::{AbiType, NominalAbiType},
 };
 use kagari_common::identity::DefinitionId;
 
@@ -160,6 +160,21 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
+    pub(crate) fn array_element_type(&self, expr_id: ExprId) -> Result<AbiType, MirLoweringError> {
+        let ty = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(expr_id)
+            .ok_or(MirLoweringError::MissingExprType(expr_id))?;
+        let TypeId::Array(item, _) = ty else {
+            return Err(MirLoweringError::MissingBinding(
+                "checked array literal element type",
+            ));
+        };
+        self.semantic_type(&item)
+    }
+
     pub(crate) fn expr_type(&self, expr_id: ExprId) -> Result<ValueType, MirLoweringError> {
         self.analyzed
             .typed
@@ -214,7 +229,9 @@ impl FunctionLowerer<'_, '_> {
                 "concrete nominal instance",
             ));
         }
-        let (TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)) = ty else {
+        let (TypeId::NativeObject(ty) | TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)) =
+            ty
+        else {
             return Err(MirLoweringError::MissingBinding("nominal instance"));
         };
         Ok(lower_nominal_type(ty))

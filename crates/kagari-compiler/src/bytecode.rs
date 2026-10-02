@@ -1,6 +1,7 @@
 mod debug;
 mod defaults;
 mod interfaces;
+mod views;
 use crate::bytecode::{
     debug::collect_debug_metadata,
     interfaces::{collect_interface_tables, interface_instances},
@@ -42,7 +43,7 @@ use kagari_mir::{
     program::VerifiedMirProgram,
     verify::VerifiedMirModule,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, slice};
 
 #[derive(Debug)]
 pub enum BytecodeLoweringError {
@@ -76,7 +77,8 @@ pub fn lower_to_bytecode(ir: &VerifiedMirModule) -> Result<BytecodeModule, Bytec
     {
         return Err(BytecodeLoweringError::UnlinkedSourceModules);
     }
-    let module = lower_linked_module(ir, None, Vec::new())?;
+    let mut module = lower_linked_module(ir, None, Vec::new())?;
+    views::populate(slice::from_mut(&mut module))?;
     verify_module(&module).map_err(BytecodeLoweringError::Verification)?;
     Ok(module)
 }
@@ -617,12 +619,23 @@ fn lower_instruction(
             end: end.map(lower_value),
             ty: ty.clone(),
         },
-        Instruction::RepeatArray { dst, value, count } => BytecodeInstruction::RepeatArray {
+        Instruction::RepeatArray {
+            dst,
+            element,
+            value,
+            count,
+        } => BytecodeInstruction::RepeatArray {
+            element: element.clone(),
             dst: lower_value(*dst),
             value: lower_value(*value),
             count: lower_value(*count),
         },
-        Instruction::MakeArray { dst, elements } => BytecodeInstruction::MakeArray {
+        Instruction::MakeArray {
+            dst,
+            element,
+            elements,
+        } => BytecodeInstruction::MakeArray {
+            element: element.clone(),
             dst: lower_value(*dst),
             elements: elements
                 .iter()
@@ -992,10 +1005,11 @@ pub fn lower_program_to_bytecode(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let bytecode = BytecodeProgram {
+    let mut bytecode = BytecodeProgram {
         root: indices[program.root()],
         modules,
     };
+    views::populate(&mut bytecode.modules)?;
     verify_program(&bytecode).map_err(BytecodeLoweringError::Verification)?;
     Ok(bytecode)
 }

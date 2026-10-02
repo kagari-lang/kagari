@@ -344,7 +344,7 @@ pub fn analyze_source(
             profile,
             &Default::default(),
         )
-        .expect("bundled standard library must prepare for uncancelled analysis");
+        .expect("language declarations must prepare for uncancelled analysis");
     snapshot
         .file(source.id())
         .expect("requested source belongs to its snapshot")

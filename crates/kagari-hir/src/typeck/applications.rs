@@ -156,8 +156,14 @@ pub(super) fn validate(
                 pending.extend(&interface.arguments);
                 pending.extend(interface.associated_types.values());
             }
-            TypeId::Struct(instance) | TypeId::Enum(instance) | TypeId::Trait(instance) => {
+            TypeId::NativeObject(instance)
+            | TypeId::Struct(instance)
+            | TypeId::Enum(instance)
+            | TypeId::Trait(instance) => {
                 let contract = match ty {
+                    TypeId::NativeObject(_) => catalog
+                        .native_type(&instance.declaration)
+                        .map(|s| (&s.generic_params, &s.bounds)),
                     TypeId::Struct(_) => catalog
                         .structure(&instance.declaration)
                         .map(|s| (&s.generic_params, &s.bounds)),
@@ -612,7 +618,7 @@ pub(super) fn validate_imported_interface_type(
                 }
                 pending.extend(&instance.arguments);
             }
-            TypeId::Struct(instance) | TypeId::Enum(instance) => {
+            TypeId::NativeObject(instance) | TypeId::Struct(instance) | TypeId::Enum(instance) => {
                 pending.extend(&instance.arguments)
             }
             TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {

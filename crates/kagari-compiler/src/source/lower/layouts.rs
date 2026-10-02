@@ -1,6 +1,9 @@
 //! Reachable concrete aggregate layouts share the function instantiation budget.
 
-use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use crate::source::{
+    lower::{MirLoweringError, instances::InstancePlanner},
+    types::raise_type,
+};
 use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
@@ -10,6 +13,7 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
+use kagari_mir::function::MirFunction;
 use std::{
     collections::{HashSet, VecDeque},
     mem, slice,
@@ -18,6 +22,7 @@ use std::{
 pub(super) fn collect(
     module: &AnalyzedModule,
     planner: &mut InstancePlanner<'_>,
+    functions: &[MirFunction],
 ) -> Result<(Vec<StructLayout>, Vec<EnumLayout>), MirLoweringError> {
     let mut pending = VecDeque::new();
     for structure in module
@@ -48,28 +53,17 @@ pub(super) fn collect(
             enumeration.declaration.location.range,
         ));
     }
-    for instance in &planner.instances {
+    // Synthesized adapters and closure bodies have their own closed signature.
+    // Their source-context function is not their executable type contract.
+    for function in functions {
         planner.check()?;
-        let signature = module
-            .typed
-            .functions
-            .iter()
-            .find(|f| f.id == instance.function)
-            .ok_or(MirLoweringError::MissingTypedFunction(instance.function))?;
-        let span = module.lowered.source_map.function_span(instance.function);
-        let mut roots = signature
+        for ty in function
+            .semantic
             .params
-            .iter()
-            .map(|p| p.ty.clone())
-            .collect::<Vec<_>>();
-        roots.push(signature.return_type.clone());
-        for root in roots {
-            pending.push_back((
-                planner
-                    .arguments(&[root], &instance.substitution, span)?
-                    .remove(0),
-                span,
-            ));
+            .values()
+            .chain(function.semantic.result.iter())
+        {
+            pending.push_back((raise_type(ty), function.debug.source_span));
         }
     }
     // Expression roots are recorded only when lowering visits reachable code.
@@ -186,7 +180,7 @@ pub(super) fn collect(
                 pending.push_back((*key, span));
                 pending.push_back((*value, span));
             }
-            TypeId::Trait(nominal) => {
+            TypeId::NativeObject(nominal) | TypeId::Trait(nominal) => {
                 pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
                 pending.extend(nominal.associated_types.into_values().map(|ty| (ty, span)));
             }

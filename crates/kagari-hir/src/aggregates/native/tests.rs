@@ -26,13 +26,13 @@ fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
 }
 
 #[test]
-fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
+fn native_capabilities_require_installed_impls_and_declared_storage_access() {
     let (snapshot, root) = snapshot("fn main() {}");
     let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
     let item = TypeId::Builtin(BuiltinType::I32);
     let mutable = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
     let readonly = TypeId::Array(Box::new(item.clone()), CollectionAccess::ReadOnly);
-    for (kind, writable) in [(Protocol::List, false), (Protocol::MutableList, true)] {
+    for kind in [Protocol::List, Protocol::MutableList] {
         let mut interface = kind.nominal();
         interface.arguments.push(item.clone());
         assert!(
@@ -51,13 +51,14 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
                 .engine_implementation(&interface, &mutable, &Default::default())
                 .is_some()
         );
-        assert_eq!(
+        // Readonly collection surfaces are declared trait views, not a second
+        // physical ArrayList layout with another set of native implementations.
+        assert!(
             catalog
                 .engine_implementation(&interface, &readonly, &Default::default())
-                .is_some(),
-            !writable
+                .is_none()
         );
-        assert_eq!(
+        assert!(
             catalog
                 .concrete_interface_implementation(
                     &interface,
@@ -68,8 +69,7 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
                     &Default::default()
                 )
                 .unwrap()
-                .is_some(),
-            !writable
+                .is_none()
         );
     }
     assert!(
@@ -87,10 +87,8 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
         value: Box::new(TypeId::Builtin(BuiltinType::I32)),
         access: CollectionAccess::Mutable,
     };
-    let mut interface = Protocol::FromIterator.nominal();
-    interface
-        .arguments
-        .push(TypeId::Tuple(vec![key, TypeId::Builtin(BuiltinType::I32)]));
+    let mut interface = Protocol::Map.nominal();
+    interface.arguments = vec![key, TypeId::Builtin(BuiltinType::I32)];
     assert!(
         catalog
             .engine_implementation_pattern(&interface, &target)
@@ -104,54 +102,59 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
 }
 
 #[test]
-fn numeric_aggregation_requires_checked_installed_scalar_implementations() {
-    let (snapshot, root) = snapshot("fn main() {}");
-    let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
-    for kind in [Protocol::Sum, Protocol::Product] {
-        for scalar in [BuiltinType::I8, BuiltinType::I32, BuiltinType::F64] {
-            let receiver = TypeId::Builtin(scalar);
-            let mut interface = kind.nominal();
-            interface.arguments.push(receiver.clone());
-            assert!(!traits::intrinsic_applies(
-                &interface,
-                &receiver,
-                None,
+fn algorithm_trait_names_are_ordinary_user_contracts() {
+    let (snapshot, root) = snapshot(
+        "trait Sum<T> { fn sum(self, value: T) -> T; } struct Values {} impl Sum<i32> for Values { fn sum(self, value: i32) -> i32 { value } }",
+    );
+    let facts = snapshot.file(root).unwrap().result().facts();
+    let implementation = facts
+        .aggregates
+        .implementations()
+        .find(|item| !item.engine_owned)
+        .unwrap();
+    let interface = &implementation.trait_type;
+    assert!(Protocol::from_id(&interface.declaration).is_none());
+    assert!(
+        facts
+            .aggregates
+            .engine_implementation(interface, &implementation.for_type, &Default::default())
+            .is_none()
+    );
+    assert!(
+        facts
+            .aggregates
+            .concrete_interface_implementation(
+                interface,
+                &implementation.for_type,
+                &Default::default(),
+                4096,
+                64,
                 &Default::default()
-            ));
-            assert!(
-                AggregateCatalog::default()
-                    .engine_implementation(&interface, &receiver, &Default::default())
-                    .is_none()
-            );
-            assert!(
-                catalog
-                    .engine_implementation(&interface, &receiver, &Default::default())
-                    .is_some()
-            );
-            assert!(traits::intrinsic_applies(
-                &interface,
-                &receiver,
-                Some(catalog),
+            )
+            .unwrap()
+            .is_some()
+    );
+    let mut wrong = interface.clone();
+    wrong.arguments[0] = TypeId::Builtin(BuiltinType::Bool);
+    assert!(
+        facts
+            .aggregates
+            .concrete_interface_implementation(
+                &wrong,
+                &implementation.for_type,
+                &Default::default(),
+                4096,
+                64,
                 &Default::default()
-            ));
-            interface.arguments[0] = TypeId::Builtin(BuiltinType::Bool);
-            assert!(!traits::intrinsic_applies(
-                &interface,
-                &receiver,
-                Some(catalog),
-                &Default::default()
-            ));
-        }
-        let receiver = TypeId::Builtin(BuiltinType::Bool);
-        let mut interface = kind.nominal();
-        interface.arguments.push(receiver.clone());
-        assert!(!traits::intrinsic_applies(
-            &interface,
-            &receiver,
-            Some(catalog),
-            &Default::default()
-        ));
-    }
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        Protocol::ALL
+            .into_iter()
+            .all(|kind| !matches!(kind.name(), "Sum" | "Product" | "FromIterator"))
+    );
 }
 
 #[test]
@@ -194,7 +197,8 @@ fn main() {}
             .engine_implementation(&interface, receiver, &Default::default())
             .is_none()
     );
-    assert!(!traits::intrinsic_applies(
+    // Iteration is a language protocol, even when its selected body is script.
+    assert!(traits::intrinsic_applies(
         &interface,
         receiver,
         Some(&facts.aggregates),

@@ -3,7 +3,9 @@ use crate::{
     module::BytecodeModule,
     trait_bounds::contract,
 };
-use kagari_abi::types::{applications::ApplicationValidator, substitution::TypeTransformError};
+use kagari_abi::types::{
+    applications::ApplicationValidator, native_storage_contract, substitution::TypeTransformError,
+};
 use kagari_common::cancellation::CancellationToken;
 
 pub(super) fn validate(
@@ -11,7 +13,15 @@ pub(super) fn validate(
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError> {
-    let validator = ApplicationValidator::new(cancel, |id| contract(id, closure));
+    let validator = ApplicationValidator::new(
+        cancel,
+        |id| contract(id, closure),
+        |id| {
+            closure
+                .iter()
+                .find_map(|owner| native_storage_contract(&owner.identity, &owner.public_items, id))
+        },
+    );
     validator.declarations(&module.public_items, &module.trait_contracts)?;
     for declaration in &module.native_declarations {
         validator.function(&declaration.function)?;
@@ -52,6 +62,10 @@ pub(super) fn validate(
         for instruction in &function.instructions {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match instruction {
+                BytecodeInstruction::MakeArray { element, .. }
+                | BytecodeInstruction::RepeatArray { element, .. } => {
+                    validator.validate_type(element)?
+                }
                 BytecodeInstruction::MapResultError { ty, .. }
                 | BytecodeInstruction::Iter { ty, .. }
                 | BytecodeInstruction::StandardEnum { ty, .. }

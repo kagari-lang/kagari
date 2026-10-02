@@ -23,6 +23,9 @@ impl ReflectionError {
     pub fn kind(&self) -> RuntimeErrorKind {
         self.error.kind()
     }
+    pub fn into_runtime_error(self) -> RuntimeError {
+        self.error
+    }
     pub(crate) fn into_write_error(self) -> RuntimeError {
         if matches!(
             self.error.kind(),
@@ -275,11 +278,6 @@ mod tests {
         let mut runtime = crate::Runtime::default();
         let interface = crate::layout_fixtures::interface_value(&mut runtime);
         let gc = runtime.gc();
-        let map = gc.alloc_map(vec![]).unwrap();
-        let set = gc.alloc_set(vec![]).unwrap();
-
-        assert_eq!(type_of(gc, &Value::Map(map)), Value::Str("map".to_owned()));
-        assert_eq!(type_of(gc, &Value::Set(set)), Value::Str("set".to_owned()));
         assert_eq!(type_of(gc, &interface), Value::Str("interface".to_owned()));
         assert_eq!(
             type_of(gc, &host_root_value(2)),

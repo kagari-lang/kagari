@@ -1,7 +1,7 @@
 //! Portable defaults select actual native templates without source analysis.
 use kagari_abi::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
-    native_api::NativeImplementation,
+    declaration::ImplDecl,
     native_import::callables::NativeCallableRequirement,
     scalar::BuiltinType,
     types::{
@@ -588,7 +588,7 @@ fn default_application_transforms_and_decoding_remain_bounded_and_cancellable() 
 fn registered_impl_inherits_the_same_checked_default_as_an_executable_table() {
     let fixture = Fixture::new();
     let cancel = CancellationToken::default();
-    let native = NativeImplementation {
+    let native = ImplDecl {
         generic_params: vec![],
         bounds: vec![],
         trait_type: Some(interface(&fixture.owner, vec![])),
@@ -628,7 +628,7 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
         position: 0,
     };
     let applied = interface(&fixture.owner, vec![]);
-    let native = NativeImplementation {
+    let native = ImplDecl {
         generic_params: vec![parameter.clone()],
         bounds: vec![GenericBoundAbi {
             ty: parameter.as_type(),

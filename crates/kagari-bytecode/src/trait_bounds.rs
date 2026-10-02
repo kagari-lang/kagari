@@ -3,6 +3,7 @@ mod applications;
 mod associated;
 mod callables;
 mod methods;
+mod views;
 
 use crate::{
     instruction::BytecodeInstruction,
@@ -201,6 +202,9 @@ fn linked_bounds_match(
             .flat_map(|module| &module.native_declarations),
         &cancel,
     )?;
+    if !views::valid(module, closure, &cancel).map_err(|_| LinkedValidationError::InterfaceTable)? {
+        return Err(LinkedValidationError::InterfaceTable);
+    }
     if !methods::valid(module, &catalog, &cancel)
         .map_err(|_| LinkedValidationError::InterfaceTable)?
     {

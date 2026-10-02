@@ -2,7 +2,10 @@ use super::*;
 use crate::{
     callable::CallableImplementation,
     scalar::BuiltinType,
-    types::{AssociatedTypeAbi, ConstAbi, FieldAbi, GenericParameterAbi, TypeAbi, TypeAbiKind},
+    types::{
+        AssociatedTypeAbi, ConstAbi, FieldAbi, GenericParameterAbi, TypeAbi, TypeAbiKind,
+        native::NativeStorageLayout, native_storage_contract,
+    },
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
@@ -42,7 +45,7 @@ fn declaration() -> (DefinitionId, TraitAbi) {
 fn linked_trait_arity_and_members_come_from_the_exact_owner() {
     let (id, record) = declaration();
     let cancel = CancellationToken::default();
-    let check = ApplicationValidator::new(&cancel, |key| (key == &id).then_some(&record));
+    let check = ApplicationValidator::new(&cancel, |key| (key == &id).then_some(&record), |_| None);
     let mut applied = NominalAbiType {
         declaration: id.clone(),
         arguments: vec![AbiType::Builtin(BuiltinType::I32)],
@@ -88,7 +91,7 @@ fn projections_check_trait_arguments_member_identity_and_family_arity() {
             position: 0,
         });
     let cancel = CancellationToken::default();
-    let check = ApplicationValidator::new(&cancel, |key| (key == &id).then_some(&record));
+    let check = ApplicationValidator::new(&cancel, |key| (key == &id).then_some(&record), |_| None);
     let interface = NominalAbiType {
         declaration: id.clone(),
         arguments: vec![AbiType::Builtin(BuiltinType::I32)],
@@ -134,7 +137,7 @@ fn projections_check_trait_arguments_member_identity_and_family_arity() {
 fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
     let (id, _) = declaration();
     let cancel = CancellationToken::default();
-    let check = ApplicationValidator::new(&cancel, |_| None);
+    let check = ApplicationValidator::new(&cancel, |_| None, |_| None);
     let unknown = AbiType::Function {
         params: vec![],
         result: Box::new(AbiType::Tuple(vec![AbiType::Trait(NominalAbiType {
@@ -191,5 +194,59 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
             MAX_TYPE_NODES
         ])),
         Err(TypeTransformError::LimitExceeded)
+    );
+}
+
+#[test]
+fn native_storage_applications_require_the_actual_owner_and_layout_arity() {
+    let (mut id, _) = declaration();
+    id.path[0].kind = DefinitionKind::AssociatedType;
+    id.path[0].name = "Buffer".into();
+    let record = TypeAbi {
+        name: "Buffer".into(),
+        kind: TypeAbiKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+        generic_params: vec![GenericParameterAbi {
+            owner: id.clone(),
+            position: 0,
+        }],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    };
+    let items = [PublicAbiItem::Type(record)];
+    let cancel = CancellationToken::default();
+    let check = ApplicationValidator::new(
+        &cancel,
+        |_| None,
+        |key| native_storage_contract(&id.module, &items, key),
+    );
+    let mut instance = NominalAbiType {
+        declaration: id.clone(),
+        arguments: vec![AbiType::Builtin(BuiltinType::I32)],
+        associated_types: Default::default(),
+    };
+    assert_eq!(
+        check.validate_type(&AbiType::NativeObject(instance.clone())),
+        Ok(())
+    );
+    instance.arguments.clear();
+    assert_eq!(
+        check.validate_type(&AbiType::NativeObject(instance.clone())),
+        Err(TypeTransformError::InvalidContract)
+    );
+    instance.arguments.push(AbiType::Builtin(BuiltinType::I32));
+    instance.associated_types.insert(
+        associated_type_id(&id, "Item"),
+        AbiType::Builtin(BuiltinType::I32),
+    );
+    assert_eq!(
+        check.validate_type(&AbiType::NativeObject(instance.clone())),
+        Err(TypeTransformError::InvalidContract)
+    );
+    instance.associated_types.clear();
+    instance.declaration.path[0].occurrence = 1;
+    assert_eq!(
+        check.validate_type(&AbiType::NativeObject(instance)),
+        Err(TypeTransformError::InvalidContract)
     );
 }

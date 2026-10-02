@@ -3,6 +3,7 @@ use kagari_abi::types::{
     AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, InterfaceTableAbi,
     NominalAbiType, TraitAbi,
     applications::ApplicationValidator,
+    native_storage_contract,
     proofs::{ProofCatalog, host_application},
     substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
 };
@@ -16,7 +17,16 @@ fn projection_bounds_valid(
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
-    ApplicationValidator::new(cancel, |id| contract(id, closure)).validate_type(ty)?;
+    ApplicationValidator::new(
+        cancel,
+        |id| contract(id, closure),
+        |id| {
+            closure
+                .iter()
+                .find_map(|owner| native_storage_contract(&owner.identity, &owner.public_items, id))
+        },
+    )
+    .validate_type(ty)?;
     let mut pending = vec![ty];
     let mut remaining = 8192usize;
     while let Some(ty) = pending.pop() {
@@ -68,7 +78,10 @@ fn projection_bounds_valid(
                 pending.extend(interface.associated_types.values());
                 pending.extend(arguments);
             }
-            AbiType::Struct(n) | AbiType::Enum(n) | AbiType::Trait(n) => {
+            AbiType::NativeObject(n)
+            | AbiType::Struct(n)
+            | AbiType::Enum(n)
+            | AbiType::Trait(n) => {
                 pending.extend(&n.arguments);
                 pending.extend(n.associated_types.values());
             }

@@ -91,7 +91,11 @@ impl Executor<'_> {
             .map(Value::Tuple)
     }
 
-    pub(crate) fn make_array(&self, elements: &[Register]) -> Result<Value, VmError> {
+    pub(crate) fn make_array(
+        &self,
+        element: &AbiType,
+        elements: &[Register],
+    ) -> Result<Value, VmError> {
         let elements = elements
             .iter()
             .map(|element| Ok::<_, VmError>(self.current_frame()?.read_register(*element)?))
@@ -103,7 +107,7 @@ impl Executor<'_> {
         }
         let handle = self
             .runtime
-            .alloc_array(elements)
+            .alloc_array(&self.current_loaded()?, element.clone(), elements)
             .map_err(VmError::RuntimeError)?;
         Ok(Value::Array(handle))
     }

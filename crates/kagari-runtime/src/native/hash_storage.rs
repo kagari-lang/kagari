@@ -37,40 +37,40 @@ impl CustomBuckets {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct HashMapStorage {
+pub(crate) struct HashMapStorage {
     entries: HashMap<MapKey, Value>,
     buckets: CustomBuckets,
 }
 impl HashMapStorage {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
-    pub(super) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
-    pub(super) fn capacity(&self) -> usize {
+    pub(crate) fn capacity(&self) -> usize {
         self.entries.capacity()
     }
-    pub(super) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+    pub(crate) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
         self.entries.try_reserve(additional)
     }
-    pub(super) fn iter(&self) -> impl Iterator<Item = (&MapKey, &Value)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&MapKey, &Value)> {
         self.entries.iter()
     }
-    pub(super) fn keys(&self) -> impl Iterator<Item = &MapKey> {
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &MapKey> {
         self.entries.keys()
     }
-    pub(super) fn get(&self, key: &MapKey) -> Option<&Value> {
+    pub(crate) fn get(&self, key: &MapKey) -> Option<&Value> {
         self.entries.get(key)
     }
-    pub(super) fn get_mut(&mut self, key: &MapKey) -> Option<&mut Value> {
+    pub(crate) fn get_mut(&mut self, key: &MapKey) -> Option<&mut Value> {
         self.entries.get_mut(key)
     }
-    pub(super) fn contains_key(&self, key: &MapKey) -> bool {
+    pub(crate) fn contains_key(&self, key: &MapKey) -> bool {
         self.entries.contains_key(key)
     }
     /// Capacity is prepared before any semantic write, including the bucket index.
-    pub(super) fn insert(
+    pub(crate) fn insert(
         &mut self,
         key: MapKey,
         value: Value,
@@ -82,59 +82,54 @@ impl HashMapStorage {
         }
         Ok(self.entries.insert(key, value))
     }
-    pub(super) fn remove(&mut self, key: &MapKey) -> Option<Value> {
+    pub(crate) fn remove(&mut self, key: &MapKey) -> Option<Value> {
         let value = self.entries.remove(key)?;
         self.buckets.remove(key);
         Some(value)
     }
-    pub(super) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.entries.clear();
         self.buckets.0.clear();
     }
-    pub(super) fn candidates(&self, hash: i64) -> Vec<Value> {
-        self.buckets
-            .tokens(hash)
-            .iter()
-            .map(|token| {
-                let key = MapKey::custom(hash, *token, Value::Unit);
-                let (key, _) = self
-                    .entries
-                    .get_key_value(&key)
-                    .expect("indexed custom key");
-                Value::Tuple(vec![Value::I64(*token), key.to_value()])
-            })
-            .collect()
+    pub(crate) fn candidate(&self, hash: i64, index: usize) -> Option<(i64, Value)> {
+        let token = *self.buckets.tokens(hash).get(index)?;
+        let key = MapKey::custom(hash, token, Value::Unit);
+        let (key, _) = self
+            .entries
+            .get_key_value(&key)
+            .expect("indexed custom key");
+        Some((token, key.to_value()))
     }
 }
 
 #[derive(Debug, Default)]
-pub(super) struct HashSetStorage {
+pub(crate) struct HashSetStorage {
     entries: HashSet<MapKey>,
     buckets: CustomBuckets,
 }
 impl HashSetStorage {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
-    pub(super) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
-    pub(super) fn capacity(&self) -> usize {
+    pub(crate) fn capacity(&self) -> usize {
         self.entries.capacity()
     }
-    pub(super) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+    pub(crate) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
         self.entries.try_reserve(additional)
     }
-    pub(super) fn iter(&self) -> impl Iterator<Item = &MapKey> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &MapKey> {
         self.entries.iter()
     }
-    pub(super) fn get(&self, key: &MapKey) -> Option<&MapKey> {
+    pub(crate) fn get(&self, key: &MapKey) -> Option<&MapKey> {
         self.entries.get(key)
     }
-    pub(super) fn contains(&self, key: &MapKey) -> bool {
+    pub(crate) fn contains(&self, key: &MapKey) -> bool {
         self.entries.contains(key)
     }
-    pub(super) fn insert(&mut self, key: MapKey) -> Result<bool, TryReserveError> {
+    pub(crate) fn insert(&mut self, key: MapKey) -> Result<bool, TryReserveError> {
         if self.entries.contains(&key) {
             return Ok(false);
         }
@@ -143,28 +138,23 @@ impl HashSetStorage {
         self.buckets.insert(&key);
         Ok(self.entries.insert(key))
     }
-    pub(super) fn remove(&mut self, key: &MapKey) -> bool {
+    pub(crate) fn remove(&mut self, key: &MapKey) -> bool {
         if !self.entries.remove(key) {
             return false;
         }
         self.buckets.remove(key);
         true
     }
-    pub(super) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.entries.clear();
         self.buckets.0.clear();
     }
-    pub(super) fn candidates(&self, hash: i64) -> Vec<Value> {
-        self.buckets
-            .tokens(hash)
-            .iter()
-            .map(|token| {
-                let key = self
-                    .entries
-                    .get(&MapKey::custom(hash, *token, Value::Unit))
-                    .expect("indexed custom key");
-                Value::Tuple(vec![Value::I64(*token), key.to_value()])
-            })
-            .collect()
+    pub(crate) fn candidate(&self, hash: i64, index: usize) -> Option<(i64, Value)> {
+        let token = *self.buckets.tokens(hash).get(index)?;
+        let key = self
+            .entries
+            .get(&MapKey::custom(hash, token, Value::Unit))
+            .expect("indexed custom key");
+        Some((token, key.to_value()))
     }
 }

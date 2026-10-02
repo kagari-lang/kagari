@@ -1091,7 +1091,7 @@ impl<'a> SourceCatalog<'a> {
                         .enums
                         .iter()
                         .filter_map(|item| {
-                            (module.native_enums.get(&item.id).copied()
+                            (module.native_enums.get(&item.id).cloned()
                                 == Some(NativeTypeKind::Enum(StandardEnum::Ordering)))
                             .then_some(item.id)
                         })

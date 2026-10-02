@@ -219,19 +219,28 @@ pub fn verify_program(
         })? {
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
-        applications::validate(module, cancel, |id| {
-            let owner = *indices.get(&id.module)?;
-            if owner != index && !dependencies.contains(&owner) {
-                return None;
-            }
-            let owner = &modules[owner];
-            abi::trait_contract(
-                &owner.identity,
-                &owner.abi.public_items,
-                &owner.abi.trait_contracts,
-                id,
-            )
-        })
+        applications::validate(
+            module,
+            cancel,
+            |id| {
+                let owner = *indices.get(&id.module)?;
+                if owner != index && !dependencies.contains(&owner) {
+                    return None;
+                }
+                let owner = &modules[owner];
+                abi::trait_contract(
+                    &owner.identity,
+                    &owner.abi.public_items,
+                    &owner.abi.trait_contracts,
+                    id,
+                )
+            },
+            |id| {
+                closure.iter().find_map(|owner| {
+                    abi::native_storage_contract(&owner.identity, &owner.abi.public_items, id)
+                })
+            },
+        )
         .map_err(|cause| {
             error(
                 &module.identity,

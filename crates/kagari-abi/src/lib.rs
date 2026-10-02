@@ -3,6 +3,7 @@
 pub mod budget;
 pub mod callable;
 pub mod contracts;
+pub mod declaration;
 pub mod decode_limits;
 pub mod effects;
 pub mod host;
@@ -10,7 +11,6 @@ pub mod ids;
 pub mod language;
 pub mod layout;
 pub mod native;
-pub mod native_api;
 pub mod native_call;
 pub mod native_import;
 pub mod numeric;

@@ -33,7 +33,7 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
     let file = sources
         .set("root.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = crate::tests::native::database();
     db.set_host_declarations(
         crate::host::HostDeclarations::new(HostInterface {
             paths: vec![],
@@ -64,8 +64,8 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 #[test]
 fn qualified_standard_source_and_host_calls_respect_lexical_bindings() {
     let cases = [
-        ("use std::math as api;", "api::clamp(1, 1, 1)", "api"),
-        ("", "std::math::clamp(1, 1, 1)", "std"),
+        ("use demo::native as api;", "api::choose(1, 1, 1)", "api"),
+        ("use demo::native;", "native::choose(1, 1, 1)", "native"),
         ("use pkg::library as api;", "api::number()", "api"),
         ("use demo as api;", "api::number()", "api"),
         ("", "demo::number()", "demo"),
@@ -176,8 +176,8 @@ fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
             NameResolution::Ambiguous,
         ),
         (
-            "use std::math as api; use std::array as api;",
-            "api::clamp(1, 1, 1)",
+            "use demo::native as api; use core::language as api;",
+            "api::choose(1, 1, 1)",
             "api",
             NameResolution::Ambiguous,
         ),
@@ -194,9 +194,9 @@ fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
             NameResolution::Unresolved,
         ),
         (
-            "use missing as std;",
-            "std::math::clamp(1, 1, 1)",
-            "std",
+            "use missing as native;",
+            "native::choose(1, 1, 1)",
+            "native",
             NameResolution::Unresolved,
         ),
         (

@@ -1,3 +1,4 @@
+use kagari_abi::native_import::NativeImport;
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
 use {
     kagari_bytecode::{module::RootSlotLayout, program::ModuleRef},
@@ -125,6 +126,7 @@ pub fn with_host_imports(
     mut module: BytecodeModule,
     functions: Vec<kagari_common::host_interface::HostFunctionDeclaration>,
 ) -> BytecodeModule {
+    module.native_imports = functions.iter().map(NativeImport::from_host).collect();
     module.host_interface = kagari_common::host_interface::HostInterface {
         paths: vec![],
         types: Vec::new(),

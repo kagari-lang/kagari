@@ -1,23 +1,29 @@
-use kagari_bytecode::module::CallableTarget;
 mod arrays;
 mod maps_sets;
+mod native;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
+    gc::interfaces::InterfaceValueSnapshot,
     module::{LoadedModule, ModuleKey, RetainedRuntimeProgram, StructLayoutRef},
+    native::{
+        hashed::{MapPayload, SetPayload},
+        sequence::SequencePayload,
+        storage::{NativeObject, NativeStorage},
+    },
+    numeric,
     resource::ResourceState,
     session::ExecutionPhase,
-    value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value},
+    value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, StructValueField, Value},
 };
 use kagari_abi::{
     ids::FunctionRef,
     representation::ValueType,
     standard::surface::StandardEnum as StandardEnumKind,
-    types::{AbiType, NominalAbiType},
+    types::{AbiType, native::NativeStorageLayout},
 };
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::DefinitionId;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
@@ -30,32 +36,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::gc::hash_storage::{HashMapStorage, HashSetStorage};
 mod array_ops;
 mod capacity;
-mod custom_keys;
-mod hash_storage;
+pub(crate) mod custom_keys;
+pub(crate) mod interfaces;
 mod iter;
-pub(crate) mod managed_iter;
 pub mod mutations;
 mod string_iter;
-
-#[derive(Debug, Clone)]
-pub(crate) struct InterfaceMethodBinding {
-    pub(crate) method: DefinitionId,
-    pub(crate) target: CallableTarget,
-    pub(crate) parameter_types: Vec<AbiType>,
-    pub(crate) return_type: AbiType,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct InterfaceValueSnapshot {
-    pub(crate) data: Value,
-    pub(crate) concrete_type: AbiType,
-    pub(crate) interface_type: NominalAbiType,
-    pub(crate) implementation: LoadedModule,
-    pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct GcHeapConfig {
@@ -137,6 +124,9 @@ impl PartialEq for RootSet {
     }
 }
 impl RootSet {
+    pub(crate) fn contains_slot(&self, index: usize) -> bool {
+        index < self.values.borrow().len()
+    }
     pub fn get(&self, index: usize) -> Option<Value> {
         self.values.borrow().get(index).cloned()
     }
@@ -167,6 +157,7 @@ struct ObjectSlot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcObjectKind {
+    Native,
     Iter,
     Array,
     Map,
@@ -185,13 +176,37 @@ pub struct ClosureValueSnapshot {
     pub captures: Vec<Value>,
 }
 
+impl ClosureValueSnapshot {
+    pub(crate) fn matches_function(&self, params: &[AbiType], result: &AbiType) -> bool {
+        let Some(function) = self
+            .implementation
+            .bytecode
+            .functions
+            .get(self.function.index())
+        else {
+            return false;
+        };
+        let captures = self.captures.len();
+        let suffix = function.metadata.params.get(captures..);
+        suffix.is_some_and(|types| {
+            types.len() == params.len()
+                && types
+                    .iter()
+                    .zip(params)
+                    .enumerate()
+                    .all(|(slot, (actual, expected))| {
+                        *actual == expected.representation()
+                            && function.metadata.semantic.params.get(&(captures + slot))
+                                == Some(expected)
+                    })
+        }) && function.metadata.return_type == result.representation()
+            && function.metadata.semantic.result.as_ref() == Some(result)
+    }
+}
+
 #[derive(Debug)]
 enum HeapObject {
-    Iter(Box<iter::NativeIter>),
-    ManagedIter(Box<managed_iter::ManagedIter>),
-    Array(Vec<Value>),
-    Map(HashMapStorage),
-    Set(HashSetStorage),
+    Native(NativeObject),
     Enum(EnumValueSnapshot, Option<Arc<ErrorTrace>>),
     Struct {
         layout: StructLayoutRef,
@@ -202,7 +217,7 @@ enum HeapObject {
         _retention: RetainedRuntimeProgram,
     },
     Closure {
-        snapshot: Box<ClosureValueSnapshot>,
+        snapshot: Rc<ClosureValueSnapshot>,
         _retention: RetainedRuntimeProgram,
     },
     Cell {
@@ -214,11 +229,7 @@ enum HeapObject {
 impl HeapObject {
     fn units(&self) -> usize {
         1 + match self {
-            Self::Iter(iter) => 1 + iter.keys.len(),
-            Self::ManagedIter(state) => state.units(),
-            Self::Array(values) => values.len(),
-            Self::Map(values) => values.len(),
-            Self::Set(values) => values.len(),
+            Self::Native(object) => object.units(),
             Self::Enum(value, _) => value.fields.len(),
             Self::Struct { fields, .. } => fields.len(),
             Self::Interface { snapshot, .. } => 1 + snapshot.methods.len(),
@@ -269,6 +280,11 @@ pub struct GcHeap {
     mutations: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     key_lookups: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     next_key_token: Cell<i64>,
+    native_borrows: Cell<usize>,
+    sequence_storage: NativeStorage,
+    map_storage: NativeStorage,
+    set_storage: NativeStorage,
+    cursor_storage: NativeStorage,
 }
 
 impl GcHeap {
@@ -284,11 +300,8 @@ impl GcHeap {
     }
 
     pub(crate) fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
+        self.ensure_no_native_borrow()?;
         self.resources.ensure_execution_allowed()
-    }
-    pub(crate) fn charge_native_work(&self, steps: u64) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        self.resources.consume_instruction_steps(steps)
     }
     pub fn new(config: GcHeapConfig, resources: Rc<ResourceState>) -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
@@ -304,6 +317,13 @@ impl GcHeap {
             mutations: Default::default(),
             key_lookups: Default::default(),
             next_key_token: Cell::new(0),
+            native_borrows: Cell::new(0),
+            sequence_storage: NativeStorage::sequence(0),
+            map_storage: NativeStorage::map(0, 1),
+            set_storage: NativeStorage::set(0),
+            cursor_storage: NativeStorage::provided_with_layout::<iter::NativeIter>(
+                NativeStorageLayout::Iterator { item: 0 },
+            ),
             objects: RefCell::new(Vec::new()),
             free: RefCell::new(Vec::new()),
             roots: RefCell::new(Vec::new()),
@@ -427,17 +447,23 @@ impl GcHeap {
     }
 
     pub(crate) fn matches_abi(&self, value: &Value, ty: &AbiType, owner: &LoadedModule) -> bool {
+        if let AbiType::Builtin(kind) = ty {
+            return if kind.integer_layout().is_some() {
+                numeric::read_integer(*kind, value).is_ok()
+            } else {
+                value.has_representation(ty.representation())
+            };
+        }
         let mut pending = vec![(value.clone(), ty)];
         while let Some((value, ty)) = pending.pop() {
             match (value, ty) {
-                (value, AbiType::Builtin(_)) if value.has_representation(ty.representation()) => {},
+                (value, AbiType::Builtin(kind)) if if kind.integer_layout().is_some() {
+                    numeric::read_integer(*kind, &value).is_ok()
+                } else { value.has_representation(ty.representation()) } => {},
                 (Value::Range(value), AbiType::Range(_, _)) if value.matches(ty) => {},
                 (Value::Closure(id), AbiType::Function { params, result }) => {
                     let Some(snapshot) = self.closure_snapshot(id) else { return false; };
-                    let Some(function) = snapshot.implementation.bytecode.functions.get(snapshot.function.index()) else { return false; };
-                    let suffix = function.metadata.params.get(snapshot.captures.len()..);
-                    if !suffix.is_some_and(|types| types.len() == params.len() && types.iter().zip(params).all(|(left, right)| *left == right.representation()))
-                        || function.metadata.return_type != result.representation() { return false; }
+                    if !snapshot.matches_function(params, result) { return false; }
                 },
                 (Value::Tuple(values), AbiType::Tuple(types)) if values.len() == types.len() => {
                     pending.extend(values.into_iter().zip(types));
@@ -451,26 +477,32 @@ impl GcHeap {
                 (Value::Interface(id), AbiType::Trait(expected)) => {
                     if !self.interface_snapshot(id).is_some_and(|value| value.interface_type == *expected) { return false; }
                 },
+                (Value::GcHandle(id), AbiType::NativeObject(_)) => {
+                    let objects = self.objects.borrow();
+                    if !matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty) && object.payload::<SequencePayload>().map_or(true, |sequence| sequence.contract.matches(&sequence.element, owner))) { return false; }
+                },
                 (Value::GcHandle(id), AbiType::Iter(element)) => {
                     let objects=self.objects.borrow();
                     let valid = match self.readable_object(&objects, id) {
-                        Some(HeapObject::Iter(iter)) => iter.item_type == **element,
-                        Some(HeapObject::ManagedIter(iter)) => iter.contract.item == **element,
+                        Some(HeapObject::Native(object)) if matches!(object.ty, AbiType::Iter(_)) => object.payload::<iter::NativeIter>().is_ok_and(|iter| iter.item_contract.matches(element, owner)),
                         _ => false,
                     };
                     if !valid { return false; }
                 },
                 (Value::Array(id), AbiType::Array(element, _)) => {
-                    let Some(values) = self.array_snapshot(id) else { return false; };
-                    pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
+                    let objects = self.objects.borrow();
+                    let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else { return false; };
+                    if !matches!(object.ty, AbiType::Array(..)) || !object.payload::<SequencePayload>().is_ok_and(|payload| payload.contract.matches(element, owner)) { return false; }
                 },
                 (Value::Map(id), AbiType::Map { key, value ,..}) => {
-                    let Some(entries) = self.map_snapshot(id) else { return false; };
-                    for (k, v) in entries { pending.push((k, key)); pending.push((v, value)); }
+                    let objects = self.objects.borrow();
+                    let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else { return false; };
+                    if !matches!(object.ty, AbiType::Map { .. }) || !object.payload::<MapPayload>().is_ok_and(|payload| payload.key.matches(key, owner) && payload.value.matches(value, owner)) { return false; }
                 },
                 (Value::Set(id), AbiType::Set(element, _)) => {
-                    let Some(values) = self.set_snapshot(id) else { return false; };
-                    pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
+                    let objects = self.objects.borrow();
+                    let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else { return false; };
+                    if !matches!(object.ty, AbiType::Set(..)) || !object.payload::<SetPayload>().is_ok_and(|payload| payload.element.matches(element, owner)) { return false; }
                 },
                 (Value::Enum(id), AbiType::StandardEnum { kind, args }) => {
                     let Some(snapshot) = self.enum_snapshot(id) else { return false; };
@@ -522,12 +554,12 @@ impl GcHeap {
                         }
                         let mut objects = self.objects.borrow_mut();
                         let (loops, dependencies) = match self.object_mut(&mut objects, id) {
-                            Some(HeapObject::Iter(iter)) => {
+                            Some(HeapObject::Native(object))
+                                if matches!(object.ty, AbiType::Iter(_)) =>
+                            {
+                                let iter = object.payload_mut::<iter::NativeIter>()?;
                                 iter.guard = None;
                                 (iter.loops.clone(), vec![iter.source.clone()])
-                            }
-                            Some(HeapObject::ManagedIter(iter)) => {
-                                (iter.loops.clone(), iter.dependencies().cloned().collect())
                             }
                             _ => {
                                 return Err(RuntimeError::new(
@@ -700,10 +732,13 @@ impl GcHeap {
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
-            HeapObject::Iter(_) | HeapObject::ManagedIter(_) => Some(GcObjectKind::Iter),
-            HeapObject::Array(_) => Some(GcObjectKind::Array),
-            HeapObject::Map(_) => Some(GcObjectKind::Map),
-            HeapObject::Set(_) => Some(GcObjectKind::Set),
+            HeapObject::Native(object) => Some(match object.ty {
+                AbiType::Array(..) => GcObjectKind::Array,
+                AbiType::Map { .. } => GcObjectKind::Map,
+                AbiType::Set(..) => GcObjectKind::Set,
+                AbiType::Iter(..) => GcObjectKind::Iter,
+                _ => GcObjectKind::Native,
+            }),
             HeapObject::Enum(..) => Some(GcObjectKind::Enum),
             HeapObject::Struct { .. } => Some(GcObjectKind::Struct),
             HeapObject::Interface { .. } => Some(GcObjectKind::Interface),
@@ -754,7 +789,7 @@ impl GcHeap {
             ));
         }
         self.alloc_object(HeapObject::Closure {
-            snapshot: Box::new(snapshot),
+            snapshot: Rc::new(snapshot),
             _retention: retention,
         })
     }
@@ -814,10 +849,10 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn closure_snapshot(&self, id: HeapObjectId) -> Option<ClosureValueSnapshot> {
+    pub(crate) fn closure_snapshot(&self, id: HeapObjectId) -> Option<Rc<ClosureValueSnapshot>> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
-            HeapObject::Closure { snapshot, .. } => Some((**snapshot).clone()),
+            HeapObject::Closure { snapshot, .. } => Some(snapshot.clone()),
             _ => None,
         }
     }
@@ -1152,18 +1187,7 @@ impl GcHeap {
             }
             traced.push(id);
             match object {
-                HeapObject::Iter(iter) => {
-                    pending.push(&iter.source);
-                    pending.extend(iter.keys.iter().map(MapKey::value));
-                }
-                HeapObject::ManagedIter(iter) => pending.extend(iter.captures.iter().rev()),
-                HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
-                HeapObject::Map(entries) => {
-                    for (key, value) in entries.iter() {
-                        pending.push(key.value());
-                        pending.push(value);
-                    }
-                }
+                HeapObject::Native(object) => object.trace(&mut |value| pending.push(value)),
                 HeapObject::Enum(snapshot, _) => pending.extend(snapshot.fields.iter().rev()),
                 HeapObject::Struct { fields, .. } => pending.extend(fields.iter().rev()),
                 HeapObject::Interface { snapshot, .. } => pending.push(&snapshot.data),
@@ -1171,7 +1195,6 @@ impl GcHeap {
                     pending.extend(snapshot.captures.iter().rev())
                 }
                 HeapObject::Cell { value, .. } => pending.push(value),
-                HeapObject::Set(keys) => pending.extend(keys.iter().map(MapKey::value)),
             }
         }
         Some(traced)
@@ -1181,15 +1204,11 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
             HeapObject::Enum(snapshot, _) => Some(f(snapshot)),
-            HeapObject::Array(_)
-            | HeapObject::Map(_)
-            | HeapObject::Set(_)
+            HeapObject::Native(_)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::ManagedIter(_) => None,
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1201,15 +1220,11 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
             HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
-            HeapObject::Array(_)
-            | HeapObject::Map(_)
-            | HeapObject::Set(_)
+            HeapObject::Native(_)
             | HeapObject::Enum(..)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::ManagedIter(_) => None,
+            | HeapObject::Cell { .. } => None,
         }
     }
 
@@ -1221,15 +1236,11 @@ impl GcHeap {
         let mut objects = self.objects.borrow_mut();
         match self.object_mut(&mut objects, id)? {
             HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
-            HeapObject::Array(_)
-            | HeapObject::Map(_)
-            | HeapObject::Set(_)
+            HeapObject::Native(_)
             | HeapObject::Enum(..)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::ManagedIter(_) => None,
+            | HeapObject::Cell { .. } => None,
         }
     }
 }

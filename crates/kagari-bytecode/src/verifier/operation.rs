@@ -120,14 +120,45 @@ pub(super) fn verify_instruction(
                 });
             }
         }
-        BytecodeInstruction::RepeatArray { dst, value, count } => {
+        BytecodeInstruction::RepeatArray {
+            dst,
+            element,
+            value,
+            count,
+        } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "repeat array dst")?;
             expect_register_ty(function, *count, ValueType::U64, "repeat array count")?;
-            let _ = register_ty(function, *value)?;
+            expect_register_ty(
+                function,
+                *value,
+                element.representation(),
+                "repeat array element",
+            )?;
+            if !element.within_wire_limits() || !element.is_concrete() {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "unresolved array element",
+                });
+            }
         }
-        BytecodeInstruction::MakeTuple { dst, elements }
-        | BytecodeInstruction::MakeArray { dst, elements } => {
-            expect_register_ty(function, *dst, ValueType::HeapObject, "aggregate dst")?;
+        BytecodeInstruction::MakeArray {
+            dst,
+            element,
+            elements,
+        } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "array dst")?;
+            if !element.within_wire_limits() || !element.is_concrete() {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "unresolved or oversized array element",
+                });
+            }
+            for value in elements {
+                expect_register_ty(function, *value, element.representation(), "array element")?;
+            }
+        }
+        BytecodeInstruction::MakeTuple { dst, elements } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "tuple dst")?;
             for element in elements {
                 let _ = register_ty(function, *element)?;
             }

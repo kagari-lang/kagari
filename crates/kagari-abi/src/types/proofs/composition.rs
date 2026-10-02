@@ -27,7 +27,7 @@ impl ProofCatalog<'_> {
                 continue;
             }
             match ty {
-                AbiType::Struct(_) | AbiType::Enum(_) => {
+                AbiType::NativeObject(_) | AbiType::Struct(_) | AbiType::Enum(_) => {
                     if self.explicit(
                         &intrinsic::applied(Protocol::PartialEq, vec![]),
                         ty,

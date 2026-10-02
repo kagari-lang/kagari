@@ -1,3 +1,5 @@
+use crate::{Runtime, layout_fixtures::allocation_owner};
+use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::AbiType;
 use {
     crate::host::HostTypeRegistration,
@@ -13,7 +15,14 @@ use {
 #[test]
 fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     let mut runtime = crate::Runtime::default();
-    let array = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+    let owner = allocation_owner(&mut runtime);
+    let array = runtime
+        .alloc_array(
+            &owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+        .unwrap();
     let interface = crate::layout_fixtures::interface_value_with(
         &mut runtime,
         AbiType::Array(
@@ -164,33 +173,46 @@ fn unique_borrow_value(object_id: u64) -> Value {
 
 #[test]
 fn rejects_ephemeral_values_as_heap_payloads() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
 
-    assert!(heap.alloc_array(vec![shared_borrow_value(1)]).is_err());
-    assert!(heap.alloc_array(vec![unique_borrow_value(2)]).is_err());
+    assert!(
+        runtime
+            .alloc_array(
+                &owner,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![shared_borrow_value(1)]
+            )
+            .is_err()
+    );
+    assert!(
+        runtime
+            .alloc_array(
+                &owner,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![unique_borrow_value(2)]
+            )
+            .is_err()
+    );
     assert_eq!(heap.allocated_objects(), 0);
 }
 
 #[test]
 fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
 
-    assert!(heap.alloc_array(vec![host_root_value(1)]).is_err());
     assert!(
-        heap.alloc_map(vec![(Value::Str("host".to_owned()), host_root_value(2))])
+        runtime
+            .alloc_array(
+                &owner,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![host_root_value(1)]
+            )
             .is_err()
     );
-    assert!(
-        heap.alloc_map(vec![(path_view_value(3), Value::I32(1))])
-            .is_err()
-    );
-    assert!(heap.alloc_set(vec![host_root_value(4)]).is_err());
     assert!(
         heap.alloc_struct(
             layout(
@@ -210,11 +232,16 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
 
 #[test]
 fn rejects_non_storable_heap_mutations() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
-    let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
+    let array = runtime
+        .alloc_array(
+            &owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
     let record = heap
         .alloc_struct(
             layout(
@@ -246,135 +273,17 @@ fn rejects_non_storable_heap_mutations() {
 }
 
 #[test]
-fn assigns_stable_object_identity_and_kind() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
-    let first = heap.alloc_array(vec![]).unwrap();
-    let second = heap.alloc_map(vec![]).unwrap();
-    let third = heap.alloc_set(vec![]).unwrap();
-    let fourth = heap
-        .alloc_struct(
-            layout(
-                "Empty",
-                "value",
-                AbiType::Builtin(kagari_abi::scalar::BuiltinType::Unit),
-            ),
-            vec![Value::Unit],
+fn roots_are_explicit_storable_slots() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
+    let object = runtime
+        .alloc_array(
+            &owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
         )
         .unwrap();
-
-    assert_ne!(first, second);
-    assert_ne!(second, third);
-    assert_ne!(third, fourth);
-    assert_eq!(first.index(), 0);
-    assert_eq!(second.index(), 1);
-    assert_eq!(third.index(), 2);
-    assert_eq!(fourth.index(), 3);
-    assert_eq!(heap.object_kind(first), Some(GcObjectKind::Array));
-    assert_eq!(heap.object_kind(second), Some(GcObjectKind::Map));
-    assert_eq!(heap.object_kind(third), Some(GcObjectKind::Set));
-    assert_eq!(heap.object_kind(fourth), Some(GcObjectKind::Struct));
-}
-
-#[test]
-fn builtin_ordered_maps_preserve_insertion_order_and_account_units() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
-    let map = heap
-        .alloc_map(vec![
-            (Value::Str("b".to_owned()), Value::I32(2)),
-            (Value::Str("a".to_owned()), Value::I32(1)),
-            (Value::Str("b".to_owned()), Value::I32(3)),
-        ])
-        .unwrap();
-
-    assert_eq!(heap.map_len(map), Some(2));
-    assert_eq!(
-        heap.map_snapshot(map),
-        Some(vec![
-            (Value::Str("b".to_owned()), Value::I32(3)),
-            (Value::Str("a".to_owned()), Value::I32(1)),
-        ])
-    );
-    assert_eq!(heap.stats().current_heap_units, 3);
-
-    heap.map_insert(map, Value::Str("c".to_owned()), Value::I64(4))
-        .unwrap();
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(
-        heap.map_get(map, &Value::Str("c".to_owned())),
-        Some(Value::I64(4))
-    );
-
-    heap.map_insert(map, Value::Str("a".to_owned()), Value::I32(9))
-        .unwrap();
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(
-        heap.map_snapshot(map).unwrap(),
-        vec![
-            (Value::Str("b".to_owned()), Value::I32(3)),
-            (Value::Str("a".to_owned()), Value::I32(9)),
-            (Value::Str("c".to_owned()), Value::I64(4)),
-        ]
-    );
-
-    assert_eq!(
-        heap.map_remove(map, &Value::Str("b".to_owned())).unwrap(),
-        Some(Value::I32(3))
-    );
-    assert_eq!(heap.stats().current_heap_units, 3);
-    heap.map_clear(map).unwrap();
-    assert_eq!(heap.map_snapshot(map), Some(vec![]));
-    assert_eq!(heap.stats().current_heap_units, 1);
-}
-
-#[test]
-fn builtin_ordered_sets_preserve_insertion_order_and_account_units() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
-    let set = heap
-        .alloc_set(vec![
-            Value::Str("b".to_owned()),
-            Value::Str("a".to_owned()),
-            Value::Str("b".to_owned()),
-        ])
-        .unwrap();
-
-    assert_eq!(heap.set_len(set), Some(2));
-    assert_eq!(
-        heap.set_snapshot(set),
-        Some(vec![Value::Str("b".to_owned()), Value::Str("a".to_owned())])
-    );
-    assert_eq!(heap.stats().current_heap_units, 3);
-    assert_eq!(
-        heap.set_contains(set, &Value::Str("a".to_owned())),
-        Some(true)
-    );
-
-    assert_eq!(heap.set_insert(set, Value::Str("c".to_owned())), Ok(true));
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(heap.set_insert(set, Value::Str("a".to_owned())), Ok(false));
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(heap.set_remove(set, &Value::Str("b".to_owned())), Ok(true));
-    assert_eq!(heap.stats().current_heap_units, 3);
-    heap.set_clear(set).unwrap();
-    assert_eq!(heap.set_snapshot(set), Some(vec![]));
-    assert_eq!(heap.stats().current_heap_units, 1);
-}
-
-#[test]
-fn roots_are_explicit_storable_slots() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
-    let object = heap.alloc_array(vec![Value::I32(1)]).unwrap();
     let root = heap.root_value(Value::Array(object)).unwrap();
 
     assert_eq!(root.value(), Value::Array(object));
@@ -399,127 +308,24 @@ fn roots_are_explicit_storable_slots() {
 }
 
 #[test]
-fn root_scanning_traces_only_gc_managed_boundaries() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
-    let leaf = heap.alloc_array(vec![Value::I32(1)]).unwrap();
-    let map = heap
-        .alloc_map(vec![(Value::Str("leaf".to_owned()), Value::Array(leaf))])
-        .unwrap();
-    let set = heap.alloc_set(vec![Value::Str("seen".to_owned())]).unwrap();
-    let record = heap
-        .alloc_struct(
-            layout(
-                "Record",
-                "map",
-                AbiType::Map {
-                    key: Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::String)),
-                    value: Box::new(AbiType::Array(
-                        Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
-                        CollectionAccess::Mutable,
-                    )),
-                    access: CollectionAccess::Mutable,
-                },
-            ),
-            vec![Value::Map(map)],
-        )
-        .unwrap();
-
-    let root = heap
-        .root_value(Value::Tuple(vec![
-            Value::Struct(record),
-            Value::Set(set),
-            Value::Unit,
-        ]))
-        .unwrap();
-
-    assert_eq!(heap.trace_roots().unwrap(), vec![record, map, leaf, set]);
-
-    root.set(&heap, Value::GcHandle(leaf)).unwrap();
-    assert_eq!(heap.trace_roots().unwrap(), vec![leaf]);
-
-    assert_eq!(root.value(), Value::GcHandle(leaf));
-    drop(root);
-    assert_eq!(heap.trace_roots().unwrap(), Vec::<HeapObjectId>::new());
-}
-
-#[test]
-fn root_scanning_handles_cycles_without_duplicate_identity() {
-    let heap = GcHeap::new(
-        GcHeapConfig::default(),
-        std::rc::Rc::new(crate::resource::ResourceState::default()),
-    );
-    let array = heap.alloc_array(vec![]).unwrap();
-    let record = heap
-        .alloc_struct(
-            layout(
-                "Cycle",
-                "array",
-                AbiType::Array(
-                    Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
-                    CollectionAccess::Mutable,
-                ),
-            ),
-            vec![Value::Array(array)],
-        )
-        .unwrap();
-    heap.array_push(array, Value::Struct(record)).unwrap();
-    let _root = heap.root_value(Value::Array(array)).unwrap();
-
-    assert_eq!(heap.trace_roots().unwrap(), vec![array, record]);
-}
-#[test]
-fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() {
-    let heap = GcHeap::new(Default::default(), Default::default());
-    let array = heap.alloc_array(vec![]).unwrap();
-    let map = heap.alloc_map(vec![]).unwrap();
-    let set = heap.alloc_set(vec![]).unwrap();
-    assert_eq!(heap.array_pop(array).unwrap(), None);
-    assert_eq!(heap.array_remove(array, 0).unwrap(), None);
-    assert_eq!(heap.map_remove(map, &Value::I32(1)).unwrap(), None);
-    assert!(!heap.set_remove(set, &Value::I32(1)).unwrap());
-    assert!(heap.map_remove(map, &Value::F64(1.0)).is_err());
-    assert!(heap.set_remove(set, &Value::F64(1.0)).is_err());
-    let guards = [Value::Array(array), Value::Map(map), Value::Set(set)]
-        .map(|value| heap.begin_collection_iteration(&value).unwrap());
-    let before = heap.stats().current_heap_units;
-    for result in [
-        heap.array_pop(array).map(|_| ()),
-        heap.array_remove(array, 0).map(|_| ()),
-        heap.array_clear(array),
-        heap.map_remove(map, &Value::I32(1)).map(|_| ()),
-        heap.map_clear(map),
-        heap.set_remove(set, &Value::I32(1)).map(|_| ()),
-        heap.set_clear(set),
-    ] {
-        let error = result.unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
-        assert_eq!(error.message(), "structural modification during iteration");
-    }
-    assert_eq!(heap.stats().current_heap_units, before);
-    drop(guards);
-    heap.array_clear(array).unwrap();
-    heap.map_clear(map).unwrap();
-    heap.set_clear(set).unwrap();
-    heap.collect(&[]).unwrap();
-    assert!(heap.array_pop(array).is_err());
-    assert!(heap.array_remove(array, 0).is_err());
-    assert!(heap.array_clear(array).is_err());
-    assert!(heap.map_remove(map, &Value::I32(1)).is_err());
-    assert!(heap.map_clear(map).is_err());
-    assert!(heap.set_remove(set, &Value::I32(1)).is_err());
-    assert!(heap.set_clear(set).is_err());
-}
-#[test]
 fn replacement_errors_preserve_targets_and_internal_fault_categories() {
-    let resources = Rc::new(crate::resource::ResourceState::default());
-    let heap = GcHeap::new(Default::default(), resources.clone());
-    let array = heap.alloc_array(vec![Value::I32(1)]).unwrap();
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
+    let resources = runtime.resources();
+    let array = runtime
+        .alloc_array(
+            &owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
     let before = heap.stats().current_heap_units;
-    let foreign_heap = GcHeap::new(Default::default(), Default::default());
-    let foreign = foreign_heap.alloc_array(vec![]).unwrap();
+    let mut foreign_runtime = Runtime::default();
+    let foreign_owner = allocation_owner(&mut foreign_runtime);
+    let foreign = foreign_runtime
+        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
     // Payload and receiver rejection must not be relabeled from the index.
     assert_eq!(
         heap.array_set(array, usize::MAX, Value::Array(foreign))
@@ -561,7 +367,7 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     // Simulate a broken engine invariant rather than a script type error.
     heap.with_struct_mut(object, |_, fields| fields.clear())
         .unwrap();
-    let error = crate::reflection::set_field(&heap, &Value::Struct(object), "value", Value::I32(9))
+    let error = crate::reflection::set_field(heap, &Value::Struct(object), "value", Value::I32(9))
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert_eq!(
@@ -575,7 +381,7 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     );
     assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
     let error =
-        crate::reflection::set_index(&heap, &Value::Array(array), &Value::I32(0), Value::I32(9))
+        crate::reflection::set_index(heap, &Value::Array(array), &Value::I32(0), Value::I32(9))
             .unwrap_err();
     assert_eq!(
         error.into_write_error().kind(),

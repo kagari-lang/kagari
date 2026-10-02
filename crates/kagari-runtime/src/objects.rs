@@ -1,11 +1,14 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{self, HeapObjectId},
+    gc::{
+        self, HeapObjectId,
+        interfaces::{InterfaceMethodBinding, InterfaceResultBinding, InterfaceValueSnapshot},
+    },
     module::{self, LoadedModule},
     value::{self, EnumTag, Value},
 };
-use kagari_bytecode::{module::CallableTarget, trait_bounds::interface_ancestors};
+use kagari_bytecode::{module::CallableTarget, trait_bounds::interface_views};
 
 use kagari_abi::{
     callable::CallableImplementation,
@@ -15,25 +18,29 @@ use kagari_abi::{
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem},
 };
 use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
-use std::slice;
+use std::{rc::Rc, slice};
 
 impl Runtime {
-    pub fn alloc_array(&self, elements: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
+    pub fn alloc_array(
+        &self,
+        owner: &LoadedModule,
+        element: AbiType,
+        elements: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.validate_loaded_module(owner)?;
         self.validate_heap_payloads(&elements)?;
-        self.gc.alloc_array(elements)
+        self.gc.alloc_array(owner, element, elements)
     }
-
-    pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
-        for (key, value) in &entries {
-            self.validate_heap_payloads(slice::from_ref(key))?;
-            self.validate_heap_payloads(slice::from_ref(value))?;
-        }
-        self.gc.alloc_map(entries)
-    }
-
-    pub fn alloc_set(&self, values: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
-        self.validate_heap_payloads(&values)?;
-        self.gc.alloc_set(values)
+    pub fn alloc_array_repeat(
+        &self,
+        owner: &LoadedModule,
+        element: AbiType,
+        value: Value,
+        count: usize,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.validate_loaded_module(owner)?;
+        self.validate_heap_payloads(slice::from_ref(&value))?;
+        self.gc.alloc_array_repeat(owner, element, value, count)
     }
 
     pub fn alloc_struct(
@@ -76,6 +83,16 @@ impl Runtime {
         table_index: usize,
         data: value::Value,
     ) -> Result<value::Value, RuntimeError> {
+        self.make_interface_view(implementation, table_index, data, false)
+    }
+
+    fn make_interface_view(
+        &self,
+        implementation: &LoadedModule,
+        table_index: usize,
+        data: value::Value,
+        use_view: bool,
+    ) -> Result<value::Value, RuntimeError> {
         let invalid = || RuntimeError::module_validation("invalid interface implementation table");
         if !implementation.belongs_to(self.host.owner()) {
             return Err(invalid());
@@ -106,6 +123,12 @@ impl Runtime {
         if !table.trait_type.is_concrete() {
             return Err(invalid());
         }
+        let view = if use_view {
+            Some(linked.view.as_ref().ok_or_else(invalid)?)
+        } else {
+            None
+        };
+        let interface_type = view.map_or(interface_type, |view| &view.interface);
         let trait_contract = implementation
             .members()
             .find(|member| member.bytecode.identity == interface_type.declaration.module)
@@ -180,7 +203,33 @@ impl Runtime {
             if candidates.next().is_some() {
                 return Err(invalid());
             }
-            methods.push(Some(gc::InterfaceMethodBinding {
+            let result_adapter = view
+                .and_then(|view| {
+                    view.results
+                        .iter()
+                        .find(|adapter| adapter.method == method_id)
+                })
+                .map(|adapter| {
+                    let owner = implementation
+                        .members()
+                        .find(|owner| {
+                            owner.bytecode.identity == adapter.implementation.declaration.module
+                        })
+                        .ok_or_else(invalid)?;
+                    let table = owner
+                        .bytecode
+                        .interface_tables
+                        .iter()
+                        .position(|table| {
+                            table.declaration == adapter.implementation.declaration
+                                && table.arguments == adapter.implementation.arguments
+                        })
+                        .ok_or_else(invalid)?;
+                    Ok::<_, RuntimeError>(InterfaceResultBinding { owner, table })
+                })
+                .transpose()?;
+            methods.push(Some(InterfaceMethodBinding {
+                result_adapter,
                 method: method_id,
                 target: slot.target,
                 parameter_types: method.params.iter().map(|param| param.ty.clone()).collect(),
@@ -202,7 +251,7 @@ impl Runtime {
             .ok_or_else(invalid)?;
         self.gc
             .alloc_interface(
-                gc::InterfaceValueSnapshot {
+                InterfaceValueSnapshot {
                     data,
                     concrete_type,
                     interface_type: interface_type.clone(),
@@ -262,16 +311,17 @@ impl Runtime {
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
         if matches!(op, IterOp::New | IterOp::String(_)) {
-            let retention = self
-                .modules
-                .retain_runtime_program(owner)
-                .ok_or_else(|| RuntimeError::module_validation("iterator version unavailable"))?;
             if let IterOp::String(kind) = op {
-                self.gc.new_string_iter(value, ty, kind, owner, retention)
+                self.gc.new_string_iter(value, ty, kind, owner)
             } else {
-                self.gc.new_iter(value, ty, owner, retention)
+                self.gc.new_iter(value, ty, owner)
             }
         } else {
+            if !self.gc.matches_abi(value, ty, owner) {
+                return Err(RuntimeError::module_validation(
+                    "iterator differs from its checked item contract",
+                ));
+            }
             self.gc.advance_iter(value, ty, op)
         }
     }
@@ -316,7 +366,7 @@ impl Runtime {
     pub fn resolve_closure(
         &self,
         value: &value::Value,
-    ) -> Result<gc::ClosureValueSnapshot, RuntimeError> {
+    ) -> Result<Rc<gc::ClosureValueSnapshot>, RuntimeError> {
         let Value::Closure(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -347,7 +397,7 @@ impl Runtime {
                 .map(|version| version.bytecode.as_ref())
                 .collect::<Vec<_>>();
             if let Some(parents) =
-                interface_ancestors(&snapshot.interface_type, &snapshot.concrete_type, &modules)
+                interface_views(&snapshot.interface_type, &snapshot.concrete_type, &modules)
             {
                 for parent in parents.into_iter().skip(1) {
                     let mut owner = method.clone();
@@ -396,7 +446,7 @@ impl Runtime {
             .map(|version| version.bytecode.as_ref())
             .collect::<Vec<_>>();
         let parents =
-            interface_ancestors(source, &snapshot.concrete_type, &modules).ok_or_else(invalid)?;
+            interface_views(source, &snapshot.concrete_type, &modules).ok_or_else(invalid)?;
         if !parents.iter().any(|parent| parent == target) {
             return Err(invalid());
         }
@@ -414,11 +464,19 @@ impl Runtime {
                         }
                         _ => None,
                     });
-                if table.is_some_and(|table| {
-                    table.for_type == snapshot.concrete_type
-                        && table.trait_type == AbiType::Trait(target.clone())
-                }) {
-                    return self.make_interface(owner, index, snapshot.data.clone());
+                if let Some(table) = table
+                    && table.for_type == snapshot.concrete_type
+                {
+                    if table.trait_type == AbiType::Trait(target.clone()) {
+                        return self.make_interface(owner, index, snapshot.data.clone());
+                    }
+                    if linked
+                        .view
+                        .as_ref()
+                        .is_some_and(|view| view.interface == *target)
+                    {
+                        return self.make_interface_view(owner, index, snapshot.data.clone(), true);
+                    }
                 }
             }
         }
@@ -449,9 +507,7 @@ impl Runtime {
         &self,
         value: &value::Value,
         expected_interface: Option<&NominalAbiType>,
-        select: impl for<'a> FnOnce(
-            &'a gc::InterfaceValueSnapshot,
-        ) -> Option<&'a gc::InterfaceMethodBinding>,
+        select: impl for<'a> FnOnce(&'a InterfaceValueSnapshot) -> Option<&'a InterfaceMethodBinding>,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let Value::Interface(id) = value else {
             return Err(RuntimeError::new(
@@ -475,6 +531,7 @@ impl Runtime {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "interface method unavailable")
         })?;
         Ok(RootedInterfaceMethod {
+            result_adapter: binding.result_adapter,
             _root: root,
             receiver: snapshot.data,
             concrete_type: snapshot.concrete_type,
@@ -506,6 +563,23 @@ impl Runtime {
             ));
         }
         Ok(())
+    }
+
+    pub(crate) fn finish_interface_method_result(
+        &self,
+        method: &RootedInterfaceMethod,
+        result: Value,
+    ) -> Result<Value, RuntimeError> {
+        self.validate_interface_method_result(method, &result)?;
+        if let Some(adapter) = &method.result_adapter {
+            // Keep the raw return alive until its interface wrapper is published.
+            let _root = self
+                .root_value(result.clone())
+                .ok_or_else(|| RuntimeError::module_validation("invalid interface result root"))?;
+            self.make_interface(&adapter.owner, adapter.table, result)
+        } else {
+            Ok(result)
+        }
     }
 
     pub fn validate_interface_method_result(

@@ -30,7 +30,8 @@ pub(super) fn infer(
             continue;
         }
         match (expected, actual) {
-            (TypeId::Struct(expected), TypeId::Struct(actual))
+            (TypeId::NativeObject(expected), TypeId::NativeObject(actual))
+            | (TypeId::Struct(expected), TypeId::Struct(actual))
             | (TypeId::Enum(expected), TypeId::Enum(actual))
             | (TypeId::Trait(expected), TypeId::Trait(actual))
                 if expected.declaration == actual.declaration
@@ -327,7 +328,12 @@ mod tests {
             position: 0,
             name: "T".into(),
         };
-        for make in [TypeId::Struct, TypeId::Enum, TypeId::Trait] {
+        for make in [
+            TypeId::NativeObject,
+            TypeId::Struct,
+            TypeId::Enum,
+            TypeId::Trait,
+        ] {
             let template = make(NominalType {
                 associated_types: Default::default(),
                 declaration: declaration.clone(),
@@ -359,7 +365,9 @@ mod tests {
             foreign.module = ModuleIdentity::single_file("other.kgr");
             let wrong_kind = match &actual {
                 TypeId::Struct(ty) => TypeId::Enum(ty.clone()),
-                TypeId::Enum(ty) | TypeId::Trait(ty) => TypeId::Struct(ty.clone()),
+                TypeId::NativeObject(ty) | TypeId::Enum(ty) | TypeId::Trait(ty) => {
+                    TypeId::Struct(ty.clone())
+                }
                 _ => unreachable!(),
             };
             for mismatch in [

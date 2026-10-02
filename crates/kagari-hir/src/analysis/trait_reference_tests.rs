@@ -141,7 +141,7 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
 #[test]
 fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() {
     for (path, declaration) in [
-        ("std::ops::Add", None),
+        ("core::language::Add", None),
         ("pkg::library::Build", Some("pub trait Build<T> {}")),
     ] {
         let mut sources = SourceDatabase::default();
@@ -210,7 +210,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
     sources
         .set(
             "library",
-            "use std::iter::Iterator as Base; pub trait Stream: Base {}".into(),
+            "use core::language::Iterator as Base; pub trait Stream: Base {}".into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -239,7 +239,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
     else {
         panic!("inherited associated type must retain its declaring interface");
     };
-    assert_eq!(interface.declaration.module.package.0, "kagari-std");
+    assert_eq!(interface.declaration.module.package.0, "kagari-core");
     assert_eq!(interface.declaration.path.last().unwrap().name, "Iterator");
     assert_eq!(member.path.last().unwrap().name, "Item");
     assert!(arguments.is_empty());
@@ -251,7 +251,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
         .unwrap();
     assert_eq!(
         snapshot.source(declaration.location.file).unwrap().name(),
-        "kagari://std/iter.kgr"
+        "kagari://native/kagari-core/language.kgr"
     );
 }
 

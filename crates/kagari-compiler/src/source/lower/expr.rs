@@ -30,7 +30,9 @@ use kagari_abi::{
     numeric::NumericConversion,
     operations::{StandardEnumOp, UnaryOp},
     representation::ValueType,
+    scalar::BuiltinType,
     standard::RuntimePrimitive,
+    types::AbiType,
 };
 use kagari_common::collection::CollectionAccess;
 
@@ -371,7 +373,7 @@ impl FunctionLowerer<'_, '_> {
             if variant.owner != enumeration.id {
                 return Err(MirLoweringError::MissingBinding("checked variant owner"));
             }
-            let native = enumeration.native_type;
+            let native = enumeration.native_type.clone();
             let arity = variant.payload.len();
             let variant = variant.slot;
             let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
@@ -511,6 +513,7 @@ impl FunctionLowerer<'_, '_> {
                 };
                 let array = self.alloc_temp(ValueType::HeapObject);
                 self.emit(Instruction::MakeArray {
+                    element: AbiType::Builtin(BuiltinType::String),
                     dst: array,
                     elements,
                 });
@@ -710,6 +713,7 @@ impl FunctionLowerer<'_, '_> {
                 };
                 let dst = self.alloc_temp(self.expr_type(expr_id)?);
                 self.emit(Instruction::RepeatArray {
+                    element: self.array_element_type(expr_id)?,
                     dst,
                     value: values[0],
                     count: values[1],

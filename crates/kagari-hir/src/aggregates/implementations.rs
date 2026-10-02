@@ -122,16 +122,18 @@ impl AggregateCatalog {
                 return Some("host conversion implementations are not supported");
             }
             let owned=iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
-                matches!(ty,TypeId::Struct(n)|TypeId::Enum(n) if n.declaration.module==implementation.id.module)
+                matches!(ty,TypeId::NativeObject(n)|TypeId::Struct(n)|TypeId::Enum(n) if n.declaration.module==implementation.id.module)
             });
             return (!owned && !implementation.engine_owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
         }
         if protocol.host_implementable() {
             return None;
         }
-        let (TypeId::Struct(nominal) | TypeId::Enum(nominal)) = &implementation.for_type else {
+        let (TypeId::NativeObject(nominal) | TypeId::Struct(nominal) | TypeId::Enum(nominal)) =
+            &implementation.for_type
+        else {
             return (!implementation.engine_owned)
-                .then_some("standard protocol implementations require a script Struct or enum");
+                .then_some("language protocol implementations require a declared nominal type");
         };
         if nominal.declaration.module != implementation.id.module {
             return Some(
@@ -222,7 +224,10 @@ impl AggregateCatalog {
         }
         budget.depth += 1;
         let result = (|| {
-            if matches!(ty, TypeId::Struct(_) | TypeId::Enum(_)) {
+            if matches!(
+                ty,
+                TypeId::NativeObject(_) | TypeId::Struct(_) | TypeId::Enum(_)
+            ) {
                 for implementation in self.implementations.values() {
                     if self
                         .implementation_matches(
@@ -788,7 +793,9 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
             return true;
         }
         match ty {
-            TypeId::Struct(n) | TypeId::Enum(n) => pending.extend(&n.arguments),
+            TypeId::NativeObject(n) | TypeId::Struct(n) | TypeId::Enum(n) => {
+                pending.extend(&n.arguments)
+            }
             TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
                 pending.extend(items)
             }

@@ -123,7 +123,7 @@ impl<'a> BodyChecker<'a> {
             .find(|variant| variant.name == member)
             .cloned();
         let name = format!("{}::{}", signature.declaration.name, member);
-        let native_type = signature.native_type;
+        let native_type = signature.native_type.clone();
         let generic_params = signature.generic_params.clone();
         let target = ResolvedEnumConstructor {
             enumeration: enumeration.clone(),
@@ -186,7 +186,7 @@ impl<'a> BodyChecker<'a> {
             !completes,
         );
         let result = match native_type {
-            Some(kind) => kind
+            Some(ref kind) => kind
                 .apply(&arguments)
                 .expect("checked native enum arguments"),
             None => TypeId::Enum(NominalType {

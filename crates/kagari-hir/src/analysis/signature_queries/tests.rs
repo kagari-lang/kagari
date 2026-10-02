@@ -5,7 +5,7 @@ use crate::{
     typeck::{FunctionImplementation, signature_reuse::reuse_signatures},
     types::TypeId,
 };
-use kagari_abi::{callable::EngineNativeBinding, scalar::BuiltinType};
+use kagari_abi::{language::catalog, scalar::BuiltinType};
 use kagari_common::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -26,7 +26,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     let file = signatures
         .files
         .values()
-        .find(|file| file.source().name() == "kagari://std/math.kgr")
+        .find(|file| file.source().name() == catalog::shared().declaration_source().unwrap().uri)
         .unwrap();
     assert!(
         file.signatures()
@@ -36,9 +36,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
             .any(|function| {
                 matches!(
                     function.implementation,
-                    FunctionImplementation::Native(NativeBinding::Entry(
-                        EngineNativeBinding::Intrinsic(_)
-                    ))
+                    FunctionImplementation::Native(NativeBinding::Entry(_))
                 )
             })
     );
@@ -49,6 +47,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     assert_eq!(changed.source.text(), original.source.text());
     assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
     let mut changed = original.as_ref().clone();
+    changed.registered_native_api = false;
     assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
 }
 
@@ -262,8 +261,8 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
 fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
     use crate::typeck::table::ConstraintTarget;
     for header in [
-        "impl<T: Eq + Hash> LinkedHashSet<T>",
-        "impl<T> LinkedHashSet<T> where T: Eq + Hash",
+        "impl<T: Eq + Hash> HashSet<T>",
+        "impl<T> HashSet<T> where T: Eq + Hash",
     ] {
         let text = format!(
             "trait Get {{ fn get(self) -> i32; }} {header} {{ fn size<T: Get>(self, value: T) -> i32 {{ value.get() }} }} fn bad() {{ missing }}"

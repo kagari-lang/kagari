@@ -34,7 +34,7 @@ impl FunctionLowerer<'_, '_> {
                 ));
             }
             match &ty {
-                TypeId::Struct(_) | TypeId::Enum(_) => {
+                TypeId::NativeObject(_) | TypeId::Struct(_) | TypeId::Enum(_) => {
                     // Implicit identity/member equality does not import a
                     // protocol declaration. Only an actual checked override
                     // requires its method contract during call lowering.

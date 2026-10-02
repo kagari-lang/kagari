@@ -29,12 +29,6 @@ impl Fact {
             access,
         }
     }
-    fn mutable() -> Self {
-        Self {
-            ty: None,
-            access: Some(Access::Mutable),
-        }
-    }
 }
 fn flows(source: &Fact, target: &AbiType) -> bool {
     if source.access == Some(Access::ReadOnly)
@@ -260,11 +254,17 @@ pub(super) fn verify(
                     }
                     produced = Some((*dst, Fact::typed(ty.clone())));
                 }
-                I::RepeatArray { dst, value, count } => {
+                I::RepeatArray {
+                    dst,
+                    element,
+                    value,
+                    count,
+                } => {
                     if let (Some(value), Some(count)) = (get(*value), get(*count)) {
-                        let Some(item) = &value.ty else {
+                        if !flows(&value, element) {
                             return Err(invalid());
-                        };
+                        }
+                        let item = element;
                         if !access::supports_array_repetition(
                             item,
                             |instance| {
@@ -289,29 +289,28 @@ pub(super) fn verify(
                         }
                         produced = Some((
                             *dst,
-                            value
-                                .ty
-                                .map(|ty| {
-                                    Fact::typed(AbiType::Array(Box::new(ty), Access::Mutable))
-                                })
-                                .unwrap_or_else(Fact::mutable),
+                            Fact::typed(AbiType::Array(Box::new(element.clone()), Access::Mutable)),
                         ));
                     }
                 }
-                I::MakeArray { dst, elements } => {
-                    if elements.iter().all(|r| get(*r).is_some()) {
-                        let item = elements.first().and_then(|r| get(*r)?.ty);
-                        if let Some(expected) = &item {
-                            for element in elements {
-                                if !flows(&get(*element).unwrap(), expected) {
-                                    return Err(invalid());
-                                }
+                I::MakeArray {
+                    dst,
+                    element,
+                    elements,
+                } => {
+                    if !element.is_concrete() {
+                        return Err(invalid());
+                    }
+                    if elements.iter().all(|register| get(*register).is_some()) {
+                        for register in elements {
+                            if !flows(&get(*register).unwrap(), element) {
+                                return Err(invalid());
                             }
                         }
-                        let fact = item
-                            .map(|ty| Fact::typed(AbiType::Array(Box::new(ty), Access::Mutable)))
-                            .unwrap_or_else(Fact::mutable);
-                        produced = Some((*dst, fact));
+                        produced = Some((
+                            *dst,
+                            Fact::typed(AbiType::Array(Box::new(element.clone()), Access::Mutable)),
+                        ));
                     }
                 }
                 I::MakeTuple { dst, elements } => {

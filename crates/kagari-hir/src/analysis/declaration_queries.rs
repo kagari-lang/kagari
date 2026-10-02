@@ -5,10 +5,11 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::ModuleGraph,
-    language, lower,
+    lower,
     native::api as native_api,
     resolver::resolved::DeclarationNames,
 };
+use kagari_abi::language;
 
 use kagari_common::{
     cancellation::CancellationToken,
@@ -135,7 +136,7 @@ impl AnalysisDatabase {
         let native_files = match self.native_files.get() {
             Some(files) => files,
             None => {
-                let mut modules = vec![Arc::new(language::declarations())];
+                let mut modules = vec![language::catalog::shared()];
                 modules.extend(self.native_modules.iter().cloned());
                 let prepared = modules
                     .iter()

@@ -2,37 +2,45 @@
 //! frames between these operations, never inside a borrowed hash table.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObjectId},
+    gc::{GcHeap, GcObjectKind, HeapObjectId, RootSet},
     value::{MapKey, Value},
 };
 
-use crate::gc::hash_storage::HashMapStorage;
+use crate::native::hash_storage::HashMapStorage;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+/// The synchronous native frame already roots the collection. This borrow pins
+/// that argument scope without allocating another RootSet for each key lookup.
+pub(crate) struct KeyLookupGuard<'roots> {
+    _roots: &'roots RootSet,
+    active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
+    id: HeapObjectId,
+}
+impl Drop for KeyLookupGuard<'_> {
+    fn drop(&mut self) {
+        let mut active = self.active.borrow_mut();
+        let count = active.get_mut(&self.id).expect("registered key lookup");
+        *count -= 1;
+        if *count == 0 {
+            active.remove(&self.id);
+        }
+    }
+}
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid custom key operation")
 }
 
 impl GcHeap {
-    /// Empty collections have no stored key representation yet. Once populated,
-    /// raw builtin lookup and compiled custom lookup must not be mixed.
+    /// The selected key protocol is fixed at construction, including empty tables.
     pub fn ensure_key_mode(&self, collection: &Value, custom: bool) -> Result<(), RuntimeError> {
-        let mode = match collection {
-            Value::Map(id) => self.with_map(*id, |entries| {
-                entries
-                    .iter()
-                    .next()
-                    .map(|(key, _)| key.custom_parts().is_some())
-            }),
-            Value::Set(id) => self.with_set(*id, |entries| {
-                entries
-                    .iter()
-                    .next()
-                    .map(|key| key.custom_parts().is_some())
-            }),
+        let builtin = match collection {
+            Value::Map(id) => self.map_contract(*id).map(|(_, _, builtin)| builtin),
+            Value::Set(id) => self.set_contract(*id).map(|(_, builtin)| builtin),
             _ => None,
         }
         .ok_or_else(invalid)?;
-        if mode.is_some_and(|mode| mode != custom) {
+        if builtin == custom {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "collection key protocol mismatch; custom keys require script protocol execution",
@@ -41,17 +49,17 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(crate) fn begin_key_lookup(
+    pub(crate) fn begin_key_lookup<'roots>(
         &self,
         value: &Value,
-    ) -> Result<CollectionIteration, RuntimeError> {
+        roots: &'roots RootSet,
+    ) -> Result<KeyLookupGuard<'roots>, RuntimeError> {
         self.ensure_execution_allowed()?;
         let id = match value {
             Value::Map(id) if self.object_kind(*id) == Some(GcObjectKind::Map) => *id,
             Value::Set(id) if self.object_kind(*id) == Some(GcObjectKind::Set) => *id,
             _ => return Err(invalid()),
         };
-        let root = self.root_value(value.clone()).ok_or_else(invalid)?;
         let mut active = self.key_lookups.borrow_mut();
         let count = active
             .get(&id)
@@ -63,12 +71,10 @@ impl GcHeap {
             .try_reserve(1)
             .map_err(|_| self.resource_limit("key lookup registry"))?;
         active.insert(id, count);
-        Ok(CollectionIteration {
-            _children: Vec::new(),
-            iter_loops: Vec::new(),
+        Ok(KeyLookupGuard {
+            _roots: roots,
             active: self.key_lookups.clone(),
-            id: Some(id),
-            _root: root,
+            id,
         })
     }
 
@@ -84,18 +90,19 @@ impl GcHeap {
         }
     }
 
-    pub fn custom_candidates(
+    pub fn custom_candidate(
         &self,
         collection: &Value,
         hash: i64,
-    ) -> Result<Vec<Value>, RuntimeError> {
+        index: usize,
+    ) -> Result<Option<(i64, Value)>, RuntimeError> {
         self.ensure_key_mode(collection, true)?;
         match collection {
-            Value::Map(id) => self.with_map(*id, |entries| Ok(entries.candidates(hash))),
-            Value::Set(id) => self.with_set(*id, |entries| Ok(entries.candidates(hash))),
+            Value::Map(id) => self.with_map(*id, |entries| entries.candidate(hash, index)),
+            Value::Set(id) => self.with_set(*id, |entries| entries.candidate(hash, index)),
             _ => None,
         }
-        .ok_or_else(invalid)?
+        .ok_or_else(invalid)
     }
 
     pub fn custom_get(
@@ -123,11 +130,24 @@ impl GcHeap {
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
-        if !self.valid_payload(&key) || !self.valid_payload(&value) {
-            return Err(invalid());
-        }
         let id = match collection {
-            Value::Map(id) | Value::Set(id) => *id,
+            Value::Map(id) => {
+                let (key_contract, value_contract, _) =
+                    self.map_contract(*id).ok_or_else(invalid)?;
+                if !self.valid_storage_value(&key, &key_contract)
+                    || !self.valid_storage_value(&value, &value_contract)
+                {
+                    return Err(invalid());
+                }
+                *id
+            }
+            Value::Set(id) => {
+                let (contract, _) = self.set_contract(*id).ok_or_else(invalid)?;
+                if !self.valid_storage_value(&key, &contract) || value != Value::Unit {
+                    return Err(invalid());
+                }
+                *id
+            }
             _ => return Err(invalid()),
         };
         self.ensure_key_mutable(id)?;

@@ -133,11 +133,13 @@ pub enum Instruction {
         ty: AbiType,
     },
     RepeatArray {
+        element: AbiType,
         dst: MirValue,
         value: MirValue,
         count: MirValue,
     },
     MakeArray {
+        element: AbiType,
         dst: MirValue,
         #[serde(deserialize_with = "crate::codec::small_operands")]
         elements: ValueBuffer,

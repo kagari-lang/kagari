@@ -88,6 +88,7 @@ pub fn validate(
                     TypeAbiKind::Struct => DefinitionKind::Struct,
                     TypeAbiKind::Enum => DefinitionKind::Enum,
                     TypeAbiKind::Native(kind) => kind.declaration_kind(),
+                    TypeAbiKind::NativeStorage(_) => DefinitionKind::AssociatedType,
                 };
                 let owner = owner(module, &[], kind, &ty.name);
                 aggregate_names.insert(&ty.name)
@@ -788,6 +789,11 @@ fn aggregate_shape_valid(ty: &TypeAbi, cancel: &CancellationToken) -> bool {
             TypeAbiKind::Struct => !ty.variants.is_empty(),
             TypeAbiKind::Enum => !ty.fields.is_empty(),
             TypeAbiKind::Native(kind) => !kind.shape_valid(ty),
+            TypeAbiKind::NativeStorage(layout) => {
+                !ty.fields.is_empty()
+                    || !ty.variants.is_empty()
+                    || !layout.valid_parameters(ty.generic_params.len())
+            }
         }
     {
         return false;
@@ -1058,7 +1064,10 @@ fn type_valid(
                 }
                 pending.extend(args);
             }
-            AbiType::Struct(nominal) | AbiType::Enum(nominal) | AbiType::Trait(nominal) => {
+            AbiType::Struct(nominal)
+            | AbiType::NativeObject(nominal)
+            | AbiType::Enum(nominal)
+            | AbiType::Trait(nominal) => {
                 pending.extend(&nominal.arguments);
                 if !matches!(
                     nominal.declaration.path.last().map(|part| part.kind),
@@ -1082,6 +1091,7 @@ fn type_valid(
         }
         let nominal = match ty {
             AbiType::Struct(n) => Some((n, DefinitionKind::Struct)),
+            AbiType::NativeObject(n) => Some((n, DefinitionKind::AssociatedType)),
             AbiType::Enum(n) => Some((n, DefinitionKind::Enum)),
             AbiType::Trait(n) => Some((n, DefinitionKind::Trait)),
             _ => None,

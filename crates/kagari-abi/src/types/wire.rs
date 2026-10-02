@@ -39,6 +39,7 @@ enum Node {
     Map(CollectionAccess),
     Set(CollectionAccess),
     Struct(DefinitionId, u32),
+    NativeObject(DefinitionId, u32),
     Enum(DefinitionId, u32),
     Trait(
         DefinitionId,
@@ -127,18 +128,25 @@ impl AbiType {
                     pending.push((element, depth + 1));
                     Node::Set(*access)
                 }
-                Self::Struct(ty) => {
-                    if !ty.associated_types.is_empty() {
+                Self::Struct(nominal) | Self::NativeObject(nominal) => {
+                    if !nominal.associated_types.is_empty() {
                         return Err("associated bindings require a trait");
                     }
-                    if !ty.declaration.within_path_limit() {
+                    if !nominal.declaration.within_path_limit() {
                         return Err("ABI identity path limit exceeded");
                     }
-                    if ty.arguments.len() > MAX_NODES {
+                    if nominal.arguments.len() > MAX_NODES {
                         return Err("ABI type node limit exceeded");
                     }
-                    pending.extend(ty.arguments.iter().rev().map(|ty| (ty, depth + 1)));
-                    Node::Struct(ty.declaration.clone(), ty.arguments.len() as u32)
+                    pending.extend(nominal.arguments.iter().rev().map(|ty| (ty, depth + 1)));
+                    if matches!(ty, Self::NativeObject(_)) {
+                        Node::NativeObject(
+                            nominal.declaration.clone(),
+                            nominal.arguments.len() as u32,
+                        )
+                    } else {
+                        Node::Struct(nominal.declaration.clone(), nominal.arguments.len() as u32)
+                    }
                 }
                 Self::Enum(ty) => {
                     if !ty.associated_types.is_empty() {
@@ -304,6 +312,11 @@ fn build<E: de::Error>(nodes: &mut IntoIter<Node>, depth: usize) -> Result<AbiTy
         },
         Node::Set(access) => AbiType::Set(Box::new(build(nodes, depth + 1)?), access),
         Node::Struct(id, count) => AbiType::Struct(NominalAbiType {
+            associated_types: Default::default(),
+            declaration: id,
+            arguments: children(count, nodes)?,
+        }),
+        Node::NativeObject(id, count) => AbiType::NativeObject(NominalAbiType {
             associated_types: Default::default(),
             declaration: id,
             arguments: children(count, nodes)?,

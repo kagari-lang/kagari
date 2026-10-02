@@ -22,6 +22,14 @@ use std::{
 
 use kagari_bytecode::artifact::ArtifactFingerprint;
 
+/// Only checked closure handles authorize entering a retained program outside
+/// the current dependency graph. Candidate entry remains independently gated.
+pub(crate) enum ExecutionEntry {
+    Program,
+    Candidate,
+    RetainedClosure,
+}
+
 /// Restrictions attached to the root session and inherited by synchronous reentry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ExecutionPhase {

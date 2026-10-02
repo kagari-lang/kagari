@@ -1,5 +1,6 @@
 mod aggregate_ops;
 mod dispatch;
+mod native;
 mod value_ops;
 
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
@@ -77,23 +78,8 @@ impl<'a> Executor<'a> {
                     .consume_logical_charge(LogicalBudgetCharge::Step)?;
                 let result = self
                     .stack
-                    .start_native_entry(self.runtime)
-                    .map_err(VmError::RuntimeError)
-                    .and_then(|progress| self.dispatch_native_progress(progress));
-                self.report_operation(result)?;
-                continue;
-            }
-            if self.stack.has_native_continuation()? {
-                self.runtime.gc_safepoint()?;
-                self.runtime
-                    .observe_execution(ExecutionEvent::BeforeInstruction)?;
-                self.runtime
-                    .consume_logical_charge(LogicalBudgetCharge::Step)?;
-                let result = self
-                    .stack
-                    .advance_native(self.runtime)
-                    .map_err(VmError::RuntimeError)
-                    .and_then(|progress| self.dispatch_native_progress(progress));
+                    .start_native_entry(self.runtime, native::invoke_script)
+                    .map_err(VmError::RuntimeError);
                 self.report_operation(result)?;
                 continue;
             }

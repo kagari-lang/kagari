@@ -6,32 +6,24 @@ use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, runtime::KagariRuntime,
 };
 
-use kagari_abi::native_api::render::NativeApiSource;
+use kagari_abi::declaration::render::DeclarationSource;
 #[cfg(feature = "source")]
 use kagari_common::source_database::SourceDatabase;
 #[cfg(feature = "source")]
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::api::NativeApi};
+use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::module::NativeModule};
 #[cfg(feature = "source")]
 use std::cell::RefCell;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EngineConfig {
     pub default_runtime: RuntimeConfig,
-}
-
-impl Default for EngineConfig {
-    fn default() -> Self {
-        Self {
-            default_runtime: RuntimeConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug)]
 pub struct KagariEngine {
     config: EngineConfig,
-    native_api: NativeApi,
+    native_modules: Vec<NativeModule>,
     #[cfg(feature = "source")]
     sources: RefCell<SourceDatabase>,
     #[cfg(feature = "source")]
@@ -44,25 +36,31 @@ impl KagariEngine {
     }
 
     pub fn new(config: EngineConfig) -> Self {
-        Self::with_native_apis(config, vec![]).expect("default native API installation")
+        Self::with_native_modules(config, vec![]).expect("default native module installation")
     }
 
     /// Built-in and application packages use the same checked installation path.
-    pub fn with_native_apis(
+    pub fn with_native_modules(
         config: EngineConfig,
-        native_apis: Vec<NativeApi>,
+        native_modules: Vec<NativeModule>,
     ) -> Result<Self, RuntimeError> {
-        let native_api = NativeApi::combine(native_apis)?;
+        let mut validation = Runtime::new(config.default_runtime.clone());
+        for module in &native_modules {
+            module.install(&mut validation)?;
+        }
         #[cfg(feature = "source")]
         let analysis = {
             let mut analysis = AnalysisDatabase::default();
-            let modules = native_api.modules().to_vec();
+            let modules = native_modules
+                .iter()
+                .map(|module| module.declaration().clone())
+                .collect();
             analysis.set_native_modules(modules);
             RefCell::new(analysis)
         };
         Ok(Self {
             config,
-            native_api,
+            native_modules,
             #[cfg(feature = "source")]
             sources: RefCell::default(),
             #[cfg(feature = "source")]
@@ -70,8 +68,11 @@ impl KagariEngine {
         })
     }
 
-    pub fn native_declaration_sources(&self) -> Vec<NativeApiSource> {
-        self.native_api.declaration_sources()
+    pub fn native_declaration_sources(&self) -> Vec<DeclarationSource> {
+        self.native_modules
+            .iter()
+            .map(NativeModule::declaration_source)
+            .collect()
     }
 
     pub fn config(&self) -> &EngineConfig {
@@ -84,9 +85,11 @@ impl KagariEngine {
         config.host_exposure = context.host_policy.clone();
         config.resources = context.resources;
         let mut runtime = Runtime::new(config);
-        self.native_api
-            .install(&mut runtime)
-            .expect("engine validated native bindings");
+        for module in &self.native_modules {
+            module
+                .install(&mut runtime)
+                .expect("engine validated native module installation");
+        }
         KagariRuntime::new(runtime, context)
     }
 }

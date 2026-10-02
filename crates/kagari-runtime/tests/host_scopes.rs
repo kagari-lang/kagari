@@ -1,4 +1,6 @@
-use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
+use kagari_abi::{
+    budget::LogicalBudgetCharge, ids::FunctionRef, scalar::BuiltinType, types::AbiType,
+};
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostParameter, HostPassingStyle,
     type_declaration::HostTypeDeclaration, value_type::HostValueType,
@@ -140,8 +142,24 @@ fn host_scopes_keep_the_root_budget_until_all_resources_are_released() {
     let mut options = runtime.execution_options();
     options.resources.max_instruction_steps = Some(1);
     let session = runtime.begin_execution(&loaded, options).unwrap();
-    let a = Value::Array(runtime.alloc_array(vec![Value::I32(1)]).unwrap());
-    let b = Value::Array(runtime.alloc_array(vec![Value::I32(2)]).unwrap());
+    let a = Value::Array(
+        runtime
+            .alloc_array(
+                &loaded,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(1)],
+            )
+            .unwrap(),
+    );
+    let b = Value::Array(
+        runtime
+            .alloc_array(
+                &loaded,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(2)],
+            )
+            .unwrap(),
+    );
     let outer = runtime.host_scope(std::slice::from_ref(&a)).unwrap();
     let inner = runtime.host_scope(std::slice::from_ref(&b)).unwrap();
     let token = outer
@@ -275,7 +293,15 @@ fn quarantine_does_not_block_host_scope_cleanup() {
     let session = runtime
         .begin_execution(&loaded, runtime.execution_options())
         .unwrap();
-    let value = Value::Array(runtime.alloc_array(vec![Value::I32(3)]).unwrap());
+    let value = Value::Array(
+        runtime
+            .alloc_array(
+                &loaded,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(3)],
+            )
+            .unwrap(),
+    );
     let scope = runtime.host_scope(&[value]).unwrap();
     scope
         .borrows()
@@ -315,14 +341,31 @@ fn quarantine_does_not_block_host_scope_cleanup() {
 #[test]
 fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
     let mut runtime = runtime();
+    let module = runtime
+        .load_program(
+            "allocation-owner",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap();
     let raw = Rc::new(RefCell::new(None));
     let saved = raw.clone();
     runtime
         .register_host_function(HostFunction::new(
             HostFunctionDeclaration::new("game.make", vec![], HostValueType::Unit),
             move |context, _| {
-                let value =
-                    Value::Array(context.runtime().alloc_array(vec![Value::I32(7)]).unwrap());
+                let value = Value::Array(
+                    context
+                        .runtime()
+                        .alloc_array(
+                            &module,
+                            AbiType::Builtin(BuiltinType::I32),
+                            vec![Value::I32(7)],
+                        )
+                        .unwrap(),
+                );
                 context
                     .retain_temporaries(std::slice::from_ref(&value))
                     .unwrap();

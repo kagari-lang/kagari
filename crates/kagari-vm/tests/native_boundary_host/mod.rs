@@ -1,9 +1,17 @@
+use super::compile_program;
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_common::{
     collection::CollectionAccess,
     host_interface::{
         HostFunctionDeclaration, HostParameter, HostPassingStyle, value_type::HostValueType as Type,
     },
 };
+use kagari_runtime::module::LoadedModule;
+use kagari_vm::vm::Vm;
 use {
     kagari_common::capability::CapabilitySet,
     kagari_runtime::security::{HostExposurePolicy, LanguageProfile, SecurityContext},
@@ -39,6 +47,18 @@ fn runtime() -> Runtime {
     })
 }
 
+fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+    runtime
+        .load_program(
+            "allocation-owner",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap()
+}
+
 fn echo(name: &str, ty: Type) -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
         name,
@@ -54,8 +74,28 @@ fn echo(name: &str, ty: Type) -> HostFunctionDeclaration {
 #[test]
 fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let mut runtime = runtime();
-    let array = Value::Array(runtime.alloc_array(vec![Value::I32(7)]).unwrap());
-    let wrong_array = Value::Array(runtime.alloc_array(vec![Value::Bool(true)]).unwrap());
+    let program = compile_program(
+        r#"
+        fn fixtures() -> (ArrayList<i32>, ArrayList<bool>, HashMap<String,ArrayList<i32>>, HashMap<String,ArrayList<bool>>, HashSet<String>, HashSet<i32>) {
+            val array = [7]; val wrong_array = [true];
+            val map: HashMap<String,ArrayList<i32>> = HashMap::new(); map.insert("k", array);
+            val wrong_map: HashMap<String,ArrayList<bool>> = HashMap::new(); wrong_map.insert("k", wrong_array);
+            val set: HashSet<String> = HashSet::new(); set.insert("ok");
+            val wrong_set: HashSet<i32> = HashSet::new(); wrong_set.insert(7);
+            (array, wrong_array, map, wrong_map, set, wrong_set)
+        }
+    "#,
+        None,
+    );
+    let loaded = runtime.load_program("host-composites", program).unwrap();
+    let mut vm = Vm::new(runtime);
+    let Value::Tuple(values) = vm.execute(&loaded, "fixtures").unwrap().return_value else {
+        panic!("fixtures")
+    };
+    let [array, wrong_array, map, wrong_map, set, wrong_set] = values.as_slice() else {
+        panic!("six fixtures")
+    };
+    let runtime = vm.runtime_mut();
     let some = |value| {
         Value::Enum(
             runtime
@@ -84,21 +124,13 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 key: Box::new(Type::String),
                 value: Box::new(Type::Array(Box::new(Type::I32), CollectionAccess::Mutable)),
             },
-            Value::Map(
-                runtime
-                    .alloc_map(vec![(Value::Str("k".into()), array.clone())])
-                    .unwrap(),
-            ),
-            Value::Map(
-                runtime
-                    .alloc_map(vec![(Value::Str("k".into()), wrong_array)])
-                    .unwrap(),
-            ),
+            map.clone(),
+            wrong_map.clone(),
         ),
         (
             Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
-            Value::Set(runtime.alloc_set(vec![Value::Str("ok".into())]).unwrap()),
-            Value::Set(runtime.alloc_set(vec![Value::I32(7)]).unwrap()),
+            set.clone(),
+            wrong_set.clone(),
         ),
         (
             Type::Option(Box::new(Type::I32)),
@@ -169,6 +201,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
 #[test]
 fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_handles() {
     let mut runtime = runtime();
+    let owner = allocation_owner(&mut runtime);
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let id = runtime
@@ -187,7 +220,13 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
             },
         ))
         .unwrap();
-    let array = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
+    let array = runtime
+        .alloc_array(
+            &owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+        .unwrap();
     let value = Value::Tuple(vec![Value::Array(array)]);
     assert_eq!(
         runtime
@@ -196,9 +235,16 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
         value
     );
     assert!(runtime.gc().array_snapshot(array).is_some());
-    let other = Runtime::default();
+    let mut other = Runtime::default();
+    let other_owner = allocation_owner(&mut other);
     let foreign = Value::Tuple(vec![Value::Array(
-        other.alloc_array(vec![Value::I32(7)]).unwrap(),
+        other
+            .alloc_array(
+                &other_owner,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(7)],
+            )
+            .unwrap(),
     )]);
     assert!(runtime.invoke_bound_host(id, &[foreign]).is_err());
     runtime.collect_garbage().unwrap();
@@ -211,6 +257,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
 fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
     use kagari_runtime::{error::RuntimeErrorKind, host::HostObjectId, metadata::TypeId};
     let mut runtime = runtime();
+    let owner = allocation_owner(&mut runtime);
     let id = runtime
         .register_host_function(HostFunction::new(
             HostFunctionDeclaration::new(
@@ -250,9 +297,66 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
                 .kind(),
             RuntimeErrorKind::HostBorrowEscape
         );
-        assert!(runtime.alloc_array(vec![value.clone()]).is_err());
+        assert!(
+            runtime
+                .alloc_array(
+                    &owner,
+                    AbiType::Builtin(BuiltinType::I32),
+                    vec![value.clone()]
+                )
+                .is_err()
+        );
         drop(scope);
         assert!(runtime.invoke_bound_host(id, &[value]).is_err());
     }
     assert!(!runtime.is_quarantined());
+}
+
+#[test]
+fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
+    use kagari_common::host_interface::type_declaration::{
+        HostTypeDeclaration, HostTypeOwnership, PathAccess,
+    };
+    use kagari_runtime::host::{HostObjectId, HostSchemaEpoch, HostTypeRegistration};
+    let mut runtime = runtime();
+    let program = compile_program(
+        "fn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
+        None,
+    );
+    let loaded = runtime.load_program("host-storage", program).unwrap();
+    let mut vm = Vm::new(runtime);
+    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+        panic!("containers")
+    };
+    let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
+        panic!("handles")
+    };
+    let runtime = vm.runtime_mut();
+    let mut declaration = HostTypeDeclaration::new("External");
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = PathAccess::ReadOnly;
+    let ty = runtime
+        .register_host_type(HostTypeRegistration::new(declaration, "External"))
+        .unwrap();
+    let host = runtime
+        .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
+        .unwrap();
+    let scope = runtime.host_scope(&[]).unwrap();
+    let borrowed = Value::host_ref(scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap());
+    let heap = runtime.gc();
+    let before = heap.stats();
+    for invalid in [Value::HostRoot(host), borrowed] {
+        assert!(
+            heap.map_insert(*map, Value::I32(1), invalid.clone())
+                .is_err()
+        );
+        assert!(
+            heap.map_insert(*map, invalid.clone(), Value::I32(1))
+                .is_err()
+        );
+        assert!(heap.set_insert(*set, invalid).is_err());
+        assert_eq!(heap.stats(), before);
+        assert_eq!(heap.map_len(*map), Some(0));
+        assert_eq!(heap.set_len(*set), Some(0));
+    }
 }

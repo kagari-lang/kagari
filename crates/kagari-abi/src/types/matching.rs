@@ -94,6 +94,7 @@ pub fn match_pattern<'a>(
                 }
             }
             (AbiType::Struct(left), AbiType::Struct(right))
+            | (AbiType::NativeObject(left), AbiType::NativeObject(right))
             | (AbiType::Enum(left), AbiType::Enum(right))
             | (AbiType::Trait(left), AbiType::Trait(right)) => {
                 if left.declaration != right.declaration

@@ -1,11 +1,9 @@
 use super::*;
 use {crate::typeck::table::CallTarget, kagari_common::source::SourceFile};
 
-use crate::{
-    aggregates::traits::MethodDefault, language::semantics::ProtocolSemantics,
-    native::NativeBinding,
-};
-use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
+use crate::{language::semantics::ProtocolSemantics, native::NativeBinding};
+use kagari_abi::language::catalog;
+use kagari_common::identity::DefinitionKind;
 
 #[test]
 fn infers_array_method_call_types() {
@@ -47,12 +45,12 @@ fn main() -> usize {
 }
 
 #[test]
-fn infers_string_method_call_types() {
+fn infers_map_method_call_types() {
     let source = SourceFile::new(
         "string-method.kgr",
         r#"
-fn main(value: String) -> usize {
-    value.len_bytes()
+fn main(value: HashMap<String, i32>) -> usize {
+    value.len()
 }
 "#,
     );
@@ -116,7 +114,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
             variants
         );
     }
-    for (name, arity) in [("LinkedHashMap", 2), ("LinkedHashSet", 1)] {
+    for (name, arity) in [("HashMap", 2), ("HashSet", 1)] {
         let (file, declaration) = declarations
             .files()
             .find_map(|file| {
@@ -131,17 +129,11 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         };
         assert_eq!(file.declarations().parameters_of(id).len(), arity);
     }
-    for namespace in ["array", "map", "set", "string", "iter"] {
-        assert!(
-            declarations
-                .files()
-                .any(|file| file.source().module_identity().path == [namespace])
-        );
-    }
+    assert_eq!(declarations.files().count(), 2); // User input plus language declarations.
     assert!(
-        !declarations
+        declarations
             .files()
-            .any(|file| file.source().module_identity().path == ["fs"])
+            .any(|file| file.source().module_identity() == &catalog::shared().identity)
     );
     assert!(surface::supports_const_type(&TypeId::Builtin(
         BuiltinType::U64
@@ -171,67 +163,55 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .find(|function| {
                         function.implementation
                             == FunctionImplementation::Native(NativeBinding::Entry(
-                                EngineNativeBinding::Intrinsic(binding),
+                                catalog::shared().definition(DefinitionKind::Function, binding),
                             ))
                     })
             })
             .expect("checked native function signature")
     };
-    let map_get = signature(RuntimePrimitive::MapGet);
+    let map_get = signature("$foundation_map_get");
     let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
     for kind in [Protocol::Eq, Protocol::Hash] {
         assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == kind.nominal().declaration)));
     }
-    assert_eq!(signature(RuntimePrimitive::StringSlice).params.len(), 3);
+    assert_eq!(map_get.params.len(), 2);
     for binding in [
-        RuntimePrimitive::OptionAndThen,
-        RuntimePrimitive::ResultMapErr,
-        RuntimePrimitive::MathClamp,
-        RuntimePrimitive::Assert,
-        RuntimePrimitive::MapInsert,
+        "$foundation_map_insert",
+        "$foundation_list_push",
+        "$foundation_cursor_next",
     ] {
         assert_eq!(
             signature(binding).implementation,
-            FunctionImplementation::Native(NativeBinding::Entry(EngineNativeBinding::Intrinsic(
-                binding
-            )))
+            FunctionImplementation::Native(NativeBinding::Entry(
+                catalog::shared().definition(DefinitionKind::Function, binding)
+            ))
         );
     }
-    assert!(!facts.aggregates.inherent_methods().any(|method| matches!(
-        method.owner,
-        TypeId::Set(_, _)
-    ) && method.function.name
-        == "difference"));
-    let difference = facts
+    let set = facts
         .aggregates
         .trait_(&Protocol::Set.nominal().declaration)
-        .unwrap()
-        .methods
-        .iter()
-        .find(|method| method.name == "difference")
         .unwrap();
     assert_eq!(
-        difference.default,
-        Some(MethodDefault::Native(NativeBinding::Entry(
-            EngineNativeBinding::TraitDefault(
-                kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference
-            )
-        )))
+        set.methods
+            .iter()
+            .map(|method| method.name.as_str())
+            .collect::<Vec<_>>(),
+        ["len", "is_empty", "contains"]
     );
-    let len_chars = signature(RuntimePrimitive::StringLenChars);
-    assert_eq!(len_chars.params.len(), 1);
-    assert_eq!(len_chars.params[0].name, "self");
+    let len = signature("$foundation_list_len");
+    assert_eq!(len.params.len(), 1);
+    assert_eq!(len.params[0].name, "self");
 }
 
 #[test]
-fn resolves_stdlib_standard_builtin_type_annotations() {
+fn resolves_language_builtin_type_annotations() {
     let source = SourceFile::new(
         "native-annotations.kgr",
         r#"
 fn choose(value: Option<i32>) -> Option<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
-fn lookup(value: LinkedHashMap<String, i32>) -> LinkedHashMap<String, i32> { value }
-fn unique(value: LinkedHashSet<String>) -> LinkedHashSet<String> { value }
+fn lookup(value: HashMap<String, i32>) -> HashMap<String, i32> { value }
+fn unique(value: HashSet<String>) -> HashSet<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
@@ -279,68 +259,42 @@ fn sized(value: usize) -> usize { value }
 }
 
 #[test]
-fn resolves_standard_module_imports_facade_exports_and_function_calls() {
+fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
     let source = SourceFile::new(
-        "standard-imports.kgr",
+        "constructor-imports.kgr",
         r#"
-pub use std::math;
-use std::map::LinkedHashMap::len as map_len;
-
-fn size(values: LinkedHashMap<String, i32>) -> usize {
-    map_len(values)
-}
-
-fn clamp(value: i32) -> i32 {
-    math::clamp(value, value, value)
-}
-"#,
+        pub use core::language as foundation;
+        use core::language::ArrayList::new as make_list;
+        fn alias() -> ArrayList<i32> { make_list() }
+        fn qualified() -> ArrayList<i32> { foundation::ArrayList::new() }
+    "#,
     );
     let analyzed = crate::analyze_source(&source, Default::default())
         .into_checked()
-        .expect("installed declarations should resolve and type check");
+        .expect("checked constructor imports");
     let lowered = &analyzed.lowered;
     assert!(
         lowered
             .module
-            .imports
+            .exports
             .iter()
-            .any(|import| { import.alias == "math" && import.path == "std::math" })
+            .any(|export| export.name == "foundation"
+                && matches!(export.item, ExportItem::Import(_)))
     );
-    assert!(
-        lowered.module.exports.iter().any(|export| {
-            export.name == "math" && matches!(export.item, ExportItem::Import(_))
-        })
-    );
-    for (name, function) in [("math", false), ("map_len", true)] {
+    for (name, function) in [("foundation", false), ("make_list", true)] {
         let binding = analyzed.names.items.lookup(name).unwrap().target().unwrap();
         let crate::imports::ImportTarget::Source(target) =
             analyzed.names.imports.binding(binding).unwrap()
         else {
-            panic!("standard imports must retain their source declaration");
+            panic!("source-owned declaration");
         };
-        assert_eq!(target.module.package.0, "kagari-std");
+        assert_eq!(target.module, catalog::shared().identity);
         assert_eq!(
             matches!(target.item, Some(ExportItem::Function(_))),
             function
         );
-        if !function {
-            assert!(target.item.is_none());
-        }
     }
-    for (function, namespace, name, expected) in [
-        (
-            &lowered.module.functions[0],
-            "map",
-            "len",
-            BuiltinType::USize,
-        ),
-        (
-            &lowered.module.functions[1],
-            "math",
-            "clamp",
-            BuiltinType::I32,
-        ),
-    ] {
+    for function in &lowered.module.functions {
         let tail = lowered
             .module
             .block(function.body.unwrap())
@@ -348,15 +302,18 @@ fn clamp(value: i32) -> i32 {
             .unwrap();
         let call = analyzed.typed.type_table.call_resolution(tail).unwrap();
         let CallTarget::SourceFunction(target) = &call.target else {
-            panic!("call must use the imported checked function");
+            panic!("imported constructor");
         };
         let imported = analyzed.imported_functions.target(target).unwrap();
-        assert_eq!(imported.declaration.module.package.0, "kagari-std");
-        assert_eq!(imported.declaration.module.path, [namespace]);
-        assert_eq!(imported.signature.name, name);
+        assert_eq!(imported.declaration.module, catalog::shared().identity);
+        assert_eq!(imported.signature.name, "new");
+        assert_eq!(call.type_arguments, [TypeId::Builtin(BuiltinType::I32)]);
         assert_eq!(
             analyzed.typed.type_table.expr_type(tail),
-            Some(TypeId::Builtin(expected))
+            Some(TypeId::Array(
+                Box::new(TypeId::Builtin(BuiltinType::I32)),
+                CollectionAccess::Mutable
+            ))
         );
     }
 }
@@ -366,12 +323,12 @@ fn type_checks_standard_methods_and_records_checked_bindings() {
     let source = SourceFile::new(
         "standard-methods.kgr",
         r#"
-fn keys(values: LinkedHashMap<String, i32>) -> List<String> {
-    values.keys()
+fn get(values: HashMap<String, i32>) -> Option<i32> {
+    values.get("key")
 }
 
-fn chars(value: String) -> usize {
-    value.len_chars()
+fn len(value: ArrayList<i32>) -> usize {
+    value.len()
 }
 
 fn popped(values: ArrayList<i32>) -> Option<i32> {
@@ -386,15 +343,13 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     let typed = &analyzed.typed;
     let binding = |expression| {
         let call = typed.type_table.call_resolution(expression).unwrap();
-        let CallTarget::SourceFunction(target) = &call.target else {
-            panic!("ordinary imported method target");
+        let CallTarget::TraitMethod { method, interface } = &call.target else {
+            panic!("checked trait method target: {:?}", call.target);
         };
-        analyzed
-            .imported_functions
-            .target(target)
-            .unwrap()
-            .signature
-            .implementation
+        (
+            interface.declaration.clone(),
+            method.path.last().unwrap().name.clone(),
+        )
     };
 
     let keys_tail = lowered
@@ -404,15 +359,17 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("keys tail expr");
     assert_eq!(
         binding(keys_tail),
-        crate::typeck::FunctionImplementation::Native(NativeBinding::Entry(
-            EngineNativeBinding::Intrinsic(RuntimePrimitive::MapKeys)
-        ))
+        (
+            kagari_abi::language::identity(kagari_abi::language::Protocol::Map),
+            "get".into()
+        )
     );
-    let mut list = kagari_abi::language::Protocol::List.nominal();
-    list.arguments.push(TypeId::Builtin(BuiltinType::String));
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
-        Some(TypeId::Trait(list))
+        Some(TypeId::StandardEnum {
+            kind: kagari_abi::standard::surface::StandardEnum::Option,
+            args: vec![TypeId::Builtin(BuiltinType::I32)],
+        })
     );
 
     let chars_tail = lowered
@@ -422,9 +379,10 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("chars tail expr");
     assert_eq!(
         binding(chars_tail),
-        crate::typeck::FunctionImplementation::Native(NativeBinding::Entry(
-            EngineNativeBinding::Intrinsic(RuntimePrimitive::StringLenChars)
-        ))
+        (
+            kagari_abi::language::identity(kagari_abi::language::Protocol::List),
+            "len".into()
+        )
     );
 
     let popped_tail = lowered
@@ -445,12 +403,12 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
 fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
     let lowered = common::lower_ok(
         r#"
-fn contains<K: Eq + Hash, V>(values: LinkedHashMap<K, V>, key: K) -> bool {
-    std::map::LinkedHashMap::contains_key(values, key)
+fn contains<K: Eq + Hash, V>(values: HashMap<K, V>, key: K) -> bool {
+    values.contains_key(key)
 }
 
-fn unique<T: Eq + Hash>(values: LinkedHashSet<T>) -> usize {
-    std::set::LinkedHashSet::len(values)
+fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
+    values.len()
 }
 "#,
     );
@@ -458,23 +416,19 @@ fn unique<T: Eq + Hash>(values: LinkedHashSet<T>) -> usize {
         .into_checked()
         .expect("hash-key constrained generics should type check");
 
-    let lowered = common::lower_ok(
-        "fn bad(values: LinkedHashMap<f64, i32>) -> usize { std::map::LinkedHashMap::len(values) }",
-    );
+    let lowered = common::lower_ok("fn bad(values: HashMap<f64, i32>) -> usize { values.len() }");
     let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("f64 map keys should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         matches!(
             &diagnostic.kind,
-            DiagnosticKind::StandardConstraintNotSatisfied { constraint, .. }
-                if constraint == "Eq + Hash"
+            DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
+                if type_name == "f64" && constraint == "Eq + Hash"
         )
     }));
 
-    let lowered = common::lower_ok(
-        "fn bad<K, V>(values: LinkedHashMap<K, V>) -> usize { std::map::LinkedHashMap::len(values) }",
-    );
+    let lowered = common::lower_ok("fn bad<K, V>(values: HashMap<K, V>) -> usize { values.len() }");
     let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
@@ -489,22 +443,22 @@ fn unique<T: Eq + Hash>(values: LinkedHashSet<T>) -> usize {
 
 #[test]
 fn rejects_standard_library_invalid_arity_and_argument_types() {
-    let lowered = common::lower_ok("fn bad() -> i32 { std::math::clamp(1, 2) }");
+    let lowered = common::lower_ok("fn bad() { ArrayList::push([1]); }");
     let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("standard call arity should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::CallArityMismatch {
-                function_name: "clamp".to_owned(),
-                expected: 3,
-                found: 2,
+                function_name: "push".to_owned(),
+                expected: 2,
+                found: 1,
             }
     }));
 
     let lowered = common::lower_ok(
         r#"
-fn bad(values: LinkedHashMap<String, i32>) -> bool {
+fn bad(values: HashMap<String, i32>) -> bool {
     values.contains_key(1)
 }
 "#,
@@ -516,7 +470,7 @@ fn bad(values: LinkedHashMap<String, i32>) -> bool {
         diagnostic.kind
             == DiagnosticKind::ArgumentTypeMismatch {
                 function_name: "contains_key".to_owned(),
-                parameter_name: "key".to_owned(),
+                parameter_name: "arg1".to_owned(),
                 expected: "String".to_owned(),
                 found: "i32".to_owned(),
             }

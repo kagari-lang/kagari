@@ -283,6 +283,7 @@ impl<'a, 'b> Transform<'a, 'b> {
                 args: self.many(args, depth + 1, replace)?,
             },
             AbiType::Struct(ty) => AbiType::Struct(self.nominal(ty, depth, replace)?),
+            AbiType::NativeObject(ty) => AbiType::NativeObject(self.nominal(ty, depth, replace)?),
             AbiType::Enum(ty) => AbiType::Enum(self.nominal(ty, depth, replace)?),
             AbiType::Trait(ty) => AbiType::Trait(self.nominal(ty, depth, replace)?),
             AbiType::Projection {

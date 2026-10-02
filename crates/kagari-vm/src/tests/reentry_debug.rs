@@ -43,9 +43,9 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                     matches!(
                         i,
                         BytecodeInstruction::Call {
-                            callee: CallTarget::Native(NativeCall::Host(_)),
+                            callee: CallTarget::Native(id),
                             ..
-                        }
+                        } if module.modules[module.root.index()].native_imports[id.index()].host.is_some()
                     )
                 })
                 .unwrap();

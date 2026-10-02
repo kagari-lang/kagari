@@ -8,23 +8,29 @@ use crate::{
     slots::SemanticSlots,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, NominalAbiType, PublicAbiItem,
-        TraitAbi, TraitContract,
+        TraitAbi, TraitContract, TypeAbi, TypeAbiKind,
         substitution::{MAX_TYPE_NODES, TypeTransformError},
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 
-pub struct ApplicationValidator<'a, F> {
+pub struct ApplicationValidator<'a, F, G> {
     lookup: F,
+    storage: G,
     cancel: &'a CancellationToken,
 }
 
-impl<'a, 'declaration, F> ApplicationValidator<'a, F>
+impl<'a, 'declaration, F, G> ApplicationValidator<'a, F, G>
 where
     F: Fn(&DefinitionId) -> Option<&'declaration TraitAbi>,
+    G: Fn(&DefinitionId) -> Option<&'declaration TypeAbi>,
 {
-    pub fn new(cancel: &'a CancellationToken, lookup: F) -> Self {
-        Self { lookup, cancel }
+    pub fn new(cancel: &'a CancellationToken, lookup: F, storage: G) -> Self {
+        Self {
+            lookup,
+            storage,
+            cancel,
+        }
     }
 
     fn contract(
@@ -83,6 +89,20 @@ where
                     self.contract(applied)?;
                     pending.extend(&applied.arguments);
                     pending.extend(applied.associated_types.values());
+                }
+                AbiType::NativeObject(applied) => {
+                    let record = (self.storage)(&applied.declaration)
+                        .ok_or(TypeTransformError::InvalidContract)?;
+                    let TypeAbiKind::NativeStorage(layout) = record.kind else {
+                        return Err(TypeTransformError::InvalidContract);
+                    };
+                    if record.generic_params.len() != applied.arguments.len()
+                        || !applied.associated_types.is_empty()
+                        || !layout.valid_parameters(applied.arguments.len())
+                    {
+                        return Err(TypeTransformError::InvalidContract);
+                    }
+                    pending.extend(&applied.arguments);
                 }
                 AbiType::Struct(applied) | AbiType::Enum(applied) => {
                     pending.extend(&applied.arguments);

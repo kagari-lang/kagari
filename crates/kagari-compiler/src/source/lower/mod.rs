@@ -166,7 +166,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         });
     }
 
-    let (structures, enumerations) = layouts::collect(module, &mut planner)?;
+    let (structures, enumerations) = layouts::collect(module, &mut planner, &functions)?;
     let mut abi = abi::collect_module_abi(module);
     host_interfaces::collect(&mut planner, module, &mut abi, &mut functions)?;
     planner.host_types.extend(

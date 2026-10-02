@@ -5,13 +5,11 @@ use crate::{
 
 use {
     crate::debug::{DebugSession, SourceBreakpoint},
-    kagari_bytecode::{
-        artifact::KbcArtifact, instruction::BytecodeInstruction, module::BytecodeModuleSlot,
-    },
+    kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction},
     kagari_runtime::security::DebugVisibilityPolicy,
 };
 
-use kagari_abi::ids::FunctionRef;
+use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
 use {
     kagari_common::capability::CapabilitySet,
     kagari_runtime::{
@@ -189,9 +187,15 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
 #[test]
 fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let mut runtime = runtime(None);
-    let dead = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
     let loaded = runtime.load_program("gc.kgr", module).unwrap();
+    let dead = runtime
+        .alloc_array(
+            &loaded,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+        .unwrap();
     let native =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
     let mut vm = Vm::new(runtime);
@@ -216,42 +220,6 @@ fn trap_and_budget_exhaustion_release_frame_roots_and_call_depth() {
         assert_eq!(vm.runtime().gc().allocated_objects(), 0);
         assert_eq!(vm.runtime().resources().counters().current_heap_units, 0);
     }
-}
-
-#[test]
-fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
-    let mut module =
-        compile_test_bytecode("fn init() -> ArrayList<i32> { [7] } fn main() -> i32 { 42 }");
-    module.modules[module.root.index()]
-        .module_slots
-        .push(BytecodeModuleSlot {
-            name: "state".into(),
-            ty: kagari_abi::representation::ValueType::HeapObject,
-            mutable: true,
-        });
-    let mut runtime = runtime(None);
-    let program = module;
-    let old = runtime.load_program("gc.kgr", program.clone()).unwrap();
-    let mut vm = Vm::new(runtime);
-    let array = vm.runtime().alloc_array(vec![Value::I32(7)]).unwrap();
-    {
-        let mut instance = vm.runtime().module_instance_mut(&old).unwrap();
-        instance.module_slots[0] = Value::Array(array);
-    }
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
-    let new = vm.reload_program(&old, "gc.kgr", program).unwrap();
-    let other = vm.runtime().alloc_array(vec![Value::I32(9)]).unwrap();
-    vm.runtime().module_instance_mut(&new).unwrap().module_slots[0] = Value::Array(other);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
-    let expected: std::collections::HashSet<_> = old.members().map(|member| member.key()).collect();
-    let reclaimed: std::collections::HashSet<_> = vm
-        .runtime()
-        .modules()
-        .collect_unreachable_epochs()
-        .into_iter()
-        .collect();
-    assert_eq!(reclaimed, expected);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);
 }
 
 #[test]

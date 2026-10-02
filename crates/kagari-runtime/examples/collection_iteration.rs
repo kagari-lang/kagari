@@ -1,10 +1,31 @@
 //! Run with `cargo run -p kagari-runtime --example collection_iteration`.
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, value::Value};
 
 fn main() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
+    let owner = runtime
+        .load_program(
+            "arrays",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap();
+
     let gc = runtime.gc();
-    let id = gc.alloc_array(vec![Value::I32(1)]).unwrap();
+    let id = runtime
+        .alloc_array(
+            &owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
     let value = Value::Array(id);
     let iteration = gc.begin_collection_iteration(&value).unwrap();
     // Aliases may replace an existing element, but cannot change structure.

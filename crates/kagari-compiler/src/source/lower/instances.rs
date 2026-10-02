@@ -2,6 +2,7 @@ use crate::source::lower::MirLoweringError;
 mod callables;
 mod defaults;
 mod native;
+mod views;
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
     aggregates::{AggregateCatalog, traits::MethodDefault},
@@ -500,6 +501,7 @@ impl<'a> InstancePlanner<'a> {
                 }
                 .lower(self.options, span)?,
             );
+            self.require_iterator_view(declaration, arguments, span)?;
             if declaration.module == *self.module.lowered.source.module_identity() {
                 self.prepare_native_interface(declaration, arguments, span)?;
             }
@@ -818,7 +820,10 @@ fn instantiate(
             kind: *kind,
             args: args.iter().map(&mut child).collect::<Result<_, _>>()?,
         },
-        TypeId::Struct(nominal) | TypeId::Enum(nominal) | TypeId::Trait(nominal) => {
+        TypeId::NativeObject(nominal)
+        | TypeId::Struct(nominal)
+        | TypeId::Enum(nominal)
+        | TypeId::Trait(nominal) => {
             let instance = NominalType {
                 associated_types: nominal
                     .associated_types
@@ -833,6 +838,7 @@ fn instantiate(
                     .collect::<Result<_, _>>()?,
             };
             match ty {
+                TypeId::NativeObject(_) => TypeId::NativeObject(instance),
                 TypeId::Struct(_) => TypeId::Struct(instance),
                 TypeId::Enum(_) => TypeId::Enum(instance),
                 _ => TypeId::Trait(instance),

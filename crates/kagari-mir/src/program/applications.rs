@@ -4,7 +4,7 @@ use crate::{
 };
 
 use kagari_abi::types::{
-    TraitAbi, applications::ApplicationValidator, substitution::TypeTransformError,
+    TraitAbi, TypeAbi, applications::ApplicationValidator, substitution::TypeTransformError,
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 
@@ -12,8 +12,9 @@ pub(super) fn validate<'a>(
     module: &MirModule,
     cancel: &CancellationToken,
     lookup: impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
+    storage: impl Fn(&DefinitionId) -> Option<&'a TypeAbi>,
 ) -> Result<(), TypeTransformError> {
-    let validator = ApplicationValidator::new(cancel, lookup);
+    let validator = ApplicationValidator::new(cancel, lookup, storage);
     validator.declarations(&module.abi.public_items, &module.abi.trait_contracts)?;
     for declaration in &module.abi.native_declarations {
         validator.function(&declaration.function)?;
@@ -47,6 +48,8 @@ pub(super) fn validate<'a>(
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match instruction {
+                Instruction::MakeArray { element, .. }
+                | Instruction::RepeatArray { element, .. } => validator.validate_type(element)?,
                 Instruction::MapResultError { ty, .. }
                 | Instruction::Iter { ty, .. }
                 | Instruction::StandardEnum { ty, .. }

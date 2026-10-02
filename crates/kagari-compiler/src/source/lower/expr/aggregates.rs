@@ -39,7 +39,11 @@ impl FunctionLowerer<'_, '_> {
             ControlFlow::Break(value) => return Ok(value),
         };
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
-        self.emit(Instruction::MakeArray { dst, elements });
+        self.emit(Instruction::MakeArray {
+            dst,
+            element: self.array_element_type(expr_id)?,
+            elements,
+        });
         Ok(dst)
     }
 

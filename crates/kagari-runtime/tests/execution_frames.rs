@@ -1,4 +1,7 @@
-use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use kagari_abi::{
+    budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType, scalar::BuiltinType,
+    types::AbiType,
+};
 use {
     kagari_bytecode::module::RootSlotLayout,
     kagari_runtime::{
@@ -83,7 +86,15 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     outer
         .push(module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
-    let first = Value::Array(runtime.alloc_array(vec![Value::I32(1)]).unwrap());
+    let first = Value::Array(
+        runtime
+            .alloc_array(
+                &module,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(1)],
+            )
+            .unwrap(),
+    );
     outer
         .current_mut()
         .unwrap()
@@ -93,7 +104,15 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     nested
         .push(module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
-    let second = Value::Array(runtime.alloc_array(vec![Value::I32(2)]).unwrap());
+    let second = Value::Array(
+        runtime
+            .alloc_array(
+                &module,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(2)],
+            )
+            .unwrap(),
+    );
     nested
         .current_mut()
         .unwrap()
@@ -247,7 +266,15 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
             },
         )
         .unwrap();
-    let old_object = Value::Array(runtime.alloc_array(vec![Value::I32(7)]).unwrap());
+    let old_object = Value::Array(
+        runtime
+            .alloc_array(
+                &old,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(7)],
+            )
+            .unwrap(),
+    );
     let initialization = runtime.begin_candidate_initialization(&candidate).unwrap();
     let stack = runtime.enter_execution_stack(candidate.module()).unwrap();
     assert_eq!(

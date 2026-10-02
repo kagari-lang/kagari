@@ -1,10 +1,11 @@
+mod arguments;
 mod native;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    frame::arguments::FrameArguments,
     gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, RootSet},
     module::LoadedModule,
-    native::NativeInvocation,
     resource::ResourceState,
     session::ExecutionSession,
     value::Value,
@@ -134,7 +135,7 @@ impl ExecutionStack {
                 .member(module)
                 .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?
         };
-        self.push_resolved(
+        self.push_callable(
             loaded,
             CallableTarget::Script(function),
             args,
@@ -157,13 +158,13 @@ impl ExecutionStack {
         runtime.validate_interface_method_arguments(&method, args)?;
         let loaded = method.implementation().clone();
         let target = method.target();
-        self.push_resolved(loaded, target, args, return_dst, Some(method))
+        self.push_callable(loaded, target, args, return_dst, Some(method))
     }
 
     pub fn push_closure(
         &self,
         runtime: &Runtime,
-        closure: ClosureValueSnapshot,
+        closure: &ClosureValueSnapshot,
         args: &[Value],
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
@@ -175,11 +176,7 @@ impl ExecutionStack {
             .functions
             .get(closure.function.index())
             .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?;
-        let all = closure
-            .captures
-            .into_iter()
-            .chain(args.iter().cloned())
-            .collect::<Vec<_>>();
+        let all = FrameArguments::captured(&closure.captures, args)?;
         if all.len() != function.metadata.params.len()
             || !all
                 .iter()
@@ -191,20 +188,37 @@ impl ExecutionStack {
                 "closure call contract mismatch",
             ));
         }
-        self.push_resolved(
-            closure.implementation,
+        self.push_arguments(
+            closure.implementation.clone(),
             CallableTarget::Script(closure.function),
-            &all,
+            all,
             return_dst,
             None,
         )
     }
 
-    fn push_resolved(
+    pub fn push_callable(
         &self,
         loaded: LoadedModule,
         target: CallableTarget,
         args: &[Value],
+        return_dst: Option<Register>,
+        interface_method: Option<RootedInterfaceMethod>,
+    ) -> Result<(), RuntimeError> {
+        self.push_arguments(
+            loaded,
+            target,
+            FrameArguments::plain(args),
+            return_dst,
+            interface_method,
+        )
+    }
+
+    fn push_arguments(
+        &self,
+        loaded: LoadedModule,
+        target: CallableTarget,
+        args: FrameArguments<'_>,
         return_dst: Option<Register>,
         interface_method: Option<RootedInterfaceMethod>,
     ) -> Result<(), RuntimeError> {
@@ -297,7 +311,6 @@ impl Drop for ExecutionStack {
 #[derive(Clone, Copy)]
 enum ReturnDestination {
     Register(Option<Register>),
-    Native,
 }
 
 #[derive(Debug)]
@@ -319,11 +332,9 @@ pub struct ExecutionFrame {
     slots: RootSet,
     register_count: usize,
     return_to: ReturnDestination,
-    native: Vec<NativeInvocation>,
     interface_method: Option<RootedInterfaceMethod>,
     iterations: Vec<CollectionIteration>,
     mutations: Vec<(Value, CollectionIteration)>,
-    key_lookups: Vec<(Value, CollectionIteration)>,
 }
 
 impl Debug for ExecutionFrame {
@@ -342,7 +353,7 @@ impl ExecutionFrame {
         resources: Rc<ResourceState>,
         loaded: LoadedModule,
         target: CallableTarget,
-        args: &[Value],
+        args: FrameArguments<'_>,
         return_dst: Option<Register>,
         interface_method: Option<RootedInterfaceMethod>,
     ) -> Result<Self, RuntimeError> {
@@ -377,7 +388,7 @@ impl ExecutionFrame {
                     return Err(RuntimeError::module_validation("native frame arguments"));
                 }
                 let mut slots = vec![Value::Unit];
-                slots.extend_from_slice(args);
+                slots.extend(args.iter().cloned());
                 (0, slots, NativeEntryState::Pending)
             }
         };
@@ -395,11 +406,9 @@ impl ExecutionFrame {
                 .ok_or_else(|| RuntimeError::module_validation("invalid heap argument"))?,
             register_count,
             return_to: ReturnDestination::Register(return_dst),
-            native: Vec::new(),
             interface_method,
             iterations: Vec::new(),
             mutations: Vec::new(),
-            key_lookups: Vec::new(),
         })
     }
 
@@ -423,25 +432,6 @@ impl ExecutionFrame {
             ));
         }
         self.mutations.pop();
-        Ok(())
-    }
-    pub fn begin_key_lookup(&mut self, value: &Value) -> Result<(), RuntimeError> {
-        self.key_lookups
-            .push((value.clone(), self.heap.begin_key_lookup(value)?));
-        Ok(())
-    }
-    pub fn end_key_lookup(&mut self, value: &Value) -> Result<(), RuntimeError> {
-        if !self
-            .key_lookups
-            .last()
-            .is_some_and(|(collection, _)| collection == value)
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "key lookup guard mismatch",
-            ));
-        }
-        self.key_lookups.pop();
         Ok(())
     }
     pub fn begin_iteration(&mut self, collection: Register) -> Result<(), RuntimeError> {

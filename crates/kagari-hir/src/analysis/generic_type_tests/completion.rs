@@ -1,3 +1,4 @@
+use super::contracts::analyze_contracts;
 use super::*;
 use crate::{hir::expr::ExprKind, profile::LanguageFeatureProfile};
 use {crate::typeck::table::CallTarget, kagari_common::diagnostic::DiagnosticKind};
@@ -206,11 +207,8 @@ fn terminating_function_arguments_supply_no_value_or_generic_constraint() {
 }
 
 #[test]
-fn trait_and_standard_parameters_share_completion_aware_value_checks() {
-    for call in [
-        "value.take(ARG)",
-        r#"std::debug::assert(ARG, "unreachable"); 0"#,
-    ] {
+fn trait_and_declared_parameters_share_completion_aware_value_checks() {
+    for call in ["value.take(ARG)", r#"take_bool(ARG, "unreachable"); 0"#] {
         for (argument, valid) in [
             ("if true { return 42; } else { return 7; }", true),
             ("if true { return 42; } else { true }", true),
@@ -221,7 +219,7 @@ fn trait_and_standard_parameters_share_completion_aware_value_checks() {
             let source = format!(
                 "trait Take {{ fn take(self, input: bool) -> i32; }} fn run<T: Take>(value: T) -> i32 {{ {body} }}"
             );
-            let analysis = crate::analyze_source(
+            let analysis = analyze_contracts(
                 &SourceFile::new("shared-parameter-completion.kgr", source.clone()),
                 Default::default(),
             );
@@ -237,15 +235,15 @@ fn trait_and_standard_parameters_share_completion_aware_value_checks() {
 }
 
 #[test]
-fn standard_operand_constraints_require_normally_produced_values() {
+fn declared_operand_constraints_require_normally_produced_values() {
     for call in [
-        "std::math::min(ARG, 7)",
-        "std::math::min(ARG, ARG)",
-        "std::math::max(7, ARG)",
-        "std::math::clamp(7, ARG, 9)",
-        "std::math::abs(ARG)",
-        r#"std::debug::assert_eq(ARG, 7, "test"); 0"#,
-        r#"std::debug::assert_eq(7, ARG, "test"); 0"#,
+        "ordered_pair(ARG, 7)",
+        "ordered_pair(ARG, ARG)",
+        "ordered_pair(7, ARG)",
+        "ordered_three(7, ARG, 9)",
+        "signed_value(ARG)",
+        r#"check_equal(ARG, 7, "test"); 0"#,
+        r#"check_equal(7, ARG, "test"); 0"#,
     ] {
         for (argument, valid) in [
             ("if true { return 42; } else { return 7; }", true),
@@ -253,7 +251,7 @@ fn standard_operand_constraints_require_normally_produced_values() {
             ("if true { return false; } else { return 7; }", false),
         ] {
             let body = call.replace("ARG", argument);
-            let analysis = crate::analyze_source(
+            let analysis = analyze_contracts(
                 &SourceFile::new(
                     "standard-completion.kgr",
                     format!("fn main() -> i32 {{ {body} }}"),
@@ -269,10 +267,10 @@ fn standard_operand_constraints_require_normally_produced_values() {
             assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
         }
     }
-    let analysis = crate::analyze_source(
+    let analysis = analyze_contracts(
         &SourceFile::new(
             "standard-completion-invalid.kgr",
-            "fn main() -> i32 { std::math::min(if true { return 42; } else { return 7; }, false); 0 }",
+            "fn main() -> i32 { ordered_pair(if true { return 42; } else { return 7; }, false); 0 }",
         ),
         Default::default(),
     );
@@ -635,14 +633,14 @@ fn index_reads_require_a_receiver_value_but_keep_inner_index_errors() {
 }
 
 #[test]
-fn standard_receiver_shapes_require_normally_produced_values() {
+fn declared_receiver_shapes_require_normally_produced_values() {
     for call in [
-        "std::array::ArrayList::len(ARG)",
-        "std::map::LinkedHashMap::len(ARG)",
-        "std::set::LinkedHashSet::len(ARG)",
-        "std::string::String::len_bytes(ARG)",
-        "std::option::Option::is_some(ARG)",
-        "std::result::Result::is_ok(ARG)",
+        "list_count(ARG)",
+        "map_count(ARG)",
+        "set_count(ARG)",
+        "take_text(ARG)",
+        "option_present(ARG)",
+        "result_present(ARG)",
     ] {
         for (argument, valid) in [
             ("if true { return 42; } else { return 7; }", true),
@@ -651,7 +649,7 @@ fn standard_receiver_shapes_require_normally_produced_values() {
         ] {
             let expression = call.replace("ARG", argument);
             let source = format!("fn main() -> i32 {{ {expression}; 0 }}");
-            let analysis = crate::analyze_source(
+            let analysis = analyze_contracts(
                 &SourceFile::new("standard-receiver-completion.kgr", source.clone()),
                 Default::default(),
             );

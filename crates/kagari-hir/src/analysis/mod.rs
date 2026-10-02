@@ -25,7 +25,7 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_abi::native_api::NativeModule;
+use kagari_abi::declaration::ModuleDecl;
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::{
@@ -703,7 +703,7 @@ pub struct AnalysisDatabase {
     latest_revision: Revision,
     hosts: Arc<HostDeclarations>,
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
-    native_modules: Vec<Arc<NativeModule>>,
+    native_modules: Vec<Arc<ModuleDecl>>,
     native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
 }
 
@@ -729,7 +729,7 @@ impl Default for AnalysisDatabase {
 
 impl AnalysisDatabase {
     /// Native declarations are explicit snapshot inputs. Existing snapshots keep their owners.
-    pub fn set_native_modules(&mut self, modules: Vec<Arc<NativeModule>>) {
+    pub fn set_native_modules(&mut self, modules: Vec<Arc<ModuleDecl>>) {
         self.native_modules = modules;
         self.native_files.take();
         self.declaration_cache = None;

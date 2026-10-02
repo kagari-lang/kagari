@@ -311,11 +311,13 @@ pub enum BytecodeInstruction {
         ty: AbiType,
     },
     RepeatArray {
+        element: AbiType,
         dst: Register,
         value: Register,
         count: Register,
     },
     MakeArray {
+        element: AbiType,
         dst: Register,
         #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         elements: Vec<Register>,

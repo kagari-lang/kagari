@@ -3,10 +3,15 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, HeapObjectId},
+    native::{
+        hashed::{MapPayload, SetPayload},
+        sequence::{SequencePayload, SequenceStorage},
+    },
     value::Value,
 };
 
-use crate::gc::hash_storage::{HashMapStorage, HashSetStorage};
+use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {
     ReplaceArray,
@@ -32,9 +37,15 @@ impl GcHeap {
         self.ensure_structure_mutable(id)?;
         let objects = self.objects.borrow();
         let source = self.readable_object(&objects, id).ok_or_else(invalid)?;
-        let Some(HeapObject::Array(input)) = self.readable_object(&objects, *buffer) else {
+        let Some(HeapObject::Native(buffer_object)) = self.readable_object(&objects, *buffer)
+        else {
             return Err(invalid());
         };
+        if !matches!(buffer_object.ty, AbiType::Array(..)) {
+            return Err(invalid());
+        }
+        let input_payload = buffer_object.payload::<SequencePayload>()?;
+        let input = &input_payload.values;
         let before = source.units();
         let _temporary = self.resources.reserve_temporary_heap(before)?;
         self.resources.consume_instruction_steps(before as u64)?;
@@ -44,58 +55,93 @@ impl GcHeap {
             .ok_or_else(invalid)?;
         let allocation = || self.resource_limit("prepared collection storage");
         let prepared = if operation == PreparedCollectionCommit::ReplaceArray {
-            let HeapObject::Array(original) = source else {
+            let HeapObject::Native(original) = source else {
                 return Err(invalid());
             };
-            if original.len() < input.len() {
+            if !matches!(original.ty, AbiType::Array(..)) {
                 return Err(invalid());
             }
-            let mut copy = Vec::new();
-            copy.try_reserve_exact(input.len())
-                .map_err(|_| allocation())?;
-            copy.extend(input.iter().cloned());
-            HeapObject::Array(copy)
+            let payload = original.payload::<SequencePayload>()?;
+            if payload.values.len() < input.len()
+                || !input_payload
+                    .contract
+                    .matches(&payload.element, &payload.contract.owner)
+            {
+                return Err(invalid());
+            }
+            HeapObject::Native(original.replaced_payload(SequencePayload {
+                element: payload.element.clone(),
+                contract: payload.contract.clone(),
+                values: input.copy_range(0, input.len())?,
+            })?)
         } else {
-            if input.iter().any(|v| !matches!(v, Value::Bool(_))) {
+            if input_payload.element != AbiType::Builtin(BuiltinType::Bool) {
                 return Err(invalid());
             }
-            let kept = input
-                .iter()
-                .filter(|v| matches!(v, Value::Bool(true)))
+            if (0..input.len()).any(|index| !matches!(input.get(index), Some(Value::Bool(_)))) {
+                return Err(invalid());
+            }
+            let kept = (0..input.len())
+                .filter(|index| matches!(input.get(*index), Some(Value::Bool(true))))
                 .count();
             match source {
-                HeapObject::Array(values) if values.len() == input.len() => {
-                    let mut copy = Vec::new();
-                    copy.try_reserve_exact(kept).map_err(|_| allocation())?;
-                    copy.extend(
-                        values
-                            .iter()
-                            .zip(input)
-                            .filter(|(_, keep)| matches!(keep, Value::Bool(true)))
-                            .map(|(v, _)| v.clone()),
-                    );
-                    HeapObject::Array(copy)
+                HeapObject::Native(original) if matches!(original.ty, AbiType::Array(..)) => {
+                    let payload = original.payload::<SequencePayload>()?;
+                    if payload.values.len() != input.len() {
+                        return Err(invalid());
+                    }
+                    let mut copy = SequenceStorage::empty(&payload.element);
+                    copy.try_reserve(kept).map_err(|_| allocation())?;
+                    for index in 0..input.len() {
+                        if matches!(input.get(index), Some(Value::Bool(true))) {
+                            copy.push(payload.values.get(index).ok_or_else(invalid)?)?;
+                        }
+                    }
+                    HeapObject::Native(original.replaced_payload(SequencePayload {
+                        element: payload.element.clone(),
+                        contract: payload.contract.clone(),
+                        values: copy,
+                    })?)
                 }
-                HeapObject::Map(values) if values.len() == input.len() => {
+                HeapObject::Native(original) if matches!(original.ty, AbiType::Map { .. }) => {
+                    let payload = original.payload::<MapPayload>()?;
+                    let values = &payload.entries;
+                    if values.len() != input.len() {
+                        return Err(invalid());
+                    }
                     let mut copy = HashMapStorage::new();
                     copy.try_reserve(kept).map_err(|_| allocation())?;
-                    for ((key, value), keep) in values.iter().zip(input) {
-                        if matches!(keep, Value::Bool(true)) {
+                    for (index, (key, value)) in values.iter().enumerate() {
+                        if matches!(input.get(index), Some(Value::Bool(true))) {
                             copy.insert(key.clone(), value.clone())
                                 .map_err(|_| allocation())?;
                         }
                     }
-                    HeapObject::Map(copy)
+                    HeapObject::Native(original.replaced_payload(MapPayload {
+                        key: payload.key.clone(),
+                        value: payload.value.clone(),
+                        builtin_keys: payload.builtin_keys,
+                        entries: copy,
+                    })?)
                 }
-                HeapObject::Set(values) if values.len() == input.len() => {
+                HeapObject::Native(original) if matches!(original.ty, AbiType::Set(..)) => {
+                    let payload = original.payload::<SetPayload>()?;
+                    let values = &payload.entries;
+                    if values.len() != input.len() {
+                        return Err(invalid());
+                    }
                     let mut copy = HashSetStorage::new();
                     copy.try_reserve(kept).map_err(|_| allocation())?;
-                    for (key, keep) in values.iter().zip(input) {
-                        if matches!(keep, Value::Bool(true)) {
+                    for (index, key) in values.iter().enumerate() {
+                        if matches!(input.get(index), Some(Value::Bool(true))) {
                             copy.insert(key.clone()).map_err(|_| allocation())?;
                         }
                     }
-                    HeapObject::Set(copy)
+                    HeapObject::Native(original.replaced_payload(SetPayload {
+                        element: payload.element.clone(),
+                        builtin_keys: payload.builtin_keys,
+                        entries: copy,
+                    })?)
                 }
                 _ => return Err(invalid()),
             }

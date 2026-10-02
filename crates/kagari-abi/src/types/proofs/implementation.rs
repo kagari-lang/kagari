@@ -1,7 +1,7 @@
 //! Checked implementation sources share pattern matching without invented tables.
 use crate::{
     callable::CallableImplementation,
-    native_api::NativeImplementation,
+    declaration::ImplDecl,
     types::{
         AbiType, AssociatedTypeFamilyAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
         InterfaceTableAbi, NominalAbiType, TraitAbi,
@@ -17,7 +17,7 @@ pub enum Implementation<'a> {
     Interface(&'a InterfaceTableAbi),
     Native {
         declaration: &'a DefinitionId,
-        implementation: &'a NativeImplementation,
+        implementation: &'a ImplDecl,
     },
 }
 

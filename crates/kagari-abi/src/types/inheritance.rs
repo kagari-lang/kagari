@@ -16,6 +16,25 @@ const MAX_TRAITS: usize = 4_096;
 const MAX_PATH: usize = 64;
 const MAX_EDGES: usize = 100_000;
 
+/// The additional dynamic surface supported by the language's Iterable contract.
+/// Explicit implementation outputs remain the canonical static signature.
+pub fn erased_iterator_view<'a>(
+    interface: &NominalAbiType,
+    receiver: &AbiType,
+    cancel: &CancellationToken,
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
+) -> Result<Option<NominalAbiType>, TypeTransformError> {
+    if interface.declaration != identity(Protocol::Iterable) {
+        return Ok(None);
+    }
+    let mut erased = interface.clone();
+    erased
+        .associated_types
+        .remove(&associated_type_id(&interface.declaration, "Iter"));
+    let view = interface_views(&erased, receiver, cancel, lookup)?.remove(0);
+    Ok((view != *interface).then_some(view))
+}
+
 /// Concrete dynamic values hide Iterable's iterator behind its declared bound.
 /// Implementation ancestry remains unchanged: a view is not a second impl.
 pub fn interface_views<'a>(

@@ -3,7 +3,7 @@ use crate::{
     cache::{InterpreterCacheId, ReloadDependencySnapshot, ReloadInvalidation},
     error::RuntimeError,
     module::{LinkedHostBindings, LoadedModule, VerifiedProgram},
-    native::registration::{NativeRegistration, host_registration},
+    native::registry::link_host,
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
         validate_verified_reload_candidate,
@@ -18,12 +18,6 @@ use kagari_bytecode::{
 };
 
 impl Runtime {
-    pub fn register_native(
-        &mut self,
-        registration: NativeRegistration,
-    ) -> Result<(), RuntimeError> {
-        self.native_entries.install(registration)
-    }
     fn link_native_module(
         &self,
         module: &BytecodeModule,
@@ -46,7 +40,7 @@ impl Runtime {
                     let binding = *bindings.functions.get(slot).ok_or_else(|| {
                         RuntimeError::module_validation("missing host native entry")
                     })?;
-                    Ok(host_registration(import, binding))
+                    Ok(link_host(import, binding))
                 } else {
                     self.native_entries.link(import, program)
                 }

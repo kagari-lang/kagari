@@ -234,6 +234,12 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         "Other",
         &[("x", AbiType::Builtin(BuiltinType::I32), true)],
     );
+    let wrong_owner = wrong.module().clone();
+    let wrong_type = AbiType::Struct(NominalAbiType {
+        declaration: wrong.layout().declaration.clone(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
     let wrong_value = Value::Struct(runtime.alloc_struct(wrong, vec![Value::I32(9)]).unwrap());
     let mut bytecode = (*wrapper.module().bytecode).clone();
     bytecode.structures.push(leaf.layout().clone());
@@ -260,25 +266,40 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let wrapper = module.struct_layout(StructId::new(0)).unwrap();
     let leaf = module.struct_layout(StructId::new(1)).unwrap();
     let valid = Value::Struct(runtime.alloc_struct(leaf, vec![Value::I32(42)]).unwrap());
+    let AbiType::Array(element, _) = &wrapper.layout().fields[0].ty else {
+        panic!("array field")
+    };
+    let element = (**element).clone();
     let initial = Value::Array(
         runtime
-            .gc()
-            .alloc_array(vec![Value::Tuple(vec![valid.clone(), Value::Bool(true)])])
+            .alloc_array(
+                &module,
+                element.clone(),
+                vec![Value::Tuple(vec![valid.clone(), Value::Bool(true)])],
+            )
             .unwrap(),
     );
     let target = runtime
         .alloc_struct(wrapper.clone(), vec![initial.clone()])
         .unwrap();
-    for values in [
-        vec![wrong_value, Value::Bool(true)],
-        vec![valid, Value::I32(1)],
+    let AbiType::Tuple(mut wrong_member_type) = element.clone() else {
+        panic!("tuple element")
+    };
+    wrong_member_type[1] = AbiType::Builtin(BuiltinType::I32);
+    for (owner, ty, values) in [
+        (
+            &wrong_owner,
+            AbiType::Tuple(vec![wrong_type, AbiType::Builtin(BuiltinType::Bool)]),
+            vec![Value::Tuple(vec![wrong_value, Value::Bool(true)])],
+        ),
+        (
+            &module,
+            AbiType::Tuple(wrong_member_type.clone()),
+            vec![Value::Tuple(vec![valid, Value::I32(1)])],
+        ),
+        (&module, AbiType::Tuple(wrong_member_type), vec![]),
     ] {
-        let invalid = Value::Array(
-            runtime
-                .gc()
-                .alloc_array(vec![Value::Tuple(values)])
-                .unwrap(),
-        );
+        let invalid = Value::Array(runtime.alloc_array(owner, ty, values).unwrap());
         let before = runtime.resources().counters();
         let objects = runtime.gc().allocated_objects();
         assert_eq!(
@@ -303,7 +324,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         assert_eq!(runtime.resources().counters(), before);
         assert_eq!(runtime.gc().allocated_objects(), objects);
     }
-    let replacement = Value::Array(runtime.gc().alloc_array(vec![]).unwrap());
+    let replacement = Value::Array(runtime.alloc_array(&module, element, vec![]).unwrap());
     runtime
         .gc()
         .struct_set_slot(target, &wrapper, 0, replacement.clone())

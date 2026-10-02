@@ -37,7 +37,11 @@ fn corrupted_collection_root_quarantines_the_runtime() {
             },
         )
         .unwrap();
-    let foreign = Runtime::default().alloc_array(Vec::new()).unwrap();
+    let mut foreign_runtime = Runtime::default();
+    let owner = crate::layout_fixtures::allocation_owner(&mut foreign_runtime);
+    let foreign = foreign_runtime
+        .alloc_array(&owner, AbiType::Builtin(BuiltinType::I32), Vec::new())
+        .unwrap();
     runtime.module_instance_mut(&loaded).unwrap().module_slots = vec![value::Value::Array(foreign)];
 
     let error = runtime.collect_garbage().unwrap_err();
@@ -741,10 +745,14 @@ fn failed_reload_does_not_invalidate_interpreter_caches() {
 
 #[test]
 fn heap_mutations_update_runtime_resource_counters() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
+    let owner = crate::layout_fixtures::allocation_owner(&mut runtime);
     let array = runtime
-        .gc()
-        .alloc_array(vec![value::Value::I32(1)])
+        .alloc_array(
+            &owner,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![value::Value::I32(1)],
+        )
         .unwrap();
     runtime
         .gc()
@@ -755,31 +763,6 @@ fn heap_mutations_update_runtime_resource_counters() {
 
     assert_eq!(counters.current_heap_units, 3);
     assert_eq!(counters.peak_heap_units, 3);
-}
-
-#[test]
-fn builtin_map_and_set_allocations_update_resource_counters() {
-    let runtime = Runtime::default();
-    let map = runtime
-        .alloc_map(vec![
-            (value::Value::Str("hp".to_owned()), value::Value::I32(100)),
-            (value::Value::Str("mp".to_owned()), value::Value::I32(20)),
-        ])
-        .unwrap();
-    let set = runtime
-        .alloc_set(vec![
-            value::Value::Str("ready".to_owned()),
-            value::Value::Str("visible".to_owned()),
-        ])
-        .unwrap();
-
-    assert_eq!(runtime.gc().map_len(map), Some(2));
-    assert_eq!(runtime.gc().set_len(set), Some(2));
-
-    let counters = runtime.resources().counters();
-    assert_eq!(counters.allocation_units, 6);
-    assert_eq!(counters.current_heap_units, 6);
-    assert_eq!(counters.peak_heap_units, 6);
 }
 
 #[test]

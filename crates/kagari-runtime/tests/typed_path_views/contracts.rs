@@ -181,6 +181,8 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
         result_type,
         PathAccess::ReadWrite,
     );
+    let allocation = allocation_owner(&mut runtime);
+    let read_allocation = allocation.clone();
     let access = Rc::new(RefCell::new(None::<Weak<Runtime>>));
     let previous = Rc::new(Cell::new(None));
     let read_access = access.clone();
@@ -193,7 +195,13 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
             HostPathAdapter::new()
                 .with_read(move |_, _| {
                     let runtime = read_access.borrow().as_ref().unwrap().upgrade().unwrap();
-                    let value = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
+                    let value = runtime
+                        .alloc_array(
+                            &read_allocation,
+                            AbiType::Builtin(BuiltinType::I32),
+                            vec![Value::I32(1)],
+                        )
+                        .unwrap();
                     read_previous.set(Some(value));
                     Ok(Value::Array(value))
                 })
@@ -215,7 +223,13 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
         .unwrap();
     let runtime = Rc::new(runtime);
     *access.borrow_mut() = Some(Rc::downgrade(&runtime));
-    let next = runtime.alloc_array(vec![Value::I32(2)]).unwrap();
+    let next = runtime
+        .alloc_array(
+            &allocation,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(2)],
+        )
+        .unwrap();
     runtime
         .set_host_path(
             &Value::HostRoot(root),
@@ -228,8 +242,11 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     runtime.clear_host_dirty_paths();
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
-    let foreign = Runtime::default();
-    let other = foreign.alloc_array(vec![]).unwrap();
+    let mut foreign = Runtime::default();
+    let foreign_owner = allocation_owner(&mut foreign);
+    let other = foreign
+        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
     assert!(
         runtime
             .set_host_path(

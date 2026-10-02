@@ -9,14 +9,14 @@ use crate::{
 #[test]
 fn standard_item_spellings_require_installed_declarations() {
     for name in [
-        "std",
-        "std::option",
+        "core",
+        "core::language",
         "Eq",
         "Some",
         "None",
         "Option::Some",
-        "std::math::clamp",
-        "i32::from_str_radix",
+        "ArrayList::new",
+        "demo::native::choose",
     ] {
         let lowered = common::lower_ok(&format!("fn main() {{ {name}; }}"));
         let resolved = resolve_names(&lowered);

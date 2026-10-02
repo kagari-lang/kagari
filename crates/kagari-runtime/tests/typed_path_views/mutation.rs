@@ -371,7 +371,15 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
             .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
             .unwrap();
         let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
-        let array = runtime.alloc_array(vec![Value::I32(1)]).unwrap();
+        let allocation = allocation_owner(&mut runtime);
+        let commit_allocation = allocation.clone();
+        let array = runtime
+            .alloc_array(
+                &allocation,
+                AbiType::Builtin(BuiltinType::I32),
+                vec![Value::I32(1)],
+            )
+            .unwrap();
         let access = Rc::new(RefCell::new(None::<Weak<Runtime>>));
         let prepare_access = access.clone();
         let committed = Rc::new(Cell::new(false));
@@ -383,6 +391,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                     .with_read(|_, _| Ok(Value::I32(10)))
                     .with_prepare_write(move |_, _, _| {
                         let access = prepare_access.clone();
+                        let allocation = commit_allocation.clone();
                         let committed = prepare_committed.clone();
                         Ok(PreparedHostPathWrite::new(move || {
                             committed.set(true);
@@ -392,7 +401,13 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                                 "execute" => runtime
                                     .consume_logical_charge(LogicalBudgetCharge::Step)
                                     .unwrap_err(),
-                                "allocate" => runtime.alloc_array(vec![]).unwrap_err(),
+                                "allocate" => runtime
+                                    .alloc_array(
+                                        &allocation,
+                                        AbiType::Builtin(BuiltinType::I32),
+                                        vec![],
+                                    )
+                                    .unwrap_err(),
                                 "collect" => runtime.collect_garbage().unwrap_err(),
                                 "root" => {
                                     assert!(runtime.root_value(Value::Array(array)).is_none());
@@ -425,7 +440,10 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
         assert_eq!(runtime.resources().counters().instruction_steps, 0);
         assert_eq!(runtime.resources().counters().allocation_units, 2);
         assert_eq!(
-            runtime.alloc_array(vec![]).unwrap_err().kind(),
+            runtime
+                .alloc_array(&allocation, AbiType::Builtin(BuiltinType::I32), vec![])
+                .unwrap_err()
+                .kind(),
             RuntimeErrorKind::EngineFault
         );
         assert_eq!(
@@ -442,7 +460,17 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                 .kind(),
             RuntimeErrorKind::EngineFault
         );
-        assert!(Runtime::default().alloc_array(vec![]).is_ok());
+        let mut unaffected = Runtime::default();
+        let unaffected_owner = allocation_owner(&mut unaffected);
+        assert!(
+            unaffected
+                .alloc_array(
+                    &unaffected_owner,
+                    AbiType::Builtin(BuiltinType::I32),
+                    vec![]
+                )
+                .is_ok()
+        );
     }
 }
 

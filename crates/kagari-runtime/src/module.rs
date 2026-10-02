@@ -2,7 +2,7 @@ use crate::{
     cache::ReloadDependencySnapshot,
     error::RuntimeError,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
-    native::registration::NativeRegistration,
+    native::binding::LinkedNativeFunction,
     reload::ModuleEpoch,
     resource::ResourceState,
     session::ExecutionPhase,
@@ -165,14 +165,14 @@ pub struct LinkedModule {
     pub epoch: ModuleEpoch,
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
-    native_bindings: Vec<Rc<NativeRegistration>>,
+    native_bindings: Vec<Rc<LinkedNativeFunction>>,
     pub(crate) host_bindings: LinkedHostBindings,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkedHostBindings {
     pub functions: Vec<HostFunctionId>,
-    pub native: Vec<Rc<NativeRegistration>>,
+    pub native: Vec<Rc<LinkedNativeFunction>>,
     pub paths: Vec<HostPathDescriptorId>,
 }
 
@@ -241,7 +241,7 @@ impl LoadedModule {
         })
     }
     /// Registry entries are resolved once for this immutable program generation.
-    pub fn native_binding(&self, import: NativeImportId) -> Option<Rc<NativeRegistration>> {
+    pub fn native_binding(&self, import: NativeImportId) -> Option<Rc<LinkedNativeFunction>> {
         self.native_bindings.get(import.index()).cloned()
     }
 

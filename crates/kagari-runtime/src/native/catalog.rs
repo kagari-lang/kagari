@@ -1,35 +1,44 @@
 //! Immutable native contracts used for cross-package authoring and installation.
 mod dependencies;
-use crate::{error::RuntimeError, native::api::NativeApi};
+use crate::{error::RuntimeError, native::module::NativeModule};
 use kagari_abi::{
-    native_api::{NativeImplementation, NativeModule},
-    types::{NativeDeclaration, TraitAbi},
+    declaration::{ImplDecl, ModuleDecl},
+    types::{NativeDeclaration, TraitAbi, TypeAbi, TypeAbiKind},
 };
 use kagari_common::identity::{DefinitionId, DefinitionKind};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone, Default)]
-pub struct NativeCatalog {
+pub struct DeclarationCatalog {
+    pub(crate) types: Arc<BTreeMap<DefinitionId, TypeAbi>>,
     pub(crate) traits: Arc<BTreeMap<DefinitionId, TraitAbi>>,
     pub(crate) declarations: Arc<BTreeMap<DefinitionId, NativeDeclaration>>,
-    pub(crate) implementations: Arc<BTreeMap<DefinitionId, NativeImplementation>>,
+    pub(crate) implementations: Arc<BTreeMap<DefinitionId, ImplDecl>>,
 }
 
-impl NativeCatalog {
-    pub fn from_apis(apis: &[&NativeApi]) -> Result<Self, RuntimeError> {
+impl DeclarationCatalog {
+    pub fn from_modules(modules: &[&NativeModule]) -> Result<Self, RuntimeError> {
         let mut result = Self::default();
-        for api in apis {
-            result.merge(&api.catalog())?;
+        for module in modules {
+            result.merge(&module.catalog())?;
         }
         Ok(result)
     }
 
     pub(crate) fn declared<'a>(
-        modules: impl IntoIterator<Item = &'a NativeModule>,
+        modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<Self, RuntimeError> {
         let mut result = Self::default();
         for module in modules {
+            for ty in &module.types {
+                if matches!(ty.kind, TypeAbiKind::NativeStorage(_)) {
+                    result.insert_type(
+                        module.definition(DefinitionKind::AssociatedType, &ty.name),
+                        ty.clone(),
+                    )?;
+                }
+            }
             for contract in &module.traits {
                 result.insert(
                     module.definition(DefinitionKind::Trait, &contract.name),
@@ -72,7 +81,27 @@ impl NativeCatalog {
         Ok(())
     }
 
+    pub(crate) fn insert_type(
+        &mut self,
+        id: DefinitionId,
+        declaration: TypeAbi,
+    ) -> Result<(), RuntimeError> {
+        if let Some(previous) = self.types.get(&id) {
+            if previous != &declaration {
+                return Err(RuntimeError::metadata_conflict(
+                    "conflicting native storage type contracts",
+                ));
+            }
+        } else {
+            Arc::make_mut(&mut self.types).insert(id, declaration);
+        }
+        Ok(())
+    }
+
     pub(crate) fn merge(&mut self, other: &Self) -> Result<(), RuntimeError> {
+        for (id, declaration) in other.types.iter() {
+            self.insert_type(id.clone(), declaration.clone())?;
+        }
         for (declaration, contract) in other.traits.iter() {
             self.insert(declaration.clone(), contract.clone())?;
         }
@@ -88,7 +117,7 @@ impl NativeCatalog {
     pub(crate) fn insert_implementation(
         &mut self,
         id: DefinitionId,
-        implementation: NativeImplementation,
+        implementation: ImplDecl,
     ) -> Result<(), RuntimeError> {
         if let Some(previous) = self.implementations.get(&id) {
             if previous != &implementation {
@@ -125,9 +154,13 @@ impl NativeCatalog {
     }
 
     pub(crate) fn satisfied_by(&self, installed: &Self) -> bool {
-        self.traits
+        self.types
             .iter()
-            .all(|(id, contract)| installed.get(id) == Some(contract))
+            .all(|(id, declaration)| installed.types.get(id) == Some(declaration))
+            && self
+                .traits
+                .iter()
+                .all(|(id, contract)| installed.get(id) == Some(contract))
             && self
                 .declarations
                 .iter()
@@ -138,6 +171,7 @@ impl NativeCatalog {
     }
 
     pub(crate) fn foreign_to(mut self, owned: &Self) -> Self {
+        Arc::make_mut(&mut self.types).retain(|id, _| !owned.types.contains_key(id));
         Arc::make_mut(&mut self.traits).retain(|id, _| !owned.traits.contains_key(id));
         Arc::make_mut(&mut self.declarations).retain(|id, _| !owned.declarations.contains_key(id));
         Arc::make_mut(&mut self.implementations)
@@ -147,7 +181,7 @@ impl NativeCatalog {
 
     pub(crate) fn check_implementations<'a>(
         &self,
-        modules: impl IntoIterator<Item = &'a NativeModule>,
+        modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<(), RuntimeError> {
         for module in modules {
             module

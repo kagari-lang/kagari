@@ -253,7 +253,7 @@ impl<'a> TypeCatalog<'a> {
                 .collect(),
         };
         let ty = match item {
-            _ if native_type.is_some() => native_type?.apply(&nominal.arguments)?,
+            _ if native_type.is_some() => native_type.as_ref()?.apply(&nominal.arguments)?,
             ExportItem::Struct(_) => TypeId::Struct(nominal),
             ExportItem::Enum(_) => TypeId::Enum(nominal),
             ExportItem::Trait(_) => TypeId::Trait(nominal),

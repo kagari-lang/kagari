@@ -13,7 +13,10 @@ use kagari_abi::{
     native_import::NativeImport,
     representation::ValueType,
     slots::SemanticSlots,
-    types::{AbiType, ConcreteFunctionIdentity, NativeDeclaration, PublicAbiItem, TraitContract},
+    types::{
+        AbiType, ConcreteFunctionIdentity, NativeDeclaration, NominalAbiType, PublicAbiItem,
+        TraitContract,
+    },
 };
 use kagari_common::{
     host_interface::HostInterface,
@@ -148,6 +151,8 @@ impl RootSlotLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceTableRecord {
+    /// Optional dynamic surface that hides a concrete associated iterator.
+    pub view: Option<InterfaceViewRecord>,
     /// Ordered impl arguments. An empty record for a generic template retains
     /// static method instances and cannot be selected by MakeInterface.
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
@@ -155,6 +160,20 @@ pub struct InterfaceTableRecord {
     pub declaration: DefinitionId,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub methods: Vec<InterfaceMethodSlot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceViewRecord {
+    pub interface: NominalAbiType,
+    /// Only changed return representations have an adapter; raw slots remain exact.
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    pub results: Vec<InterfaceResultAdapter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceResultAdapter {
+    pub method: DefinitionId,
+    pub implementation: ConcreteFunctionIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

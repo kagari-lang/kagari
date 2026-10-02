@@ -1,15 +1,15 @@
 //! Collection contracts carry capabilities, never an allocator or hash algorithm.
-use crate::language::contracts::{
+use crate::language::catalog::contracts::{
     applied_item, boolean, contract, method, option, receiver, unit, usize_type,
 };
-use kagari_abi::{
+use crate::{
+    declaration::ModuleDecl,
     language::{Protocol, primitive},
-    native_api::NativeModule,
     types::AbiType,
 };
 use kagari_common::identity::associated_type_id;
 
-pub(super) fn declare(module: &mut NativeModule) {
+pub(super) fn declare(module: &mut ModuleDecl) {
     let mut list = contract(Protocol::List, &["T"]);
     let item = list.generic_params[0].as_type();
     let mut index = primitive::applied(Protocol::Index, vec![usize_type()]);

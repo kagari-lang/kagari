@@ -11,7 +11,7 @@ use kagari_abi::{
 use kagari_bytecode::{instruction::BinaryOp, module::CallableTarget};
 use kagari_common::host_interface::path::HostPathDeclaration;
 use reflection::ReflectionError;
-use session::SessionState;
+use session::{ExecutionEntry, SessionState};
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
@@ -46,6 +46,7 @@ pub mod session;
 pub mod value;
 pub mod value_semantics;
 
+use crate::gc::interfaces::InterfaceResultBinding;
 use crate::{
     builtin::BuiltinError,
     cache::{
@@ -64,7 +65,8 @@ use crate::{
     module::{
         LoadedModule, ModuleEpochRetention, ModuleInstance, ModuleKey, ModuleStore, VerifiedProgram,
     },
-    native::registration::NativeRegistry,
+    native::callable::PreparedClosure,
+    native::{foundation, registry::NativeRegistry},
     reload::ModuleEpochAllocator,
     resource::{ResourcePolicy, ResourceState},
     security::{DebugVisibilityPolicy, HostExposurePolicy, SecurityContext},
@@ -131,6 +133,7 @@ pub struct Runtime {
 /// A resolved dynamic method whose interface receiver stays rooted across
 /// safepoints and synchronous host reentry.
 pub struct RootedInterfaceMethod {
+    result_adapter: Option<InterfaceResultBinding>,
     _root: RootedValue,
     receiver: value::Value,
     concrete_type: AbiType,
@@ -168,7 +171,7 @@ impl RootedInterfaceMethod {
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = Rc::new(ResourceState::new(config.resources));
-        Self {
+        let mut runtime = Self {
             gc: Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
@@ -181,7 +184,12 @@ impl Runtime {
             resources,
             epochs: ModuleEpochAllocator::default(),
             interpreter_caches: InterpreterCacheRegistry::default(),
-        }
+        };
+        foundation::module()
+            .expect("checked language foundation")
+            .install(&mut runtime)
+            .expect("mandatory language implementation installation");
+        runtime
     }
 
     pub fn is_quarantined(&self) -> bool {
@@ -260,7 +268,24 @@ impl Runtime {
         &self,
         module: &LoadedModule,
     ) -> Result<ExecutionStack, RuntimeError> {
+        self.gc.ensure_no_native_borrow()?;
         let session = self.begin_execution(module, self.execution_options())?;
+        ExecutionStack::new(session, self.gc.clone())
+    }
+
+    /// A live closure carries its own generation-pinned dependency program.
+    /// Nested closure calls share the current session and its counters, while
+    /// ordinary entries still require the current caller's checked dependency graph.
+    pub fn enter_closure_execution_stack(
+        &self,
+        closure: &PreparedClosure,
+    ) -> Result<ExecutionStack, RuntimeError> {
+        closure.validate(self)?;
+        let session = self.begin_execution_inner(
+            &closure.snapshot().implementation,
+            self.execution_options(),
+            ExecutionEntry::RetainedClosure,
+        )?;
         ExecutionStack::new(session, self.gc.clone())
     }
 
@@ -315,7 +340,7 @@ impl Runtime {
             previous,
             resources: self.resources.clone(),
         };
-        match self.begin_execution_inner(candidate.module(), options, true) {
+        match self.begin_execution_inner(candidate.module(), options, ExecutionEntry::Candidate) {
             Ok(execution) => guard.execution = Some(execution),
             Err(error) => {
                 candidate.record_initialization_error(error.clone());
@@ -330,18 +355,19 @@ impl Runtime {
         module: &LoadedModule,
         options: ExecutionOptions,
     ) -> Result<ExecutionSession, RuntimeError> {
-        self.begin_execution_inner(module, options, false)
+        self.begin_execution_inner(module, options, ExecutionEntry::Program)
     }
 
     fn begin_execution_inner(
         &self,
         module: &LoadedModule,
         options: ExecutionOptions,
-        allow_staged_root: bool,
+        entry: ExecutionEntry,
     ) -> Result<ExecutionSession, RuntimeError> {
+        self.gc.ensure_no_native_borrow()?;
         if self.modules.is_staged(module)
             && self.resources.active_session().is_none()
-            && !allow_staged_root
+            && !matches!(entry, ExecutionEntry::Candidate)
         {
             return Err(RuntimeError::capability_denied(
                 "staged modules require the candidate session entry",
@@ -365,10 +391,27 @@ impl Runtime {
                     "candidate initialization requires an isolated root session",
                 ));
             }
-            if !session
+            let root_dependency = session
                 .root
                 .members()
-                .any(|member| member.key() == module.key())
+                .any(|member| member.key() == module.key());
+            let caller_dependency = session
+                .frames
+                .try_borrow()
+                .map_err(|_| {
+                    self.resources
+                        .quarantine("frame stack is borrowed across execution")
+                })?
+                .last()
+                .is_some_and(|frame| {
+                    frame
+                        .loaded()
+                        .members()
+                        .any(|member| member.key() == module.key())
+                });
+            if !root_dependency
+                && !caller_dependency
+                && !matches!(entry, ExecutionEntry::RetainedClosure)
             {
                 return Err(RuntimeError::module_validation(
                     "nested execution must use the pinned dependency program",
@@ -686,6 +729,7 @@ impl Runtime {
     }
 
     pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
+        self.gc.ensure_no_native_borrow()?;
         self.resources.ensure_execution_allowed()?;
         let mut roots = self.modules.gc_roots();
         roots.extend(self.host.gc_roots());

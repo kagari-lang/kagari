@@ -1,9 +1,10 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
-use crate::language::contracts::{applied_item, method, unit};
-use kagari_abi::{
+use crate::language::catalog::contracts::{applied_item, method, unit};
+use crate::{
     callable::CallableImplementation,
+    declaration::{ImplDecl, ModuleDecl},
     language::{self, Protocol, primitive},
-    native_api::{NativeImplementation, NativeModule},
+    native_import::callables::NativeCallableRequirement,
     scalar::BuiltinType,
     standard::surface::StandardEnum,
     types::{
@@ -19,7 +20,7 @@ use kagari_common::{
 };
 
 fn define_type(
-    module: &mut NativeModule,
+    module: &mut ModuleDecl,
     name: &str,
     layout: NativeTypeConstructor,
     parameters: &[&str],
@@ -72,6 +73,9 @@ fn hash_bounds(key: AbiType) -> Vec<GenericBoundAbi> {
         constraints: vec![
             ConstraintAbi::Trait(primitive::applied(Protocol::Eq, vec![])),
             ConstraintAbi::Trait(primitive::applied(Protocol::Hash, vec![])),
+            // The selected equality member belongs to PartialEq. Carry its
+            // inherited obligation explicitly in the portable callback template.
+            ConstraintAbi::Trait(primitive::applied(Protocol::PartialEq, vec![])),
         ],
     }]
 }
@@ -87,7 +91,7 @@ fn parameters(owner: &DefinitionId, names: &[&str]) -> Vec<GenericParameterAbi> 
         .collect()
 }
 
-fn binding(module: &NativeModule, family: &str, name: &str) -> DefinitionId {
+fn binding(module: &ModuleDecl, family: &str, name: &str) -> DefinitionId {
     module.definition(
         DefinitionKind::Function,
         &format!("$foundation_{family}_{name}"),
@@ -95,7 +99,7 @@ fn binding(module: &NativeModule, family: &str, name: &str) -> DefinitionId {
 }
 
 fn implement(
-    module: &mut NativeModule,
+    module: &mut ModuleDecl,
     kind: Protocol,
     generic_params: Vec<GenericParameterAbi>,
     applied: NominalAbiType,
@@ -122,9 +126,48 @@ fn implement(
         .last_mut()
         .expect("new implementation")
         .bounds = bounds;
+    declare_key_calls(module, family);
 }
 
-pub(super) fn declare(module: &mut NativeModule) {
+fn declare_key_calls(module: &mut ModuleDecl, family: &str) {
+    if !matches!(family, "map" | "set") {
+        return;
+    }
+    let index = module.implementations.len() - 1;
+    let implementation = &module.implementations[index];
+    let key = implementation.generic_params[0].as_type();
+    let requirements: Vec<_> = [(Protocol::Hash, "hash"), (Protocol::PartialEq, "eq")]
+        .into_iter()
+        .map(|(protocol, name)| {
+            let interface = primitive::applied(protocol, vec![]);
+            NativeCallableRequirement {
+                receiver: key.clone(),
+                member: ModuleDecl::method_id(&interface.declaration, name),
+                interface,
+                arguments: vec![],
+            }
+        })
+        .collect();
+    let owner = module.implementation_id(index);
+    let methods: Vec<_> = implementation
+        .methods
+        .iter()
+        .filter(|method| {
+            matches!(
+                method.name.as_str(),
+                "new" | "get" | "contains" | "contains_key" | "insert" | "insert_fluent" | "remove"
+            )
+        })
+        .map(|method| ModuleDecl::method_id(&owner, &method.name))
+        .collect();
+    for method in methods {
+        module
+            .callable_requirements
+            .insert(method, requirements.clone());
+    }
+}
+
+pub(super) fn declare(module: &mut ModuleDecl) {
     define_type(module, "String", NativeTypeConstructor::String, &[], false);
     for (name, kind, parameters) in [
         ("Option", StandardEnum::Option, &["T"][..]),
@@ -246,7 +289,7 @@ pub(super) fn declare(module: &mut NativeModule) {
     }
 }
 
-fn range_implementations(module: &mut NativeModule, kind: RangeKind) {
+fn range_implementations(module: &mut ModuleDecl, kind: RangeKind) {
     let owner = module.implementation_id(module.implementations.len());
     let params = parameters(&owner, &["T"]);
     let item = params[0].as_type();
@@ -311,7 +354,7 @@ fn storage(family: &str, items: &[AbiType]) -> AbiType {
     }
 }
 
-fn inherent(module: &mut NativeModule, family: &str, names: &[&str]) {
+fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
     let owner = module.implementation_id(module.implementations.len());
     let parameters = parameters(&owner, names);
     let items: Vec<_> = parameters
@@ -372,11 +415,12 @@ fn inherent(module: &mut NativeModule, family: &str, names: &[&str]) {
         method.generic_params = parameters.clone();
         method.bounds = bounds.clone();
     }
-    module.implementations.push(NativeImplementation {
+    module.implementations.push(ImplDecl {
         generic_params: parameters,
         bounds,
         trait_type: None,
         for_type: receiver,
         methods,
     });
+    declare_key_calls(module, family);
 }
