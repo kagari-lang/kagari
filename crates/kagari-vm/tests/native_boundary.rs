@@ -220,13 +220,19 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         struct Counter { val amount: i32 }
         impl Step for Counter { fn step(self, value: i32) -> i32 { value + self.amount } }
         fn main() -> i32 { repeat(Counter { amount: 14 }, 3) }
+        trait Runner { fn run<T: Step>(self, item: T) -> i32 { repeat(item, 3) } }
+        struct Source {}
+        impl Runner for Source {}
+        fn shared() -> i32 { val source: Runner = Source {}; source.run(Counter { amount: 14 }) }
     "#,
         Some(&module),
     );
-    assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
-        Value::I32(42)
-    );
+    for entry in ["main", "shared"] {
+        assert_eq!(
+            vm.execute(&loaded, entry).unwrap().return_value,
+            Value::I32(42)
+        );
+    }
 }
 
 #[derive(Debug)]
@@ -257,8 +263,10 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
     declaration.type_parameter("T").unwrap();
     declaration
         .native_storage(NativeStorage::new(move |context| {
-            let values =
-                context.allocate_sequence(Type::i32().abi().clone(), vec![Value::I32(42)])?;
+            let values = context.allocate_sequence(
+                context.resolve_type(Type::i32().abi())?,
+                vec![Value::I32(42)],
+            )?;
             Ok(TracedCounter {
                 values,
                 dropped: factory_dropped.clone(),
@@ -294,7 +302,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
                         // Collection and execution cannot invalidate this scoped Rust borrow.
                         assert!(
                             context
-                                .allocate_sequence(Type::i32().abi().clone(), vec![])
+                                .allocate_sequence(context.resolve_type(Type::i32().abi())?, vec![])
                                 .unwrap_err()
                                 .message()
                                 .contains("native storage access")

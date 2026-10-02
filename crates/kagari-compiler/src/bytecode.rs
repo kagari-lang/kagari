@@ -7,6 +7,7 @@ use crate::bytecode::{
     interfaces::{collect_interface_tables, interface_instances},
 };
 use kagari_abi::{
+    callable::CallableImplementation,
     ids::FunctionRef,
     layout::{EnumLayout, StructLayout},
     native_import::NativeImport,
@@ -21,8 +22,8 @@ use kagari_bytecode::{
         RuntimeHelper, StructId, UnaryOp,
     },
     module::{
-        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
-        PathRecord, RootSlotLayout,
+        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, CallableTarget, FunctionMetadata,
+        FunctionRecord, PathRecord, RootSlotLayout,
     },
     program::{BytecodeProgram, ModuleRef, verify_program},
     verifier::{BytecodeVerificationError, verify_module},
@@ -69,6 +70,10 @@ pub fn lower_to_bytecode(ir: &VerifiedMirModule) -> Result<BytecodeModule, Bytec
                     callee: MirCallTarget::InterfaceMethod(contract),
                     ..
                 } => contract.interface.declaration.module != ir.identity,
+                Instruction::Call {
+                    callee: MirCallTarget::Shared(contract),
+                    ..
+                } => contract.instance.declaration.module != ir.identity,
                 Instruction::MakeInterface { implementation, .. } => {
                     implementation.module != ir.identity
                 }
@@ -198,7 +203,11 @@ impl BytecodeLoweringContext<'_> {
             .or_insert_with(|| interface_instances(owner, self.program));
         let table = tables
             .iter()
-            .position(|table| table.declaration == *implementation && table.arguments == arguments)
+            .position(|table| {
+                table.declaration == *implementation
+                    && table.arguments
+                        == interfaces::table_arguments(owner, implementation, arguments)
+            })
             .expect("verified interface instance");
         (module, InterfaceTableRef::new(table))
     }
@@ -230,7 +239,7 @@ impl BytecodeLoweringContext<'_> {
             self.structures
                 .iter()
                 .position(|layout| {
-                    layout.declaration == id.declaration && layout.arguments == id.arguments
+                    layout.declaration == id.declaration && layout.accepts(&id.arguments)
                 })
                 .expect("verified struct layout"),
         )
@@ -238,6 +247,7 @@ impl BytecodeLoweringContext<'_> {
     fn field_ref(&self, field: &AggregateFieldRef) -> FieldRef {
         FieldRef {
             structure: self.structure_id(&field.owner),
+            arguments: field.owner.arguments.clone(),
             slot: field.slot as u32,
         }
     }
@@ -541,11 +551,55 @@ fn lower_instruction(
                         function: FunctionRef::new(target.function.index()),
                     }
                 }
+                MirCallTarget::Shared(contract) => {
+                    let ir = context.ir.expect("shared call owner");
+                    let (module, target) = match &contract.implementation {
+                        CallableImplementation::Script => {
+                            if let Some(program) = context.program {
+                                let target = program
+                                    .function(&contract.instance)
+                                    .expect("verified shared function");
+                                (
+                                    ModuleRef::new(target.module),
+                                    CallableTarget::Script(FunctionRef::new(
+                                        target.function.index(),
+                                    )),
+                                )
+                            } else {
+                                let target = ir
+                                    .functions
+                                    .iter()
+                                    .find(|function| function.instance == contract.instance)
+                                    .expect("verified shared function");
+                                (
+                                    ModuleRef::new(0),
+                                    CallableTarget::Script(FunctionRef::new(target.id.index())),
+                                )
+                            }
+                        }
+                        CallableImplementation::Native(_) => {
+                            let import = ir
+                                .native_targets
+                                .iter()
+                                .find(|import| import.instance == contract.instance)
+                                .expect("verified shared native target");
+                            (
+                                context.owner_ref(&ir.identity),
+                                CallableTarget::Native(context.native_import(import)),
+                            )
+                        }
+                        _ => unreachable!("verified shared callable kind"),
+                    };
+                    CallTarget::Shared {
+                        module,
+                        target,
+                        contract: contract.clone(),
+                    }
+                }
                 MirCallTarget::Function(id) => CallTarget::Function(FunctionRef::new(id.index())),
                 MirCallTarget::InterfaceMethod(contract) => CallTarget::InterfaceMethod {
                     module: context.owner_ref(&contract.interface.declaration.module),
-                    interface: contract.interface.clone(),
-                    method_slot: contract.method_slot,
+                    contract: contract.clone(),
                 },
                 MirCallTarget::Native(contract) => {
                     CallTarget::Native(context.native_import(contract))
@@ -672,6 +726,7 @@ fn lower_instruction(
                 value: lower_value(*value),
                 module,
                 implementation,
+                arguments: arguments.clone(),
             }
         }
         Instruction::Convert {
@@ -730,10 +785,11 @@ fn lower_instruction(
                     .iter()
                     .position(|layout| {
                         layout.declaration == enumeration.declaration
-                            && layout.arguments == enumeration.arguments
+                            && layout.accepts(&enumeration.arguments)
                     })
                     .expect("verified enum layout"),
             ),
+            arguments: enumeration.arguments.clone(),
             variant: *variant as u32,
             fields: fields.iter().map(|value| lower_value(*value)).collect(),
         },
@@ -751,10 +807,11 @@ fn lower_instruction(
                     .iter()
                     .position(|layout| {
                         layout.declaration == enumeration.declaration
-                            && layout.arguments == enumeration.arguments
+                            && layout.accepts(&enumeration.arguments)
                     })
                     .expect("verified enum layout"),
             ),
+            arguments: enumeration.arguments.clone(),
             variant: *variant as u32,
         },
         Instruction::ReadEnumPayload {
@@ -772,10 +829,11 @@ fn lower_instruction(
                     .iter()
                     .position(|layout| {
                         layout.declaration == enumeration.declaration
-                            && layout.arguments == enumeration.arguments
+                            && layout.accepts(&enumeration.arguments)
                     })
                     .expect("verified enum layout"),
             ),
+            arguments: enumeration.arguments.clone(),
             variant: *variant as u32,
             index: *index as u32,
         },
@@ -789,6 +847,7 @@ fn lower_instruction(
             BytecodeInstruction::MakeStruct {
                 dst: lower_value(*dst),
                 structure: context.structure_id(structure),
+                arguments: structure.arguments.clone(),
                 fields: ordered
                     .into_iter()
                     .map(|field| lower_value(field.value))

@@ -224,20 +224,10 @@ fn list_set_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.argument(0)
 }
 fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.runtime.iter_operation(
-        cx.owner(),
-        &cx.argument(0)?,
-        cx.argument_type(0)?,
-        IterOp::New,
-    )
+    cx.iter_operation(0, IterOp::New)
 }
 fn next(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.runtime.iter_operation(
-        cx.owner(),
-        &cx.argument(0)?,
-        cx.argument_type(0)?,
-        IterOp::Next,
-    )
+    cx.iter_operation(0, IterOp::Next)
 }
 fn start_bound(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     range_bound(cx, false)

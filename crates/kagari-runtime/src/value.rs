@@ -5,7 +5,9 @@ use crate::{
     range::RangeValue,
     value_semantics,
 };
-use kagari_abi::{representation::ValueType, types::AbiType};
+use kagari_abi::{
+    representation::ValueType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
+};
 use kagari_common::identity::DefinitionId;
 use std::{
     collections::hash_map::DefaultHasher,
@@ -96,6 +98,26 @@ impl EnumTag {
             }
         }
     }
+    /// Select the declared generic payload slot, distinguishing empty variants
+    /// from a tag belonging to another enum family.
+    pub(crate) fn standard_payload(&self, kind: StandardEnumKind) -> Option<Option<usize>> {
+        match (kind, self) {
+            (StandardEnumKind::Bound, Self::BoundUnbounded)
+            | (StandardEnumKind::TryFromIntError, Self::TryFromIntError)
+            | (
+                StandardEnumKind::Ordering,
+                Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater,
+            )
+            | (StandardEnumKind::Option, Self::OptionNone) => Some(None),
+            (StandardEnumKind::ParseError, Self::ParseError(index)) if *index < 5 => Some(None),
+            (StandardEnumKind::Bound, Self::BoundIncluded | Self::BoundExcluded)
+            | (StandardEnumKind::Option, Self::OptionSome)
+            | (StandardEnumKind::Result, Self::ResultOk) => Some(Some(0)),
+            (StandardEnumKind::Result, Self::ResultErr) => Some(Some(1)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn accepts_representations(&self, fields: &[Value]) -> bool {
         match self {
             Self::ParseError(index) => *index < 5 && fields.is_empty(),
@@ -334,6 +356,9 @@ pub enum Value {
 
 impl Value {
     pub fn has_representation(&self, ty: ValueType) -> bool {
+        if ty == ValueType::Generic {
+            return !matches!(self, Self::Ephemeral(_));
+        }
         matches!(
             (self, ty),
             (Self::Unit, ValueType::Unit)

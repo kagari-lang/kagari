@@ -3,7 +3,7 @@ use crate::{
     representation::ValueType,
     scalar::BuiltinType,
     standard::surface::StandardEnum as StandardEnumKind,
-    types::{AbiType, verify},
+    types::{AbiType, GenericParameterAbi, verify},
 };
 use kagari_common::range::RangeKind;
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,15 @@ pub enum StandardEnumOp {
 
 impl StandardEnumOp {
     pub fn contract(self, ty: &AbiType) -> Option<(Option<ValueType>, ValueType)> {
-        if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
+        self.contract_in(ty, &[])
+    }
+
+    pub fn contract_in(
+        self,
+        ty: &AbiType,
+        parameters: &[GenericParameterAbi],
+    ) -> Option<(Option<ValueType>, ValueType)> {
+        if !verify::types_in_scope([ty], parameters, &Default::default()) {
             return None;
         }
         let AbiType::StandardEnum { kind, args } = ty else {

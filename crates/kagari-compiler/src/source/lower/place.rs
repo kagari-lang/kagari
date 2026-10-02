@@ -7,17 +7,14 @@ use kagari_hir::{
 };
 
 use kagari_abi::{
-    language::Protocol, numeric::NumericOperation, operations::BinaryOp, representation::ValueType,
-    scalar::BuiltinType, types::NominalAbiType,
+    callable::interface::InterfaceCallContract, language::Protocol, numeric::NumericOperation,
+    operations::BinaryOp, representation::ValueType, scalar::BuiltinType, types::NominalAbiType,
 };
 use kagari_common::identity;
 
 use kagari_mir::{
     ids::LocalId,
-    instruction::{
-        AggregateFieldRef, CallTarget, Instruction, InterfaceCallContract, MirValue, PathRef,
-        ValueBuffer,
-    },
+    instruction::{AggregateFieldRef, CallTarget, Instruction, MirValue, PathRef, ValueBuffer},
 };
 use std::ops::ControlFlow;
 
@@ -400,6 +397,9 @@ impl FunctionLowerer<'_, '_> {
                     self.emit(Instruction::Call {
                         dst: None,
                         callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                            receiver: None,
+                            operations: vec![],
+                            arguments: vec![],
                             interface,
                             method_slot: slot as u32,
                         })),
@@ -443,6 +443,9 @@ impl FunctionLowerer<'_, '_> {
             ProjectionKind::InterfaceIndex { index, read, .. } => self.emit(Instruction::Call {
                 dst: Some(dst),
                 callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                    receiver: None,
+                    operations: vec![],
+                    arguments: vec![],
                     interface: read.clone(),
                     method_slot: 0,
                 })),

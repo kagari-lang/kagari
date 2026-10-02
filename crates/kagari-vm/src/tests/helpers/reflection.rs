@@ -82,6 +82,7 @@ fn declared_reflection_reads_are_available() {
                         BytecodeInstruction::MakeStruct {
                             dst: Register::new(1),
                             structure: StructId::new(0),
+                            arguments: vec![],
                             fields: vec![Register::new(0)],
                         },
                         BytecodeInstruction::Call {
@@ -126,6 +127,7 @@ fn declared_reflection_writes_are_available() {
                         BytecodeInstruction::MakeStruct {
                             dst: Register::new(1),
                             structure: StructId::new(0),
+                            arguments: vec![],
                             fields: vec![Register::new(0)],
                         },
                         BytecodeInstruction::LoadConst {
@@ -170,6 +172,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
                 BytecodeInstruction::MakeStruct {
                     dst: Register::new(1),
                     structure: StructId::new(0),
+                    arguments: vec![],
                     fields: vec![Register::new(0)],
                 },
                 BytecodeInstruction::LoadConst {

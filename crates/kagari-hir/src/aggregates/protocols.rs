@@ -53,13 +53,28 @@ impl AggregateCatalog {
         let Some(method) = self.trait_method(&required.member) else {
             return Ok(None);
         };
-        if !contract.generic_params.is_empty() || !method.generic_params.is_empty() {
+        if contract.generic_params.len() != interface.arguments.len()
+            || method.generic_params.len() != contract.generic_params.len()
+        {
             return Ok(None);
         }
         let mut substitution = TypeSubstitution::default();
+        substitution.extend(
+            contract
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(interface.arguments.iter().cloned()),
+        );
         substitution.insert_receiver(interface.declaration.clone(), receiver.clone());
-        let normalize =
-            |ty: &TypeId| lower_type(&self.normalize_type(&ty.instantiate(&substitution)));
+        let normalize = |ty: &TypeId| {
+            lower_type(
+                &self.normalize_type(
+                    &ty.instantiate(&substitution)
+                        .with_associated_types(interface),
+                ),
+            )
+        };
         let signature = NativeSignature {
             params: method
                 .params

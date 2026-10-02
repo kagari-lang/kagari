@@ -1,5 +1,6 @@
-use crate::program::ModuleRef;
+use crate::{module::CallableTarget, program::ModuleRef};
 use kagari_abi::{
+    callable::{interface::InterfaceCallContract, shared::SharedCall},
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
     operations::{IterOp, StandardEnumOp},
@@ -96,9 +97,11 @@ impl StructId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FieldRef {
     pub structure: StructId,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    pub arguments: Vec<AbiType>,
     pub slot: u32,
 }
 
@@ -159,6 +162,11 @@ impl PartialEq for ConstantOperand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallTarget {
+    Shared {
+        module: ModuleRef,
+        target: CallableTarget,
+        contract: Box<SharedCall>,
+    },
     ModuleFunction {
         module: ModuleRef,
         function: FunctionRef,
@@ -166,8 +174,7 @@ pub enum CallTarget {
     Function(FunctionRef),
     InterfaceMethod {
         module: ModuleRef,
-        interface: NominalAbiType,
-        method_slot: u32,
+        contract: Box<InterfaceCallContract>,
     },
     Native(NativeImportId),
     Register(Register),
@@ -349,16 +356,22 @@ pub enum BytecodeInstruction {
         value: Register,
         module: ModuleRef,
         implementation: InterfaceTableRef,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+        arguments: Vec<AbiType>,
     },
     MakeStruct {
         dst: Register,
         structure: StructId,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+        arguments: Vec<AbiType>,
         #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         fields: Vec<Register>,
     },
     MakeEnum {
         dst: Register,
         enumeration: EnumId,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+        arguments: Vec<AbiType>,
         variant: u32,
         #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         fields: Vec<Register>,
@@ -367,12 +380,16 @@ pub enum BytecodeInstruction {
         dst: Register,
         value: Register,
         enumeration: EnumId,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+        arguments: Vec<AbiType>,
         variant: u32,
     },
     ReadEnumPayload {
         dst: Register,
         value: Register,
         enumeration: EnumId,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+        arguments: Vec<AbiType>,
         variant: u32,
         index: u32,
     },
@@ -439,6 +456,19 @@ pub enum BytecodeInstruction {
 }
 
 impl BytecodeInstruction {
+    pub(crate) fn layout_arguments(&self) -> Option<&[AbiType]> {
+        match self {
+            Self::MakeStruct { arguments, .. }
+            | Self::MakeEnum { arguments, .. }
+            | Self::TestEnumVariant { arguments, .. }
+            | Self::ReadEnumPayload { arguments, .. } => Some(arguments),
+            Self::ReadAggregateField { field, .. } | Self::WriteAggregateField { field, .. } => {
+                Some(&field.arguments)
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn operand_vector_len(&self) -> usize {
         match self {
             Self::Call { args, .. } => args.len(),

@@ -126,12 +126,15 @@ pub(crate) fn lower_protocol<'a>(
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
-    let binary = matches!(protocol, Protocol::PartialEq | Protocol::Ord);
+    let binary = matches!(
+        protocol,
+        Protocol::PartialEq | Protocol::Ord | Protocol::PartialOrd | Protocol::Fn
+    );
     let interface = match instance.key.arguments.get(1) {
         Some(TypeId::Trait(interface)) => interface.clone(),
         _ => protocol.nominal(),
     };
-    let iteration_result = if protocol.iteration() {
+    let iteration_result = if protocol.iteration() || protocol == Protocol::Fn {
         let method = planner
             .catalog
             .trait_(&interface.declaration)
@@ -158,7 +161,16 @@ pub(crate) fn lower_protocol<'a>(
         name: String::new(),
         params: Default::default(),
         return_type: match protocol {
-            Protocol::Iterable | Protocol::Iterator => iteration_result.expect("iteration result"),
+            Protocol::Iterable | Protocol::Iterator | Protocol::Fn => {
+                iteration_result.expect("protocol result")
+            }
+            Protocol::PartialOrd => TypeId::StandardEnum {
+                kind: StandardEnum::Option,
+                args: vec![TypeId::StandardEnum {
+                    kind: StandardEnum::Ordering,
+                    args: vec![],
+                }],
+            },
             Protocol::Ord => TypeId::StandardEnum {
                 kind: StandardEnum::Ordering,
                 args: vec![],
@@ -181,6 +193,8 @@ pub(crate) fn lower_protocol<'a>(
             Protocol::Iterator => "next",
             Protocol::PartialEq => "eq",
             Protocol::Ord => "cmp",
+            Protocol::PartialOrd => "partial_cmp",
+            Protocol::Fn => "call",
             Protocol::Hash => "hash",
             Protocol::Debug => "debug",
             Protocol::Display => "display",
@@ -218,7 +232,15 @@ pub(crate) fn lower_protocol<'a>(
     );
     let mut args = Vec::new();
     for index in 0..if binary { 2 } else { 1 } {
-        let physical = lowerer.value_type(&receiver)?;
+        let parameter = if protocol == Protocol::Fn && index == 1 {
+            interface
+                .arguments
+                .first()
+                .ok_or(MirLoweringError::MissingBinding("callable argument tuple"))?
+        } else {
+            &receiver
+        };
+        let physical = lowerer.value_type(parameter)?;
         let name = format!("arg_{index}");
         let local = lowerer.alloc_local(name.clone(), physical, lowerer.function.debug.source_span);
         lowerer
@@ -233,7 +255,7 @@ pub(crate) fn lower_protocol<'a>(
             ty: physical,
             local,
         });
-        let semantic = lowerer.semantic_type(&receiver)?;
+        let semantic = lowerer.semantic_type(parameter)?;
         lowerer
             .function
             .semantic
@@ -249,7 +271,7 @@ pub(crate) fn lower_protocol<'a>(
         args.push(value);
     }
     let value = match protocol {
-        Protocol::Iterable | Protocol::Iterator => {
+        Protocol::Iterable | Protocol::Iterator | Protocol::Fn => {
             if protocol == Protocol::Iterable && typed.return_type == receiver {
                 args[0]
             } else {
@@ -261,6 +283,11 @@ pub(crate) fn lower_protocol<'a>(
                 )?
             }
         }
+        Protocol::PartialOrd => lowerer.emit_intrinsic(
+            RuntimePrimitive::ValuePartialCmp,
+            &args,
+            ValueType::HeapObject,
+        ),
         Protocol::Ord => {
             lowerer.emit_intrinsic(RuntimePrimitive::ValueCmp, &args, ValueType::HeapObject)
         }

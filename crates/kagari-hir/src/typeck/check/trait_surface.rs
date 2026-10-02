@@ -275,26 +275,14 @@ pub(super) fn validate_trait_surface(
 }
 
 pub(super) fn trait_method_interface_compatible(
-    lowered: &LoweredModule,
     function_index: &FunctionTypeIndex,
     function_id: FunctionId,
-    trait_generic_count: usize,
     interface: &NominalType,
 ) -> bool {
-    let Some(hir_function) = lowered
-        .module
-        .functions
-        .iter()
-        .find(|function| function.id == function_id)
-    else {
-        return false;
-    };
     let Some(function) = function_index.by_id.get(&function_id) else {
         return false;
     };
     interface_method_compatible(
-        hir_function.generic_params.len(),
-        trait_generic_count,
         function
             .params
             .first()
@@ -384,10 +372,8 @@ pub(super) fn validate_interface_type(
                 }
                 for method in &trait_def.methods {
                     if !trait_method_interface_compatible(
-                        lowered,
                         function_index,
                         method.function,
-                        trait_def.generic_params.len(),
                         trait_name,
                     ) {
                         diagnostics.push(

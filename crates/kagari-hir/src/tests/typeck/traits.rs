@@ -116,32 +116,21 @@ where T: Missing
 }
 
 #[test]
-fn rejects_interface_use_of_generic_trait_methods() {
+fn accepts_interface_use_of_generic_trait_methods() {
     let lowered = common::lower_ok(
         r#"
 trait Mapper {
     fn map<T>(self, value: T) -> T;
 }
 
-fn use_mapper(value: Mapper) {
-    value;
+fn use_mapper(value: Mapper) -> (i32, String) {
+    (value.map(42), value.map("answer"))
 }
 "#,
     );
-    let names = resolve_names(&lowered)
+    crate::analyze_source(&lowered.source)
         .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
-        .into_checked()
-        .expect_err("type checker should reject interface type");
-
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::InvalidInterfaceType {
-                trait_name: "Mapper".to_string(),
-                reason: "method `map` is not interface-compatible".to_string(),
-            }
-    }));
+        .expect("method arguments are inferred independently through the same interface");
 }
 
 #[test]
@@ -265,7 +254,7 @@ fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
 }
 
 #[test]
-fn applied_trait_interface_type_allows_inherited_binders_only() {
+fn applied_trait_interface_type_keeps_trait_and_method_binders_distinct() {
     let valid = common::lower_ok(
         "trait Echo<T> { fn get(self) -> T; } fn use_interface(value: Echo<i32>) {}",
     );
@@ -274,16 +263,35 @@ fn applied_trait_interface_type_allows_inherited_binders_only() {
         .into_checked()
         .expect("an applied trait interface has concrete inherited arguments");
 
-    let invalid = common::lower_ok(
-        "trait Echo<T> { fn get<U>(self, value: U) -> T; } fn use_interface(value: Echo<i32>) {}",
+    let generic = common::lower_ok(
+        "trait Echo<T> { fn get<U>(self, value: U) -> T; } fn use_interface(value: Echo<i32>) -> i32 { value.get(\"key\") }",
     );
-    let names = resolve_names(&invalid).into_checked().unwrap();
-    let diagnostics = check_module(&invalid, &names, None)
+    let names = resolve_names(&generic).into_checked().unwrap();
+    check_module(&generic, &names, None)
         .into_checked()
-        .expect_err("a method-local generic binder is not interface compatible");
+        .expect("T remains i32 while method U is inferred as String");
+}
+
+#[test]
+fn generic_interface_method_checks_bounds_and_forwards_generic_arguments() {
+    let valid = common::lower_ok(
+        r#"
+trait Transform { fn apply<K: Ord>(self, value: K) -> K; }
+fn forward<K: Ord>(receiver: Transform, value: K) -> K { receiver.apply(value) }
+fn call(receiver: Transform) -> i32 { forward(receiver, 42) }
+"#,
+    );
+    crate::analyze_source(&valid.source)
+        .into_checked()
+        .expect("generic interface call forwards a statically proven bound");
+    let invalid = common::lower_ok(
+        "trait Transform { fn apply<K: Ord>(self, value: K) -> K; } struct Unordered {} fn call(receiver: Transform) { receiver.apply(Unordered {}); }",
+    );
+    let diagnostics = crate::analyze_source(&invalid.source)
+        .into_checked()
+        .expect_err("interface calls must not bypass method-local bounds");
     assert!(diagnostics.iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidInterfaceType { reason, .. }
-            if reason == "method `get` is not interface-compatible"
+        diagnostic.kind,
+        DiagnosticKind::GenericBoundNotSatisfied { .. }
     )));
 }

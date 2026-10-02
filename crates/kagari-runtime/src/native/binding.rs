@@ -1,9 +1,15 @@
 //! Checked Rust conversion views prepared once for a concrete executable import.
 use crate::{
+    Runtime,
     error::RuntimeError,
+    frame::types::{
+        TypeEnvironment,
+        arguments::{ScopedSignature, TypeArgument},
+    },
+    module::LoadedModule,
     native::{
         catalog::DeclarationCatalog,
-        context::{CallContext, LinkedCallable},
+        context::{CallContext, LinkedCallable, LinkedOperation},
     },
     value::Value,
 };
@@ -12,7 +18,7 @@ use kagari_abi::{
     types::{AbiType, TypeAbiKind, native::NativeStorageLayout},
 };
 use kagari_common::{collection::CollectionAccess, identity::DefinitionId};
-use std::{fmt, rc::Rc};
+use std::{fmt, rc::Rc, slice};
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
 pub type NativeEntry = dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>;
@@ -143,9 +149,66 @@ impl NativeBinding {
 pub struct LinkedNativeFunction {
     pub(crate) binding: NativeBinding,
     pub(crate) signature: NativeSignature,
-    pub(crate) selected: Box<[LinkedCallable]>,
+    pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
+    pub(crate) selected: Box<[LinkedOperation]>,
 }
 impl LinkedNativeFunction {
+    pub(crate) fn apply(
+        &self,
+        runtime: &Runtime,
+        owner: &LoadedModule,
+        environment: Rc<TypeEnvironment>,
+    ) -> NativeResult<Self> {
+        let params =
+            runtime.type_arguments(owner, Some(environment.clone()), &self.signature.params)?;
+        let result = runtime
+            .type_arguments(
+                owner,
+                Some(environment.clone()),
+                slice::from_ref(&self.signature.result),
+            )?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("native return type"))?;
+        let signature = NativeSignature {
+            params: params
+                .iter()
+                .map(|argument| argument.ty().clone())
+                .collect(),
+            result: result.ty().clone(),
+        };
+        let scoped_signature = (result.has_origin() || params.iter().any(TypeArgument::has_origin))
+            .then(|| Rc::new(ScopedSignature { params, result }));
+        Ok(Self {
+            binding: self.binding.clone(),
+            signature,
+            scoped_signature,
+            selected: self
+                .selected
+                .iter()
+                .map(|operation| match operation {
+                    LinkedOperation::Ready(callable) => {
+                        Ok(LinkedOperation::Ready(callable.clone()))
+                    }
+                    LinkedOperation::Forward(required) => {
+                        let resolved = environment.resolve_requirement(required)?;
+                        let operation = environment.operation(&resolved).ok_or_else(|| {
+                            RuntimeError::module_validation(
+                                "native constraint operation environment",
+                            )
+                        })?;
+                        Ok(LinkedOperation::Ready(LinkedCallable::prepare(
+                            runtime,
+                            owner,
+                            &environment,
+                            required,
+                            operation,
+                        )?))
+                    }
+                })
+                .collect::<NativeResult<Vec<_>>>()?
+                .into_boxed_slice(),
+        })
+    }
     pub(crate) fn invoke(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
         if context.arguments.len() != self.signature.params.len() {
             return Err(RuntimeError::module_validation(
@@ -157,11 +220,16 @@ impl LinkedNativeFunction {
         context.poll()?;
         let value = result?;
         if !self.binding.converted_result
-            && !context.runtime.matches_interface_method_abi(
-                &value,
-                &self.signature.result,
-                context.owner,
-            )
+            && !match &self.scoped_signature {
+                Some(signature) => signature
+                    .result
+                    .matches(context.runtime, &value, context.owner),
+                None => context.runtime.matches_interface_method_abi(
+                    &value,
+                    &self.signature.result,
+                    context.owner,
+                ),
+            }
         {
             return Err(RuntimeError::module_validation(
                 "native result differs from its Kagari declaration",

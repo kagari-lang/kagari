@@ -20,9 +20,15 @@ pub enum ValueType {
     // future runtime-managed objects such as closures or reflected values.
     HeapObject,
     HostHandle,
+    /// Tagged runtime Value in a checked shared generic body. Its semantic type
+    /// is a scoped parameter or projection, supplied by the call environment.
+    Generic,
 }
 
 impl ValueType {
+    pub fn may_contain_gc_reference(self) -> bool {
+        matches!(self, Self::HeapObject | Self::Generic)
+    }
     pub fn from_host_type(ty: &HostValueType) -> Self {
         match ty {
             HostValueType::Unit => Self::Unit,

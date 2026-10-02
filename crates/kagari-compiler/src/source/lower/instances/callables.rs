@@ -4,12 +4,15 @@ use crate::source::{
     types::{raise_nominal_type, raise_type},
 };
 use kagari_abi::{
-    callable::CallableImplementation,
+    callable::{
+        CallableImplementation,
+        witness::{OperationWitness, SharedMethodWitness},
+    },
     effects::EffectSet,
     language::Protocol,
     native_import::{
         NativeImport, NativeSignature,
-        callables::{NativeCallableApplication, NativeCallableOrigin},
+        callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
     },
     types::{ConcreteFunctionIdentity, NativeDeclaration, substitution::TypeSubstitution},
 };
@@ -44,7 +47,7 @@ impl InstancePlanner<'_> {
         &mut self,
         import: &NativeImport,
         span: Span,
-    ) -> Result<Vec<NativeCallableApplication>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         let Some(declaration) = self
             .registered_native_declaration(&import.instance.declaration)
             .cloned()
@@ -70,6 +73,102 @@ impl InstancePlanner<'_> {
                     .map_err(|_| invalid())
             })
             .collect::<Result<Vec<_>, _>>()?;
+        self.bind_operations(requirements, span)
+    }
+
+    pub(crate) fn bind_operations(
+        &mut self,
+        requirements: Vec<NativeCallableRequirement>,
+        span: Span,
+    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+        let mut operations = vec![];
+        for mut required in requirements {
+            // A projection with concrete inputs can already have a selected
+            // implementation. Normalize it before deciding whether to forward.
+            required.receiver =
+                lower_type(&self.catalog.normalize_type(&raise_type(&required.receiver)));
+            let TypeId::Trait(interface) = self
+                .catalog
+                .normalize_type(&TypeId::Trait(raise_nominal_type(&required.interface)))
+            else {
+                return Err(MirLoweringError::MissingBinding(
+                    "normalized operation interface",
+                ));
+            };
+            required.interface = lower_nominal_type(&interface);
+            required.arguments = required
+                .arguments
+                .iter()
+                .map(|ty| lower_type(&self.catalog.normalize_type(&raise_type(ty))))
+                .collect();
+            if !matches!(raise_type(&required.receiver), TypeId::Generic(_))
+                && required.arguments.is_empty()
+                && self
+                    .catalog
+                    .trait_method(&required.member)
+                    .is_some_and(|method| {
+                        self.catalog
+                            .trait_(&required.interface.declaration)
+                            .is_some_and(|contract| {
+                                method.generic_params.len() > contract.generic_params.len()
+                            })
+                    })
+            {
+                let invalid =
+                    || MirLoweringError::MissingBinding("shared constraint method implementation");
+                let (declaration, arguments) = self
+                    .catalog
+                    .concrete_interface_implementation(
+                        &raise_nominal_type(&required.interface),
+                        &raise_type(&required.receiver),
+                        &Default::default(),
+                        100_000,
+                        64,
+                        &self.options.cancel,
+                    )
+                    .map_err(|_| invalid())?
+                    .ok_or_else(invalid)?;
+                self.record_interface(&declaration, &arguments, span)?;
+                operations.push(OperationWitness::SharedMethod(Box::new(
+                    SharedMethodWitness {
+                        requirement: required,
+                        implementation: ConcreteFunctionIdentity {
+                            declaration,
+                            arguments: arguments.iter().map(lower_type).collect(),
+                        },
+                    },
+                )));
+            } else if !required.receiver.is_concrete()
+                || !required
+                    .interface
+                    .arguments
+                    .iter()
+                    .all(|ty| ty.is_concrete())
+                || !required
+                    .interface
+                    .associated_types
+                    .values()
+                    .all(|ty| ty.is_concrete())
+                || !required.arguments.iter().all(|ty| ty.is_concrete())
+            {
+                operations.push(OperationWitness::Forward(Box::new(required)));
+            } else {
+                operations.extend(
+                    self.select_callables(vec![required], span)?
+                        .into_iter()
+                        .map(|selected| OperationWitness::Selected(Box::new(selected))),
+                );
+            }
+        }
+        Ok(operations)
+    }
+
+    pub(crate) fn select_callables(
+        &mut self,
+        requirements: Vec<NativeCallableRequirement>,
+        span: Span,
+    ) -> Result<Vec<NativeCallableApplication>, MirLoweringError> {
+        let invalid = || MirLoweringError::MissingBinding("checked callable requirement");
         let mut selected = vec![];
         for mut required in requirements {
             let receiver = self.catalog.normalize_type(&raise_type(&required.receiver));

@@ -14,6 +14,7 @@ impl Executor<'_> {
         &self,
         value: Register,
         enumeration: EnumId,
+        arguments: &[AbiType],
         variant: u32,
     ) -> Result<Value, VmError> {
         let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
@@ -24,13 +25,12 @@ impl Executor<'_> {
             .gc()
             .enum_snapshot(handle)
             .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
-        let expected = self
-            .current_loaded()?
-            .enum_variant(enumeration, variant)
-            .ok_or(VmError::TypeMismatch("invalid enum pattern layout"))?;
+        let expected =
+            self.current_frame()?
+                .enum_variant(self.runtime, enumeration, arguments, variant)?;
         Ok(Value::Bool(matches!(
             snapshot.tag,
-            EnumTag::Declared(actual) if actual == expected
+            EnumTag::Declared(actual) if actual.matches_layout(&expected)
         )))
     }
 
@@ -38,6 +38,7 @@ impl Executor<'_> {
         &self,
         value: Register,
         enumeration: EnumId,
+        arguments: &[AbiType],
         variant: u32,
         index: u32,
     ) -> Result<Value, VmError> {
@@ -49,11 +50,10 @@ impl Executor<'_> {
             .gc()
             .enum_snapshot(handle)
             .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
-        let expected = self
-            .current_loaded()?
-            .enum_variant(enumeration, variant)
-            .ok_or(VmError::TypeMismatch("invalid enum pattern layout"))?;
-        if !matches!(snapshot.tag, EnumTag::Declared(actual) if actual == expected) {
+        let expected =
+            self.current_frame()?
+                .enum_variant(self.runtime, enumeration, arguments, variant)?;
+        if !matches!(snapshot.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
             return Err(VmError::TypeMismatch("enum pattern variant mismatch"));
         }
         snapshot
@@ -66,6 +66,7 @@ impl Executor<'_> {
     pub(crate) fn make_enum(
         &self,
         enumeration: EnumId,
+        arguments: &[AbiType],
         variant: u32,
         fields: &[Register],
     ) -> Result<Value, VmError> {
@@ -73,10 +74,9 @@ impl Executor<'_> {
             .iter()
             .map(|register| Ok::<_, VmError>(self.current_frame()?.read_register(*register)?))
             .collect::<Result<Vec<_>, _>>()?;
-        let layout = self
-            .current_loaded()?
-            .enum_variant(enumeration, variant)
-            .ok_or(VmError::TypeMismatch("invalid enum variant layout"))?;
+        let layout =
+            self.current_frame()?
+                .enum_variant(self.runtime, enumeration, arguments, variant)?;
         self.runtime
             .alloc_enum(EnumTag::Declared(layout), fields)
             .map(Value::Enum)
@@ -106,8 +106,8 @@ impl Executor<'_> {
             ));
         }
         let handle = self
-            .runtime
-            .alloc_array(&self.current_loaded()?, element.clone(), elements)
+            .current_frame()?
+            .alloc_array(self.runtime, element, elements)
             .map_err(VmError::RuntimeError)?;
         Ok(Value::Array(handle))
     }
@@ -115,6 +115,7 @@ impl Executor<'_> {
     pub(crate) fn make_struct(
         &self,
         structure: StructId,
+        arguments: &[AbiType],
         fields: &[Register],
     ) -> Result<Value, VmError> {
         let fields = fields
@@ -122,9 +123,8 @@ impl Executor<'_> {
             .map(|field| Ok::<_, VmError>(self.current_frame()?.read_register(*field)?))
             .collect::<Result<Vec<_>, VmError>>()?;
         let layout = self
-            .current_loaded()?
-            .struct_layout(structure)
-            .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
+            .current_frame()?
+            .struct_layout(self.runtime, structure, arguments)?;
         let handle = self
             .runtime
             .alloc_struct(layout, fields)
@@ -133,10 +133,9 @@ impl Executor<'_> {
     }
 
     pub(crate) fn read_field(&self, base: Register, field: FieldRef) -> Result<Value, VmError> {
-        let layout = self
-            .current_loaded()?
-            .struct_layout(field.structure)
-            .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
+        let layout =
+            self.current_frame()?
+                .struct_layout(self.runtime, field.structure, &field.arguments)?;
         match self.current_frame()?.read_register(base)? {
             Value::Struct(handle) => self
                 .runtime
@@ -188,10 +187,9 @@ impl Executor<'_> {
                 "write_field expects default-storable value",
             ));
         }
-        let layout = self
-            .current_loaded()?
-            .struct_layout(field.structure)
-            .ok_or(VmError::TypeMismatch("invalid struct layout"))?;
+        let layout =
+            self.current_frame()?
+                .struct_layout(self.runtime, field.structure, &field.arguments)?;
         match self.current_frame()?.read_register(base)? {
             Value::Struct(handle) => self
                 .runtime

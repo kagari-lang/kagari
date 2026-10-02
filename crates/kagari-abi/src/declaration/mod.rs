@@ -1,6 +1,7 @@
 //! Authoritative native API declarations shared by compilation, installation and tooling.
 use crate::{
     callable::CallableImplementation,
+    language,
     native_import::callables::NativeCallableRequirement,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
@@ -113,6 +114,24 @@ impl ModuleDecl {
             occurrence: 0,
         });
         id
+    }
+
+    /// Inherent declarations are owned by the receiver's defining module.
+    /// Built-in value families have the language module as their declaration owner.
+    pub fn owns_inherent_receiver(&self, receiver: &AbiType) -> bool {
+        match receiver {
+            AbiType::NativeObject(nominal) | AbiType::Struct(nominal) | AbiType::Enum(nominal) => {
+                nominal.declaration.module == self.identity
+            }
+            AbiType::Builtin(_)
+            | AbiType::Array(..)
+            | AbiType::Map { .. }
+            | AbiType::Set(..)
+            | AbiType::Iter(_)
+            | AbiType::Range(..)
+            | AbiType::StandardEnum { .. } => self.identity == language::module_identity(),
+            _ => false,
+        }
     }
 
     /// Bind implementations to an existing trait contract without repeating signatures.
@@ -411,6 +430,13 @@ impl ModuleDecl {
             return Err(fail());
         }
         for (index, implementation) in self.implementations.iter().enumerate() {
+            if implementation.trait_type.is_none()
+                && !self.owns_inherent_receiver(&implementation.for_type)
+            {
+                return Err(DeclarationError(
+                    "inherent methods belong to the receiver's defining module".into(),
+                ));
+            }
             let owner = self.implementation_id(index);
             if implementation
                 .generic_params

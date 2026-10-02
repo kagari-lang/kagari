@@ -64,27 +64,35 @@ impl PreparedClosure {
         cx.heap().ensure_no_native_borrow()?;
         arguments.with_values(|arguments| self.invoke(cx, arguments).and_then(R::decode))
     }
-    fn call_values(
-        &self,
-        cx: &CallContext<'_>,
-        params: &[AbiType],
-        result: &AbiType,
-        arguments: &[Value],
-    ) -> NativeResult<Value> {
+    fn call_values(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
         cx.heap().ensure_no_native_borrow()?;
         let owner = &self.closure.implementation;
-        if arguments.len() != params.len()
-            || arguments
-                .iter()
-                .zip(params)
-                .any(|(value, ty)| !cx.runtime.matches_interface_method_abi(value, ty, owner))
+        let function = owner
+            .bytecode
+            .functions
+            .get(self.closure.function.index())
+            .ok_or_else(|| RuntimeError::module_validation("native callback function"))?;
+        let captures = self.closure.captures.len();
+        let environment = self.closure.environment.as_deref();
+        if captures.checked_add(arguments.len()) != Some(function.metadata.params.len())
+            || !arguments.iter().enumerate().all(|(index, value)| {
+                function
+                    .metadata
+                    .semantic
+                    .params
+                    .get(&(captures + index))
+                    .is_some_and(|ty| cx.runtime.matches_type_in(value, ty, owner, environment))
+            })
         {
             return Err(RuntimeError::module_validation("native callback arguments"));
         }
         let value = self.invoke(cx, arguments)?;
-        if !cx
-            .runtime
-            .matches_interface_method_abi(&value, result, owner)
+        if !function
+            .metadata
+            .semantic
+            .result
+            .as_ref()
+            .is_some_and(|ty| cx.runtime.matches_type_in(&value, ty, owner, environment))
         {
             return Err(RuntimeError::module_validation("native callback result"));
         }
@@ -111,7 +119,22 @@ impl<'call> CallableHandle<'call> {
         let value = cx.argument(index)?;
         let closure = cx.runtime.resolve_closure(&value)?;
         cx.runtime.validate_loaded_module(&closure.implementation)?;
-        if !closure.matches_function(params, result) {
+        let expected = cx.argument_type_view(index)?;
+        let AbiType::Function {
+            params: expected_params,
+            result: expected_result,
+        } = expected.ty
+        else {
+            return Err(RuntimeError::module_validation(
+                "native callback type scope",
+            ));
+        };
+        if !closure.matches_function(
+            expected_params,
+            expected_result,
+            expected.owner,
+            expected.environment,
+        ) {
             return Err(RuntimeError::module_validation("native callback signature"));
         }
         Ok(Self {
@@ -135,8 +158,7 @@ impl<'call> CallableHandle<'call> {
         cx: &mut CallContext<'_>,
         arguments: &[Value],
     ) -> NativeResult<Value> {
-        self.target
-            .call_values(cx, self.params, self.result, arguments)
+        self.target.call_values(cx, arguments)
     }
     /// Retained payloads must trace this value; this does not create a global root.
     pub fn store(&self) -> StoredCallable {
@@ -178,9 +200,7 @@ impl StoredCallable {
         arguments: &[Value],
     ) -> NativeResult<Value> {
         self.0.target.validate(cx.runtime)?;
-        self.0
-            .target
-            .call_values(cx, &self.0.params, &self.0.result, arguments)
+        self.0.target.call_values(cx, arguments)
     }
     /// Root the closure while using a stored descriptor outside its payload borrow.
     /// Reuse this handle for the whole loop, then drop it. Store StoredCallable,
@@ -220,8 +240,6 @@ impl RootedCallable {
         arguments: &[Value],
     ) -> NativeResult<Value> {
         let function = &self.stored.0;
-        function
-            .target
-            .call_values(cx, &function.params, &function.result, arguments)
+        function.target.call_values(cx, arguments)
     }
 }

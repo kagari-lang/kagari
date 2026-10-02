@@ -58,7 +58,7 @@ impl<'a> TypeSubstitution<'a> {
         if bounds.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
         }
-        bounds
+        let applied = bounds
             .iter()
             .map(|bound| {
                 if bound.constraints.len() > MAX_TYPE_NODES {
@@ -81,7 +81,24 @@ impl<'a> TypeSubstitution<'a> {
                         .collect::<Result<_, _>>()?,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, TypeTransformError>>()?;
+        // Substitution can reorder receivers or make distinct binders equal.
+        // Preserve the canonical bound representation after that transformation.
+        let mut merged = BTreeMap::<AbiType, Vec<ConstraintAbi>>::new();
+        for bound in applied {
+            merged
+                .entry(bound.ty)
+                .or_default()
+                .extend(bound.constraints);
+        }
+        Ok(merged
+            .into_iter()
+            .map(|(ty, mut constraints)| {
+                constraints.sort();
+                constraints.dedup();
+                GenericBoundAbi { ty, constraints }
+            })
+            .collect())
     }
 
     pub fn parameter(&self, owner: &DefinitionId, position: usize) -> Option<&'a AbiType> {

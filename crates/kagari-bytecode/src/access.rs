@@ -4,7 +4,7 @@ use kagari_abi::{
     operations::{IterOp, StandardEnumOp},
     scalar::BuiltinType as B,
     standard::{RuntimePrimitive as S, surface::StandardEnum},
-    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, access, verify as abi_verify},
+    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, access},
 };
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
 
@@ -68,6 +68,16 @@ pub(super) fn verify(
     if !semantic.protocol_adapter_valid(function.identity.as_ref()) {
         return Err(invalid());
     }
+    if !semantic.types_valid(function.identity.as_ref(), &Default::default())
+        || !semantic.generic_layout_valid(
+            function.metadata.params.iter().copied(),
+            function.metadata.locals.iter().copied(),
+            function.metadata.registers.iter().copied(),
+            function.metadata.return_type,
+        )
+    {
+        return Err(invalid());
+    }
     if semantic
         .params
         .keys()
@@ -80,16 +90,6 @@ pub(super) fn verify(
             .registers
             .keys()
             .any(|i| *i >= function.register_count as usize)
-        || semantic
-            .params
-            .values()
-            .chain(semantic.locals.values())
-            .chain(semantic.registers.values())
-            .chain(semantic.result.iter())
-            .any(|ty| {
-                !ty.within_wire_limits()
-                    || !abi_verify::concrete_type_valid(ty, &Default::default())
-            })
     {
         return Err(invalid());
     }
@@ -298,7 +298,12 @@ pub(super) fn verify(
                     element,
                     elements,
                 } => {
-                    if !element.is_concrete() {
+                    if !element.is_concrete()
+                        && semantic
+                            .generic
+                            .as_ref()
+                            .is_none_or(|body| !body.types_valid([element], &Default::default()))
+                    {
                         return Err(invalid());
                     }
                     if elements.iter().all(|register| get(*register).is_some()) {
@@ -328,7 +333,9 @@ pub(super) fn verify(
                     }
                 }
                 I::ReadAggregateField { dst, base, field } => {
-                    let layout = &module.structures[field.structure.index()];
+                    let layout = module.structures[field.structure.index()]
+                        .apply(&field.arguments, &Default::default())
+                        .ok_or_else(invalid)?;
                     if let Some(Fact {
                         ty: Some(AbiType::Struct(ty)),
                         ..
@@ -344,7 +351,9 @@ pub(super) fn verify(
                     ));
                 }
                 I::WriteAggregateField { base, field, value } => {
-                    let layout = &module.structures[field.structure.index()];
+                    let layout = module.structures[field.structure.index()]
+                        .apply(&field.arguments, &Default::default())
+                        .ok_or_else(invalid)?;
                     if let Some(Fact {
                         ty: Some(AbiType::Struct(ty)),
                         ..
@@ -355,11 +364,7 @@ pub(super) fn verify(
                         return Err(invalid());
                     }
                     if let Some(value) = get(*value)
-                        && !flows(
-                            &value,
-                            &module.structures[field.structure.index()].fields[field.slot as usize]
-                                .ty,
-                        )
+                        && !flows(&value, &layout.fields[field.slot as usize].ty)
                     {
                         return Err(invalid());
                     }
@@ -368,10 +373,13 @@ pub(super) fn verify(
                     dst,
                     value,
                     enumeration,
+                    arguments,
                     variant,
                     index,
                 } => {
-                    let layout = &module.enumerations[enumeration.index()];
+                    let layout = module.enumerations[enumeration.index()]
+                        .apply(arguments, &Default::default())
+                        .ok_or_else(invalid)?;
                     if let Some(Fact {
                         ty: Some(AbiType::Enum(ty)),
                         ..
@@ -489,9 +497,12 @@ pub(super) fn verify(
                 I::MakeStruct {
                     dst,
                     structure,
+                    arguments,
                     fields,
                 } => {
-                    let layout = &module.structures[structure.index()];
+                    let layout = module.structures[structure.index()]
+                        .apply(arguments, &Default::default())
+                        .ok_or_else(invalid)?;
                     for (value, field) in fields.iter().zip(&layout.fields) {
                         if let Some(value) = get(*value)
                             && !flows(&value, &field.ty)
@@ -511,10 +522,13 @@ pub(super) fn verify(
                 I::MakeEnum {
                     dst,
                     enumeration,
+                    arguments,
                     variant,
                     fields,
                 } => {
-                    let layout = &module.enumerations[enumeration.index()];
+                    let layout = module.enumerations[enumeration.index()]
+                        .apply(arguments, &Default::default())
+                        .ok_or_else(invalid)?;
                     for (value, expected) in fields
                         .iter()
                         .zip(&layout.variants[*variant as usize].payload)
@@ -570,6 +584,7 @@ pub(super) fn verify(
                     value,
                     module: slot,
                     implementation,
+                    arguments,
                 } => {
                     let owner = owner(*slot).ok_or_else(invalid)?;
                     let linked = &owner.interface_tables[implementation.index()];
@@ -580,7 +595,15 @@ pub(super) fn verify(
                             PublicAbiItem::InterfaceTable(table)
                                 if table.declaration == linked.declaration =>
                             {
-                                table.instantiate(&linked.arguments)
+                                table.instantiate_in(
+                                    arguments,
+                                    function
+                                        .metadata
+                                        .semantic
+                                        .generic
+                                        .as_ref()
+                                        .map_or(&[][..], |body| body.parameters.as_slice()),
+                                )
                             }
                             _ => None,
                         })
@@ -707,6 +730,14 @@ pub(super) fn verify(
                                 result = Fact::typed(AbiType::Builtin(B::String));
                             }
                         }
+                        CallTarget::Shared { contract, .. } => {
+                            for (value, ty) in facts.iter().zip(&contract.signature.params) {
+                                if !flows(value, ty) {
+                                    return Err(invalid());
+                                }
+                            }
+                            result = Fact::typed(contract.signature.result.clone());
+                        }
                         CallTarget::Function(target)
                         | CallTarget::ModuleFunction {
                             function: target, ..
@@ -731,19 +762,25 @@ pub(super) fn verify(
                         }
                         CallTarget::InterfaceMethod {
                             module: slot,
-                            interface,
-                            method_slot,
+                            contract,
                         } => {
+                            let interface = &contract.interface;
                             let owner = owner(*slot).ok_or_else(invalid)?;
-                            let (params, output) = abi::interface_method_semantics(
-                                &owner.identity,
-                                &owner.public_items,
-                                &owner.trait_contracts,
-                                interface,
-                                *method_slot as usize,
-                            )
-                            .ok_or_else(invalid)?;
-                            if let Some(AbiType::Trait(actual)) = &facts[0].ty {
+                            let signature = contract
+                                .signature_in(
+                                    &owner.identity,
+                                    &owner.public_items,
+                                    &owner.trait_contracts,
+                                    &Default::default(),
+                                )
+                                .map_err(|_| invalid())?;
+                            let params = signature.params;
+                            let output = signature.result;
+                            if let Some(required) = &contract.receiver {
+                                if !flows(&facts[0], required) {
+                                    return Err(invalid());
+                                }
+                            } else if let Some(AbiType::Trait(actual)) = &facts[0].ty {
                                 let modules: Vec<_> = program.map_or_else(
                                     || vec![module],
                                     |program| program.modules.iter().collect(),

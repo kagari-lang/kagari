@@ -2,21 +2,33 @@
 use crate::{
     error::RuntimeError,
     native::{
-        binding::NativeResult,
+        binding::{NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        declarations::MethodDecl,
-        types::{AppliedTrait, ParameterRef, TraitRef, Type},
+        declarations::{CallableRequirement, FunctionBuilder, MethodDecl, normalize_bounds},
+        functions::NativeFunction,
+        types::{AppliedTrait, FunctionRef, ParameterRef, TraitRef, Type},
     },
 };
-use kagari_abi::types::{AbiType, AssociatedTypeAbi, ConstraintAbi, GenericParameterAbi, TraitAbi};
+use kagari_abi::{
+    declaration::ModuleDecl,
+    native_import::callables::NativeCallableRequirement,
+    types::{
+        AbiType, AssociatedTypeAbi, ConstraintAbi, GenericParameterAbi, NominalAbiType, TraitAbi,
+    },
+};
 use kagari_common::identity::{DefinitionId, DefinitionKind, associated_type_id};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
+
+mod defaults;
 
 pub struct TraitBuilder<'module> {
     module: &'module mut ModuleBuilder,
     id: DefinitionId,
     declaration: TraitAbi,
     parameter_names: Vec<String>,
+    method_parameters: BTreeMap<DefinitionId, Vec<String>>,
+    requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
+    defaults: BTreeMap<DefinitionId, NativeBinding>,
 }
 impl<'module> TraitBuilder<'module> {
     pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> Self {
@@ -34,6 +46,9 @@ impl<'module> TraitBuilder<'module> {
                 associated_consts: vec![],
             },
             parameter_names: vec![],
+            method_parameters: BTreeMap::new(),
+            requirements: BTreeMap::new(),
+            defaults: BTreeMap::new(),
         }
     }
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
@@ -53,6 +68,37 @@ impl<'module> TraitBuilder<'module> {
     }
     pub fn receiver(&self) -> Type {
         Type(AbiType::SelfType(self.id.clone()))
+    }
+    /// Refer to an operation on this default body's actual receiver. The final
+    /// declaration, including any later method edits, is checked at installation.
+    pub fn operation(&self, method: &FunctionRef) -> NativeResult<CallableRequirement> {
+        if !self
+            .declaration
+            .methods
+            .iter()
+            .any(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "unknown trait method declaration",
+            ));
+        }
+        Ok(CallableRequirement {
+            requirement: NativeCallableRequirement {
+                receiver: self.receiver().0,
+                interface: NominalAbiType {
+                    declaration: self.id.clone(),
+                    arguments: self
+                        .declaration
+                        .generic_params
+                        .iter()
+                        .map(GenericParameterAbi::as_type)
+                        .collect(),
+                    associated_types: BTreeMap::new(),
+                },
+                member: method.id.clone(),
+                arguments: vec![],
+            },
+        })
     }
     pub fn parent(&mut self, parent: AppliedTrait) {
         self.declaration.supertraits.push(parent.ty);
@@ -99,7 +145,7 @@ impl<'module> TraitBuilder<'module> {
             arguments: vec![],
         }))
     }
-    pub fn define_method(&mut self, declaration: MethodDecl) -> NativeResult<()> {
+    pub fn define_method(&mut self, declaration: MethodDecl) -> NativeResult<FunctionRef> {
         if self
             .declaration
             .methods
@@ -111,10 +157,64 @@ impl<'module> TraitBuilder<'module> {
             ));
         }
         let receiver = self.receiver();
+        let id = ModuleDecl::method_id(&self.id, &declaration.signature.name);
         self.declaration.methods.push(declaration.lower(receiver));
+        Ok(FunctionRef { id })
+    }
+    /// Configure method-local binders, bounds and the operations used by a default.
+    pub fn method<T>(
+        &mut self,
+        method: &FunctionRef,
+        configure: impl FnOnce(&mut FunctionBuilder<'_>) -> NativeResult<T>,
+    ) -> NativeResult<T> {
+        let signature = self
+            .declaration
+            .methods
+            .iter_mut()
+            .find(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown trait method declaration"))?;
+        let result = configure(&mut FunctionBuilder {
+            id: method.id.clone(),
+            signature,
+            requirements: self.requirements.entry(method.id.clone()).or_default(),
+            names: self.method_parameters.entry(method.id.clone()).or_default(),
+        })?;
+        normalize_bounds(signature);
+        Ok(result)
+    }
+    /// Bind a default body to the declared signature. The portable template is
+    /// derived at finalization, so its binders cannot drift from the method.
+    pub fn bind_default<A, R>(
+        &mut self,
+        method: FunctionRef,
+        entry: impl NativeFunction<A, R>,
+    ) -> NativeResult<()> {
+        self.bind_default_with(method, entry.binding())
+    }
+    pub fn bind_default_with(
+        &mut self,
+        method: FunctionRef,
+        binding: NativeBinding,
+    ) -> NativeResult<()> {
+        if !self
+            .declaration
+            .methods
+            .iter()
+            .any(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "unknown trait method declaration",
+            ));
+        }
+        if self.defaults.contains_key(&method.id) {
+            return Err(RuntimeError::metadata_conflict(
+                "duplicate trait default binding",
+            ));
+        }
+        self.defaults.insert(method.id, binding);
         Ok(())
     }
-    pub fn finish(self) -> NativeResult<TraitRef> {
+    pub fn finish(mut self) -> NativeResult<TraitRef> {
         if self
             .module
             .declaration
@@ -126,6 +226,7 @@ impl<'module> TraitBuilder<'module> {
                 "duplicate trait declaration",
             ));
         }
+        self.lower_defaults()?;
         let result = TraitRef {
             id: self.id.clone(),
             contract: Arc::new(self.declaration.clone()),

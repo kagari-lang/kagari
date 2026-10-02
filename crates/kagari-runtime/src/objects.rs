@@ -1,9 +1,19 @@
+mod calls;
+mod operations;
+
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    frame::types::{
+        TypeEnvironment,
+        arguments::{ScopedSignature, TypeArgument},
+    },
     gc::{
         self, HeapObjectId,
-        interfaces::{InterfaceMethodBinding, InterfaceResultBinding, InterfaceValueSnapshot},
+        interfaces::{
+            InterfaceMethodBinding, InterfaceParentBinding, InterfaceResultBinding,
+            InterfaceValueSnapshot,
+        },
     },
     module::{self, LoadedModule},
     value::{self, EnumTag, Value},
@@ -11,11 +21,10 @@ use crate::{
 use kagari_bytecode::{module::CallableTarget, trait_bounds::interface_views};
 
 use kagari_abi::{
-    callable::CallableImplementation,
     ids::FunctionRef,
     operations::IterOp,
     representation::ValueType,
-    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem},
+    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, substitution::TypeSubstitution},
 };
 use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
 use std::{rc::Rc, slice};
@@ -83,13 +92,33 @@ impl Runtime {
         table_index: usize,
         data: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.make_interface_view(implementation, table_index, data, false)
+        let arguments = implementation
+            .bytecode
+            .interface_tables
+            .get(table_index)
+            .ok_or_else(|| RuntimeError::module_validation("invalid interface table"))?
+            .arguments
+            .clone();
+        let arguments = self.resolve_type_arguments(implementation, &arguments)?;
+        self.make_interface_applied(implementation, table_index, &arguments, data)
+    }
+
+    /// Instantiate a verified table using the allocating frame's type arguments.
+    pub fn make_interface_applied(
+        &self,
+        implementation: &LoadedModule,
+        table_index: usize,
+        arguments: &[TypeArgument],
+        data: Value,
+    ) -> Result<Value, RuntimeError> {
+        self.make_interface_view(implementation, table_index, arguments, data, false)
     }
 
     fn make_interface_view(
         &self,
         implementation: &LoadedModule,
         table_index: usize,
+        arguments: &[TypeArgument],
         data: value::Value,
         use_view: bool,
     ) -> Result<value::Value, RuntimeError> {
@@ -97,22 +126,49 @@ impl Runtime {
         if !implementation.belongs_to(self.host.owner()) {
             return Err(invalid());
         }
+        for argument in arguments {
+            argument.validate(self)?;
+        }
+        let concrete_arguments = arguments
+            .iter()
+            .map(|argument| argument.ty().clone())
+            .collect::<Vec<_>>();
         let linked = implementation
             .bytecode
             .interface_tables
             .get(table_index)
             .ok_or_else(invalid)?;
-        let table = implementation
+        if linked.arguments.iter().all(AbiType::is_concrete)
+            && linked.arguments != concrete_arguments
+        {
+            return Err(invalid());
+        }
+        let template = implementation
             .bytecode
             .public_items
             .iter()
             .find_map(|item| match item {
                 PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                    table.instantiate(&linked.arguments)
+                    Some(table.as_ref())
                 }
                 _ => None,
             })
             .ok_or_else(invalid)?;
+        let table = template
+            .instantiate(&concrete_arguments)
+            .ok_or_else(invalid)?;
+        let environment = if template.generic_params.is_empty() {
+            None
+        } else {
+            Some(Rc::new(TypeEnvironment::new(
+                template.generic_params.clone(),
+                arguments.to_vec(),
+            )?))
+        };
+        let mut substitution = TypeSubstitution::default();
+        for (parameter, argument) in template.generic_params.iter().zip(&concrete_arguments) {
+            substitution.bind(&parameter.owner, parameter.position, argument);
+        }
         let concrete_type = table.for_type.clone();
         if !concrete_type.is_concrete() {
             return Err(invalid());
@@ -128,7 +184,11 @@ impl Runtime {
         } else {
             None
         };
-        let interface_type = view.map_or(interface_type, |view| &view.interface);
+        let view_interface = view
+            .map(|view| substitution.apply_nominal(&view.interface, &Default::default()))
+            .transpose()
+            .map_err(|_| invalid())?;
+        let interface_type = view_interface.as_ref().unwrap_or(interface_type);
         let trait_contract = implementation
             .members()
             .find(|member| member.bytecode.identity == interface_type.declaration.module)
@@ -152,16 +212,13 @@ impl Runtime {
         }
         let mut methods = Vec::with_capacity(trait_contract.methods.len());
         for declared in &trait_contract.methods {
-            let method = table
+            let method = template
                 .methods
                 .iter()
                 .find(|method| method.name == declared.name);
             let Some(method) = method else {
                 return Err(invalid());
             };
-            if !method.generic_params.is_empty() {
-                return Err(invalid());
-            }
             let mut path = interface_type.declaration.path.clone();
             path.push(DefinitionPathSegment {
                 kind: DefinitionKind::Method,
@@ -172,31 +229,10 @@ impl Runtime {
                 module: interface_type.declaration.module.clone(),
                 path,
             };
-            let mut candidates = linked.methods.iter().filter(|slot| {
-                slot.method == method_id
-                    && match slot.target {
-                        CallableTarget::Script(function) => implementation
-                            .bytecode
-                            .functions
-                            .get(function.index())
-                            .and_then(|function| function.identity.as_ref()),
-                        CallableTarget::Native(import) => implementation
-                            .bytecode
-                            .native_imports
-                            .get(import.index())
-                            .map(|import| &import.instance),
-                    }
-                    .is_some_and(|identity| match &method.implementation {
-                        CallableImplementation::NativeDefault(application) => {
-                            // The sealed program checked the template argument
-                            // mapping and signature. Its arguments need not be
-                            // the implementing table's own generic arguments.
-                            matches!(slot.target, CallableTarget::Native(_))
-                                && identity.declaration == application.declaration
-                        }
-                        _ => identity.arguments == linked.arguments,
-                    })
-            });
+            let mut candidates = linked
+                .methods
+                .iter()
+                .filter(|slot| slot.method == method_id);
             let Some(slot) = candidates.next() else {
                 return Err(invalid());
             };
@@ -210,25 +246,30 @@ impl Runtime {
                         .find(|adapter| adapter.method == method_id)
                 })
                 .map(|adapter| {
-                    let owner = implementation
-                        .members()
-                        .find(|owner| {
-                            owner.bytecode.identity == adapter.implementation.declaration.module
-                        })
-                        .ok_or_else(invalid)?;
-                    let table = owner
-                        .bytecode
-                        .interface_tables
-                        .iter()
-                        .position(|table| {
-                            table.declaration == adapter.implementation.declaration
-                                && table.arguments == adapter.implementation.arguments
-                        })
-                        .ok_or_else(invalid)?;
-                    Ok::<_, RuntimeError>(InterfaceResultBinding { owner, table })
+                    calls::interface_binding(
+                        implementation,
+                        &adapter.implementation,
+                        environment.clone(),
+                    )
                 })
                 .transpose()?;
             methods.push(Some(InterfaceMethodBinding {
+                parameters: method.generic_params.clone(),
+                entry_parameters: match slot.target {
+                    CallableTarget::Script(target) => implementation.bytecode.functions
+                        [target.index()]
+                    .metadata
+                    .semantic
+                    .generic
+                    .as_ref(),
+                    CallableTarget::Native(target) => implementation.bytecode.native_imports
+                        [target.index()]
+                    .generic
+                    .as_ref(),
+                }
+                .map(|body| body.parameters.clone())
+                .unwrap_or_default(),
+                entry_arguments: slot.arguments.clone(),
                 result_adapter,
                 method: method_id,
                 target: slot.target,
@@ -239,7 +280,12 @@ impl Runtime {
         if !matches!(data, Value::HostRoot(_)) {
             self.validate_heap_payloads(slice::from_ref(&data))?;
         }
-        if !self.matches_interface_method_abi(&data, &concrete_type, implementation) {
+        if !self.matches_type_in(
+            &data,
+            &template.for_type,
+            implementation,
+            environment.as_deref(),
+        ) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "invalid interface receiver",
@@ -252,9 +298,44 @@ impl Runtime {
         self.gc
             .alloc_interface(
                 InterfaceValueSnapshot {
+                    receiver_table: InterfaceResultBinding {
+                        owner: implementation.clone(),
+                        table: table_index,
+                        arguments: template
+                            .generic_params
+                            .iter()
+                            .map(|parameter| parameter.as_type())
+                            .collect(),
+                        environment: environment.clone(),
+                    },
+                    parents: linked
+                        .parents
+                        .iter()
+                        .map(|parent| {
+                            Ok(InterfaceParentBinding {
+                                interface: substitution
+                                    .apply_nominal(&parent.interface, &Default::default())
+                                    .map_err(|_| invalid())?,
+                                binding: calls::interface_binding(
+                                    implementation,
+                                    &parent.implementation,
+                                    environment.clone(),
+                                )?,
+                                view: parent.view,
+                            })
+                        })
+                        .collect::<Result<_, RuntimeError>>()?,
                     data,
                     concrete_type,
                     interface_type: interface_type.clone(),
+                    interface_expression: match view {
+                        Some(view) => view.interface.clone(),
+                        None => match &template.trait_type {
+                            AbiType::Trait(ty) => ty.clone(),
+                            _ => return Err(invalid()),
+                        },
+                    },
+                    environment,
                     implementation: implementation.clone(),
                     methods,
                 },
@@ -268,6 +349,7 @@ impl Runtime {
         implementation: &LoadedModule,
         function: FunctionRef,
         captures: Vec<value::Value>,
+        environment: Option<Rc<TypeEnvironment>>,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(implementation)?;
         let metadata = implementation
@@ -285,6 +367,32 @@ impl Runtime {
                 "closure capture contract mismatch",
             ));
         }
+        if metadata
+            .metadata
+            .semantic
+            .generic
+            .as_ref()
+            .is_some_and(|body| {
+                environment
+                    .as_ref()
+                    .is_none_or(|environment| !environment.matches(body))
+            })
+        {
+            return Err(RuntimeError::module_validation(
+                "closure generic environment",
+            ));
+        }
+        if let Some(environment) = &environment {
+            for (index, value) in captures.iter().enumerate() {
+                if let Some(ty) = metadata.metadata.semantic.params.get(&index)
+                    && !self.matches_capture_type(value, ty, implementation, environment)
+                {
+                    return Err(RuntimeError::module_validation(
+                        "closure semantic capture mismatch",
+                    ));
+                }
+            }
+        }
         self.validate_heap_payloads(&captures)?;
         let retention = self
             .modules
@@ -293,6 +401,7 @@ impl Runtime {
         self.gc
             .alloc_closure(
                 gc::ClosureValueSnapshot {
+                    environment,
                     implementation: implementation.clone(),
                     function,
                     captures,
@@ -309,20 +418,45 @@ impl Runtime {
         ty: &AbiType,
         op: IterOp,
     ) -> Result<value::Value, RuntimeError> {
+        let ty = self
+            .resolve_type_arguments(owner, slice::from_ref(ty))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("iterator type scope"))?;
+        self.iter_operation_with_type(owner, value, &ty, op)
+    }
+
+    pub(crate) fn iter_operation_with_type(
+        &self,
+        owner: &LoadedModule,
+        value: &Value,
+        ty: &TypeArgument,
+        op: IterOp,
+    ) -> Result<Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
-        if matches!(op, IterOp::New | IterOp::String(_)) {
-            if let IterOp::String(kind) = op {
-                self.gc.new_string_iter(value, ty, kind, owner)
-            } else {
-                self.gc.new_iter(value, ty, owner)
+        ty.validate(self)?;
+        match op {
+            IterOp::String(kind) => self.gc.new_string_iter(value, ty.ty(), kind, owner),
+            IterOp::New => {
+                let item = ty.derive(self, owner, |ty| match ty {
+                    AbiType::Range(item, _) | AbiType::Array(item, _) | AbiType::Set(item, _) => {
+                        Some((**item).clone())
+                    }
+                    AbiType::Map { key, value, .. } => {
+                        Some(AbiType::Tuple(vec![(**key).clone(), (**value).clone()]))
+                    }
+                    AbiType::Builtin(_) => Some(ty.clone()),
+                    _ => None,
+                })?;
+                self.gc.new_iter(value, ty, item, owner)
             }
-        } else {
-            if !self.gc.matches_abi(value, ty, owner) {
-                return Err(RuntimeError::module_validation(
-                    "iterator differs from its checked item contract",
-                ));
+            _ => {
+                if !ty.matches(self, value, owner) {
+                    return Err(RuntimeError::module_validation(
+                        "iterator differs from its checked item contract",
+                    ));
+                }
+                self.gc.advance_iter(value, ty.ty(), op)
             }
-            self.gc.advance_iter(value, ty, op)
         }
     }
 
@@ -410,13 +544,23 @@ impl Runtime {
                 }
             }
         }
-        self.resolve_interface_method_inner(value, None, |snapshot| {
-            snapshot
-                .methods
-                .iter()
-                .flatten()
-                .find(|binding| &binding.method == method)
-        })
+        let Value::Interface(id) = value else {
+            return Err(RuntimeError::module_validation("expected interface value"));
+        };
+        let snapshot = self
+            .gc
+            .interface_snapshot(*id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
+        let slot = snapshot
+            .methods
+            .iter()
+            .position(|binding| {
+                binding
+                    .as_ref()
+                    .is_some_and(|binding| &binding.method == method)
+            })
+            .ok_or_else(|| RuntimeError::module_validation("interface method unavailable"))?;
+        self.resolve_interface_method_slot(value, &snapshot.interface_type, slot, &[])
     }
 
     /// Creates a parent interface view using already compiled tables from the
@@ -440,47 +584,23 @@ impl Runtime {
         if source == target {
             return Ok(value.clone());
         }
-        let versions = snapshot.implementation.members().collect::<Vec<_>>();
-        let modules = versions
+        let parent = snapshot
+            .parents
             .iter()
-            .map(|version| version.bytecode.as_ref())
-            .collect::<Vec<_>>();
-        let parents =
-            interface_views(source, &snapshot.concrete_type, &modules).ok_or_else(invalid)?;
-        if !parents.iter().any(|parent| parent == target) {
-            return Err(invalid());
-        }
-        for owner in &versions {
-            for (index, linked) in owner.bytecode.interface_tables.iter().enumerate() {
-                let table = owner
-                    .bytecode
-                    .public_items
-                    .iter()
-                    .find_map(|item| match item {
-                        PublicAbiItem::InterfaceTable(table)
-                            if table.declaration == linked.declaration =>
-                        {
-                            table.instantiate(&linked.arguments)
-                        }
-                        _ => None,
-                    });
-                if let Some(table) = table
-                    && table.for_type == snapshot.concrete_type
-                {
-                    if table.trait_type == AbiType::Trait(target.clone()) {
-                        return self.make_interface(owner, index, snapshot.data.clone());
-                    }
-                    if linked
-                        .view
-                        .as_ref()
-                        .is_some_and(|view| view.interface == *target)
-                    {
-                        return self.make_interface_view(owner, index, snapshot.data.clone(), true);
-                    }
-                }
-            }
-        }
-        Err(invalid())
+            .find(|parent| parent.interface == *target)
+            .ok_or_else(invalid)?;
+        let binding = &parent.binding;
+        self.make_interface_view(
+            &binding.owner,
+            binding.table,
+            &self.type_arguments(
+                &binding.owner,
+                binding.environment.clone(),
+                &binding.arguments,
+            )?,
+            snapshot.data.clone(),
+            parent.view,
+        )
     }
 
     /// Resolves a trait declaration's verified method ordinal without a
@@ -490,17 +610,88 @@ impl Runtime {
         value: &value::Value,
         interface: &NominalAbiType,
         slot: usize,
+        arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         if let Value::Interface(id) = value
             && let Some(snapshot) = self.gc.interface_snapshot(*id)
             && snapshot.interface_type != *interface
         {
             let view = self.upcast_interface(value, &snapshot.interface_type, interface)?;
-            return self.resolve_interface_method_slot(&view, interface, slot);
+            return self.resolve_interface_method_slot(&view, interface, slot, arguments);
         }
-        self.resolve_interface_method_inner(value, Some(interface), |snapshot| {
+        let method = self.resolve_interface_method_inner(value, Some(interface), |snapshot| {
             snapshot.methods.get(slot).and_then(Option::as_ref)
-        })
+        })?;
+        self.apply_interface_method(method, arguments)
+    }
+
+    pub(super) fn apply_interface_method(
+        &self,
+        mut method: RootedInterfaceMethod,
+        arguments: &[TypeArgument],
+    ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        if method.type_parameters.is_empty()
+            && method.entry_parameters.is_empty()
+            && method.receiver_environment.is_none()
+        {
+            return if arguments.is_empty() {
+                Ok(method)
+            } else {
+                Err(RuntimeError::module_validation(
+                    "interface method type arguments",
+                ))
+            };
+        }
+        for argument in arguments {
+            argument.validate(self)?;
+        }
+        let mut binders = TypeEnvironment::new(method.type_parameters.clone(), arguments.to_vec())?;
+        binders.include(method.receiver_environment.as_deref())?;
+        let binders = Some(Rc::new(binders));
+        if let Some(adapter) = &mut method.result_adapter {
+            adapter.environment = binders.clone();
+        }
+        let params = self.type_arguments(
+            &method.implementation,
+            binders.clone(),
+            &method.parameter_types,
+        )?;
+        let result = self
+            .type_arguments(
+                &method.implementation,
+                binders.clone(),
+                slice::from_ref(&method.return_type),
+            )?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("interface return type"))?;
+        method.parameter_types = params
+            .iter()
+            .map(|argument| argument.ty().clone())
+            .collect();
+        method.return_type = result.ty().clone();
+        if result.has_origin() || params.iter().any(TypeArgument::has_origin) {
+            method.scoped_signature = Some(ScopedSignature { params, result });
+        }
+        method.environment = if method.entry_parameters.is_empty() {
+            None
+        } else {
+            Some(Rc::new(TypeEnvironment::new(
+                method.entry_parameters.clone(),
+                self.type_arguments(&method.implementation, binders, &method.entry_arguments)?,
+            )?))
+        };
+        if let Some(environment) = &mut method.environment
+            && let Some(table) = &method.receiver_table
+        {
+            Rc::make_mut(environment)
+                .operations
+                .extend(self.bind_receiver_operations(
+                    &method.implementation,
+                    method.target,
+                    table,
+                )?);
+        }
+        Ok(method)
     }
 
     pub(super) fn resolve_interface_method_inner(
@@ -531,11 +722,19 @@ impl Runtime {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "interface method unavailable")
         })?;
         Ok(RootedInterfaceMethod {
+            receiver_table: Some(snapshot.receiver_table),
+            type_parameters: binding.parameters,
+            entry_parameters: binding.entry_parameters,
+            entry_arguments: binding.entry_arguments,
+            environment: None,
+            scoped_signature: None,
             result_adapter: binding.result_adapter,
             _root: root,
             receiver: snapshot.data,
             concrete_type: snapshot.concrete_type,
             interface_type: snapshot.interface_type,
+            interface_expression: snapshot.interface_expression,
+            receiver_environment: snapshot.environment,
             implementation: snapshot.implementation,
             target: binding.target,
             parameter_types: binding.parameter_types,
@@ -552,9 +751,16 @@ impl Runtime {
             || arguments.len() != method.parameter_types.len()
             || !arguments
                 .iter()
-                .zip(&method.parameter_types)
-                .all(|(value, ty)| {
-                    self.matches_interface_method_abi(value, ty, &method.implementation)
+                .enumerate()
+                .all(|(index, value)| match &method.scoped_signature {
+                    Some(signature) => {
+                        signature.params[index].matches(self, value, &method.implementation)
+                    }
+                    None => self.matches_interface_method_abi(
+                        value,
+                        &method.parameter_types[index],
+                        &method.implementation,
+                    ),
                 })
         {
             return Err(RuntimeError::new(
@@ -576,7 +782,12 @@ impl Runtime {
             let _root = self
                 .root_value(result.clone())
                 .ok_or_else(|| RuntimeError::module_validation("invalid interface result root"))?;
-            self.make_interface(&adapter.owner, adapter.table, result)
+            let arguments = self.type_arguments(
+                &adapter.owner,
+                adapter.environment.clone(),
+                &adapter.arguments,
+            )?;
+            self.make_interface_applied(&adapter.owner, adapter.table, &arguments, result)
         } else {
             Ok(result)
         }
@@ -588,11 +799,16 @@ impl Runtime {
         result: &value::Value,
     ) -> Result<(), RuntimeError> {
         if !method.implementation.belongs_to(self.host.owner())
-            || !self.matches_interface_method_abi(
-                result,
-                &method.return_type,
-                &method.implementation,
-            )
+            || !match &method.scoped_signature {
+                Some(signature) => signature
+                    .result
+                    .matches(self, result, &method.implementation),
+                None => self.matches_interface_method_abi(
+                    result,
+                    &method.return_type,
+                    &method.implementation,
+                ),
+            }
         {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,

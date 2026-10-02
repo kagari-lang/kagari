@@ -273,3 +273,112 @@ fn main()->i32{invoke({return 42;})}
 "#,
     );
 }
+
+#[test]
+fn shared_interface_methods_receive_callable_operations_for_closures_and_objects() {
+    execute(
+        r#"
+trait Invoke {
+    fn invoke<T, R, F: Fn(T) -> R>(self, x: T, f: F) -> R { f(x) }
+}
+struct Runner {}
+impl Invoke for Runner {}
+struct Adder { val base: i32 }
+impl Fn<(i32,)> for Adder {
+    type Output = i32;
+    fn call(self, args: (i32,)) -> i32 { self.base + args[0] }
+}
+fn main() -> i32 {
+    val runner: Invoke = Runner {};
+    val a = runner.invoke(10, |x| x + 10);
+    val b = runner.invoke(12, Adder { base: 10 });
+    a + b
+}
+"#,
+    );
+}
+
+#[test]
+fn shared_constraint_operations_forward_and_survive_closure_capture() {
+    execute(
+        r#"
+trait Invoke {
+    fn invoke<T, R, F: Fn(T) -> R>(self, x: T, f: F) -> R { f(x) }
+    fn forward<T, R, F: Fn(T) -> R>(self, next: Invoke, x: T, f: F) -> R {
+        next.invoke(x, f)
+    }
+    fn defer<T, R, F: Fn(T) -> R>(self, x: T, f: F) -> fn() -> R { || f(x) }
+}
+struct Runner {}
+impl Invoke for Runner {}
+fn main() -> i32 {
+    val first: Invoke = Runner {};
+    val next: Invoke = Runner {};
+    val a = first.forward(next, 10, |x| x + 10);
+    val later = first.defer(12, |x| x + 10);
+    a + later()
+}
+"#,
+    );
+}
+
+#[test]
+fn forged_constraint_operations_are_rejected_before_execution() {
+    use kagari_abi::{callable::witness::OperationWitness, scalar::BuiltinType, types::AbiType};
+    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+    let artifact = KagariEngine::default()
+        .compile_to_artifact(
+            SourceFile::new(
+                "witnesses.kgr",
+                r#"
+trait Invoke { fn invoke<F: Fn(i32) -> i32>(self, f: F) -> i32 { f(21) } }
+struct Runner {}
+impl Invoke for Runner {}
+fn main() -> i32 { val runner: Invoke = Runner {}; runner.invoke(|x| x * 2) }
+"#,
+            ),
+            Default::default(),
+        )
+        .unwrap();
+    for mutation in 0..5 {
+        let mut program = artifact.program.clone();
+        let contract = program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.functions)
+            .flat_map(|function| &mut function.instructions)
+            .find_map(|instruction| match instruction {
+                BytecodeInstruction::Call {
+                    callee: CallTarget::InterfaceMethod { contract, .. },
+                    ..
+                } if !contract.operations.is_empty() => Some(contract),
+                _ => None,
+            })
+            .unwrap();
+        match mutation {
+            0 => contract.operations.clear(),
+            1 => contract.operations.push(contract.operations[0].clone()),
+            2 => {
+                let OperationWitness::Selected(selected) = &mut contract.operations[0] else {
+                    panic!("selected operation");
+                };
+                selected.signature.result = AbiType::Builtin(BuiltinType::Bool);
+            }
+            3 => {
+                let OperationWitness::Selected(selected) = &mut contract.operations[0] else {
+                    panic!("selected operation");
+                };
+                selected.instance.declaration.path[0].name = "main".into();
+            }
+            _ => {
+                contract.operations[0] = OperationWitness::Forward(Box::new(
+                    contract.operations[0].requirement().clone(),
+                ))
+            }
+        }
+        assert!(
+            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            "forged witness {mutation}"
+        );
+    }
+}

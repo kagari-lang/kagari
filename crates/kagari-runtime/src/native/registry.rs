@@ -7,15 +7,15 @@ use crate::{
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::LinkedCallable,
+        context::{CallableOwner, LinkedCallable, LinkedOperation},
         storage::NativeStorage,
     },
 };
 use kagari_abi::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, witness::OperationWitness},
     declaration::ModuleDecl,
     language::{self, Protocol},
-    native_import::callables::NativeCallableOrigin,
+    native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
     native_import::{NativeImport, NativeSignature},
     standard::RuntimePrimitive,
     types::{AbiType, NativeDeclaration, verify::validate_native_declarations},
@@ -53,6 +53,7 @@ pub(crate) fn link_host(
     Rc::new(LinkedNativeFunction {
         binding: entry,
         signature,
+        scoped_signature: None,
         selected: Box::new([]),
     })
 }
@@ -144,7 +145,10 @@ impl NativeRegistry {
         let selected = import
             .callables
             .iter()
-            .map(|callable| {
+            .map(|operation| {
+                let OperationWitness::Selected(callable) = operation else {
+                    return Ok(LinkedOperation::Forward(operation.requirement().clone()));
+                };
                 let (slot, owner) = program
                     .modules()
                     .iter()
@@ -171,39 +175,46 @@ impl NativeRegistry {
                     }
                 }
                 .ok_or_else(|| RuntimeError::module_validation("native callable target"))?;
-                Ok(LinkedCallable {
-                    module: ModuleRef::new(slot),
+                Ok(LinkedOperation::Ready(LinkedCallable {
+                    environment: None,
+                    scoped_signature: None,
+                    owner: CallableOwner::Program(ModuleRef::new(slot)),
                     target,
                     params: callable.signature.params.clone().into_boxed_slice(),
                     result: callable.signature.result.clone(),
-                    primitive: if callable.origin == NativeCallableOrigin::ProtocolAdapter
-                        && callable
-                            .signature
-                            .params
-                            .iter()
-                            .all(|ty| matches!(ty, AbiType::Builtin(_)))
-                    {
-                        let member = &callable.requirement.member;
-                        [
-                            (Protocol::PartialEq, "eq", RuntimePrimitive::ValueEq),
-                            (Protocol::Hash, "hash", RuntimePrimitive::ValueHash),
-                            (Protocol::Ord, "cmp", RuntimePrimitive::ValueCmp),
-                        ]
-                        .into_iter()
-                        .find(|(protocol, name, _)| {
-                            ModuleDecl::method_id(&language::identity(*protocol), name) == *member
-                        })
-                        .map(|(_, _, primitive)| primitive)
-                    } else {
-                        None
-                    },
-                })
+                    primitive: callable_primitive(callable),
+                }))
             })
             .collect::<NativeResult<Vec<_>>>()?;
         Ok(Rc::new(LinkedNativeFunction {
             binding: entry.binding.clone(),
             signature: import.signature.clone(),
+            scoped_signature: None,
             selected: selected.into_boxed_slice(),
         }))
+    }
+}
+
+pub(crate) fn callable_primitive(callable: &NativeCallableApplication) -> Option<RuntimePrimitive> {
+    if callable.origin == NativeCallableOrigin::ProtocolAdapter
+        && callable
+            .signature
+            .params
+            .iter()
+            .all(|ty| matches!(ty, AbiType::Builtin(_)))
+    {
+        let member = &callable.requirement.member;
+        [
+            (Protocol::PartialEq, "eq", RuntimePrimitive::ValueEq),
+            (Protocol::Hash, "hash", RuntimePrimitive::ValueHash),
+            (Protocol::Ord, "cmp", RuntimePrimitive::ValueCmp),
+        ]
+        .into_iter()
+        .find(|(protocol, name, _)| {
+            ModuleDecl::method_id(&language::identity(*protocol), name) == *member
+        })
+        .map(|(_, _, primitive)| primitive)
+    } else {
+        None
     }
 }

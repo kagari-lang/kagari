@@ -807,14 +807,11 @@ pub(super) fn validate_standard_constraint_type(
 }
 
 pub(super) fn interface_method_compatible<'a>(
-    generic_count: usize,
-    trait_generic_count: usize,
     has_receiver: bool,
     return_type: &TypeId,
     other_parameters: impl IntoIterator<Item = &'a TypeId>,
 ) -> bool {
-    generic_count == trait_generic_count
-        && has_receiver
+    has_receiver
         && !return_type.contains_self_type()
         && other_parameters
             .into_iter()

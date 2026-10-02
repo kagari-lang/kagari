@@ -1,11 +1,13 @@
-//! Compare executable method signatures after canonical substitution and projection resolution.
+//! Validate entry argument mappings and signatures in each interface slot.
 use crate::module::{BytecodeModule, CallableTarget};
 use kagari_abi::{
     callable::CallableImplementation,
+    native_import::NativeSignature,
     types::{
-        AbiType, PublicAbiItem,
+        AbiType, ConcreteFunctionIdentity, PublicAbiItem,
         proofs::ProofCatalog,
         substitution::{TypeSubstitution, TypeTransformError},
+        verify::types_in_scope,
     },
 };
 use kagari_common::cancellation::CancellationToken;
@@ -23,18 +25,40 @@ pub(super) fn valid(
             return Ok(false);
         };
         for slot in &table.methods {
-            let identity = match slot.target {
-                CallableTarget::Script(target) => module
-                    .functions
-                    .get(target.index())
-                    .and_then(|function| function.identity.as_ref()),
-                CallableTarget::Native(target) => module
-                    .native_imports
-                    .get(target.index())
-                    .map(|import| &import.instance),
-            };
-            let Some(identity) = identity else {
-                return Ok(false);
+            let (identity, body, signature) = match slot.target {
+                CallableTarget::Script(target) => {
+                    let Some(function) = module.functions.get(target.index()) else {
+                        return Ok(false);
+                    };
+                    let Some(identity) = &function.identity else {
+                        return Ok(false);
+                    };
+                    let semantic = &function.metadata.semantic;
+                    let Some(params) = (0..function.metadata.params.len())
+                        .map(|index| semantic.params.get(&index).cloned())
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        return Ok(false);
+                    };
+                    let Some(result) = semantic.result.clone() else {
+                        return Ok(false);
+                    };
+                    (
+                        identity,
+                        semantic.generic.as_ref(),
+                        NativeSignature { params, result },
+                    )
+                }
+                CallableTarget::Native(target) => {
+                    let Some(import) = module.native_imports.get(target.index()) else {
+                        return Ok(false);
+                    };
+                    (
+                        &import.instance,
+                        import.generic.as_ref(),
+                        import.signature.clone(),
+                    )
+                }
             };
             let Some(name) = slot.method.path.last().map(|part| &part.name) else {
                 return Ok(false);
@@ -42,86 +66,109 @@ pub(super) fn valid(
             let Some(method) = abi.methods.iter().find(|method| &method.name == name) else {
                 return Ok(false);
             };
-            if let CallableImplementation::NativeDefault(application) = &method.implementation {
-                let CallableTarget::Native(target) = slot.target else {
-                    return Ok(false);
-                };
-                if table.arguments.len() != abi.generic_params.len()
-                    || !method.generic_params.is_empty()
-                {
-                    return Ok(false);
-                }
-                let mut substitution = TypeSubstitution::default();
-                for (parameter, argument) in abi.generic_params.iter().zip(&table.arguments) {
-                    substitution.bind(&parameter.owner, parameter.position, argument);
-                }
-                let application = application.apply(&substitution, cancel)?;
-                let Some(resolved) = catalog.resolve_native_default(&application, cancel)? else {
-                    return Ok(false);
-                };
-                let import = &module.native_imports[target.index()];
-                if resolved.instance != import.instance
-                    || resolved.implementation
-                        != CallableImplementation::Native(import.binding.clone())
-                    || resolved.signature != import.signature
-                {
-                    return Ok(false);
-                }
-                let normalize = |ty| catalog.normalize(&substitution.apply(ty, cancel)?, cancel);
-                if method
-                    .params
-                    .iter()
-                    .map(|p| normalize(&p.ty))
-                    .collect::<Result<Vec<_>, _>>()?
-                    != resolved.signature.params
-                    || normalize(&method.return_type)? != resolved.signature.result
-                {
-                    return Ok(false);
-                }
-                continue;
-            }
-            if identity.arguments.len() != abi.generic_params.len() + method.generic_params.len() {
-                return Ok(false);
-            }
-            let mut substitution = TypeSubstitution::default();
-            for (parameter, argument) in abi
+            let scope: Vec<_> = abi
                 .generic_params
                 .iter()
                 .chain(&method.generic_params)
-                .zip(&identity.arguments)
+                .cloned()
+                .collect();
+            let parameters = body.map_or(&[][..], |body| body.parameters.as_slice());
+            if slot.arguments.len() != parameters.len()
+                || !types_in_scope(&slot.arguments, &scope, cancel)
             {
-                substitution.bind(&parameter.owner, parameter.position, argument);
+                return Ok(false);
             }
-            let normalize =
-                |ty: &AbiType| catalog.normalize(&substitution.apply(ty, cancel)?, cancel);
-            let params = method
-                .params
-                .iter()
-                .map(|param| normalize(&param.ty))
-                .collect::<Result<Vec<_>, _>>()?;
-            let result = normalize(&method.return_type)?;
-            match slot.target {
-                CallableTarget::Script(target) => {
-                    let function = &module.functions[target.index()];
-                    if params
-                        .iter()
-                        .map(AbiType::representation)
-                        .collect::<Vec<_>>()
-                        != function.metadata.params
-                        || result.representation() != function.metadata.return_type
-                        || params.iter().enumerate().any(|(index, ty)| {
-                            function.metadata.semantic.params.get(&index) != Some(ty)
-                        })
-                        || function.metadata.semantic.result.as_ref() != Some(&result)
-                    {
+            let mut entry = TypeSubstitution::default();
+            for (parameter, argument) in parameters.iter().zip(&slot.arguments) {
+                entry.bind(&parameter.owner, parameter.position, argument);
+            }
+            let mut applied = TypeSubstitution::default();
+            if table.arguments.len() != abi.generic_params.len() {
+                return Ok(false);
+            }
+            for (parameter, argument) in abi.generic_params.iter().zip(&table.arguments) {
+                applied.bind(&parameter.owner, parameter.position, argument);
+            }
+            let normalize = |ty: &AbiType, substitution: &TypeSubstitution| {
+                catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
+            };
+            let expected = NativeSignature {
+                params: method
+                    .params
+                    .iter()
+                    .map(|param| normalize(&param.ty, &applied))
+                    .collect::<Result<_, _>>()?,
+                result: normalize(&method.return_type, &applied)?,
+            };
+            let actual = NativeSignature {
+                params: signature
+                    .params
+                    .iter()
+                    .map(|ty| normalize(ty, &entry))
+                    .collect::<Result<_, _>>()?,
+                result: normalize(&signature.result, &entry)?,
+            };
+            if actual != expected {
+                return Ok(false);
+            }
+            let mut assumptions = applied.apply_bounds(&abi.bounds, cancel)?;
+            assumptions.extend(applied.apply_bounds(&method.bounds, cancel)?);
+            if let Some(body) = body {
+                for bound in entry.apply_bounds(&body.bounds, cancel)? {
+                    if !catalog.constraints_hold(
+                        &bound.ty,
+                        &bound.constraints,
+                        &assumptions,
+                        cancel,
+                    )? {
                         return Ok(false);
                     }
                 }
-                CallableTarget::Native(target) => {
-                    let signature = &module.native_imports[target.index()].signature;
-                    if signature.params != params || signature.result != result {
-                        return Ok(false);
-                    }
+            }
+            let target = ConcreteFunctionIdentity {
+                declaration: identity.declaration.clone(),
+                arguments: identity
+                    .arguments
+                    .iter()
+                    .map(|ty| entry.apply(ty, cancel))
+                    .collect::<Result<_, _>>()?,
+            };
+            if let CallableImplementation::NativeDefault(application) = &method.implementation {
+                let CallableTarget::Native(import) = slot.target else {
+                    return Ok(false);
+                };
+                let application = application.apply(&applied, cancel)?;
+                let Some(resolved) = catalog.resolve_native_default_in(
+                    &application,
+                    &scope,
+                    &assumptions,
+                    cancel,
+                )?
+                else {
+                    return Ok(false);
+                };
+                if resolved.instance != target
+                    || resolved.implementation
+                        != CallableImplementation::Native(
+                            module.native_imports[import.index()].binding.clone(),
+                        )
+                    || resolved.signature != actual
+                {
+                    return Ok(false);
+                }
+            } else {
+                let expected_arguments: Vec<_> = table
+                    .arguments
+                    .iter()
+                    .cloned()
+                    .chain(method.generic_params.iter().map(|p| p.as_type()))
+                    .collect();
+                let mut actual_arguments = target.arguments;
+                if matches!(slot.target, CallableTarget::Script(_)) {
+                    actual_arguments.extend(slot.arguments.iter().cloned());
+                }
+                if actual_arguments != expected_arguments {
+                    return Ok(false);
                 }
             }
         }

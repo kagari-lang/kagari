@@ -70,6 +70,10 @@ impl<'a> Budget<'a> {
 }
 
 impl<'a> ProofCatalog<'a> {
+    pub fn trait_contract(&self, declaration: &DefinitionId) -> Option<&'a TraitAbi> {
+        self.contracts.get(declaration).copied()
+    }
+
     pub fn new(
         implementations: Vec<Implementation<'a>>,
         hosts: Vec<&'a HostTypeDeclaration>,

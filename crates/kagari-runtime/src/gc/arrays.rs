@@ -25,8 +25,17 @@ impl GcHeap {
         element: AbiType,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_array_with_contract(Rc::new(StorageType::prepare(element, owner)?), elements)
+    }
+
+    pub(crate) fn alloc_array_with_contract(
+        &self,
+        contract: Rc<StorageType>,
+        elements: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let contract = Rc::new(StorageType::prepare(element.clone(), owner)?);
+        let owner = contract.owner.clone();
+        let element = contract.ty.clone();
         let values = self.prepare_array_values(&contract, elements)?;
         let ty = AbiType::Array(Box::new(element.clone()), CollectionAccess::Mutable);
         let object = self.sequence_storage.prepare_payload(
@@ -37,7 +46,7 @@ impl GcHeap {
                 contract,
                 values,
             },
-            owner,
+            &owner,
         )?;
         self.alloc_native(object)
     }
@@ -48,16 +57,30 @@ impl GcHeap {
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_array_repeat_with_contract(
+            Rc::new(StorageType::prepare(element, owner)?),
+            value,
+            count,
+        )
+    }
+
+    pub(crate) fn alloc_array_repeat_with_contract(
+        &self,
+        contract: Rc<StorageType>,
+        value: Value,
+        count: usize,
+    ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        if !self.valid_payload(&value) || !self.matches_abi(&value, &element, owner) {
+        if !self.valid_payload(&value) || !contract.accepts_value(self, &value) {
             return Err(invalid());
         }
+        let element = contract.ty.clone();
+        let owner = contract.owner.clone();
         self.resources.poll_execution()?;
         let units = count
             .checked_add(1)
             .ok_or_else(|| self.resource_limit("array length"))?;
         drop(self.resources.prepare_heap_growth(units)?);
-        let contract = Rc::new(StorageType::prepare(element.clone(), owner)?);
         let mut values = SequenceStorage::empty(&element);
         values
             .try_reserve(count)
@@ -75,7 +98,7 @@ impl GcHeap {
                 contract,
                 values,
             },
-            owner,
+            &owner,
         )?;
         self.alloc_native(object)
     }
@@ -113,7 +136,7 @@ impl GcHeap {
     pub fn array_get(&self, id: HeapObjectId, index: usize) -> Option<Value> {
         self.with_array(id, |values| values.get(index)).flatten()
     }
-    pub(super) fn array_contract(&self, id: HeapObjectId) -> Option<Rc<StorageType>> {
+    pub(crate) fn array_contract(&self, id: HeapObjectId) -> Option<Rc<StorageType>> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
@@ -125,7 +148,7 @@ impl GcHeap {
     }
     fn validate_array_value(&self, id: HeapObjectId, value: &Value) -> Result<(), RuntimeError> {
         let contract = self.array_contract(id).ok_or_else(invalid)?;
-        if self.valid_payload(value) && self.matches_abi(value, &contract.ty, &contract.owner) {
+        if self.valid_payload(value) && contract.accepts_value(self, value) {
             Ok(())
         } else {
             Err(invalid())
@@ -141,9 +164,7 @@ impl GcHeap {
             .try_reserve(elements.len())
             .map_err(|_| self.resource_limit("allocation capacity"))?;
         for value in elements {
-            if !self.valid_payload(&value)
-                || !self.matches_abi(&value, &contract.ty, &contract.owner)
-            {
+            if !self.valid_payload(&value) || !contract.accepts_value(self, &value) {
                 return Err(invalid());
             }
             values.push(value)?;
@@ -263,7 +284,7 @@ impl GcHeap {
         }
         let target_contract = self.array_contract(target).ok_or_else(invalid)?;
         let source_contract = self.array_contract(source).ok_or_else(invalid)?;
-        if !source_contract.matches(&target_contract.ty, &target_contract.owner) {
+        if !source_contract.same_type(&target_contract) {
             return Err(invalid());
         }
         self.resources.poll_execution()?;

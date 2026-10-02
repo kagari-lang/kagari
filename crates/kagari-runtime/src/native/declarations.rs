@@ -12,6 +12,24 @@ use kagari_abi::{
     types::{ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, ParameterAbi},
 };
 use kagari_common::identity::DefinitionId;
+use std::collections::{BTreeMap, BTreeSet};
+
+pub(crate) fn normalize_bounds(signature: &mut FunctionAbi) {
+    let mut bounds = BTreeMap::new();
+    for bound in signature.bounds.drain(..) {
+        bounds
+            .entry(bound.ty)
+            .or_insert_with(BTreeSet::new)
+            .extend(bound.constraints);
+    }
+    signature.bounds = bounds
+        .into_iter()
+        .map(|(ty, constraints)| GenericBoundAbi {
+            ty,
+            constraints: constraints.into_iter().collect(),
+        })
+        .collect();
+}
 
 #[derive(Debug, Clone)]
 pub struct FunctionDecl {
@@ -104,6 +122,10 @@ pub struct CallableRequirement {
     pub(crate) requirement: NativeCallableRequirement,
 }
 impl CallableRequirement {
+    pub fn arguments(mut self, arguments: impl IntoIterator<Item = Type>) -> Self {
+        self.requirement.arguments = arguments.into_iter().map(|ty| ty.0).collect();
+        self
+    }
     pub fn method(receiver: Type, method: MethodRef) -> Self {
         Self {
             requirement: NativeCallableRequirement {

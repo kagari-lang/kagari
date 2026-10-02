@@ -166,6 +166,17 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             Ok::<_, MirLoweringError>(lower_type(&ty))
         };
         function.semantic.result = Some(concrete(&typed_function.return_type)?);
+        let scope = if instance.closure.is_some() {
+            analyzed
+                .typed
+                .functions
+                .iter()
+                .find(|function| function.id == instance.function)
+                .ok_or(MirLoweringError::MissingTypedFunction(instance.function))?
+        } else {
+            typed_function
+        };
+        function.semantic.generic = instance.shared_body(scope);
         for (index, param) in typed_function.params.iter().enumerate() {
             function.semantic.params.insert(index, concrete(&param.ty)?);
             function.semantic.locals.insert(index, concrete(&param.ty)?);

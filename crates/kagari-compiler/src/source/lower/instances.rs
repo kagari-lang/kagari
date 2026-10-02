@@ -1,7 +1,9 @@
 use crate::source::lower::MirLoweringError;
 mod callables;
+mod calls;
 mod defaults;
 mod native;
+mod shared;
 mod views;
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
@@ -73,6 +75,8 @@ impl InstanceKey {
         let arguments = self
             .arguments
             .iter()
+            .filter(|argument| !matches!(argument, TypeId::Generic(parameter)
+                if parameter.owner.module == self.declaration.module && self.declaration.path.starts_with(&parameter.owner.path)))
             .map(|argument| {
                 let argument = instantiate(argument, None, options, &mut remaining, 0, span)?;
                 if !argument.is_concrete() {
@@ -255,7 +259,7 @@ impl<'a> InstancePlanner<'a> {
             protocol,
             ty,
             span,
-            protocol.iteration().then_some(interface),
+            (protocol.iteration() || protocol == Protocol::Fn).then_some(interface),
         )
     }
 
@@ -358,7 +362,10 @@ impl<'a> InstancePlanner<'a> {
         let count = implementation.generic_params.len();
         let method_params = &method.generic_params[contract.generic_params.len()..];
         if arguments.len() != count + method_params.len()
-            || arguments.iter().any(|ty| !ty.is_concrete())
+            || arguments.iter().any(|ty| {
+                !ty.is_concrete()
+                    && !matches!(ty, TypeId::Generic(parameter) if parameter.owner == *declaration)
+            })
         {
             return Err(MirLoweringError::MissingBinding("default method arguments"));
         }
@@ -497,6 +504,21 @@ impl<'a> InstancePlanner<'a> {
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), MirLoweringError> {
+        let canonical;
+        let arguments = if arguments.iter().all(TypeId::is_concrete) {
+            arguments
+        } else {
+            let contract = self.catalog.implementation_signature(declaration).ok_or(
+                MirLoweringError::MissingBinding("shared interface template"),
+            )?;
+            canonical = contract
+                .generic_params
+                .iter()
+                .cloned()
+                .map(TypeId::Generic)
+                .collect::<Vec<_>>();
+            canonical.as_slice()
+        };
         if self
             .interfaces
             .insert((declaration.clone(), arguments.to_vec()))
@@ -504,16 +526,17 @@ impl<'a> InstancePlanner<'a> {
             if !arguments.is_empty() {
                 self.charge_layout_instance(span)?;
             }
-            self.interface_instances.push(
-                InstanceKey {
-                    declaration: declaration.clone(),
-                    arguments: arguments.to_vec(),
-                }
-                .lower(self.options, span)?,
-            );
+            self.interface_instances.push(ConcreteFunctionIdentity {
+                declaration: declaration.clone(),
+                arguments: arguments.iter().map(lower_type).collect(),
+            });
             self.require_iterator_view(declaration, arguments, span)?;
-            if declaration.module == *self.module.lowered.source.module_identity() {
-                self.prepare_native_interface(declaration, arguments, span)?;
+            if declaration.module == *self.module.lowered.source.module_identity()
+                && let Some(contract) = self.catalog.implementation_signature(declaration)
+            {
+                for method in self.catalog.implementation_methods(contract) {
+                    self.enqueue_interface_method(&method, arguments, span)?;
+                }
             }
         }
         Ok(())
@@ -561,12 +584,7 @@ impl<'a> InstancePlanner<'a> {
                 )?;
                 let methods = self.catalog.implementation_methods(signature);
                 for method in methods {
-                    if self.prepare_native_target(&method, &arguments, span)?
-                        || self.native_function(&method).is_some()
-                    {
-                        continue;
-                    }
-                    self.enqueue_declaration(&method, arguments.clone(), span)?;
+                    self.enqueue_interface_method(&method, &arguments, span)?;
                 }
             }
         }
@@ -617,7 +635,9 @@ impl<'a> InstancePlanner<'a> {
             return Err(MirLoweringError::MissingBinding("checked type arguments"));
         }
         for argument in &arguments {
-            if !argument.is_concrete() {
+            if !argument.is_concrete()
+                && !matches!(argument, TypeId::Generic(parameter) if parameter.owner == *declaration)
+            {
                 return Err(unresolved_type(argument, span));
             }
         }
@@ -748,7 +768,11 @@ impl<'a> InstancePlanner<'a> {
             span,
         )?;
         let ty = self.catalog.normalize_type(&ty);
-        if !ty.is_concrete() {
+        if !ty.is_concrete()
+            && !substitution
+                .values()
+                .any(|value| matches!(value, TypeId::Generic(_)))
+        {
             return Err(unresolved_type(&ty, span));
         }
         Ok(lower_type(&ty).representation())

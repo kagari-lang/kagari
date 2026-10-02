@@ -47,7 +47,15 @@ pub(super) fn matches_declaration(
         return Ok(false);
     }
     for bound in &bounds {
-        if !catalog.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
+        if !catalog.constraints_hold(
+            &bound.ty,
+            &bound.constraints,
+            import
+                .generic
+                .as_ref()
+                .map_or(&[], |body| body.bounds.as_slice()),
+            cancel,
+        )? {
             return Ok(false);
         }
     }
@@ -62,7 +70,20 @@ pub(super) fn matches_declaration(
         let required = required
             .apply(&substitution, cancel)?
             .normalized(catalog, cancel)?;
-        if !catalog.callable_matches(&required, selected, cancel)? {
+        if selected.requirement() != &required
+            || !selected.valid(
+                catalog,
+                import
+                    .generic
+                    .as_ref()
+                    .map_or(&[], |body| body.parameters.as_slice()),
+                import
+                    .generic
+                    .as_ref()
+                    .map_or(&[], |body| body.bounds.as_slice()),
+                cancel,
+            )?
+        {
             return Ok(false);
         }
     }

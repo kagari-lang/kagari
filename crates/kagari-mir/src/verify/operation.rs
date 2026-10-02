@@ -7,7 +7,7 @@ use kagari_abi::{
     contracts::{self, ContractError, RuntimeHelperKind},
     operations::{self, range_operands_valid},
     representation::ValueType,
-    types::{self as abi, AbiType, PublicAbiItem},
+    types::{AbiType, PublicAbiItem, verify::types_in_scope},
 };
 
 use kagari_common::host_interface::{HostInterface, type_declaration::PathAccess};
@@ -40,6 +40,29 @@ pub(super) fn verify(
         {
             return Err(context.error(Error::InvalidHostInterface));
         }
+    }
+    let aggregate = match instruction {
+        Instruction::MakeStruct { structure, .. } => Some(structure),
+        Instruction::MakeEnum { enumeration, .. }
+        | Instruction::TestEnumVariant { enumeration, .. }
+        | Instruction::ReadEnumPayload { enumeration, .. } => Some(enumeration),
+        Instruction::ReadAggregateField { field, .. }
+        | Instruction::WriteAggregateField { field, .. } => Some(&field.owner),
+        _ => None,
+    };
+    if let Some(aggregate) = aggregate
+        && (!aggregate.associated_types.is_empty()
+            || !types_in_scope(
+                &aggregate.arguments,
+                function
+                    .semantic
+                    .generic
+                    .as_ref()
+                    .map_or(&[], |body| body.parameters.as_slice()),
+                context.cancel,
+            ))
+    {
+        return Err(context.error(Error::InvalidStructInitializer));
     }
     match instruction {
         Instruction::Convert {
@@ -129,11 +152,40 @@ pub(super) fn verify(
             "binary destination",
         )?,
         Instruction::Call { dst, callee, args } => match callee {
+            CallTarget::Shared(call) => {
+                if !call.structurally_valid(
+                    function
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or(&[], |body| body.parameters.as_slice()),
+                    &Default::default(),
+                ) {
+                    return Err(context.error(Error::UnsupportedCall));
+                }
+                if args.len() != call.signature.params.len() {
+                    return Err(context.error(Error::CallArity {
+                        expected: call.signature.params.len(),
+                        found: args.len(),
+                    }));
+                }
+                for (arg, param) in args.iter().zip(&call.signature.params) {
+                    context.expect(arg.ty, param.representation(), "shared call argument")?;
+                }
+                contracts::verify_call_dst(
+                    dst.map(|v| v.ty),
+                    call.signature.result.representation(),
+                )
+                .map_err(contract)?;
+            }
             CallTarget::Function(target) => {
                 let callee = module
                     .functions
                     .get(target.index())
                     .ok_or_else(|| context.error(Error::InvalidCall(*target)))?;
+                if callee.semantic.generic.is_some() {
+                    return Err(context.error(Error::InvalidCall(*target)));
+                }
                 if args.len() != callee.params.len() {
                     return Err(context.error(Error::CallArity {
                         expected: callee.params.len(),
@@ -161,14 +213,25 @@ pub(super) fn verify(
             }
             CallTarget::InterfaceMethod(interface_call) => {
                 if interface_call.interface.declaration.module == module.identity {
-                    let (params, return_type) = abi::interface_method_types(
-                        &module.identity,
-                        &module.abi.public_items,
-                        &module.abi.trait_contracts,
-                        &interface_call.interface,
-                        interface_call.method_slot as usize,
-                    )
-                    .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
+                    let (params, return_type) = interface_call
+                        .signature_in(
+                            &module.identity,
+                            &module.abi.public_items,
+                            &module.abi.trait_contracts,
+                            &Default::default(),
+                        )
+                        .ok()
+                        .and_then(|signature| {
+                            signature.physical_types(
+                                function
+                                    .semantic
+                                    .generic
+                                    .as_ref()
+                                    .map_or(&[], |body| body.parameters.as_slice()),
+                                &Default::default(),
+                            )
+                        })
+                        .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
                     if args.len() != params.len() {
                         return Err(context.error(Error::CallArity {
                             expected: params.len(),
@@ -185,7 +248,14 @@ pub(super) fn verify(
                     let receiver = args
                         .first()
                         .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
-                    context.expect(receiver.ty, ValueType::HeapObject, "interface receiver")?;
+                    context.expect(
+                        receiver.ty,
+                        interface_call
+                            .receiver
+                            .as_ref()
+                            .map_or(ValueType::HeapObject, |ty| ty.representation()),
+                        "interface receiver",
+                    )?;
                 }
             }
             CallTarget::RuntimePrimitive(intrinsic) => contracts::verify_intrinsic(
@@ -274,7 +344,14 @@ pub(super) fn verify(
             context.expect(dst.ty, ValueType::HeapObject, "repeat array destination")?;
             context.expect(count.ty, ValueType::U64, "repeat array count")?;
             context.expect(value.ty, element.representation(), "repeat array element")?;
-            if !element.within_wire_limits() || !element.is_concrete() {
+            if !element.within_wire_limits()
+                || (!element.is_concrete()
+                    && !function
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+            {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "unresolved or oversized array element",
                 }));
@@ -286,7 +363,14 @@ pub(super) fn verify(
             elements,
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "array destination")?;
-            if !element.within_wire_limits() || !element.is_concrete() {
+            if !element.within_wire_limits()
+                || (!element.is_concrete()
+                    && !function
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+            {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "unresolved or oversized array element",
                 }));
@@ -314,6 +398,11 @@ pub(super) fn verify(
                     found: captures.len(),
                 }));
             }
+            if callee.semantic.generic.is_some()
+                && callee.semantic.generic != function.semantic.generic
+            {
+                return Err(context.error(Error::InvalidInterfaceTable));
+            }
             for (capture, param) in captures.iter().zip(&callee.params) {
                 context.expect(capture.ty, param.ty, "closure capture")?;
             }
@@ -332,9 +421,18 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             context.expect(value.ty, ValueType::HeapObject, "interface receiver")?;
-            if !AbiType::Trait(source.clone()).is_concrete()
-                || !AbiType::Trait(target.clone()).is_concrete()
-            {
+            if !types_in_scope(
+                [
+                    &AbiType::Trait(source.clone()),
+                    &AbiType::Trait(target.clone()),
+                ],
+                function
+                    .semantic
+                    .generic
+                    .as_ref()
+                    .map_or(&[], |body| body.parameters.as_slice()),
+                context.cancel,
+            ) {
                 return Err(context.error(Error::InvalidInterfaceTable));
             }
         }
@@ -360,17 +458,15 @@ pub(super) fn verify(
                 return Err(context.error(Error::InvalidInterfaceTable));
             };
             let table = table
-                .instantiate(arguments)
+                .instantiate_in(
+                    arguments,
+                    function
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or(&[], |body| &body.parameters),
+                )
                 .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
-            if !table.for_type.is_concrete()
-                || !table.trait_type.is_concrete()
-                || table
-                    .methods
-                    .iter()
-                    .any(|method| !method.generic_params.is_empty())
-            {
-                return Err(context.error(Error::InvalidInterfaceTable));
-            }
             context.expect(
                 value.ty,
                 table.for_type.representation(),
@@ -400,7 +496,14 @@ pub(super) fn verify(
         }
         Instruction::StandardEnum { dst, value, ty, op } => {
             let (input, output) = op
-                .contract(ty)
+                .contract_in(
+                    ty,
+                    function
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or(&[], |body| body.parameters.as_slice()),
+                )
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             if input != value.map(|v| v.ty) {
                 return Err(context.error(Error::InvalidEnumInitializer));
@@ -419,9 +522,10 @@ pub(super) fn verify(
                 .iter()
                 .find(|layout| {
                     layout.declaration == enumeration.declaration
-                        && layout.arguments == enumeration.arguments
+                        && layout.accepts(&enumeration.arguments)
                 })
-                .and_then(|layout| layout.variants.get(*variant))
+                .and_then(|layout| layout.apply(&enumeration.arguments, context.cancel))
+                .and_then(|layout| layout.variants.get(*variant).cloned())
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             if fields.len() != variant.payload.len() {
                 return Err(context.error(Error::InvalidEnumInitializer));
@@ -444,9 +548,10 @@ pub(super) fn verify(
                 .iter()
                 .find(|layout| {
                     layout.declaration == enumeration.declaration
-                        && layout.arguments == enumeration.arguments
+                        && layout.accepts(&enumeration.arguments)
                 })
-                .and_then(|layout| layout.variants.get(*variant))
+                .and_then(|layout| layout.apply(&enumeration.arguments, context.cancel))
+                .and_then(|layout| layout.variants.get(*variant).cloned())
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
         }
         Instruction::ReadEnumPayload {
@@ -462,10 +567,11 @@ pub(super) fn verify(
                 .iter()
                 .find(|layout| {
                     layout.declaration == enumeration.declaration
-                        && layout.arguments == enumeration.arguments
+                        && layout.accepts(&enumeration.arguments)
                 })
-                .and_then(|layout| layout.variants.get(*variant))
-                .and_then(|variant| variant.payload.get(*index))
+                .and_then(|layout| layout.apply(&enumeration.arguments, context.cancel))
+                .and_then(|layout| layout.variants.get(*variant).cloned())
+                .and_then(|variant| variant.payload.get(*index).cloned())
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             context.expect(dst.ty, payload.representation(), "enum pattern payload")?;
         }
@@ -502,7 +608,7 @@ pub(super) fn verify(
             context.expect(base.ty, ValueType::HeapObject, "field base")?;
             let target = module
                 .structure(&field.owner)
-                .and_then(|layout| layout.fields.get(field.slot))
+                .and_then(|layout| layout.fields.get(field.slot).cloned())
                 .ok_or_else(|| context.error(Error::InvalidField))?;
             context.expect(dst.ty, target.ty.representation(), "field read")?;
         }
@@ -510,7 +616,7 @@ pub(super) fn verify(
             context.expect(base.ty, ValueType::HeapObject, "field base")?;
             let target = module
                 .structure(&field.owner)
-                .and_then(|layout| layout.fields.get(field.slot))
+                .and_then(|layout| layout.fields.get(field.slot).cloned())
                 .ok_or_else(|| context.error(Error::InvalidField))?;
             if !target.mutable {
                 return Err(context.error(Error::ReadOnlyField));

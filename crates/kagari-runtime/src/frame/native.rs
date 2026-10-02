@@ -29,7 +29,7 @@ impl ExecutionStack {
         invoke_script: ScriptInvoker,
     ) -> Result<(), RuntimeError> {
         self.validate_native_runtime(runtime)?;
-        let (loaded, import, roots) = {
+        let (loaded, import, roots, environment) = {
             let mut frame = self.current_mut()?;
             let CallableTarget::Native(import) = frame.target else {
                 return Err(RuntimeError::module_validation(
@@ -42,11 +42,31 @@ impl ExecutionStack {
                 ));
             }
             frame.native_entry = NativeEntryState::Running;
-            (frame.loaded.clone(), import, frame.slots.clone())
+            (
+                frame.loaded.clone(),
+                import,
+                frame.slots.clone(),
+                frame.environment(),
+            )
         };
         let function = loaded
             .native_binding(import)
             .ok_or_else(|| RuntimeError::module_validation("unlinked native callable"))?;
+        let function =
+            if loaded.bytecode.native_imports[import.index()]
+                .generic
+                .is_some()
+            {
+                Rc::new(function.apply(
+                    runtime,
+                    &loaded,
+                    environment.ok_or_else(|| {
+                        RuntimeError::module_validation("shared native environment")
+                    })?,
+                )?)
+            } else {
+                function
+            };
         let mut context = CallContext {
             runtime,
             owner: &loaded,
@@ -106,6 +126,27 @@ impl ExecutionStack {
         self.validate_native_runtime(runtime)?;
         let destination = {
             let frame = self.current()?;
+            if frame.interface_method().is_none()
+                && let Some(environment) = frame.environment()
+            {
+                let ty = match frame.target() {
+                    CallableTarget::Script(_) => frame
+                        .function()
+                        .and_then(|function| function.metadata.semantic.result.as_ref()),
+                    CallableTarget::Native(import) => frame
+                        .loaded()
+                        .bytecode
+                        .native_imports
+                        .get(import.index())
+                        .map(|import| &import.signature.result),
+                }
+                .ok_or_else(|| RuntimeError::module_validation("shared return contract"))?;
+                if !runtime.matches_type_in(&value, ty, frame.loaded(), Some(&environment)) {
+                    return Err(RuntimeError::module_validation(
+                        "shared return type mismatch",
+                    ));
+                }
+            }
             if let Some(method) = frame.interface_method() {
                 value = runtime.finish_interface_method_result(method, value)?;
             }

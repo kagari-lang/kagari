@@ -2,6 +2,7 @@ use crate::{
     instruction::{BytecodeInstruction, CallTarget, Register, RuntimeHelper, UnaryOp},
     module::{BytecodeFunction, BytecodeModule},
     program::BytecodeProgram,
+    trait_bounds::shared,
     verifier::{
         BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
         function_ref_exists, ir_binary_op, local_ty, module_slot_ty, path_record, register_ty,
@@ -12,7 +13,7 @@ use kagari_abi::{
     contracts::{self, RuntimeHelperKind},
     operations::{self, UnaryOp as MirUnaryOp},
     representation::ValueType,
-    types::{self as abi, AbiType, PublicAbiItem},
+    types::{AbiType, PublicAbiItem, verify::types_in_scope},
 };
 pub(super) fn verify_instruction(
     module: &BytecodeModule,
@@ -20,6 +21,23 @@ pub(super) fn verify_instruction(
     instruction: &BytecodeInstruction,
     program: Option<&BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
+    if let Some(arguments) = instruction.layout_arguments()
+        && !types_in_scope(
+            arguments,
+            function
+                .metadata
+                .semantic
+                .generic
+                .as_ref()
+                .map_or(&[], |body| body.parameters.as_slice()),
+            &Default::default(),
+        )
+    {
+        return Err(BytecodeVerificationError::InvalidOperation {
+            function: function.id,
+            reason: "aggregate layout argument scope",
+        });
+    }
     match instruction {
         BytecodeInstruction::LoadConst { dst, constant } => {
             if !module.constants.contains(constant) {
@@ -133,7 +151,15 @@ pub(super) fn verify_instruction(
                 element.representation(),
                 "repeat array element",
             )?;
-            if !element.within_wire_limits() || !element.is_concrete() {
+            if !element.within_wire_limits()
+                || (!element.is_concrete()
+                    && !function
+                        .metadata
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+            {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "unresolved array element",
@@ -146,7 +172,15 @@ pub(super) fn verify_instruction(
             elements,
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "array dst")?;
-            if !element.within_wire_limits() || !element.is_concrete() {
+            if !element.within_wire_limits()
+                || (!element.is_concrete()
+                    && !function
+                        .metadata
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+            {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "unresolved or oversized array element",
@@ -178,6 +212,14 @@ pub(super) fn verify_instruction(
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "closure capture count exceeds parameter count",
+                });
+            }
+            if callee.metadata.semantic.generic.is_some()
+                && callee.metadata.semantic.generic != function.metadata.semantic.generic
+            {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "closure generic environment differs from its caller",
                 });
             }
             for (capture, ty) in captures.iter().zip(&callee.metadata.params) {
@@ -214,9 +256,19 @@ pub(super) fn verify_instruction(
                 ValueType::HeapObject,
                 "interface receiver",
             )?;
-            if !AbiType::Trait(source.clone()).is_concrete()
-                || !AbiType::Trait(target.clone()).is_concrete()
-            {
+            if !types_in_scope(
+                [
+                    &AbiType::Trait(source.clone()),
+                    &AbiType::Trait(target.clone()),
+                ],
+                function
+                    .metadata
+                    .semantic
+                    .generic
+                    .as_ref()
+                    .map_or(&[], |body| body.parameters.as_slice()),
+                &Default::default(),
+            ) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
@@ -225,6 +277,7 @@ pub(super) fn verify_instruction(
             value,
             module: target,
             implementation,
+            arguments,
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "interface dst")?;
             let target_module = if let Some(program) = program {
@@ -248,21 +301,22 @@ pub(super) fn verify_instruction(
                     PublicAbiItem::InterfaceTable(table)
                         if table.declaration == linked.declaration =>
                     {
-                        table.instantiate(&linked.arguments)
+                        let scope = function
+                            .metadata
+                            .semantic
+                            .generic
+                            .as_ref()
+                            .map_or(&[][..], |body| body.parameters.as_slice());
+                        if linked.arguments.iter().all(AbiType::is_concrete)
+                            && linked.arguments != *arguments
+                        {
+                            return None;
+                        }
+                        table.instantiate_in(arguments, scope)
                     }
                     _ => None,
                 })
                 .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
-            if !table.generic_params.is_empty()
-                || !table.for_type.is_concrete()
-                || !table.trait_type.is_concrete()
-                || table
-                    .methods
-                    .iter()
-                    .any(|method| !method.generic_params.is_empty())
-            {
-                return Err(BytecodeVerificationError::InvalidInterfaceTable);
-            }
             expect_register_ty(
                 function,
                 *value,
@@ -352,7 +406,17 @@ pub(super) fn verify_instruction(
                 function: function.id,
                 reason: "invalid standard enum contract",
             };
-            let (input, output) = op.contract(ty).ok_or_else(invalid)?;
+            let (input, output) = op
+                .contract_in(
+                    ty,
+                    function
+                        .metadata
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or(&[], |body| body.parameters.as_slice()),
+                )
+                .ok_or_else(invalid)?;
             match (input, value) {
                 (Some(ty), Some(value)) => {
                     expect_register_ty(function, *value, ty, "standard enum input")?
@@ -365,6 +429,7 @@ pub(super) fn verify_instruction(
         BytecodeInstruction::MakeEnum {
             dst,
             enumeration,
+            arguments,
             variant,
             fields,
         } => {
@@ -376,7 +441,8 @@ pub(super) fn verify_instruction(
             let layout = module
                 .enumerations
                 .get(enumeration.index())
-                .and_then(|layout| layout.variants.get(*variant as usize))
+                .and_then(|layout| layout.apply(arguments, &Default::default()))
+                .and_then(|layout| layout.variants.get(*variant as usize).cloned())
                 .ok_or_else(invalid)?;
             if fields.len() != layout.payload.len() {
                 return Err(invalid());
@@ -389,6 +455,7 @@ pub(super) fn verify_instruction(
             dst,
             value,
             enumeration,
+            arguments,
             variant,
         } => {
             expect_register_ty(function, *dst, ValueType::Bool, "enum pattern result")?;
@@ -401,7 +468,8 @@ pub(super) fn verify_instruction(
             module
                 .enumerations
                 .get(enumeration.index())
-                .and_then(|layout| layout.variants.get(*variant as usize))
+                .and_then(|layout| layout.apply(arguments, &Default::default()))
+                .and_then(|layout| layout.variants.get(*variant as usize).cloned())
                 .ok_or(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "enum pattern variant",
@@ -411,6 +479,7 @@ pub(super) fn verify_instruction(
             dst,
             value,
             enumeration,
+            arguments,
             variant,
             index,
         } => {
@@ -423,8 +492,9 @@ pub(super) fn verify_instruction(
             let ty = module
                 .enumerations
                 .get(enumeration.index())
-                .and_then(|layout| layout.variants.get(*variant as usize))
-                .and_then(|variant| variant.payload.get(*index as usize))
+                .and_then(|layout| layout.apply(arguments, &Default::default()))
+                .and_then(|layout| layout.variants.get(*variant as usize).cloned())
+                .and_then(|variant| variant.payload.get(*index as usize).cloned())
                 .ok_or(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "enum pattern payload",
@@ -439,15 +509,18 @@ pub(super) fn verify_instruction(
         BytecodeInstruction::MakeStruct {
             dst,
             structure,
+            arguments,
             fields,
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "struct dst")?;
-            let layout = module.structures.get(structure.index()).ok_or(
-                BytecodeVerificationError::InvalidStructId {
+            let layout = module
+                .structures
+                .get(structure.index())
+                .and_then(|layout| layout.apply(arguments, &Default::default()))
+                .ok_or(BytecodeVerificationError::InvalidStructId {
                     function: function.id,
                     structure: *structure,
-                },
-            )?;
+                })?;
             if fields.len() != layout.fields.len() {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -464,7 +537,7 @@ pub(super) fn verify_instruction(
             }
         }
         BytecodeInstruction::ReadAggregateField { dst, base, field } => {
-            let field = field_layout(module, function, *field)?;
+            let field = field_layout(module, function, field)?;
             expect_register_ty(
                 function,
                 *dst,
@@ -474,7 +547,7 @@ pub(super) fn verify_instruction(
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
         }
         BytecodeInstruction::WriteAggregateField { base, field, value } => {
-            let field = field_layout(module, function, *field)?;
+            let field = field_layout(module, function, field)?;
             if !field.mutable {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -615,6 +688,41 @@ pub(super) fn verify_call(
     program: Option<&BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
     match callee {
+        CallTarget::Shared {
+            module: owner,
+            target,
+            contract,
+        } => {
+            let invalid = || BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "invalid shared call environment",
+            };
+            let owner = program
+                .and_then(|program| program.modules.get(owner.index()))
+                .or_else(|| (program.is_none() && owner.index() == 0).then_some(module))
+                .ok_or_else(invalid)?;
+            let entry = shared::entry(owner, *target).ok_or_else(invalid)?;
+            if entry.identity != &contract.instance
+                || entry.implementation != contract.implementation
+                || !contract.structurally_valid(
+                    function
+                        .metadata
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or(&[], |body| body.parameters.as_slice()),
+                    &Default::default(),
+                )
+                || contract.arguments.len() != entry.body.parameters.len()
+                || contract.signature.params.len() != args.len()
+            {
+                return Err(invalid());
+            }
+            for (arg, ty) in args.iter().zip(&contract.signature.params) {
+                expect_register_ty(function, *arg, ty.representation(), "shared call argument")?;
+            }
+            verify_call_dst(function, dst, contract.signature.result.representation())?;
+        }
         CallTarget::ModuleFunction {
             module: target_module,
             function: target,
@@ -639,6 +747,17 @@ pub(super) fn verify_call(
                 });
             }
             let record = &module.function_table[target.index()];
+            if module.functions[target.index()]
+                .metadata
+                .semantic
+                .generic
+                .is_some()
+            {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "shared function requires a checked generic call environment",
+                });
+            }
             if record.params.len() != args.len() {
                 return Err(BytecodeVerificationError::ArityMismatch {
                     function: function.id,
@@ -654,8 +773,7 @@ pub(super) fn verify_call(
         }
         CallTarget::InterfaceMethod {
             module: owner_slot,
-            interface,
-            method_slot,
+            contract,
         } => {
             let owner = if let Some(program) = program {
                 program.modules.get(owner_slot.index())
@@ -665,17 +783,37 @@ pub(super) fn verify_call(
                 None
             }
             .ok_or(BytecodeVerificationError::InvalidProgramGraph)?;
-            let (params, return_type) = abi::interface_method_types(
-                &owner.identity,
-                &owner.public_items,
-                &owner.trait_contracts,
-                interface,
-                *method_slot as usize,
-            )
-            .ok_or(BytecodeVerificationError::InvalidOperation {
-                function: function.id,
-                reason: "invalid linked interface method",
-            })?;
+            let signature = contract
+                .signature_in(
+                    &owner.identity,
+                    &owner.public_items,
+                    &owner.trait_contracts,
+                    &Default::default(),
+                )
+                .map_err(|_| BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "invalid linked interface method",
+                })?;
+            if !signature.types_valid(
+                function
+                    .metadata
+                    .semantic
+                    .generic
+                    .as_ref()
+                    .map_or(&[], |body| body.parameters.as_slice()),
+                &Default::default(),
+            ) {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "unbound interface method application",
+                });
+            }
+            let params: Vec<_> = signature
+                .params
+                .iter()
+                .map(AbiType::representation)
+                .collect();
+            let return_type = signature.result.representation();
             if args.len() != params.len() {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -694,6 +832,12 @@ pub(super) fn verify_call(
                     reason: "invalid engine import index",
                 },
             )?;
+            if contract.generic.is_some() {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "shared native requires a checked generic call environment",
+                });
+            }
             let args = args
                 .iter()
                 .map(|arg| register_ty(function, *arg))

@@ -130,6 +130,7 @@ pub(super) fn collect(
             planner.check()?;
             let mut function = MirFunction {
                 semantic: SemanticSlots {
+                    generic: None,
                     protocol_adapter: None,
                     params: params
                         .iter()

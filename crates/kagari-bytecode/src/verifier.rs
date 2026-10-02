@@ -347,11 +347,19 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             return Err(BytecodeVerificationError::InvalidInterfaceTable);
         };
         if !table.arguments.is_empty()
-            && (abi.instantiate(&table.arguments).is_none()
-                || abi
-                    .methods
+            && abi
+                .instantiate_in(&table.arguments, &abi.generic_params)
+                .is_none()
+        {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        }
+        if table.arguments.iter().any(|ty| !ty.is_concrete())
+            && table.arguments
+                != abi
+                    .generic_params
                     .iter()
-                    .any(|method| !method.generic_params.is_empty()))
+                    .map(|p| p.as_type())
+                    .collect::<Vec<_>>()
         {
             return Err(BytecodeVerificationError::InvalidInterfaceTable);
         }
@@ -441,10 +449,25 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
-            if identity.arguments.len() != abi.generic_params.len() + method.generic_params.len() {
-                return Err(BytecodeVerificationError::InvalidInterfaceTable);
-            }
-            if !table.arguments.is_empty() && identity.arguments != table.arguments {
+            let body = match slot.target {
+                CallableTarget::Script(target) => module.functions[target.index()]
+                    .metadata
+                    .semantic
+                    .generic
+                    .as_ref(),
+                CallableTarget::Native(target) => {
+                    module.native_imports[target.index()].generic.as_ref()
+                }
+            };
+            if body.map_or(0, |body| body.parameters.len()) != slot.arguments.len()
+                || identity.arguments.len()
+                    + if matches!(slot.target, CallableTarget::Script(_)) {
+                        slot.arguments.len()
+                    } else {
+                        0
+                    }
+                    != abi.generic_params.len() + method.generic_params.len()
+            {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
@@ -452,7 +475,13 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             && abi
                 .methods
                 .iter()
-                .filter(|method| method.generic_params.is_empty())
+                .filter(|method| {
+                    method.generic_params.is_empty()
+                        || method
+                            .params
+                            .first()
+                            .is_some_and(|parameter| parameter.name == "self")
+                })
                 .any(|method| {
                     table
                         .methods
@@ -724,18 +753,19 @@ fn function_ref_exists(module: &BytecodeModule, target: FunctionRef) -> bool {
     target.index() < module.functions.len() && target.index() < module.function_table.len()
 }
 
-fn field_layout<'a>(
-    module: &'a BytecodeModule,
+fn field_layout(
+    module: &BytecodeModule,
     function: &BytecodeFunction,
-    field: FieldRef,
-) -> Result<&'a StructFieldLayout, BytecodeVerificationError> {
+    field: &FieldRef,
+) -> Result<StructFieldLayout, BytecodeVerificationError> {
     module
         .structures
         .get(field.structure.index())
-        .and_then(|layout| layout.fields.get(field.slot as usize))
+        .and_then(|layout| layout.apply(&field.arguments, &Default::default()))
+        .and_then(|layout| layout.fields.get(field.slot as usize).cloned())
         .ok_or(BytecodeVerificationError::InvalidFieldReference {
             function: function.id,
-            field,
+            field: field.clone(),
         })
 }
 

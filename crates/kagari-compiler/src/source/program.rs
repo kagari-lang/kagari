@@ -1,5 +1,8 @@
 use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions};
-use kagari_abi::types::ConcreteFunctionIdentity;
+use kagari_abi::{
+    callable::CallableImplementation,
+    types::{ConcreteFunctionIdentity, GenericParameterAbi},
+};
 use kagari_common::{diagnostic::DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
 use kagari_hir::{resolver::resolved::ResolvedName, typeck::FunctionImplementation};
@@ -232,11 +235,14 @@ pub fn lower_program_to_mir(
                         contract.methods.iter().any(|required| {
                             required.id.path.last() == method.path.last()
                                 && required.generic_params.len() > contract.generic_params.len()
+                                && required
+                                    .params
+                                    .first()
+                                    .is_none_or(|parameter| parameter.name != "self")
                         })
                     })
                 {
-                    // Method generics need the concrete application carried by
-                    // a source call or native witness, not just impl arguments.
+                    // Static generic methods do not occupy an interface receiver slot.
                     continue;
                 }
                 let instance = ConcreteFunctionIdentity {
@@ -264,14 +270,7 @@ fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIden
     let native = module
         .native_applications()
         .filter(|contract| contract.host.is_none())
-        .flat_map(|contract| {
-            iter::once(contract.instance.declaration.module.clone()).chain(
-                contract
-                    .callables
-                    .iter()
-                    .map(|callable| callable.instance.declaration.module.clone()),
-            )
-        });
+        .flat_map(|contract| iter::once(contract.instance.declaration.module.clone()));
     callables.chain(native).chain(
         module
             .interface_instances
@@ -288,6 +287,25 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
         .flat_map(|block| &block.instructions)
         .flat_map(|instruction| match instruction {
             Instruction::Call {
+                callee: CallTarget::Shared(contract),
+                ..
+            } => vec![ConcreteFunctionIdentity {
+                declaration: contract.instance.declaration.clone(),
+                arguments: if matches!(contract.implementation, CallableImplementation::Script) {
+                    (0..contract.arguments.len())
+                        .map(|position| {
+                            GenericParameterAbi {
+                                owner: contract.instance.declaration.clone(),
+                                position,
+                            }
+                            .as_type()
+                        })
+                        .collect()
+                } else {
+                    contract.instance.arguments.clone()
+                },
+            }],
+            Instruction::Call {
                 callee: CallTarget::SourceFunction(contract),
                 ..
             } => vec![ConcreteFunctionIdentity {
@@ -298,8 +316,7 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
         });
     script.chain(
         module
-            .native_applications()
-            .flat_map(|import| &import.callables)
+            .selected_callables()
             .map(|call| call.instance.clone()),
     )
 }

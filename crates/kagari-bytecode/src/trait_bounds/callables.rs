@@ -1,9 +1,38 @@
 //! Selected native callbacks must have a matching concrete executable target.
 use crate::module::BytecodeModule;
 use kagari_abi::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, witness::OperationWitness},
     native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
 };
+
+pub(super) fn witness_valid(operation: &OperationWitness, closure: &[&BytecodeModule]) -> bool {
+    match operation {
+        OperationWitness::Forward(_) => true,
+        OperationWitness::Selected(call) => target_valid(call, closure),
+        OperationWitness::SharedMethod(selected) => closure
+            .iter()
+            .find(|owner| owner.identity == selected.implementation.declaration.module)
+            .is_some_and(|owner| {
+                owner.interface_tables.iter().any(|table| {
+                    table.declaration == selected.implementation.declaration
+                        && if selected
+                            .implementation
+                            .arguments
+                            .iter()
+                            .any(|ty| !ty.is_concrete())
+                        {
+                            table.arguments.iter().any(|ty| !ty.is_concrete())
+                        } else {
+                            table.arguments == selected.implementation.arguments
+                        }
+                        && table
+                            .methods
+                            .iter()
+                            .any(|slot| slot.method == selected.requirement.member)
+                })
+            }),
+    }
+}
 
 pub(super) fn target_valid(call: &NativeCallableApplication, closure: &[&BytecodeModule]) -> bool {
     let Some(owner) = closure

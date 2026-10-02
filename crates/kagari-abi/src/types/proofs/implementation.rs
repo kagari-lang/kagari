@@ -7,6 +7,7 @@ use crate::{
         InterfaceTableAbi, NominalAbiType, TraitAbi,
         matching::ImplementationPattern,
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+        verify::types_in_scope,
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
@@ -85,15 +86,27 @@ impl<'a> Implementation<'a> {
         contract: Option<&TraitAbi>,
         cancel: &CancellationToken,
     ) -> Result<Option<FunctionAbi>, TypeTransformError> {
+        self.method_in(name, arguments, contract, &[], cancel)
+    }
+
+    pub(super) fn method_in(
+        &self,
+        name: &str,
+        arguments: &[AbiType],
+        contract: Option<&TraitAbi>,
+        parameters: &[GenericParameterAbi],
+        cancel: &CancellationToken,
+    ) -> Result<Option<FunctionAbi>, TypeTransformError> {
         if let Self::Interface(table) = self {
             return Ok(table
-                .instantiate(arguments)
+                .instantiate_in(arguments, parameters)
                 .and_then(|table| table.methods.into_iter().find(|method| method.name == name)));
         }
         let Self::Native { implementation, .. } = self else {
             unreachable!()
         };
-        if arguments.len() != self.parameters().len() || !arguments.iter().all(AbiType::is_concrete)
+        if arguments.len() != self.parameters().len()
+            || !types_in_scope(arguments, parameters, cancel)
         {
             return Err(TypeTransformError::InvalidContract);
         }

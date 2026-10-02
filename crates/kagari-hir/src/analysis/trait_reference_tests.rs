@@ -447,7 +447,7 @@ fn imported_trait_parameter_bounds_reject_invalid_implementations() {
 }
 
 #[test]
-fn imported_generic_method_rejects_interface_annotations() {
+fn imported_generic_method_accepts_interface_calls() {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in [
@@ -457,7 +457,7 @@ fn imported_generic_method_rejects_interface_annotations() {
         ),
         (
             "root",
-            "use pkg::api::Mapper; fn use_interface(value: Mapper<i32>) {}",
+            "use pkg::api::Mapper; fn use_interface(value: Mapper<i32>) -> i32 { value.map(42) + value.map(\"key\") }",
         ),
     ] {
         sources
@@ -478,15 +478,9 @@ fn imported_generic_method_rejects_interface_annotations() {
     let snapshot = analyze(&mut db, &sources);
     let analysis = snapshot.file(root.unwrap()).unwrap();
     assert!(
-        analysis
-            .result()
-            .diagnostics()
-            .iter()
-            .any(|diagnostic| matches!(
-                &diagnostic.kind,
-                DiagnosticKind::InvalidInterfaceType { reason, .. }
-                    if reason == "method `map` is not interface-compatible"
-            ))
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
     );
 }
 

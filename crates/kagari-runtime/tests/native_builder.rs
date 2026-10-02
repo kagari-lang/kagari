@@ -1,3 +1,4 @@
+use kagari_abi::scalar::BuiltinType;
 use kagari_runtime::native::{
     binding::{Codec, NativeBinding, NativeResult},
     builder::ModuleBuilder,
@@ -73,6 +74,38 @@ fn finalization_rejects_a_declaration_without_an_entry() {
         .define_function(FunctionDecl::new("missing"))
         .unwrap();
     assert!(module.finish().unwrap_err().message().contains("missing"));
+}
+
+#[test]
+fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations() {
+    use kagari_abi::{
+        declaration::{ImplDecl, ModuleDecl},
+        language,
+        types::AbiType,
+    };
+    use kagari_common::identity::ModuleIdentity;
+    let string = AbiType::Builtin(BuiltinType::String);
+    let mut owner = ModuleDecl::new(language::module_identity());
+    assert!(owner.owns_inherent_receiver(&string));
+    owner.implementations.push(ImplDecl {
+        generic_params: vec![],
+        bounds: vec![],
+        trait_type: None,
+        for_type: string.clone(),
+        methods: vec![],
+    });
+    owner.validate().unwrap();
+    owner.identity = ModuleIdentity::single_file("foreign.kgr");
+    assert!(!owner.owns_inherent_receiver(&string));
+    assert!(owner.validate().is_err());
+
+    let mut foreign = ModuleBuilder::new("example::foreign", &LanguageContracts::default());
+    let error = foreign
+        .implement(Type::scalar(BuiltinType::String), |group| {
+            group.inherent_impl(|_| Ok(()))
+        })
+        .unwrap_err();
+    assert!(error.message().contains("defining module"));
 }
 
 fn sequence_len(_cx: &mut CallContext<'_>, values: SequenceHandle<'_>) -> NativeResult<usize> {
@@ -309,4 +342,121 @@ fn selected_callbacks_require_proven_declared_bounds() {
             .unwrap();
         assert_eq!(module.finish().is_ok(), declare_bound);
     }
+}
+
+#[test]
+fn generic_default_is_derived_from_the_method_contract() {
+    let language = LanguageContracts::default();
+    let mut module = ModuleBuilder::new("example::defaults", &language);
+    let mut declaration = module.define_trait("Echo");
+    let item = declaration.type_parameter("T").unwrap().ty();
+    let method = declaration
+        .define_method(MethodDecl::instance("echo"))
+        .unwrap();
+    declaration
+        .method(&method, |method| {
+            let key = method.type_parameter("K")?.ty();
+            method.parameter("item", item);
+            method.parameter("key", key.clone());
+            method.returns(key.clone());
+            method.bound(key.clone(), language.hash().apply([]));
+            method.requires(CallableRequirement::method(
+                key,
+                language.hash().method("hash")?,
+            ));
+            Ok(())
+        })
+        .unwrap();
+    declaration
+        .bind_default_with(
+            method,
+            NativeBinding::new(
+                vec![Codec::Value, Codec::Value, Codec::Value],
+                Codec::Value,
+                |cx| cx.argument(2),
+            ),
+        )
+        .unwrap();
+    let echo = declaration.finish().unwrap();
+    module
+        .implement(Type::i32(), |group| {
+            group.trait_impl(echo.apply([Type::scalar(BuiltinType::String)]), |_| Ok(()))
+        })
+        .unwrap();
+    let module = module.finish().unwrap();
+    let declarations = module.declaration();
+    let template = &declarations.functions[0];
+    assert_eq!(template.generic_params.len(), 3);
+    assert_eq!(template.params[0].ty, template.generic_params[0].as_type());
+    assert_eq!(template.params[1].ty, template.generic_params[1].as_type());
+    assert_eq!(template.return_type, template.generic_params[2].as_type());
+    module.install(&mut Runtime::default()).unwrap();
+}
+
+#[test]
+fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
+    let language = LanguageContracts::default();
+    for declare_bound in [false, true] {
+        let mut module = ModuleBuilder::new("example::default_bounds", &language);
+        let mut declaration = module.define_trait("Inspect");
+        let method = declaration
+            .define_method(MethodDecl::instance("inspect"))
+            .unwrap();
+        declaration
+            .method(&method, |method| {
+                let key = method.type_parameter("K")?.ty();
+                method.parameter("key", key.clone());
+                if declare_bound {
+                    method.bound(key.clone(), language.hash().apply([]));
+                }
+                method.requires(CallableRequirement::method(
+                    key,
+                    language.hash().method("hash")?,
+                ));
+                Ok(())
+            })
+            .unwrap();
+        declaration
+            .bind_default_with(
+                method.clone(),
+                NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |_| {
+                    Ok(Value::Unit)
+                }),
+            )
+            .unwrap();
+        assert!(
+            declaration
+                .bind_default_with(
+                    method,
+                    NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |_| Ok(
+                        Value::Unit
+                    ),)
+                )
+                .is_err()
+        );
+        declaration.finish().unwrap();
+        assert_eq!(module.finish().is_ok(), declare_bound);
+    }
+    let mut module = ModuleBuilder::new("example::default_codec", &language);
+    let mut declaration = module.define_trait("Count");
+    let method = declaration
+        .define_method(MethodDecl::instance("count").returns(Type::usize()))
+        .unwrap();
+    declaration
+        .bind_default_with(
+            method,
+            NativeBinding::new(
+                vec![Codec::Value],
+                Codec::Scalar(Type::i32().abi().clone()),
+                |_| Ok(Value::I32(0)),
+            ),
+        )
+        .unwrap();
+    assert!(
+        declaration
+            .finish()
+            .unwrap_err()
+            .message()
+            .contains("codec")
+    );
 }

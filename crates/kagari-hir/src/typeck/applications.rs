@@ -587,8 +587,6 @@ pub(super) fn validate_imported_interface_type(
                         }
                         for method in &contract.methods {
                             if !check::interface_method_compatible(
-                                method.generic_params.len(),
-                                contract.generic_params.len(),
                                 method
                                     .params
                                     .first()

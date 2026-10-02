@@ -1,10 +1,13 @@
-//! Reachable concrete aggregate layouts share the function instantiation budget.
+//! Reachable concrete layouts and declaration-scoped aggregate templates share the function instantiation budget.
 
 use crate::source::{
     lower::{MirLoweringError, instances::InstancePlanner},
     types::raise_type,
 };
-use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
+use kagari_abi::{
+    layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
+    types::{GenericParameterAbi, verify::types_in_scope},
+};
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
     AnalyzedModule,
@@ -72,15 +75,54 @@ pub(super) fn collect(
     let mut seen = HashSet::new();
     let mut structures = Vec::new();
     let mut enumerations = Vec::new();
-    while let Some((ty, span)) = pending.pop_front() {
+    let mut scope = functions
+        .iter()
+        .filter_map(|function| function.semantic.generic.as_ref())
+        .flat_map(|body| body.parameters.iter().cloned())
+        .collect::<Vec<_>>();
+    while let Some((mut ty, span)) = pending.pop_front() {
         planner.check()?;
-        if !ty.is_concrete() {
+        if !ty.is_concrete() && !types_in_scope([&lower_type(&ty)], &scope, &planner.options.cancel)
+        {
             return Err(MirLoweringError::diagnostic(
                 Diagnostic::error(DiagnosticKind::UnresolvedConcreteType {
                     type_name: ty.display_name(),
                 })
                 .with_span(span),
             ));
+        }
+        let parameters = match &ty {
+            TypeId::Struct(nominal) if !ty.is_concrete() => planner
+                .aggregate_catalog(&nominal.declaration)
+                .structure(&nominal.declaration)
+                .map(|template| template.generic_params.clone()),
+            TypeId::Enum(nominal) if !ty.is_concrete() => planner
+                .aggregate_catalog(&nominal.declaration)
+                .enumeration(&nominal.declaration)
+                .map(|template| template.generic_params.clone()),
+            _ => None,
+        };
+        if let Some(parameters) = parameters {
+            let (TypeId::Struct(nominal) | TypeId::Enum(nominal)) = &mut ty else {
+                unreachable!()
+            };
+            if parameters.len() != nominal.arguments.len() {
+                return Err(MirLoweringError::MissingBinding(
+                    "aggregate layout type arguments",
+                ));
+            }
+            pending.extend(
+                mem::take(&mut nominal.arguments)
+                    .into_iter()
+                    .map(|ty| (ty, span)),
+            );
+            for parameter in parameters {
+                scope.push(GenericParameterAbi {
+                    owner: parameter.owner.clone(),
+                    position: parameter.position,
+                });
+                nominal.arguments.push(TypeId::Generic(parameter));
+            }
         }
         if !seen.insert(ty.clone()) {
             continue;
@@ -113,7 +155,7 @@ pub(super) fn collect(
                     let ty = planner
                         .arguments(slice::from_ref(&field.ty), &substitution, span)?
                         .remove(0);
-                    planner.value_type(&ty, &TypeSubstitution::default(), span)?;
+                    planner.value_type(&ty, &substitution, span)?;
                     fields.push(StructFieldLayout {
                         declaration: field.id.clone(),
                         name: field.name.clone(),
@@ -153,7 +195,7 @@ pub(super) fn collect(
                 for variant in &template.variants {
                     let types = planner.arguments(&variant.payload, &substitution, span)?;
                     for ty in &types {
-                        planner.value_type(ty, &TypeSubstitution::default(), span)?;
+                        planner.value_type(ty, &substitution, span)?;
                     }
                     let payload = types.iter().map(lower_type).collect();
                     variants.push(EnumVariantLayout {

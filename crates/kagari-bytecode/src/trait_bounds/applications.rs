@@ -3,6 +3,7 @@ use crate::{
     module::BytecodeModule,
     trait_bounds::contract,
 };
+use kagari_abi::callable::witness::OperationWitness;
 use kagari_abi::types::{
     applications::ApplicationValidator, native_storage_contract, substitution::TypeTransformError,
 };
@@ -36,7 +37,14 @@ pub(super) fn validate(
         validator.types(&import.signature.params)?;
         validator.validate_type(&import.signature.result)?;
         validator.bounds(&import.requirements)?;
-        for call in &import.callables {
+        for operation in &import.callables {
+            let required = operation.requirement();
+            validator.validate_type(&required.receiver)?;
+            validator.trait_application(&required.interface)?;
+            validator.types(&required.arguments)?;
+            let OperationWitness::Selected(call) = operation else {
+                continue;
+            };
             validator.types(&call.instance.arguments)?;
             validator.validate_type(&call.requirement.receiver)?;
             validator.trait_application(&call.requirement.interface)?;
@@ -48,6 +56,13 @@ pub(super) fn validate(
     validator.layouts(&module.structures, &module.enumerations)?;
     for table in &module.interface_tables {
         validator.types(&table.arguments)?;
+        for slot in &table.methods {
+            validator.types(&slot.arguments)?;
+        }
+        for parent in &table.parents {
+            validator.trait_application(&parent.interface)?;
+            validator.types(&parent.implementation.arguments)?;
+        }
     }
     for record in &module.function_table {
         if let Some(identity) = &record.identity {
@@ -61,7 +76,28 @@ pub(super) fn validate(
         validator.slots(&function.metadata.semantic)?;
         for instruction in &function.instructions {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            if let Some(arguments) = instruction.layout_arguments() {
+                validator.types(arguments)?;
+            }
             match instruction {
+                BytecodeInstruction::Call {
+                    callee: CallTarget::Shared { contract, .. },
+                    ..
+                } => {
+                    validator.types(&contract.instance.arguments)?;
+                    validator.types(&contract.arguments)?;
+                    validator.types(&contract.signature.params)?;
+                    validator.validate_type(&contract.signature.result)?;
+                    for operation in &contract.operations {
+                        let required = operation.requirement();
+                        validator.validate_type(&required.receiver)?;
+                        validator.trait_application(&required.interface)?;
+                        validator.types(&required.arguments)?;
+                    }
+                }
+                BytecodeInstruction::MakeInterface { arguments, .. } => {
+                    validator.types(arguments)?
+                }
                 BytecodeInstruction::MakeArray { element, .. }
                 | BytecodeInstruction::RepeatArray { element, .. } => {
                     validator.validate_type(element)?
@@ -78,9 +114,12 @@ pub(super) fn validate(
                     validator.trait_application(target)?;
                 }
                 BytecodeInstruction::Call {
-                    callee: CallTarget::InterfaceMethod { interface, .. },
+                    callee: CallTarget::InterfaceMethod { contract, .. },
                     ..
-                } => validator.trait_application(interface)?,
+                } => {
+                    validator.trait_application(&contract.interface)?;
+                    validator.types(&contract.arguments)?;
+                }
                 _ => {}
             }
         }

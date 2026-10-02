@@ -3,16 +3,18 @@ mod applications;
 mod associated;
 mod callables;
 mod methods;
-mod views;
+pub(crate) mod shared;
+pub mod views;
 
 use crate::{
-    instruction::BytecodeInstruction,
+    instruction::{BytecodeInstruction, CallTarget},
     module::BytecodeModule,
     program::BytecodeProgram,
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
     verifier::BytecodeVerificationError,
 };
 use kagari_abi::{
+    callable::interface::InterfaceCallContract,
     language::Protocol,
     types::{
         self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
@@ -62,6 +64,7 @@ pub fn interface_views(
 }
 
 fn executable_interface(
+    scope: &[GenericParameterAbi],
     applied: &NominalAbiType,
     receiver: &AbiType,
     closure: &[&BytecodeModule],
@@ -102,15 +105,35 @@ fn executable_interface(
         else {
             return false;
         };
-        for slot in 0..record.methods.len() {
-            if abi::interface_method_types(
-                &owner.identity,
-                &owner.public_items,
-                &owner.trait_contracts,
-                &view,
-                slot,
-            )
-            .is_none()
+        for (slot, method) in record.methods.iter().enumerate() {
+            let call = InterfaceCallContract {
+                receiver: None,
+                operations: vec![],
+                interface: view.clone(),
+                method_slot: slot as u32,
+                arguments: method
+                    .generic_params
+                    .iter()
+                    .map(GenericParameterAbi::as_type)
+                    .collect(),
+            };
+            if !call
+                .signature_in(
+                    &owner.identity,
+                    &owner.public_items,
+                    &owner.trait_contracts,
+                    &Default::default(),
+                )
+                .is_ok_and(|signature| {
+                    signature.types_valid(
+                        &scope
+                            .iter()
+                            .chain(&method.generic_params)
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                        &Default::default(),
+                    )
+                })
             {
                 return false;
             }
@@ -210,11 +233,81 @@ fn linked_bounds_match(
     {
         return Err(LinkedValidationError::InterfaceTable);
     }
+    if !shared::valid(module, closure, program, &catalog, &cancel)? {
+        return Ok(false);
+    }
     if !catalog.overrides_valid(&cancel)? || !instruction_contracts_match(module, closure, program)
     {
         return Ok(false);
     }
     for function in &module.functions {
+        for instruction in &function.instructions {
+            if let BytecodeInstruction::MakeInterface {
+                module: owner,
+                implementation,
+                arguments,
+                ..
+            } = instruction
+            {
+                let Some(target) = program
+                    .and_then(|program| program.modules.get(owner.index()))
+                    .or_else(|| (program.is_none() && owner.index() == 0).then_some(module))
+                else {
+                    return Ok(false);
+                };
+                let Some(linked) = target.interface_tables.get(implementation.index()) else {
+                    return Ok(false);
+                };
+                let body = function.metadata.semantic.generic.as_ref();
+                let Some(table) = target.public_items.iter().find_map(|item| match item {
+                    PublicAbiItem::InterfaceTable(table)
+                        if table.declaration == linked.declaration =>
+                    {
+                        table.instantiate_in(
+                            arguments,
+                            body.map_or(&[], |body| body.parameters.as_slice()),
+                        )
+                    }
+                    _ => None,
+                }) else {
+                    return Ok(false);
+                };
+                for bound in &table.bounds {
+                    if !catalog.constraints_hold(
+                        &bound.ty,
+                        &bound.constraints,
+                        body.map_or(&[], |body| body.bounds.as_slice()),
+                        &cancel,
+                    )? {
+                        return Ok(false);
+                    }
+                }
+            }
+            if let BytecodeInstruction::Call {
+                callee: CallTarget::InterfaceMethod { contract: call, .. },
+                ..
+            } = instruction
+            {
+                let Some(declaration) = contract(&call.interface.declaration, closure) else {
+                    return Ok(false);
+                };
+                let body = function.metadata.semantic.generic.as_ref();
+                if !call.check(
+                    declaration,
+                    &catalog,
+                    body.map_or(&[], |body| body.parameters.as_slice()),
+                    body.map_or(&[], |body| body.bounds.as_slice()),
+                    &cancel,
+                )? {
+                    return Ok(false);
+                }
+                for operation in &call.operations {
+                    if !callables::witness_valid(operation, closure) {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
         if !function
             .metadata
             .semantic
@@ -264,7 +357,7 @@ fn linked_bounds_match(
         if import
             .callables
             .iter()
-            .any(|call| !callables::target_valid(call, closure))
+            .any(|call| !callables::witness_valid(call, closure))
         {
             return Ok(false);
         }
@@ -343,7 +436,8 @@ fn linked_bounds_match(
         }
         if !table.host_bridge
             && matches!(table.for_type, AbiType::Host(_))
-            && catalog.implementation_count(interface, &table.for_type, &[], &cancel)? != 1
+            && catalog.implementation_count(interface, &table.for_type, &table.bounds, &cancel)?
+                != 1
         {
             return Ok(false);
         }
@@ -357,7 +451,7 @@ fn linked_bounds_match(
         }
         let Some(table) = module.public_items.iter().find_map(|item| match item {
             PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                table.instantiate(&linked.arguments)
+                table.instantiate_in(&linked.arguments, &table.generic_params)
             }
             _ => None,
         }) else {
@@ -366,7 +460,7 @@ fn linked_bounds_match(
         let AbiType::Trait(interface) = &table.trait_type else {
             return Ok(false);
         };
-        if catalog.implementation_count(interface, &table.for_type, &[], &cancel)? != 1 {
+        if catalog.implementation_count(interface, &table.for_type, &table.bounds, &cancel)? != 1 {
             return Ok(false);
         }
     }
@@ -406,11 +500,12 @@ fn instruction_contracts_match(
     closure: &[&BytecodeModule],
     program: Option<&BytecodeProgram>,
 ) -> bool {
-    for instruction in module
-        .functions
-        .iter()
-        .flat_map(|function| &function.instructions)
-    {
+    for (function, instruction) in module.functions.iter().flat_map(|function| {
+        function
+            .instructions
+            .iter()
+            .map(move |instruction| (function, instruction))
+    }) {
         if let BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
             let Some(parents) = interface_views(source, &AbiType::Trait(source.clone()), closure)
             else {
@@ -423,6 +518,7 @@ fn instruction_contracts_match(
         if let BytecodeInstruction::MakeInterface {
             module: owner,
             implementation,
+            arguments,
             ..
         } = instruction
         {
@@ -437,7 +533,15 @@ fn instruction_contracts_match(
             };
             let Some(table) = target.public_items.iter().find_map(|item| match item {
                 PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                    table.instantiate(&linked.arguments)
+                    table.instantiate_in(
+                        arguments,
+                        function
+                            .metadata
+                            .semantic
+                            .generic
+                            .as_ref()
+                            .map_or(&[][..], |body| body.parameters.as_slice()),
+                    )
                 }
                 _ => None,
             }) else {
@@ -446,33 +550,18 @@ fn instruction_contracts_match(
             let AbiType::Trait(applied) = &table.trait_type else {
                 return false;
             };
-            if !executable_interface(applied, &table.for_type, closure) {
+            if !executable_interface(
+                function
+                    .metadata
+                    .semantic
+                    .generic
+                    .as_ref()
+                    .map_or(&[][..], |body| body.parameters.as_slice()),
+                applied,
+                &table.for_type,
+                closure,
+            ) {
                 return false;
-            }
-            let Some(parents) = interface_ancestors(applied, &table.for_type, closure) else {
-                return false;
-            };
-            for parent in parents.into_iter().skip(1) {
-                let exists = closure.iter().any(|owner| {
-                    owner.interface_tables.iter().any(|linked| {
-                        owner.public_items.iter().any(|item| {
-                            let PublicAbiItem::InterfaceTable(template) = item else {
-                                return false;
-                            };
-                            template.declaration == linked.declaration
-                                && template.instantiate(&linked.arguments).is_some_and(
-                                    |candidate| {
-                                        candidate.for_type == table.for_type
-                                            && matches!(&candidate.trait_type, AbiType::Trait(actual)
-                                                if actual.satisfies(&parent))
-                                    },
-                                )
-                        })
-                    })
-                });
-                if !exists {
-                    return false;
-                }
             }
         }
     }

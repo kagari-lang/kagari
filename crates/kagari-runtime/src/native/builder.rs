@@ -12,7 +12,7 @@ use crate::{
             type_builder::TypeBuilder,
         },
         catalog::DeclarationCatalog,
-        declarations::{FunctionBuilder, FunctionDecl},
+        declarations::{FunctionBuilder, FunctionDecl, normalize_bounds},
         functions::NativeFunction,
         language::LanguageContracts,
         module::NativeModule,
@@ -22,10 +22,9 @@ use crate::{
 };
 use kagari_abi::{
     callable::CallableImplementation, declaration::ModuleDecl, native_import::NativeSignature,
-    types::GenericBoundAbi,
 };
 use kagari_common::identity::{DefinitionId, DefinitionKind, ModuleIdentity, PackageId};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct ModuleBuilder {
@@ -110,20 +109,7 @@ impl ModuleBuilder {
                 .entry(function.id.clone())
                 .or_default(),
         })?;
-        let mut bounds = BTreeMap::new();
-        for bound in signature.bounds.drain(..) {
-            bounds
-                .entry(bound.ty)
-                .or_insert_with(BTreeSet::new)
-                .extend(bound.constraints);
-        }
-        signature.bounds = bounds
-            .into_iter()
-            .map(|(ty, constraints)| GenericBoundAbi {
-                ty,
-                constraints: constraints.into_iter().collect(),
-            })
-            .collect();
+        normalize_bounds(signature);
         Ok(result)
     }
     pub fn bind<A, R>(

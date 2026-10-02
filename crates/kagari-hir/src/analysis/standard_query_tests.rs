@@ -470,17 +470,19 @@ mod interpolation_queries {
     }
 
     #[test]
-    fn extension_completion_requires_matching_associated_items() {
+    fn trait_method_completion_requires_matching_associated_items() {
         for (body, available) in [
             ("[1].", false),
             ("[\"one\"].", true),
             ("[1].iter().", false),
             ("[\"one\"].iter().", true),
+            // Erased interfaces expose their own declared/inherited methods;
+            // importing another trait does not extend the interface surface.
             ("val xs: List<i32> = [1]; xs.", false),
-            ("val xs: List<String> = [\"one\"]; xs.", true),
-            ("val xs: MutableList<String> = [\"one\"]; xs.", true),
+            ("val xs: List<String> = [\"one\"]; xs.", false),
+            ("val xs: MutableList<String> = [\"one\"]; xs.", false),
         ] {
-            let text = format!("use demo::text_items; fn main() {{ {body} }}");
+            let text = format!("use demo::text_items::TextItems; fn main() {{ {body} }}");
             let mut sources = SourceDatabase::default();
             let file = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)

@@ -1,6 +1,7 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
 mod applications;
 mod native;
+mod shared;
 use kagari_abi::{
     contracts, host,
     language::Protocol,
@@ -208,17 +209,6 @@ pub fn verify_program(
                 (owner == index || dependencies.contains(&owner)).then_some(module)
             })
             .collect();
-        if !native::validate(module, &closure, cancel).map_err(|cause| {
-            error(
-                &module.identity,
-                match cause {
-                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
-                    _ => ProgramErrorKind::InvalidGraph,
-                },
-            )
-        })? {
-            return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
-        }
         applications::validate(
             module,
             cancel,
@@ -297,7 +287,9 @@ pub fn verify_program(
                             return false;
                         };
                         table.declaration == request.declaration
-                            && table.instantiate(&request.arguments).is_some()
+                            && table
+                                .instantiate_in(&request.arguments, &table.generic_params)
+                                .is_some()
                     })
                 });
             if !valid {
@@ -316,12 +308,13 @@ pub fn verify_program(
                 return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
             }
         }
-        for instruction in module
-            .functions
-            .iter()
-            .flat_map(|f| &f.blocks)
-            .flat_map(|b| &b.instructions)
-        {
+        for (function, instruction) in module.functions.iter().flat_map(|function| {
+            function
+                .blocks
+                .iter()
+                .flat_map(|block| &block.instructions)
+                .map(move |instruction| (function, instruction))
+        }) {
             cancel
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
@@ -374,13 +367,24 @@ pub fn verify_program(
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         let owner = &modules[*target];
-                        abi::interface_method_types(
-                            &owner.identity,
-                            &owner.abi.public_items,
-                            &owner.abi.trait_contracts,
-                            &contract.interface,
-                            contract.method_slot as usize,
-                        )
+                        contract
+                            .signature_in(
+                                &owner.identity,
+                                &owner.abi.public_items,
+                                &owner.abi.trait_contracts,
+                                &Default::default(),
+                            )
+                            .ok()
+                            .and_then(|signature| {
+                                signature.physical_types(
+                                    function
+                                        .semantic
+                                        .generic
+                                        .as_ref()
+                                        .map_or(&[], |body| body.parameters.as_slice()),
+                                    &Default::default(),
+                                )
+                            })
                     })
                     .is_some_and(|(params, return_type)| {
                         args.len() == params.len()
@@ -411,7 +415,14 @@ pub fn verify_program(
                             if let PublicAbiItem::InterfaceTable(table) = item
                                 && table.declaration == *implementation
                             {
-                                table.instantiate(arguments)
+                                table.instantiate_in(
+                                    arguments,
+                                    function
+                                        .semantic
+                                        .generic
+                                        .as_ref()
+                                        .map_or(&[], |body| &body.parameters),
+                                )
                             } else {
                                 None
                             }
@@ -421,12 +432,6 @@ pub fn verify_program(
                         dst.ty == ValueType::HeapObject
                             && value.ty == table.for_type.representation()
                             && table.generic_params.is_empty()
-                            && table.for_type.is_concrete()
-                            && table.trait_type.is_concrete()
-                            && table
-                                .methods
-                                .iter()
-                                .all(|method| method.generic_params.is_empty())
                     });
                 if !valid {
                     return Err(error(
@@ -472,6 +477,17 @@ pub fn verify_program(
                     ProgramErrorKind::FunctionContract(contract.declaration.clone()),
                 ));
             }
+        }
+        if !native::validate(module, &closure, cancel).map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })? {
+            return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
     }
     Ok(VerifiedMirProgram {

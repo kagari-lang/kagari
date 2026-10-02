@@ -1,4 +1,9 @@
 use super::*;
+use crate::executor::Executor;
+use kagari_abi::types::{AbiType, NominalAbiType, PublicAbiItem};
+use kagari_bytecode::instruction::StructId;
+use kagari_runtime::module::LoadedModule;
+use std::slice;
 
 #[test]
 fn concrete_interface_object_resolves_a_linked_method_slot() {
@@ -56,10 +61,10 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
     };
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let first = runtime
-        .resolve_interface_method_slot(&boxed, interface, 0)
+        .resolve_interface_method_slot(&boxed, interface, 0, &[])
         .unwrap();
     let second = runtime
-        .resolve_interface_method_slot(&boxed, interface, 1)
+        .resolve_interface_method_slot(&boxed, interface, 1, &[])
         .unwrap();
     let method = |name| {
         loaded.bytecode.interface_tables[0]
@@ -87,14 +92,14 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
     assert_ne!(first.target(), second.target());
     assert!(
         runtime
-            .resolve_interface_method_slot(&boxed, interface, 2)
+            .resolve_interface_method_slot(&boxed, interface, 2, &[])
             .is_err()
     );
     let mut wrong = interface.clone();
     wrong.declaration.path.last_mut().unwrap().name = "Other".into();
     assert!(
         runtime
-            .resolve_interface_method_slot(&boxed, &wrong, 0)
+            .resolve_interface_method_slot(&boxed, &wrong, 0, &[])
             .is_err()
     );
 }
@@ -284,6 +289,72 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
 }
 
 #[test]
+fn generic_interface_and_retained_closure_keep_their_environment_after_reload() {
+    let source = r#"
+        struct Item { val value: i32 }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                || { val held: T = value; helper() }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn read(source: Capture) -> i32 { val get = source.capture(Item { value: 1 }); get() }
+        fn make() -> fn() -> i32 { val source: Capture = 7; source.capture(Item { value: 2 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+        fn main() -> i32 { read(7) }
+    "#;
+    let mut runtime = Runtime::default();
+    let old = runtime
+        .load_program("shared-reload", compile_test_bytecode(source))
+        .unwrap();
+    let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
+    let interface_root = runtime.root_value(interface.clone()).unwrap();
+    let make = old
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "make")
+        .unwrap()
+        .id;
+    let closure = {
+        let mut execution = Executor::new(&runtime, &old, make, &[]).unwrap();
+        execution.run().unwrap()
+    };
+    let closure_root = runtime.root_value(closure.clone()).unwrap();
+    let candidate = runtime
+        .stage_reload_program(
+            &old,
+            "shared-reload",
+            compile_test_bytecode(&source.replace("{ 42 }", "{ 43 }")),
+        )
+        .unwrap();
+    let new = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.collect_garbage().unwrap();
+    for (name, args, expected) in [
+        ("read", vec![interface], 42),
+        ("use_closure", vec![closure], 42),
+        ("main", vec![], 43),
+    ] {
+        let entry = new
+            .bytecode
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap()
+            .id;
+        let mut execution = Executor::new(&runtime, &new, entry, &args).unwrap();
+        assert_eq!(execution.run().unwrap(), Value::I32(expected));
+    }
+    drop(interface_root);
+    drop(closure_root);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
+    let retained = runtime.modules().collect_unreachable_epochs();
+    assert!(retained.contains(&old.key()));
+}
+
+#[test]
 fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self / 0 } } fn main() -> i32 { 42 }",
@@ -344,6 +415,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         value: Register::new(0),
         module: ModuleRef::new(0),
         implementation: InterfaceTableRef::new(1),
+        arguments: vec![],
     };
     assert!(verify_module(&invalid).is_err());
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
@@ -351,6 +423,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         value: Register::new(1),
         module: ModuleRef::new(0),
         implementation: InterfaceTableRef::new(0),
+        arguments: vec![],
     };
     assert!(verify_module(&invalid).is_err());
 
@@ -399,6 +472,7 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
                 value: Register::new(0),
                 module: ModuleRef::new(0),
                 implementation: InterfaceTableRef::new(0),
+                arguments: vec![],
             },
             BytecodeInstruction::Return(Some(Register::new(1))),
         ],
@@ -436,5 +510,438 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
             .retention_counts(dependency_key)
             .runtime_values,
         1
+    );
+}
+
+#[test]
+fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
+    let source = r#"
+        trait Capture {
+            fn capture<F: Fn() -> i32>(self, callback: F) -> fn() -> i32 { || callback() }
+        }
+        impl Capture for i32 {}
+        struct Callback {}
+        impl Fn<()> for Callback {
+            type Output = i32;
+            fn call(self, args: ()) -> i32 { helper() }
+        }
+        fn helper() -> i32 { 42 }
+        fn source() -> Capture { 7 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Callback {}) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+        fn main() -> i32 { helper() }
+    "#;
+    fn execute(runtime: &Runtime, module: &LoadedModule, name: &str, args: &[Value]) -> Value {
+        let entry = module
+            .bytecode
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap()
+            .id;
+        Executor::new(runtime, module, entry, args)
+            .unwrap()
+            .run()
+            .unwrap()
+    }
+    let mut runtime = Runtime::default();
+    let first = runtime
+        .load_program("constraint-reload", compile_test_bytecode(source))
+        .unwrap();
+    let receiver = execute(&runtime, &first, "source", &[]);
+    let receiver_root = runtime.root_value(receiver.clone()).unwrap();
+    let candidate = runtime
+        .stage_reload_program(
+            &first,
+            "constraint-reload",
+            compile_test_bytecode(&source.replace("{ 42 }", "{ 43 }")),
+        )
+        .unwrap();
+    let second = runtime.publish_staged_reload(candidate).unwrap();
+    let closure = execute(&runtime, &second, "make", &[receiver]);
+    let closure_root = runtime.root_value(closure.clone()).unwrap();
+    drop(receiver_root);
+    let candidate = runtime
+        .stage_reload_program(
+            &second,
+            "constraint-reload",
+            compile_test_bytecode(&source.replace("{ 42 }", "{ 44 }")),
+        )
+        .unwrap();
+    let third = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.collect_garbage().unwrap();
+    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    assert!(!reclaimed.contains(&first.key()));
+    assert!(!reclaimed.contains(&second.key()));
+    assert_eq!(
+        execute(&runtime, &third, "use_closure", &[closure]),
+        Value::I32(43)
+    );
+    drop(closure_root);
+    runtime.collect_garbage().unwrap();
+    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    assert!(reclaimed.contains(&first.key()));
+    assert!(reclaimed.contains(&second.key()));
+}
+
+#[test]
+fn shared_calls_retain_the_callers_nominal_layout_generation() {
+    let source = r#"
+        struct Item { val value: i32 }
+        fn keep<T>(value: T) -> T { value }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                || { val held: T = keep(value); helper() }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+    "#;
+    check_type_provenance_reload(source);
+}
+
+#[test]
+fn shared_composite_arguments_keep_distinct_nominal_generations() {
+    check_type_provenance_reload(
+        r#"
+        struct Item { val value: i32 }
+        fn keep<T>(value: T) -> T { value }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                val mixed: (Item, Option<T>) = (Item { value: 1 }, Some(value));
+                || { val held: (Item, Option<T>) = keep(mixed); helper() }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+    "#,
+    );
+}
+
+#[test]
+fn shared_closures_keep_type_metadata_without_retaining_caller_state() {
+    check_type_provenance_reload(
+        r#"
+        struct Item { val value: i32 }
+        fn keep<T>(value: T) -> T { value }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                || { val empty: Option<T> = None; val held: Option<T> = keep(empty); helper() }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+    "#,
+    );
+}
+
+fn check_type_provenance_reload(source: &str) {
+    let mut runtime = Runtime::default();
+    let old = runtime
+        .load_program("type-provenance", compile_test_bytecode(source))
+        .unwrap();
+    let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
+    let interface_root = runtime.root_value(interface.clone()).unwrap();
+    let second_source = source
+        .replace("val value: i32", "val value: i32, val extra: bool")
+        .replace("value: 1 }", "value: 1, extra: true }")
+        .replace("{ 42 }", "{ 43 }");
+    let candidate = runtime
+        .stage_reload_program(
+            &old,
+            "type-provenance",
+            compile_test_bytecode(&second_source),
+        )
+        .unwrap();
+    let second = runtime.publish_staged_reload(candidate).unwrap();
+    {
+        let item_layout = |loaded: &LoadedModule| {
+            let index = loaded
+                .bytecode
+                .structures
+                .iter()
+                .position(|layout| layout.declaration.path.last().unwrap().name == "Item")
+                .unwrap();
+            loaded.struct_layout(StructId::new(index)).unwrap()
+        };
+        let old_item = Value::Struct(
+            runtime
+                .alloc_struct(item_layout(&old), vec![Value::I32(1)])
+                .unwrap(),
+        );
+        let old_root = runtime.root_value(old_item.clone()).unwrap();
+        let current_layout = item_layout(&second);
+        let item_type = AbiType::Struct(NominalAbiType {
+            declaration: current_layout.layout().declaration.clone(),
+            arguments: vec![],
+            associated_types: Default::default(),
+        });
+        let current_item = Value::Struct(
+            runtime
+                .alloc_struct(current_layout, vec![Value::I32(1), Value::Bool(true)])
+                .unwrap(),
+        );
+        let current_root = runtime.root_value(current_item.clone()).unwrap();
+        let trait_type = old
+            .bytecode
+            .public_items
+            .iter()
+            .find_map(|item| match item {
+                PublicAbiItem::InterfaceTable(table) => match &table.trait_type {
+                    AbiType::Trait(ty) => Some(ty),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap();
+        let arguments = runtime
+            .resolve_type_arguments(&second, &[item_type])
+            .unwrap();
+        let method = runtime
+            .resolve_interface_method_slot(&interface, trait_type, 0, &arguments)
+            .unwrap();
+        runtime
+            .validate_interface_method_arguments(&method, &[Value::I32(7), current_item])
+            .unwrap();
+        assert!(
+            runtime
+                .validate_interface_method_arguments(&method, &[Value::I32(7), old_item])
+                .is_err()
+        );
+        drop((old_root, current_root));
+    }
+    let make = second
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "make")
+        .unwrap()
+        .id;
+    let closure = Executor::new(&runtime, &second, make, &[interface])
+        .unwrap()
+        .run()
+        .unwrap();
+    let root = runtime.root_value(closure.clone()).unwrap();
+    let third_source = second_source
+        .replace("val extra: bool", "val extra: bool, val later: i32")
+        .replace("extra: true }", "extra: true, later: 3 }")
+        .replace("{ 43 }", "{ 44 }");
+    let candidate = runtime
+        .stage_reload_program(
+            &second,
+            "type-provenance",
+            compile_test_bytecode(&third_source),
+        )
+        .unwrap();
+    let third = runtime.publish_staged_reload(candidate).unwrap();
+    runtime.collect_garbage().unwrap();
+    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    assert!(!reclaimed.contains(&old.key()));
+    assert!(reclaimed.contains(&second.key()));
+    assert!(runtime.validate_loaded_module(&second).is_err());
+    let call = third
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "use_closure")
+        .unwrap()
+        .id;
+    assert_eq!(
+        Executor::new(&runtime, &third, call, &[closure])
+            .unwrap()
+            .run()
+            .unwrap(),
+        Value::I32(42)
+    );
+    drop(root);
+    drop(interface_root);
+    runtime.collect_garbage().unwrap();
+    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    assert!(reclaimed.contains(&old.key()));
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+}
+
+#[test]
+fn shared_aggregate_fields_retain_the_callers_nominal_generation() {
+    check_type_provenance_reload(
+        r#"
+        struct Item { val value: i32 }
+        struct Box<T> { var item: T }
+        enum Wrapped<T> { Some(T), None }
+        fn keep<T>(value: T) -> T { value }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                val boxed: Box<Wrapped<T>> = Box { item: Wrapped::Some(value) };
+                boxed.item = Wrapped::Some(value);
+                || {
+                    val held: Box<Wrapped<T>> = keep(boxed);
+                    match held.item { Wrapped::Some(inner) => { val again: T = keep(inner); helper() }, Wrapped::None => 0 }
+                }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+    "#,
+    );
+}
+
+#[test]
+fn shared_native_lists_retain_the_callers_nominal_generation() {
+    check_type_provenance_reload(
+        r#"
+        struct Item { val value: i32 }
+        fn keep<T>(value: T) -> T { value }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                val list: List<T> = [value];
+                || { val held: T = keep(list[0]); helper() }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+    "#,
+    );
+}
+
+#[test]
+fn shared_closure_signatures_distinguish_nominal_generations() {
+    let source = r#"
+        struct Item { val value: i32 }
+        trait Capture { fn capture<T>(self, value: T) -> fn() -> T { || value } }
+        impl Capture for i32 {}
+        fn make(source: Capture) -> fn() -> Item { source.capture(Item { value: 1 }) }
+    "#;
+    let mut runtime = Runtime::default();
+    let old = runtime
+        .load_program("closure-scope", compile_test_bytecode(source))
+        .unwrap();
+    let receiver = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
+    let receiver_root = runtime.root_value(receiver.clone()).unwrap();
+    let next_source = source
+        .replace("val value: i32", "val value: i32, val extra: bool")
+        .replace("value: 1 }", "value: 1, extra: true }");
+    let candidate = runtime
+        .stage_reload_program(&old, "closure-scope", compile_test_bytecode(&next_source))
+        .unwrap();
+    let current = runtime.publish_staged_reload(candidate).unwrap();
+    let make = current
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "make")
+        .unwrap()
+        .id;
+    let closure = Executor::new(&runtime, &current, make, slice::from_ref(&receiver))
+        .unwrap()
+        .run()
+        .unwrap();
+    let closure_root = runtime.root_value(closure.clone()).unwrap();
+    let item = current
+        .bytecode
+        .structures
+        .iter()
+        .find(|layout| layout.declaration.path.last().unwrap().name == "Item")
+        .unwrap();
+    let ty = AbiType::Struct(NominalAbiType {
+        declaration: item.declaration.clone(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let interface = old
+        .bytecode
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) => match &table.trait_type {
+                AbiType::Trait(ty) => Some(ty),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap();
+    for (owner, valid) in [(&old, false), (&current, true)] {
+        let arguments = runtime
+            .resolve_type_arguments(owner, slice::from_ref(&ty))
+            .unwrap();
+        let method = runtime
+            .resolve_interface_method_slot(&receiver, interface, 0, &arguments)
+            .unwrap();
+        assert_eq!(
+            runtime
+                .validate_interface_method_result(&method, &closure)
+                .is_ok(),
+            valid
+        );
+    }
+    drop((receiver_root, closure_root));
+    runtime.collect_garbage().unwrap();
+    assert!(
+        runtime
+            .modules()
+            .collect_unreachable_epochs()
+            .contains(&old.key())
+    );
+}
+
+#[test]
+fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
+    check_type_provenance_reload(
+        r#"
+        struct Item { val value: i32 }
+        struct Box<T> { val item: T }
+        enum Wrapped<T> { Some(T), None }
+        fn concrete() -> Box<Wrapped<Item>> { Box { item: Wrapped::Some(Item { value: 1 }) } }
+        fn keep<T>(value: T) -> T { value }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                val list: MutableList<(Item, Box<Wrapped<T>>)> = [(Item { value: 1 }, Box { item: Wrapped::Some(value) })];
+                list.push((Item { value: 1 }, Box { item: Wrapped::Some(value) }));
+                val view: List<(Item, Box<Wrapped<T>>)> = list;
+                var seen = 0;
+                for pair in view {
+                    val inner: T = match pair[1].item { Wrapped::Some(inner) => inner, Wrapped::None => value };
+                    seen = seen + 1;
+                }
+                || {
+                    val held: (Item, Box<Wrapped<T>>) = keep(view[1]);
+                    match held[1].item { Wrapped::Some(inner) => { val again: T = keep(inner); helper() + seen - 2 }, Wrapped::None => 0 }
+                }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+    "#,
+    );
+}
+
+#[test]
+fn shared_repeat_arrays_keep_scalar_contracts_in_generic_frames() {
+    check_type_provenance_reload(
+        r#"
+        struct Item { val value: i32 }
+        fn keep<T>(value: T) -> T { value }
+        trait Capture {
+            fn capture<T>(self, value: T) -> fn() -> i32 {
+                val list: List<i32> = [42; 2];
+                || { val held: i32 = keep(list[1]); helper() + held - 42 }
+            }
+        }
+        impl Capture for i32 {}
+        fn helper() -> i32 { 42 }
+        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
+        fn use_closure(call: fn() -> i32) -> i32 { call() }
+    "#,
     );
 }

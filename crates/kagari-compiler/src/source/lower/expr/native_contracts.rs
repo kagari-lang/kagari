@@ -101,6 +101,7 @@ impl FunctionLowerer<'_, '_> {
             span,
         )?;
         let mut import = NativeImport {
+            generic: None,
             callables: vec![],
             instance: ConcreteFunctionIdentity {
                 declaration,
@@ -127,14 +128,31 @@ impl FunctionLowerer<'_, '_> {
         result: &TypeId,
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
-        import.callables = self
-            .planner
-            .native_callables(&import, self.function.debug.source_span)?;
-        if !import.structurally_valid() {
-            return Err(MirLoweringError::MissingBinding(
-                "concrete native entry application",
-            ));
-        }
+        let callee = if import.instance.arguments.iter().any(|ty| !ty.is_concrete()) {
+            MirCallTarget::Shared(Box::new(
+                self.planner.shared_call(
+                    &import.instance.declaration,
+                    &import
+                        .instance
+                        .arguments
+                        .iter()
+                        .map(raise_type)
+                        .collect::<Vec<_>>(),
+                    import.signature,
+                    self.function.debug.source_span,
+                )?,
+            ))
+        } else {
+            import.callables = self
+                .planner
+                .native_callables(&import, self.function.debug.source_span)?;
+            if !import.structurally_valid() {
+                return Err(MirLoweringError::MissingBinding(
+                    "concrete native entry application",
+                ));
+            }
+            MirCallTarget::Native(Box::new(import))
+        };
         let dst = self.alloc_temp(self.value_type(result)?);
         self.function
             .semantic
@@ -142,7 +160,7 @@ impl FunctionLowerer<'_, '_> {
             .insert(dst.temp.index(), lower_type(result));
         self.emit(Instruction::Call {
             dst: Some(dst),
-            callee: MirCallTarget::Native(Box::new(import)),
+            callee,
             args: values.iter().copied().collect(),
         });
         Ok(dst)
@@ -208,6 +226,7 @@ impl FunctionLowerer<'_, '_> {
             .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
         self.emit_native_application(
             NativeImport {
+                generic: None,
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {
                     declaration: declaration.clone(),
@@ -291,6 +310,7 @@ impl FunctionLowerer<'_, '_> {
         let result = instantiate(&signature.return_type);
         self.emit_native_application(
             NativeImport {
+                generic: None,
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {
                     declaration: method.clone(),

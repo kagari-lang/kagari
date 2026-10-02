@@ -3,9 +3,18 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    frame::types::{
+        TypeEnvironment,
+        arguments::{TypeArgument, type_parameter},
+        compatibility::TypeView,
+    },
     gc::GcHeap,
     module::LoadedModule,
-    native::{binding::NativeResult, context::LinkedCallable},
+    native::storage_type::StorageType,
+    native::{
+        binding::NativeResult,
+        context::{LinkedCallable, LinkedOperation},
+    },
     value::Value,
 };
 use kagari_abi::types::{AbiType, native::NativeStorageLayout};
@@ -13,6 +22,7 @@ use std::{
     any::{Any, TypeId},
     fmt::{self, Debug},
     rc::Rc,
+    slice,
 };
 
 /// Trace every script value retained by this payload. The visitor cannot execute
@@ -30,24 +40,63 @@ pub struct StorageContext<'call> {
     pub(crate) runtime: &'call Runtime,
     pub(crate) owner: &'call LoadedModule,
     pub(crate) ty: &'call AbiType,
-    pub(crate) selected: &'call [LinkedCallable],
+    pub(crate) scope: Option<&'call TypeArgument>,
+    pub(crate) selected: &'call [LinkedOperation],
 }
 impl<'call> StorageContext<'call> {
     pub fn heap(&self) -> &'call GcHeap {
         self.runtime.gc()
     }
-    pub fn allocate_sequence(&self, element: AbiType, elements: Vec<Value>) -> NativeResult<Value> {
+    pub fn resolve_type(&self, ty: &AbiType) -> NativeResult<TypeArgument> {
         self.runtime
-            .alloc_array(self.owner, element, elements)
+            .resolve_type_arguments(self.owner, slice::from_ref(ty))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("native storage type scope"))
+    }
+
+    pub fn allocate_sequence(
+        &self,
+        element: TypeArgument,
+        elements: Vec<Value>,
+    ) -> NativeResult<Value> {
+        self.heap().ensure_no_native_borrow()?;
+        element.validate(self.runtime)?;
+        self.runtime.validate_heap_payloads(&elements)?;
+        let contract = Rc::new(StorageType::prepare_scoped(element, self.owner)?);
+        self.heap()
+            .alloc_array_with_contract(contract, elements)
             .map(Value::Array)
     }
+    pub fn type_parameter(&self, index: usize) -> NativeResult<TypeArgument> {
+        match self.scope {
+            Some(scope) => scope.parameter(self.runtime, self.owner, index),
+            None => self
+                .runtime
+                .resolve_type_arguments(
+                    self.owner,
+                    slice::from_ref(type_parameter(self.ty, index).ok_or_else(|| {
+                        RuntimeError::module_validation("native storage type parameter")
+                    })?),
+                )?
+                .pop()
+                .ok_or_else(|| RuntimeError::module_validation("native storage type scope")),
+        }
+    }
+
+    pub(crate) fn element_contract(&self, index: usize) -> NativeResult<Rc<StorageType>> {
+        StorageType::prepare_scoped(self.type_parameter(index)?, self.owner).map(Rc::new)
+    }
+
     pub fn owner(&self) -> &'call LoadedModule {
         self.owner
     }
     pub fn selected(&self, slot: usize) -> NativeResult<&'call LinkedCallable> {
-        self.selected.get(slot).ok_or_else(|| {
-            RuntimeError::module_validation("native storage requires a prepared callable slot")
-        })
+        self.selected
+            .get(slot)
+            .and_then(LinkedOperation::ready)
+            .ok_or_else(|| {
+                RuntimeError::module_validation("native storage requires a prepared callable slot")
+            })
     }
     pub fn ty(&self) -> &'call AbiType {
         self.ty
@@ -146,6 +195,10 @@ impl NativeStorage {
         })?;
         let payload = factory(context)?;
         self.object(context.heap(), context.ty, payload, context.owner)
+            .map(|mut object| {
+                object.scope = context.scope.cloned();
+                object
+            })
     }
     pub(crate) fn prepare_payload<S: NativePayload>(
         &self,
@@ -185,6 +238,7 @@ impl NativeStorage {
             payload,
             ty: ty.clone(),
             _owner: owner.clone(),
+            scope: None,
         })
     }
 }
@@ -197,6 +251,7 @@ pub(crate) struct NativeObject {
     payload: Box<dyn Any>,
     pub(crate) ty: AbiType,
     _owner: LoadedModule,
+    pub(crate) scope: Option<TypeArgument>,
 }
 impl Debug for NativeObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -209,8 +264,17 @@ impl Debug for NativeObject {
 impl NativeObject {
     // Linking compares every native storage contract with its installed owner.
     // Installation forbids replacing that owner while its heap objects exist.
-    pub(crate) fn matches(&self, ty: &AbiType) -> bool {
-        self.ty == *ty
+    pub(crate) fn matches(
+        &self,
+        ty: &AbiType,
+        owner: &LoadedModule,
+        environment: Option<&TypeEnvironment>,
+    ) -> bool {
+        let actual = match &self.scope {
+            Some(scope) => scope.view(&self._owner),
+            None => TypeView::new(&self.ty, &self._owner, None),
+        };
+        actual.compatible(TypeView::new(ty, owner, environment))
     }
     pub(crate) fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         (self.storage.entries.trace)(self.payload.as_ref(), visit);
@@ -236,6 +300,7 @@ impl NativeObject {
             payload: Box::new(payload),
             ty: self.ty.clone(),
             _owner: self._owner.clone(),
+            scope: self.scope.clone(),
         })
     }
     pub(crate) fn payload<S: NativePayload>(&self) -> NativeResult<&S> {

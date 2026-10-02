@@ -133,13 +133,13 @@ impl RootSlotLayout {
             locals: locals
                 .iter()
                 .enumerate()
-                .filter(|(_, ty)| **ty == ValueType::HeapObject)
+                .filter(|(_, ty)| ty.may_contain_gc_reference())
                 .map(|(index, _)| LocalSlot::new(index))
                 .collect(),
             registers: registers
                 .iter()
                 .enumerate()
-                .filter(|(_, ty)| **ty == ValueType::HeapObject)
+                .filter(|(_, ty)| ty.may_contain_gc_reference())
                 .map(|(index, _)| Register::new(index))
                 .collect(),
         }
@@ -157,6 +157,16 @@ pub struct InterfaceTableRecord {
     pub declaration: DefinitionId,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub methods: Vec<InterfaceMethodSlot>,
+    /// Preselected ancestor tables, including their receiver argument mappings.
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    pub parents: Vec<InterfaceParentRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceParentRecord {
+    pub interface: NominalAbiType,
+    pub implementation: ConcreteFunctionIdentity,
+    pub view: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,6 +187,11 @@ pub struct InterfaceResultAdapter {
 pub struct InterfaceMethodSlot {
     pub method: DefinitionId,
     pub target: CallableTarget,
+    /// Arguments for the target's shared entry, expressed in the table and
+    /// method binder scopes. Receiver arguments are captured when boxing;
+    /// method arguments are supplied by each call.
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    pub arguments: Vec<AbiType>,
 }
 
 /// A checked executable entry owned by the module carrying this target.

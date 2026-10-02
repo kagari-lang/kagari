@@ -64,39 +64,26 @@ fn builtin_keys(context: &StorageContext<'_>, key: &AbiType) -> NativeResult<boo
 impl NativeStorage {
     pub(crate) fn map(key: usize, value: usize) -> Self {
         Self::with_layout(NativeStorageLayout::Map { key, value }, move |context| {
-            let (key, value) = match context.ty() {
-                AbiType::Map { key, value, .. } => (key.as_ref(), value.as_ref()),
-                AbiType::NativeObject(nominal) => (
-                    nominal.arguments.get(key).ok_or_else(invalid)?,
-                    nominal.arguments.get(value).ok_or_else(invalid)?,
-                ),
-                _ => return Err(invalid()),
-            };
+            let key_contract = context.element_contract(key)?;
+            let value_contract = context.element_contract(value)?;
+            let builtin_keys = builtin_keys(context, &key_contract.ty)?;
             Ok(MapPayload {
-                key: Rc::new(StorageType::prepare(key.clone(), context.owner())?),
-                value: Rc::new(StorageType::prepare(value.clone(), context.owner())?),
-                builtin_keys: builtin_keys(context, key)?,
+                key: key_contract,
+                value: value_contract,
+                builtin_keys,
                 entries: HashMapStorage::new(),
             })
         })
     }
     pub(crate) fn set(element: usize) -> Self {
         Self::with_layout(NativeStorageLayout::Set { element }, move |context| {
-            let element = match context.ty() {
-                AbiType::Set(element, _) => element.as_ref(),
-                AbiType::NativeObject(nominal) => {
-                    nominal.arguments.get(element).ok_or_else(invalid)?
-                }
-                _ => return Err(invalid()),
-            };
+            let contract = context.element_contract(element)?;
+            let builtin_keys = builtin_keys(context, &contract.ty)?;
             Ok(SetPayload {
-                element: Rc::new(StorageType::prepare(element.clone(), context.owner())?),
-                builtin_keys: builtin_keys(context, element)?,
+                element: contract,
+                builtin_keys,
                 entries: HashSetStorage::new(),
             })
         })
     }
-}
-fn invalid() -> RuntimeError {
-    RuntimeError::module_validation("hash storage type arguments")
 }

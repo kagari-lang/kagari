@@ -87,7 +87,7 @@ pub fn verify_native_call(
     import: &NativeImport,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
-    if !import.structurally_valid() {
+    if !import.structurally_valid() || import.generic.is_some() {
         return Err(ContractError::InvalidOperation {
             reason: "invalid provider native import",
         });

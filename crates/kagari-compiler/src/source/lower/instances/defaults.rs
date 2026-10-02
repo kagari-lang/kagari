@@ -8,7 +8,7 @@ use kagari_common::{identity::DefinitionId, span::Span};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     native::NativeBinding,
-    types::{NominalType, TypeId, TypeSubstitution, abi::lower_type},
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution, abi::lower_type},
 };
 
 impl InstancePlanner<'_> {
@@ -79,6 +79,13 @@ impl InstancePlanner<'_> {
             return Ok(false);
         }
         let count = implementation.generic_params.len();
+        let contract = self
+            .catalog
+            .trait_(&method.owner)
+            .ok_or(MirLoweringError::MissingBinding("native default trait"))?;
+        if arguments.len() != count + method.generic_params.len() - contract.generic_params.len() {
+            return Ok(false);
+        }
         if arguments.len() < count {
             return Err(MirLoweringError::MissingBinding(
                 "default implementation arguments",
@@ -101,15 +108,24 @@ impl InstancePlanner<'_> {
         )?;
         let owner = implementation.id.clone();
         self.record_interface(&owner, &arguments[..count], span)?;
-        self.prepare_native_target(
-            &import.instance.declaration,
-            &import
-                .instance
-                .arguments
-                .iter()
-                .map(raise_type)
-                .collect::<Vec<_>>(),
-            span,
-        )
+        let shared = import.instance.arguments.iter().any(|ty| !ty.is_concrete());
+        let arguments = import
+            .instance
+            .arguments
+            .iter()
+            .enumerate()
+            .map(|(position, ty)| {
+                if shared {
+                    TypeId::Generic(GenericParameterType {
+                        owner: import.instance.declaration.clone(),
+                        position,
+                        name: format!("T{position}"),
+                    })
+                } else {
+                    raise_type(ty)
+                }
+            })
+            .collect::<Vec<_>>();
+        self.prepare_native_target(&import.instance.declaration, &arguments, span)
     }
 }

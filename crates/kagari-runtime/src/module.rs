@@ -1,7 +1,10 @@
+mod layouts;
 use crate::{
     cache::ReloadDependencySnapshot,
     error::RuntimeError,
+    frame::types::TypeEnvironment,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
+    module::layouts::LayoutCache,
     native::binding::LinkedNativeFunction,
     reload::ModuleEpoch,
     resource::ResourceState,
@@ -166,6 +169,7 @@ pub struct LinkedModule {
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
     native_bindings: Vec<Rc<LinkedNativeFunction>>,
+    layouts: LayoutCache,
     pub(crate) host_bindings: LinkedHostBindings,
 }
 
@@ -221,24 +225,13 @@ impl LoadedModule {
         self.program_root().key()
     }
     pub fn struct_layout(&self, id: StructId) -> Option<StructLayoutRef> {
-        self.bytecode.structures.get(id.index())?;
-        Some(StructLayoutRef {
-            module: self.clone(),
-            id,
-        })
+        let layout = self.bytecode.structures.get(id.index())?;
+        self.applied_struct_layout(id, &layout.arguments)
     }
 
     pub fn enum_variant(&self, id: EnumId, variant: u32) -> Option<EnumVariantRef> {
-        self.bytecode
-            .enumerations
-            .get(id.index())?
-            .variants
-            .get(variant as usize)?;
-        Some(EnumVariantRef {
-            module: self.clone(),
-            id,
-            variant,
-        })
+        let layout = self.bytecode.enumerations.get(id.index())?;
+        self.applied_enum_variant(id, &layout.arguments, variant)
     }
     /// Registry entries are resolved once for this immutable program generation.
     pub fn native_binding(&self, import: NativeImportId) -> Option<Rc<LinkedNativeFunction>> {
@@ -266,6 +259,8 @@ pub struct EnumVariantRef {
     module: LoadedModule,
     id: EnumId,
     variant: u32,
+    applied: Option<Rc<EnumLayout>>,
+    pub(crate) environment: Option<Rc<TypeEnvironment>>,
 }
 
 impl EnumVariantRef {
@@ -273,7 +268,9 @@ impl EnumVariantRef {
         self.module.registry_owner
     }
     pub fn layout(&self) -> &EnumLayout {
-        &self.module.bytecode.enumerations[self.id.index()]
+        self.applied
+            .as_deref()
+            .unwrap_or(&self.module.bytecode.enumerations[self.id.index()])
     }
     pub fn variant(&self) -> &EnumVariantLayout {
         &self.layout().variants[self.variant as usize]
@@ -297,21 +294,36 @@ impl PartialEq for EnumVariantRef {
 pub struct StructLayoutRef {
     module: LoadedModule,
     id: StructId,
+    applied: Option<Rc<StructLayout>>,
+    pub(crate) environment: Option<Rc<TypeEnvironment>>,
 }
 
 impl StructLayoutRef {
     pub fn layout(&self) -> &StructLayout {
-        &self.module.bytecode.structures[self.id.index()]
+        self.applied
+            .as_deref()
+            .unwrap_or(&self.module.bytecode.structures[self.id.index()])
     }
     pub fn module(&self) -> &LoadedModule {
         &self.module
     }
     pub(crate) fn matches(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
-            && ((Rc::ptr_eq(&self.module.program, &other.module.program)
+            && ((self.environment.is_none()
+                && other.environment.is_none()
+                && Rc::ptr_eq(&self.module.program, &other.module.program)
                 && self.module.slot == other.module.slot
-                && self.id == other.id)
-                || self.layout() == other.layout())
+                && self.id == other.id
+                && match (&self.applied, &other.applied) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+                    _ => false,
+                })
+                || self.matches_type(
+                    &other.type_expression(),
+                    &other.module,
+                    other.environment.as_deref(),
+                ))
     }
 }
 
@@ -491,6 +503,7 @@ impl ModuleStore {
                 };
                 let native_bindings = host_bindings.native.clone();
                 LinkedModule {
+                    layouts: LayoutCache::default(),
                     native_bindings,
                     id,
                     name: display,

@@ -9,7 +9,7 @@ pub mod verify;
 mod wire;
 
 use crate::{
-    callable::{CallableImplementation, MethodPolicy},
+    callable::{CallableImplementation, MethodPolicy, interface::InterfaceCallContract},
     language::Protocol,
     native_import::callables::NativeCallableRequirement,
     representation::ValueType,
@@ -17,7 +17,7 @@ use crate::{
     standard::surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
     types::{
         native::{NativeStorageLayout, NativeTypeConstructor},
-        substitution::{TypeSubstitution, resolve_associated_outputs},
+        substitution::TypeSubstitution,
     },
 };
 use bincode::{DefaultOptions, Options};
@@ -297,6 +297,9 @@ impl AbiType {
         match self {
             Self::Host(_) => ValueType::HostHandle,
             Self::Builtin(ty) => ValueType::from_builtin_type(*ty),
+            Self::Parameter { .. } | Self::Projection { .. } | Self::SelfType(_) => {
+                ValueType::Generic
+            }
             _ => ValueType::HeapObject,
         }
     }
@@ -409,8 +412,19 @@ impl InterfaceTableAbi {
     /// their concrete substitutions for downstream method applications. The verifier proves template
     /// validity, bounds and method slots.
     pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
+        self.instantiate_in(arguments, &[])
+    }
+
+    /// Apply a selected implementation inside a checked shared body or table.
+    /// This validates binder scope; linked verification additionally proves
+    /// implementation bounds and the selected executable entries.
+    pub fn instantiate_in(
+        &self,
+        arguments: &[AbiType],
+        parameters: &[GenericParameterAbi],
+    ) -> Option<Self> {
         if arguments.len() != self.generic_params.len()
-            || !arguments.iter().all(AbiType::is_concrete)
+            || !verify::types_in_scope(arguments, parameters, &CancellationToken::default())
         {
             return None;
         }
@@ -501,60 +515,29 @@ pub fn interface_method_semantics(
     interface: &NominalAbiType,
     slot: usize,
 ) -> Option<(Vec<AbiType>, AbiType)> {
-    let path = &interface.declaration.path;
-    if interface.declaration.module != *owner
-        || path.len() != 1
-        || path[0].kind != DefinitionKind::Trait
-        || path[0].occurrence != 0
-        || !interface.arguments.iter().all(AbiType::is_concrete)
-    {
+    if interface.declaration.module != *owner {
         return None;
     }
-    let trait_abi = trait_contract(owner, public_items, trait_contracts, &interface.declaration)?;
-    if interface.arguments.len() != trait_abi.generic_params.len() {
-        return None;
-    }
-    if !trait_abi.associated_consts.is_empty()
-        || trait_abi
-            .associated_types
-            .iter()
-            .any(|member| !member.generic_params.is_empty())
-        || interface.associated_types.len() != trait_abi.associated_types.len()
-        || trait_abi.associated_types.iter().any(|member| {
-            !interface
-                .associated_types
-                .get(&member.declaration)
-                .is_some_and(AbiType::is_concrete)
-        })
-    {
-        return None;
-    }
-    let method = trait_abi.methods.get(slot)?;
-    if !method.generic_params.is_empty()
-        || method.params.first()?.ty != AbiType::SelfType(interface.declaration.clone())
-    {
-        return None;
-    }
-    let cancel = CancellationToken::default();
-    let mut substitution = TypeSubstitution::default();
-    for (parameter, argument) in trait_abi.generic_params.iter().zip(&interface.arguments) {
-        substitution.bind(&parameter.owner, parameter.position, argument);
-    }
-    let instantiated = |ty: &AbiType| {
-        let ty = substitution.apply(ty, &cancel).ok()?;
-        let ty = resolve_associated_outputs(&ty, interface, &cancel).ok()?;
-        ty.is_concrete().then_some(ty)
+    let contract = trait_contract(owner, public_items, trait_contracts, &interface.declaration)?;
+    let call = InterfaceCallContract {
+        receiver: None,
+        operations: vec![],
+        interface: interface.clone(),
+        method_slot: u32::try_from(slot).ok()?,
+        arguments: vec![],
     };
-    let mut params = vec![AbiType::Trait(interface.clone())];
-    params.extend(
-        method
-            .params
-            .iter()
-            .skip(1)
-            .map(|param| instantiated(&param.ty))
-            .collect::<Option<Vec<_>>>()?,
-    );
-    Some((params, instantiated(&method.return_type)?))
+    let signature = call
+        .signature(contract, &CancellationToken::default())
+        .ok()?;
+    if !signature
+        .params
+        .iter()
+        .chain([&signature.result])
+        .all(AbiType::is_concrete)
+    {
+        return None;
+    }
+    Some((signature.params, signature.result))
 }
 
 /// Executable contract for a private trait absent from the public ABI.

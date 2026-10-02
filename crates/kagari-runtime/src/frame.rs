@@ -1,22 +1,26 @@
 mod arguments;
+mod layouts;
 mod native;
+mod shared;
+pub mod types;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::arguments::FrameArguments,
+    frame::{arguments::FrameArguments, types::TypeEnvironment},
     gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, RootSet},
     module::LoadedModule,
     resource::ResourceState,
     session::ExecutionSession,
     value::Value,
 };
-use kagari_abi::{ids::FunctionRef, representation::ValueType};
+use kagari_abi::{ids::FunctionRef, representation::ValueType, types::AbiType};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, LocalSlot, Register},
     module::{BytecodeFunction, CallableTarget},
     program::ModuleRef,
 };
 use std::{
+    borrow::Cow,
     cell::{Ref, RefMut},
     fmt::{self, Debug, Formatter},
     rc::Rc,
@@ -188,12 +192,38 @@ impl ExecutionStack {
                 "closure call contract mismatch",
             ));
         }
+        if let Some(environment) = &closure.environment {
+            for (index, value) in all.iter().enumerate() {
+                if let Some(ty) = function.metadata.semantic.params.get(&index)
+                    && !(if index < closure.captures.len() {
+                        runtime.matches_capture_type(
+                            value,
+                            ty,
+                            &closure.implementation,
+                            environment,
+                        )
+                    } else {
+                        runtime.matches_type_in(
+                            value,
+                            ty,
+                            &closure.implementation,
+                            Some(environment),
+                        )
+                    })
+                {
+                    return Err(RuntimeError::module_validation(
+                        "closure semantic argument mismatch",
+                    ));
+                }
+            }
+        }
         self.push_arguments(
             closure.implementation.clone(),
             CallableTarget::Script(closure.function),
             all,
             return_dst,
             None,
+            closure.environment.clone(),
         )
     }
 
@@ -205,12 +235,16 @@ impl ExecutionStack {
         return_dst: Option<Register>,
         interface_method: Option<RootedInterfaceMethod>,
     ) -> Result<(), RuntimeError> {
+        let environment = interface_method
+            .as_ref()
+            .and_then(|method| method.environment.clone());
         self.push_arguments(
             loaded,
             target,
             FrameArguments::plain(args),
             return_dst,
             interface_method,
+            environment,
         )
     }
 
@@ -221,6 +255,7 @@ impl ExecutionStack {
         args: FrameArguments<'_>,
         return_dst: Option<Register>,
         interface_method: Option<RootedInterfaceMethod>,
+        environment: Option<Rc<TypeEnvironment>>,
     ) -> Result<(), RuntimeError> {
         self.validate_top()?;
         if !args
@@ -247,7 +282,10 @@ impl ExecutionStack {
             target,
             args,
             return_dst,
-            interface_method,
+            FrameDispatch {
+                interface_method,
+                environment,
+            },
         ) {
             Ok(frame) => {
                 frames.push(frame);
@@ -322,6 +360,7 @@ enum NativeEntryState {
 }
 
 pub struct ExecutionFrame {
+    environment: Option<Rc<TypeEnvironment>>,
     loaded: LoadedModule,
     target: CallableTarget,
     native_entry: NativeEntryState,
@@ -347,16 +386,25 @@ impl Debug for ExecutionFrame {
     }
 }
 
+struct FrameDispatch {
+    interface_method: Option<RootedInterfaceMethod>,
+    environment: Option<Rc<TypeEnvironment>>,
+}
+
 impl ExecutionFrame {
-    pub(crate) fn new(
+    fn new(
         heap: Rc<GcHeap>,
         resources: Rc<ResourceState>,
         loaded: LoadedModule,
         target: CallableTarget,
         args: FrameArguments<'_>,
         return_dst: Option<Register>,
-        interface_method: Option<RootedInterfaceMethod>,
+        dispatch: FrameDispatch,
     ) -> Result<Self, RuntimeError> {
+        let FrameDispatch {
+            interface_method,
+            environment,
+        } = dispatch;
         let (register_count, slots, native_entry) = match target {
             CallableTarget::Script(function) => {
                 let metadata = loaded
@@ -369,6 +417,21 @@ impl ExecutionFrame {
                         "frame argument count does not match the linked function",
                     ));
                 }
+                if metadata
+                    .metadata
+                    .semantic
+                    .generic
+                    .as_ref()
+                    .is_some_and(|body| {
+                        environment
+                            .as_ref()
+                            .is_none_or(|environment| !environment.matches(body))
+                    })
+                {
+                    return Err(RuntimeError::module_validation(
+                        "shared generic entry requires a call environment",
+                    ));
+                }
                 let register_count = usize::from(metadata.register_count);
                 let mut slots =
                     vec![Value::Unit; register_count + usize::from(metadata.local_count)];
@@ -378,12 +441,21 @@ impl ExecutionFrame {
                 (register_count, slots, NativeEntryState::Script)
             }
             CallableTarget::Native(import) => {
-                let signature = &loaded
+                let import = loaded
                     .bytecode
                     .native_imports
                     .get(import.index())
-                    .ok_or_else(|| resources.quarantine("invalid native frame import"))?
-                    .signature;
+                    .ok_or_else(|| resources.quarantine("invalid native frame import"))?;
+                if import.generic.as_ref().is_some_and(|body| {
+                    environment
+                        .as_ref()
+                        .is_none_or(|environment| !environment.matches(body))
+                }) {
+                    return Err(RuntimeError::module_validation(
+                        "shared native frame environment",
+                    ));
+                }
+                let signature = &import.signature;
                 if args.len() != signature.params.len() {
                     return Err(RuntimeError::module_validation("native frame arguments"));
                 }
@@ -394,6 +466,7 @@ impl ExecutionFrame {
         };
 
         Ok(Self {
+            environment,
             loaded,
             target,
             native_entry,
@@ -410,6 +483,50 @@ impl ExecutionFrame {
             iterations: Vec::new(),
             mutations: Vec::new(),
         })
+    }
+
+    pub fn environment(&self) -> Option<Rc<TypeEnvironment>> {
+        self.environment.clone()
+    }
+
+    pub fn resolve_type<'a>(&self, ty: &'a AbiType) -> Result<Cow<'a, AbiType>, RuntimeError> {
+        if ty.is_concrete() {
+            return Ok(Cow::Borrowed(ty));
+        }
+        match &self.environment {
+            Some(environment) => environment.resolve(ty).map(Cow::Owned),
+            None => Err(RuntimeError::module_validation(
+                "missing generic call environment",
+            )),
+        }
+    }
+
+    pub fn closure_signature<'a>(
+        &self,
+        register: Register,
+        params: &'a [ValueType],
+        result: ValueType,
+    ) -> Result<(Cow<'a, [ValueType]>, ValueType), RuntimeError> {
+        if result != ValueType::Generic && !params.contains(&ValueType::Generic) {
+            return Ok((Cow::Borrowed(params), result));
+        }
+        let function = self
+            .function()
+            .ok_or_else(|| RuntimeError::module_validation("shared closure call function"))?;
+        let semantic = function
+            .metadata
+            .semantic
+            .registers
+            .get(&register.index())
+            .ok_or_else(|| RuntimeError::module_validation("shared closure call signature"))?;
+        let resolved = self.resolve_type(semantic)?;
+        let AbiType::Function { params, result } = resolved.as_ref() else {
+            return Err(RuntimeError::module_validation("shared closure call type"));
+        };
+        Ok((
+            Cow::Owned(params.iter().map(AbiType::representation).collect()),
+            result.representation(),
+        ))
     }
 
     pub fn begin_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {

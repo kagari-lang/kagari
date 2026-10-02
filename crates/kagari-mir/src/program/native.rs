@@ -1,12 +1,17 @@
 //! Link provider-qualified imports against carried declarations and witnesses.
-use crate::{function::MirModule, verify::VerifiedMirModule};
+use crate::{
+    function::MirModule,
+    instruction::{CallTarget, Instruction},
+    program::shared,
+    verify::VerifiedMirModule,
+};
 use kagari_abi::{
     callable::CallableImplementation,
     native_import::{NativeSignature, callables::NativeCallableOrigin},
     types::{
-        ConcreteFunctionIdentity, PublicAbiItem,
+        ConcreteFunctionIdentity, GenericParameterAbi, PublicAbiItem,
         proofs::{ProofCatalog, implementation::Implementation},
-        substitution::TypeTransformError,
+        substitution::{TypeSubstitution, TypeTransformError},
     },
 };
 use kagari_common::{
@@ -72,6 +77,63 @@ pub(super) fn validate(
         return Ok(false);
     }
     for function in &caller.functions {
+        for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
+            if let Instruction::MakeInterface {
+                implementation,
+                arguments,
+                ..
+            } = instruction
+            {
+                let body = function.semantic.generic.as_ref();
+                let Some(table) = closure
+                    .iter()
+                    .filter(|owner| owner.identity == implementation.module)
+                    .flat_map(|owner| &owner.abi.public_items)
+                    .find_map(|item| match item {
+                        PublicAbiItem::InterfaceTable(table)
+                            if table.declaration == *implementation =>
+                        {
+                            table.instantiate_in(
+                                arguments,
+                                body.map_or(&[], |body| body.parameters.as_slice()),
+                            )
+                        }
+                        _ => None,
+                    })
+                else {
+                    return Ok(false);
+                };
+                for bound in &table.bounds {
+                    if !catalog.constraints_hold(
+                        &bound.ty,
+                        &bound.constraints,
+                        body.map_or(&[], |body| body.bounds.as_slice()),
+                        cancel,
+                    )? {
+                        return Ok(false);
+                    }
+                }
+            }
+            if let Instruction::Call {
+                callee: CallTarget::InterfaceMethod(call),
+                ..
+            } = instruction
+            {
+                let Some(contract) = catalog.trait_contract(&call.interface.declaration) else {
+                    return Ok(false);
+                };
+                let body = function.semantic.generic.as_ref();
+                if !call.check(
+                    contract,
+                    &catalog,
+                    body.map_or(&[], |body| body.parameters.as_slice()),
+                    body.map_or(&[], |body| body.bounds.as_slice()),
+                    cancel,
+                )? {
+                    return Ok(false);
+                }
+            }
+        }
         if !function
             .semantic
             .protocol_adapter_valid(Some(&function.instance))
@@ -87,6 +149,9 @@ pub(super) fn validate(
         }
     }
     if !native_slots_valid(caller, &catalog, cancel)? {
+        return Ok(false);
+    }
+    if !shared::valid(caller, closure, &catalog, cancel)? {
         return Ok(false);
     }
     if caller
@@ -122,54 +187,52 @@ pub(super) fn validate(
         if !import.matches_declaration(declaration, &catalog, cancel)? {
             return Ok(false);
         }
-        for callable in &import.callables {
-            if let CallableImplementation::Native(binding) = &callable.implementation
-                && !closure
+    }
+    for callable in caller.selected_callables() {
+        if let CallableImplementation::Native(binding) = &callable.implementation
+            && !closure
+                .iter()
+                .flat_map(|owner| &owner.native_targets)
+                .any(|target| {
+                    target.instance == callable.instance
+                        && &target.binding == binding
+                        && target.signature == callable.signature
+                        && target.host.is_none()
+                })
+        {
+            return Ok(false);
+        }
+        if callable.implementation == CallableImplementation::Script {
+            let Some(target) = closure
+                .iter()
+                .find(|owner| owner.identity == callable.instance.declaration.module)
+                .and_then(|owner| {
+                    owner
+                        .functions
+                        .iter()
+                        .find(|function| function.instance == callable.instance)
+                })
+            else {
+                return Ok(false);
+            };
+            let marker_valid = match callable.origin {
+                NativeCallableOrigin::Implementation => target.semantic.protocol_adapter.is_none(),
+                NativeCallableOrigin::ProtocolAdapter => {
+                    target.semantic.protocol_adapter.as_ref() == Some(&callable.requirement)
+                }
+            };
+            if !marker_valid
+                || target.params.len() != callable.signature.params.len()
+                || target.semantic.params.len() != callable.signature.params.len()
+                || callable
+                    .signature
+                    .params
                     .iter()
-                    .flat_map(|owner| &owner.native_targets)
-                    .any(|target| {
-                        target.instance == callable.instance
-                            && &target.binding == binding
-                            && target.signature == callable.signature
-                            && target.host.is_none()
-                    })
+                    .enumerate()
+                    .any(|(index, ty)| target.semantic.params.get(&index) != Some(ty))
+                || target.semantic.result.as_ref() != Some(&callable.signature.result)
             {
                 return Ok(false);
-            }
-            if callable.implementation == CallableImplementation::Script {
-                let Some(target) = closure
-                    .iter()
-                    .find(|owner| owner.identity == callable.instance.declaration.module)
-                    .and_then(|owner| {
-                        owner
-                            .functions
-                            .iter()
-                            .find(|function| function.instance == callable.instance)
-                    })
-                else {
-                    return Ok(false);
-                };
-                let marker_valid = match callable.origin {
-                    NativeCallableOrigin::Implementation => {
-                        target.semantic.protocol_adapter.is_none()
-                    }
-                    NativeCallableOrigin::ProtocolAdapter => {
-                        target.semantic.protocol_adapter.as_ref() == Some(&callable.requirement)
-                    }
-                };
-                if !marker_valid
-                    || target.params.len() != callable.signature.params.len()
-                    || target.semantic.params.len() != callable.signature.params.len()
-                    || callable
-                        .signature
-                        .params
-                        .iter()
-                        .enumerate()
-                        .any(|(index, ty)| target.semantic.params.get(&index) != Some(ty))
-                    || target.semantic.result.as_ref() != Some(&callable.signature.result)
-                {
-                    return Ok(false);
-                }
             }
         }
     }
@@ -212,7 +275,8 @@ fn native_slots_valid(
         {
             continue;
         }
-        let Some(table) = template.instantiate(&instance.arguments) else {
+        let Some(table) = template.instantiate_in(&instance.arguments, &template.generic_params)
+        else {
             return Ok(false);
         };
         for method in &table.methods {
@@ -225,7 +289,7 @@ fn native_slots_valid(
                 name: method.name.clone(),
                 occurrence: 0,
             });
-            let signature = NativeSignature {
+            let mut signature = NativeSignature {
                 params: method
                     .params
                     .iter()
@@ -234,13 +298,43 @@ fn native_slots_valid(
                 result: catalog.normalize(&method.return_type, cancel)?,
             };
             let (target_instance, binding) = match &method.implementation {
-                CallableImplementation::Native(binding) => (
-                    ConcreteFunctionIdentity {
-                        declaration,
-                        arguments: instance.arguments.clone(),
-                    },
-                    binding.clone(),
-                ),
+                CallableImplementation::Native(binding) => {
+                    let arguments = if instance.arguments.iter().any(|ty| !ty.is_concrete()) {
+                        let arguments: Vec<_> = template
+                            .generic_params
+                            .iter()
+                            .enumerate()
+                            .map(|(position, _)| {
+                                GenericParameterAbi {
+                                    owner: declaration.clone(),
+                                    position,
+                                }
+                                .as_type()
+                            })
+                            .collect();
+                        let mut substitution = TypeSubstitution::default();
+                        for (parameter, argument) in template.generic_params.iter().zip(&arguments)
+                        {
+                            substitution.bind(&parameter.owner, parameter.position, argument);
+                        }
+                        signature.params = signature
+                            .params
+                            .iter()
+                            .map(|ty| substitution.apply(ty, cancel))
+                            .collect::<Result<_, _>>()?;
+                        signature.result = substitution.apply(&signature.result, cancel)?;
+                        arguments
+                    } else {
+                        instance.arguments.clone()
+                    };
+                    (
+                        ConcreteFunctionIdentity {
+                            declaration,
+                            arguments,
+                        },
+                        binding.clone(),
+                    )
+                }
                 CallableImplementation::NativeDefault(application) => {
                     let Some(resolved) = catalog.resolve_native_default(application, cancel)?
                     else {

@@ -1,6 +1,7 @@
 //! Scoped access to one registered Rust payload. A borrow cannot escape its closure.
 use crate::{
     error::RuntimeError,
+    frame::types::{TypeEnvironment, compatibility::TypeView},
     gc::{GcHeap, HeapObject, HeapObjectId},
     module::LoadedModule,
     native::{
@@ -21,6 +22,17 @@ impl Drop for NativeBorrow<'_> {
 }
 
 impl GcHeap {
+    pub(crate) fn matches_native_type(
+        &self,
+        id: HeapObjectId,
+        ty: &AbiType,
+        owner: &LoadedModule,
+        environment: Option<&TypeEnvironment>,
+    ) -> bool {
+        let objects = self.objects.borrow();
+        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty, owner, environment))
+    }
+
     pub(crate) fn default_storage(&self, ty: &AbiType) -> Option<&NativeStorage> {
         match ty {
             AbiType::Array(..) => Some(&self.sequence_storage),
@@ -79,7 +91,7 @@ impl GcHeap {
     pub(crate) fn sequence_push(
         &self,
         id: HeapObjectId,
-        owner: &LoadedModule,
+        expected: TypeView<'_>,
         value: Value,
     ) -> NativeResult<()> {
         self.ensure_execution_allowed()?;
@@ -92,9 +104,9 @@ impl GcHeap {
                 return Err(RuntimeError::module_validation("invalid sequence receiver"));
             };
             let sequence = object.payload::<SequencePayload>()?;
-            if !sequence.contract.matches(&sequence.element, owner)
+            if !object.matches(expected.ty, expected.owner, expected.environment)
                 || !self.valid_payload(&value)
-                || !self.matches_abi(&value, &sequence.element, &sequence.contract.owner)
+                || !sequence.contract.accepts_value(self, &value)
             {
                 return Err(RuntimeError::module_validation(
                     "sequence value differs from its element type",

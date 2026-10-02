@@ -409,9 +409,9 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .flat_map(|function| &mut function.instructions)
         .find_map(|instruction| match instruction {
             BytecodeInstruction::Call {
-                callee: KagaribytecodeCallTarget::InterfaceMethod { method_slot, .. },
+                callee: KagaribytecodeCallTarget::InterfaceMethod { contract, .. },
                 ..
-            } => Some(method_slot),
+            } => Some(&mut contract.method_slot),
             _ => None,
         })
         .unwrap();
@@ -463,17 +463,14 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
         let BytecodeInstruction::Call { callee, args, .. } = instruction else {
             unreachable!()
         };
-        let KagaribytecodeCallTarget::InterfaceMethod {
-            interface,
-            method_slot,
-            ..
-        } = callee
-        else {
+        let KagaribytecodeCallTarget::InterfaceMethod { contract, .. } = callee else {
             unreachable!()
         };
         match corruption {
-            "slot" => *method_slot = 99,
-            "owner" => interface.declaration.path.last_mut().unwrap().name = "Other".into(),
+            "slot" => contract.method_slot = 99,
+            "owner" => {
+                contract.interface.declaration.path.last_mut().unwrap().name = "Other".into()
+            }
             "argument" => args[0] = Register::new(999),
             _ => unreachable!(),
         }

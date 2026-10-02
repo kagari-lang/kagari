@@ -2,6 +2,7 @@ use kagari_abi::{
     contracts::{self, ContractError},
     effects::EffectSet,
     representation::ValueType,
+    types::AbiType,
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind, span::Span};
 use std::{collections::HashSet, ops::Deref};
@@ -180,7 +181,11 @@ pub(crate) fn verify_with_budget(
     for instance in &module.interface_instances {
         context.check_cancel()?;
         if !interfaces.insert(instance)
-            || !instance.arguments.iter().all(|ty| ty.is_concrete())
+            || !instance.arguments.iter().enumerate().all(|(position, ty)| {
+                ty.is_concrete()
+                    || matches!(ty, AbiType::Parameter { owner, position: index }
+                    if *owner == instance.declaration && *index == position)
+            })
             || !instance.declaration.within_path_limit()
             || instance
                 .declaration
@@ -326,6 +331,18 @@ fn verify_function(
     context: Context<'_>,
     budget: &mut Budget,
 ) -> Result<FunctionAnalysis, MirVerificationError> {
+    if !function
+        .semantic
+        .types_valid(Some(&function.instance), &Default::default())
+        || !function.semantic.generic_layout_valid(
+            function.params.iter().map(|param| param.ty),
+            function.locals.iter().map(|local| local.ty),
+            function.temps.iter().map(|temp| temp.ty),
+            function.return_type,
+        )
+    {
+        return Err(context.error(MirVerificationErrorKind::InvalidParameterLayout));
+    }
     for (count, name) in [
         (function.params.len(), "parameters"),
         (function.locals.len(), "locals"),

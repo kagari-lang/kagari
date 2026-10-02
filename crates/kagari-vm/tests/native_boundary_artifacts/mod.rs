@@ -1,4 +1,8 @@
-use kagari_abi::{callable::CallableImplementation, scalar::BuiltinType, types::AbiType};
+use kagari_abi::{
+    callable::{CallableImplementation, witness::OperationWitness},
+    scalar::BuiltinType,
+    types::AbiType,
+};
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register},
@@ -246,8 +250,12 @@ fn hash_storage_native_imports_carry_and_validate_selected_callables() {
         .clear();
     assert!(verify_program(&missing).is_err());
     let mut forged = program.clone();
-    forged.modules[owner].native_imports[import].callables[0].implementation =
-        CallableImplementation::Required;
+    let OperationWitness::Selected(selected) =
+        &mut forged.modules[owner].native_imports[import].callables[0]
+    else {
+        panic!("concrete callable");
+    };
+    selected.implementation = CallableImplementation::Required;
     assert!(verify_program(&forged).is_err());
     let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();

@@ -1,5 +1,27 @@
 # Kagari Implementation Roadmap
 
+## Foundation API completion (active)
+
+The [foundation API completion plan](foundation-api-completion.md) implements
+always-present basic types, collection traits/defaults and common methods, replacing
+the optional bundled-algorithm installation switch. List/MutableList declare
+algorithms as native-backed default trait methods; String owns built-in inherent
+methods. No extension syntax, Deref or separate standard-library crate is added.
+
+FA01-FA05 cover generic interface calls/default dispatch, foundation assembly, a
+bounded list API, String methods and integration. The API inventory is accepted
+and FA01 is accepted; FA02 is next. Both semantic decisions are approved: method-level generics work
+through interfaces using checked type/constraint argument passing and shared
+entries, including script/native defaults and overrides; static calls retain
+specialization. FA01 includes the required shared script-body compilation and
+executable validation, not only native adapters. In-place collection operations
+will not promise failure rollback: no atomic bulk-replacement requirement or
+rollback-only buffering is introduced, and existing transaction-only sorting costs
+are removed during migration. Execution is authorized with one commit per phase
+and intermediate build failures allowed. The completed reset below remains the
+starting baseline, not a full-library restoration
+obligation. Contract/common renaming and the other queued migrations remain separate.
+
 ## Native collections reset (completed)
 
 The [native collections reset plan](native-provider-refactor.md) replaces the

@@ -24,6 +24,7 @@ use kagari_hir::{
 mod aggregates;
 mod calls;
 mod patterns;
+mod shared;
 
 use kagari_abi::{
     language::Protocol,
@@ -79,6 +80,13 @@ impl FunctionLowerer<'_, '_> {
             };
             let value = self.alloc_temp(physical);
             self.emit(Instruction::LoadLocal { dst: value, local });
+            if physical == ValueType::Generic {
+                let semantic = self.semantic_type(&ty)?;
+                self.function
+                    .semantic
+                    .registers
+                    .insert(value.temp.index(), semantic);
+            }
             captures.push(value);
         }
         let span = self.analyzed.lowered.source_map.expr_span(expr_id);
@@ -243,30 +251,7 @@ impl FunctionLowerer<'_, '_> {
                         )?;
                         self.planner
                             .record_interface(&declaration, &arguments, span)?;
-                        if declaration.module == *self.analyzed.lowered.source.module_identity() {
-                            let signature = self
-                                .analyzed
-                                .aggregates
-                                .implementation_signature(&declaration)
-                                .ok_or(MirLoweringError::MissingBinding(
-                                    "interface implementation",
-                                ))?;
-                            let methods = self.planner.catalog.implementation_methods(signature);
-                            for method in methods {
-                                if self
-                                    .planner
-                                    .prepare_native_target(&method, &arguments, span)?
-                                    || self.planner.native_function(&method).is_some()
-                                {
-                                    continue;
-                                }
-                                self.planner.enqueue_declaration(
-                                    &method,
-                                    arguments.clone(),
-                                    span,
-                                )?;
-                            }
-                        }
+
                         (declaration, arguments.iter().map(lower_type).collect())
                     }
                 };

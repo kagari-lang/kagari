@@ -16,6 +16,7 @@ pub mod module;
 pub(crate) mod registry;
 pub mod returns;
 pub mod scalar;
+mod selected;
 pub mod sequence;
 pub mod sequence_edit;
 pub mod storage;

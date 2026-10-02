@@ -314,3 +314,55 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     drop(root);
     assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 2);
 }
+
+#[test]
+fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
+    let source = r#"
+        struct Inner { val value: i32 }
+        struct Node { var next: Option<Node>, val value: Inner }
+        fn main() -> ArrayList<Node> {
+            val node = Node { next: None, value: Inner { value: 42 } };
+            node.next = Some(node);
+            [node]
+        }
+    "#;
+    let (mut vm, old) = compile(source, None);
+    let old_value = vm.execute(&old, "main").unwrap().return_value;
+    let old_root = vm.runtime().root_value(old_value.clone()).unwrap();
+    let replacement = source
+        .replace("val value: i32", "val value: i32, val extra: bool")
+        .replace("value: 42 }", "value: 42, extra: true }");
+    let current = vm
+        .reload_program(&old, "boundary", compile_program(&replacement, None))
+        .unwrap();
+    let new_value = vm.execute(&current, "main").unwrap().return_value;
+    let new_root = vm.runtime().root_value(new_value.clone()).unwrap();
+    let (Value::Array(old_array), Value::Array(new_array)) = (old_value, new_value) else {
+        panic!("typed arrays");
+    };
+    let reclaimed = vm.runtime().modules().collect_unreachable_epochs();
+    assert!(
+        old.members()
+            .all(|member| reclaimed.contains(&member.key()))
+    );
+    let old_node = vm.runtime().gc().array_get(old_array, 0).unwrap();
+    let new_node = vm.runtime().gc().array_get(new_array, 0).unwrap();
+    assert!(
+        vm.runtime()
+            .gc()
+            .array_push(old_array, new_node.clone())
+            .is_err()
+    );
+    assert!(
+        vm.runtime()
+            .gc()
+            .array_push(new_array, old_node.clone())
+            .is_err()
+    );
+    assert_eq!(vm.runtime().gc().array_len(old_array), Some(1));
+    assert_eq!(vm.runtime().gc().array_len(new_array), Some(1));
+    vm.runtime().gc().array_push(old_array, old_node).unwrap();
+    vm.runtime().gc().array_push(new_array, new_node).unwrap();
+    drop((old_root, new_root));
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+}

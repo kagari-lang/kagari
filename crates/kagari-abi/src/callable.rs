@@ -1,6 +1,11 @@
 //! Portable callable implementation identities. Signatures belong to the
 //! declarations lowered from HIR; these identities never reconstruct a signature.
 
+pub mod generic;
+pub mod interface;
+pub mod shared;
+pub mod witness;
+
 use crate::types::{
     AbiType,
     substitution::{TypeSubstitution, TypeTransformError},

@@ -29,6 +29,15 @@ temporary roots, and reentry state. Cleanup does not poll cancellation or invoke
 arbitrary user code. The runtime may be reused after cleanup; completed business
 mutations are still present. Rust panic recovery is not a transaction mechanism.
 
+The approved foundation collection algorithms likewise provide no operation-wide
+transaction. Sort, reverse, retain and dedup propagate callback, receiver and
+cancellation failures while preserving valid storage and completed effects.
+ArrayList sorting retains every original element, but may change their order;
+custom container writes may leave partial progress. This does not relax individual
+write validation or the separate host-path and reload publication contracts.
+FA03 in the [foundation plan](../foundation-api-completion.md) owns replacement
+of the old sorting rollback implementation.
+
 Frame scopes share one session-owned stack. Each scope unwinds only its own suffix
 on failure, preserving suspended callers that may handle an ordinary nested trap.
 Frame roots and call counters are released after cancellation and quarantine too.

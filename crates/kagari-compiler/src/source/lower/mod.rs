@@ -1,10 +1,13 @@
 use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
 use instances::InstancePlanner;
-use kagari_abi::{host as module_host, types::ConcreteFunctionIdentity};
+use kagari_abi::{
+    host as module_host,
+    types::{AbiType, ConcreteFunctionIdentity},
+};
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
     CheckedAnalysis,
-    aggregates::{AggregateCatalog, traits::MethodDefault},
+    aggregates::AggregateCatalog,
     hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
@@ -112,35 +115,24 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         item.id.module == *module.lowered.source.module_identity() && item.generic_params.is_empty()
     }) {
         planner.record_interface(&implementation.id, &[], Default::default())?;
-        for target in module.aggregates.implementation_methods(implementation) {
-            if let Some((_, method)) = module.aggregates.default_method(&target)
-                && method.default == Some(MethodDefault::Script)
-                && module
-                    .aggregates
-                    .trait_(&method.owner)
-                    .is_some_and(|contract| {
-                        method.generic_params.len() == contract.generic_params.len()
-                    })
-            {
-                planner.enqueue_declaration(&target, Vec::new(), Default::default())?;
-            }
-        }
     }
     for request in requests {
         planner.check()?;
         if request.declaration.module != *module.lowered.source.module_identity() {
             return Err(MirLoweringError::MissingBinding("requested instance owner"));
         }
-        if planner.prepare_native_target(
-            &request.declaration,
-            &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
-            Default::default(),
-        )? {
+        if request.arguments.iter().all(AbiType::is_concrete)
+            && planner.prepare_native_target(
+                &request.declaration,
+                &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
+                Default::default(),
+            )?
+        {
             continue;
         }
-        planner.enqueue_declaration(
+        planner.enqueue_interface_method(
             &request.declaration,
-            request.arguments.iter().map(raise_type).collect(),
+            &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
             Default::default(),
         )?;
     }

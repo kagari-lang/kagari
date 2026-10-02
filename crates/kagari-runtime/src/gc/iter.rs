@@ -1,6 +1,7 @@
 use super::string_iter::StringTraversal;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
+    frame::types::{TypeEnvironment, arguments::TypeArgument},
     gc::{GcHeap, GcObjectKind, HeapObject, HeapObjectId},
     module::LoadedModule,
     native::{storage::NativePayload, storage_type::StorageType},
@@ -17,6 +18,11 @@ use std::{
     collections::HashMap,
     rc::{Rc, Weak},
 };
+
+struct IterTypeScope<'a> {
+    source: &'a TypeArgument,
+    item: StorageType,
+}
 
 #[derive(Debug)]
 pub(super) struct NativeIter {
@@ -181,13 +187,29 @@ impl GcHeap {
             _ => None,
         }
     }
+    pub(crate) fn matches_iter_type(
+        &self,
+        id: HeapObjectId,
+        element: &AbiType,
+        owner: &LoadedModule,
+        environment: Option<&TypeEnvironment>,
+    ) -> bool {
+        let objects = self.objects.borrow();
+        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, AbiType::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_scoped(element, owner, environment)))
+    }
+
     pub(crate) fn new_iter(
         &self,
         source: &Value,
-        ty: &AbiType,
+        ty: &TypeArgument,
+        item: TypeArgument,
         owner: &LoadedModule,
     ) -> Result<Value, RuntimeError> {
-        self.new_iter_with(source, ty, None, owner)
+        let scope = IterTypeScope {
+            source: ty,
+            item: StorageType::prepare_scoped(item, owner)?,
+        };
+        self.new_iter_with(source, ty.ty(), None, owner, Some(scope))
     }
     fn new_iter_with(
         &self,
@@ -195,6 +217,7 @@ impl GcHeap {
         ty: &AbiType,
         traversal: Option<(AbiType, StringTraversal)>,
         owner: &LoadedModule,
+        scope: Option<IterTypeScope<'_>>,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         let valid = match (source, ty) {
@@ -211,7 +234,12 @@ impl GcHeap {
             (Value::Str(_), AbiType::Builtin(BuiltinType::String)) => true,
             _ => false,
         };
-        if !valid || !self.matches_abi(source, ty, owner) {
+        if !valid
+            || !match &scope {
+                Some(scope) => scope.source.matches_heap(self, source, owner),
+                None => self.matches_abi(source, ty, owner),
+            }
+        {
             return Err(invalid());
         }
         let item_type = match ty {
@@ -228,7 +256,11 @@ impl GcHeap {
             Some((item, traversal)) => (item, Some(traversal)),
             None => (item_type, None),
         };
-        let item_contract = StorageType::prepare(item_type.clone(), owner)?;
+        let item_contract = match scope {
+            Some(scope) if scope.item.ty == item_type => scope.item,
+            Some(_) => return Err(invalid()),
+            None => StorageType::prepare(item_type.clone(), owner)?,
+        };
         let revision = self.collection_revision(source).ok_or_else(invalid)?;
         let session = self.resources.active_session().ok_or_else(invalid)?;
         session
@@ -294,6 +326,7 @@ impl GcHeap {
             &AbiType::Builtin(BuiltinType::String),
             Some((kind.item_type(), traversal)),
             owner,
+            None,
         )
     }
 

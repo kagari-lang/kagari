@@ -65,11 +65,7 @@ impl InstancePlanner<'_> {
                 .implementation_signature(&implementation)
                 .ok_or_else(invalid)?;
             for method in self.catalog.implementation_methods(contract) {
-                if !self.prepare_native_target(&method, &arguments, span)?
-                    && self.native_function(&method).is_none()
-                {
-                    self.enqueue_declaration(&method, arguments.clone(), span)?;
-                }
+                self.enqueue_interface_method(&method, &arguments, span)?;
             }
         }
         Ok(())

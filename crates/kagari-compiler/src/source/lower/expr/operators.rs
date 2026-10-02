@@ -15,6 +15,7 @@ use kagari_hir::{
 };
 
 use kagari_abi::{
+    callable::interface::InterfaceCallContract,
     language::Protocol,
     numeric::{NumericConversion, NumericOperation},
     operations::{BinaryOp, StandardEnumOp, UnaryOp},
@@ -25,8 +26,7 @@ use kagari_abi::{
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
 
 use kagari_mir::instruction::{
-    CallTarget, Constant, Instruction, InterfaceCallContract, MirValue, SourceFunctionContract,
-    Terminator, ValueBuffer,
+    CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
 };
 
 impl FunctionLowerer<'_, '_> {
@@ -191,14 +191,15 @@ impl FunctionLowerer<'_, '_> {
                 Some(MethodDefault::Native(binding)) => Some(binding),
                 _ => None,
             });
-        if let TypeId::Trait(child) = &ty
-            && (native_default.is_none()
+        if matches!(&ty, TypeId::Generic(_))
+            || (matches!(&ty, TypeId::Trait(child)
+            if (native_default.is_none()
                 || matches!(native_default, Some(NativeBinding::Default(_))))
             && self
                 .planner
                 .catalog
                 .interface_closure(child, &ty, &self.planner.options.cancel)
-                .is_ok_and(|parents| parents.contains(&interface))
+                .is_ok_and(|parents| parents.contains(&interface))))
         {
             let contract = self
                 .planner
@@ -210,11 +211,21 @@ impl FunctionLowerer<'_, '_> {
                 .catalog
                 .trait_method(method)
                 .ok_or(MirLoweringError::MissingBinding("dynamic protocol method"))?;
+            let local_parameters = &signature.generic_params[contract.generic_params.len()..];
+            if local_parameters.len() != method_arguments.len() {
+                return Err(MirLoweringError::MissingBinding("dynamic method arguments"));
+            }
             let substitution: TypeSubstitution = contract
                 .generic_params
                 .iter()
                 .cloned()
                 .zip(interface.arguments.iter().cloned())
+                .chain(
+                    local_parameters
+                        .iter()
+                        .cloned()
+                        .zip(method_arguments.iter().cloned()),
+                )
                 .collect();
             let result = self.planner.catalog.normalize_type(
                 &signature
@@ -223,9 +234,22 @@ impl FunctionLowerer<'_, '_> {
                     .with_associated_types(&interface),
             );
             let dst = self.alloc_temp(self.value_type(&result)?);
+            self.function
+                .semantic
+                .registers
+                .insert(dst.temp.index(), lower_type(&result));
+            let operations = self.planner.method_operations(
+                method,
+                &interface,
+                &method_arguments,
+                self.function.debug.source_span,
+            )?;
             self.emit(Instruction::Call {
                 dst: Some(dst),
                 callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                    receiver: matches!(&ty, TypeId::Generic(_)).then(|| lower_type(&ty)),
+                    operations,
+                    arguments: method_arguments.iter().map(lower_type).collect(),
                     interface: lower_nominal_type(&interface),
                     method_slot: signature.slot as u32,
                 })),

@@ -193,7 +193,7 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(super) fn map_contract(
+    pub(crate) fn map_contract(
         &self,
         id: HeapObjectId,
     ) -> Option<(Rc<StorageType>, Rc<StorageType>, bool)> {
@@ -211,7 +211,7 @@ impl GcHeap {
             payload.builtin_keys,
         ))
     }
-    pub(super) fn set_contract(&self, id: HeapObjectId) -> Option<(Rc<StorageType>, bool)> {
+    pub(crate) fn set_contract(&self, id: HeapObjectId) -> Option<(Rc<StorageType>, bool)> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
@@ -223,7 +223,7 @@ impl GcHeap {
         Some((payload.element.clone(), payload.builtin_keys))
     }
     pub(super) fn valid_storage_value(&self, value: &Value, contract: &StorageType) -> bool {
-        self.valid_payload(value) && self.matches_abi(value, &contract.ty, &contract.owner)
+        self.valid_payload(value) && contract.accepts_value(self, value)
     }
     pub(super) fn with_map<R>(
         &self,

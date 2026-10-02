@@ -7,7 +7,10 @@ use kagari_hir::{
     },
     resolver::resolved::ResolvedName,
     typeck::scalar::ScalarValue,
-    types::{TypeId, abi::lower_nominal_type},
+    types::{
+        TypeId,
+        abi::{lower_nominal_type, lower_type},
+    },
 };
 
 use kagari_abi::{
@@ -224,7 +227,11 @@ impl FunctionLowerer<'_, '_> {
             self.function.debug.source_span,
         )?;
         let ty = &types[0];
-        if !ty.is_concrete() {
+        if !ty.is_concrete()
+            && !self.function.semantic.generic.as_ref().is_some_and(|body| {
+                body.types_valid([&lower_type(ty)], &self.planner.options.cancel)
+            })
+        {
             return Err(MirLoweringError::MissingBinding(
                 "concrete nominal instance",
             ));

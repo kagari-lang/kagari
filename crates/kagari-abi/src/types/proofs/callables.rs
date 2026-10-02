@@ -1,13 +1,13 @@
 //! Recheck a concrete trait-member selection against carried implementation facts.
 use crate::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, witness::SharedMethodWitness},
     effects::EffectSet,
     native_import::{
         NativeSignature,
         callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
     },
     types::{
-        ConcreteFunctionIdentity, matching,
+        ConcreteFunctionIdentity, GenericBoundAbi, GenericParameterAbi, matching,
         proofs::ProofCatalog,
         substitution::{TypeSubstitution, TypeTransformError},
     },
@@ -18,6 +18,65 @@ use kagari_common::{
 };
 
 impl ProofCatalog<'_> {
+    pub fn shared_method_matches(
+        &self,
+        selected: &SharedMethodWitness,
+        parameters: &[GenericParameterAbi],
+        assumptions: &[GenericBoundAbi],
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        let required = &selected.requirement;
+        if !required.is_generic_member(self) {
+            return Ok(false);
+        }
+        let Some(table) = self
+            .implementations
+            .iter()
+            .find(|table| table.declaration() == &selected.implementation.declaration)
+        else {
+            return Ok(false);
+        };
+        if table.parameters().len() != selected.implementation.arguments.len() {
+            return Ok(false);
+        }
+        let mut substitution = TypeSubstitution::default();
+        for (parameter, argument) in table
+            .parameters()
+            .iter()
+            .zip(&selected.implementation.arguments)
+        {
+            substitution.bind(&parameter.owner, parameter.position, argument);
+        }
+        let Some(interface) = table.interface() else {
+            return Ok(false);
+        };
+        if substitution.apply_nominal(interface, cancel)? != required.interface
+            || substitution.apply(table.receiver(), cancel)? != required.receiver
+        {
+            return Ok(false);
+        }
+        for bound in substitution.apply_bounds(table.bounds(), cancel)? {
+            if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
+                return Ok(false);
+            }
+        }
+        let Some(member) = required.member.path.last() else {
+            return Ok(false);
+        };
+        Ok(table
+            .method_in(
+                &member.name,
+                &selected.implementation.arguments,
+                self.trait_contract(&required.interface.declaration),
+                parameters,
+                cancel,
+            )?
+            .is_some_and(|method| {
+                !method.generic_params.is_empty()
+                    && !matches!(method.implementation, CallableImplementation::Required)
+            }))
+    }
+
     pub fn callable_requirement_valid(&self, requirement: &NativeCallableRequirement) -> bool {
         self.contracts
             .get(&requirement.interface.declaration)

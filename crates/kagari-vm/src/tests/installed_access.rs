@@ -119,6 +119,7 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
                         BytecodeInstruction::MakeStruct {
                             dst: Register::new(1),
                             structure: StructId::new(0),
+                            arguments: vec![],
                             fields: vec![Register::new(0)],
                         },
                         BytecodeInstruction::LoadConst {

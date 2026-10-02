@@ -89,7 +89,7 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
 }
 
 #[test]
-fn template_parameters_cannot_enter_executable_layout_arguments() {
+fn layout_templates_require_scoped_instruction_arguments() {
     for source in [
         "struct Cell<T> { val value: T } fn main() { val c = Cell { value: 1 }; }",
         "enum Packet<T> { Data(T) } fn main() { val p = Packet::Data(1); }",
@@ -114,8 +114,38 @@ fn template_parameters_cannot_enter_executable_layout_arguments() {
                 owner: layout.declaration.clone(),
                 position: 0,
             };
-            layout.variants.clear();
         }
+        let member = &mut bytecode.modules[bytecode.root.index()];
+        let argument = member
+            .structures
+            .first()
+            .map(|layout| layout.arguments[0].clone())
+            .or_else(|| {
+                member
+                    .enumerations
+                    .iter()
+                    .find(|layout| layout.declaration.module == member.identity)
+                    .map(|layout| layout.arguments[0].clone())
+            })
+            .unwrap();
+        let mut changed = false;
+        for instruction in member
+            .functions
+            .iter_mut()
+            .flat_map(|function| &mut function.instructions)
+        {
+            match instruction {
+                BytecodeInstruction::MakeStruct { arguments, .. }
+                | BytecodeInstruction::MakeEnum { arguments, .. }
+                    if !arguments.is_empty() =>
+                {
+                    arguments[0] = argument.clone();
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(changed);
         assert!(verify_program(&bytecode).is_err());
     }
 }

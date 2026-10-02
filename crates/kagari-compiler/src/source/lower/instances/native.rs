@@ -1,37 +1,17 @@
 //! Materialize native method contracts while the checked source catalog is available.
 use crate::source::{
-    lower::{
-        MirLoweringError,
-        instances::{InstanceKey, InstancePlanner},
-    },
+    lower::{MirLoweringError, instances::InstancePlanner},
     types::raise_type,
 };
 use kagari_abi::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, generic::GenericBody},
     native_import::{NativeImport, NativeSignature},
-    types::substitution::TypeSubstitution,
+    types::{ConcreteFunctionIdentity, GenericParameterAbi, substitution::TypeSubstitution},
 };
 use kagari_common::{identity::DefinitionId, span::Span};
 use kagari_hir::types::{TypeId, abi::lower_type};
 
 impl InstancePlanner<'_> {
-    pub(super) fn prepare_native_interface(
-        &mut self,
-        declaration: &DefinitionId,
-        arguments: &[TypeId],
-        span: Span,
-    ) -> Result<(), MirLoweringError> {
-        let Some(contract) = self.catalog.implementation_signature(declaration) else {
-            // Engine/host bridges retain their already checked script adapters.
-            return Ok(());
-        };
-        let methods = self.catalog.implementation_methods(contract);
-        for method in methods {
-            self.prepare_native_target(&method, arguments, span)?;
-        }
-        Ok(())
-    }
-
     pub(crate) fn prepare_native_target(
         &mut self,
         declaration: &DefinitionId,
@@ -42,15 +22,13 @@ impl InstancePlanner<'_> {
             return self.prepare_default_target(declaration, arguments, span);
         };
         let invalid = || MirLoweringError::MissingBinding("checked native method instance");
-        // Method-local generics require their own concrete call application.
+        // All declared parameters must be supplied, either concretely or by a
+        // shared entry's explicitly scoped method binders.
         if declared.function.generic_params.len() != arguments.len() {
             return Ok(false);
         }
-        let instance = InstanceKey {
-            declaration: declaration.clone(),
-            arguments: arguments.to_vec(),
-        }
-        .lower(self.options, span)?;
+        let mut import = self.native_target_import(declaration, arguments, span)?;
+        let instance = import.instance.clone();
         let mut parent = declaration.clone();
         parent.path.pop();
         if let Some(implementation) = self.catalog.implementation_signature(&parent) {
@@ -70,7 +48,6 @@ impl InstancePlanner<'_> {
         if !arguments.is_empty() {
             self.charge_layout_instance(span)?;
         }
-        let mut import = self.native_target_import(declaration, arguments, span)?;
         import.callables = self.native_callables(&import, span)?;
         if !import.structurally_valid() {
             return Err(invalid());
@@ -97,11 +74,23 @@ impl InstancePlanner<'_> {
         let CallableImplementation::Native(binding) = &declared.function.implementation else {
             return Err(invalid());
         };
-        let instance = InstanceKey {
+        let arguments = self.arguments(arguments, &Default::default(), span)?;
+        let instance = ConcreteFunctionIdentity {
             declaration: declaration.clone(),
-            arguments: arguments.to_vec(),
-        }
-        .lower(self.options, span)?;
+            arguments: arguments.iter().map(lower_type).collect(),
+        };
+        let parameters: Vec<_> = arguments
+            .iter()
+            .filter_map(|argument| {
+                let TypeId::Generic(parameter) = argument else {
+                    return None;
+                };
+                Some(GenericParameterAbi {
+                    owner: parameter.owner.clone(),
+                    position: parameter.position,
+                })
+            })
+            .collect();
         let mut substitution = TypeSubstitution::default();
         for (param, argument) in declared
             .function
@@ -117,7 +106,14 @@ impl InstancePlanner<'_> {
                 .map_err(|_| invalid())?;
             Ok(lower_type(&self.catalog.normalize_type(&raise_type(&ty))))
         };
+        let requirements = substitution
+            .apply_bounds(&declared.function.bounds, &self.options.cancel)
+            .map_err(|_| invalid())?;
         let import = NativeImport {
+            generic: (!parameters.is_empty()).then(|| GenericBody {
+                parameters,
+                bounds: requirements.clone(),
+            }),
             signature: NativeSignature {
                 params: declared
                     .function
@@ -127,9 +123,7 @@ impl InstancePlanner<'_> {
                     .collect::<Result<_, MirLoweringError>>()?,
                 result: normalize(&declared.function.return_type)?,
             },
-            requirements: substitution
-                .apply_bounds(&declared.function.bounds, &self.options.cancel)
-                .map_err(|_| invalid())?,
+            requirements,
             instance,
             binding: binding.clone(),
             host: None,

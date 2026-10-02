@@ -3,9 +3,11 @@ use crate::{
     callable::{CallableImplementation, NativeDefaultApplication},
     native_import::NativeSignature,
     types::{
-        AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, NominalAbiType,
+        AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, GenericParameterAbi,
+        NominalAbiType,
         proofs::{Budget, ProofCatalog},
         substitution::{TypeSubstitution, TypeTransformError},
+        verify::types_in_scope,
     },
 };
 use kagari_common::cancellation::CancellationToken;
@@ -120,6 +122,16 @@ impl ProofCatalog<'_> {
         application: &NativeDefaultApplication,
         cancel: &CancellationToken,
     ) -> Result<Option<ResolvedNativeDefault>, TypeTransformError> {
+        self.resolve_native_default_in(application, &[], &[], cancel)
+    }
+
+    pub fn resolve_native_default_in(
+        &self,
+        application: &NativeDefaultApplication,
+        parameters: &[GenericParameterAbi],
+        assumptions: &[GenericBoundAbi],
+        cancel: &CancellationToken,
+    ) -> Result<Option<ResolvedNativeDefault>, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         let Some(template) = self.native_declarations.get(&application.declaration) else {
             return Ok(None);
@@ -137,7 +149,7 @@ impl ProofCatalog<'_> {
             .iter()
             .map(|argument| self.normalize(argument, cancel))
             .collect::<Result<Vec<_>, _>>()?;
-        if !arguments.iter().all(AbiType::is_concrete) {
+        if !types_in_scope(&arguments, parameters, cancel) {
             return Ok(None);
         }
         let mut substitution = TypeSubstitution::default();
@@ -145,7 +157,7 @@ impl ProofCatalog<'_> {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
         for bound in substitution.apply_bounds(&template.function.bounds, cancel)? {
-            if !self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
+            if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(None);
             }
         }

@@ -73,9 +73,9 @@ pub fn interface_views<'a>(
         }
         let bound = AbiType::Trait(parameters.apply_nominal(bound, cancel)?);
         let bound = resolve_associated_outputs(&bound, parent, cancel)?;
-        if bound.is_concrete() {
-            parent.associated_types.insert(iter, bound);
-        }
+        // The caller validates the binder scope. Shared bodies preserve their
+        // parameters here just as they do in the surrounding interface type.
+        parent.associated_types.insert(iter, bound);
     }
     Ok(closure)
 }

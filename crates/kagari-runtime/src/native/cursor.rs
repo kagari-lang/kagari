@@ -43,9 +43,7 @@ impl CallContext<'_> {
                 "sequence cursor requires ArrayList",
             ));
         };
-        let value =
-            self.runtime
-                .iter_operation(self.owner(), &self.argument(index)?, ty, IterOp::New)?;
+        let value = self.iter_operation(index, IterOp::New)?;
         Ok(NativeCursor(Rc::new(Cursor {
             value,
             ty: AbiType::Iter(item.clone()),

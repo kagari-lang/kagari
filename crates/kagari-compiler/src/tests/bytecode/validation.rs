@@ -303,6 +303,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
                     base: Register::new(0),
                     field: FieldRef {
                         structure: StructId::new(0),
+                        arguments: vec![],
                         slot: 0,
                     },
                     value: Register::new(1),

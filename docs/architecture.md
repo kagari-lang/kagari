@@ -4,9 +4,19 @@ This document defines the production architecture for Kagari.
 It describes the intended system shape that implementation work must converge on.
 When existing code conflicts with the specifications, the specifications are authoritative.
 
-The [native collections reset plan](native-provider-refactor.md) owns the active
-implementation and acceptance ledger. Phases 1-3 replace the predecessor library
-and native ABI; phase 4 verifies the bounded optional library and consumers.
+The active [foundation API completion plan](foundation-api-completion.md) owns
+the migration to always-present common APIs, collection default trait
+methods and built-in String inherent methods. The approved follow-up includes
+generic interface methods with checked type/constraint argument passing for both
+script and native implementations, and nontransactional in-place collection
+operations without rollback-only buffering. The bounded API scope is accepted;
+optional-module and atomic sorting descriptions below describe the implemented
+baseline until that plan is integrated.
+
+The completed [native collections reset plan](native-provider-refactor.md) records
+the baseline implementation and acceptance ledger. Phases 1-3 replaced the
+predecessor library and native ABI; phase 4 verified the bounded optional library
+and consumers.
 The [MIR and crate architecture refactor](mir-architecture-refactor.md) records the
 preceding foundation checkpoints. Language behavior follows the specifications.
 

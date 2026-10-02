@@ -227,3 +227,44 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
     };
     assert_eq!(bound.associated_types[&item], number);
 }
+
+#[test]
+fn applied_bounds_merge_equal_receivers_and_keep_canonical_order() {
+    let outer = owner("Outer");
+    let target = AbiType::Builtin(BuiltinType::I32);
+    let first = ConstraintAbi::Trait(NominalAbiType {
+        declaration: owner("First"),
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let second = ConstraintAbi::Trait(NominalAbiType {
+        declaration: owner("Second"),
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let mut substitution = TypeSubstitution::default();
+    substitution.bind(&outer, 0, &target);
+    substitution.bind(&outer, 1, &target);
+    let actual = substitution
+        .apply_bounds(
+            &[
+                GenericBoundAbi {
+                    ty: parameter(&outer, 0),
+                    constraints: vec![second.clone()],
+                },
+                GenericBoundAbi {
+                    ty: parameter(&outer, 1),
+                    constraints: vec![first.clone(), second.clone()],
+                },
+            ],
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        actual,
+        vec![GenericBoundAbi {
+            ty: target,
+            constraints: vec![first, second]
+        }]
+    );
+}

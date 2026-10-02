@@ -41,10 +41,19 @@ impl ProofCatalog<'_> {
         }) else {
             return Ok(None);
         };
-        if !contract.generic_params.is_empty() || !method.generic_params.is_empty() {
+        if contract.generic_params.len() != required.interface.arguments.len()
+            || !method.generic_params.is_empty()
+        {
             return Ok(None);
         }
         let mut substitution = TypeSubstitution::default();
+        for (parameter, argument) in contract
+            .generic_params
+            .iter()
+            .zip(&required.interface.arguments)
+        {
+            substitution.bind(&parameter.owner, parameter.position, argument);
+        }
         substitution.bind_receiver(&required.interface.declaration, &required.receiver);
         for bound in substitution.apply_bounds(&method.bounds, cancel)? {
             if !self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {

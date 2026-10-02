@@ -2,6 +2,7 @@ use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
 };
+use kagari_abi::callable::witness::OperationWitness;
 
 use kagari_abi::types::{
     TraitAbi, TypeAbi, applications::ApplicationValidator, substitution::TypeTransformError,
@@ -29,7 +30,14 @@ pub(super) fn validate<'a>(
         validator.types(&import.signature.params)?;
         validator.validate_type(&import.signature.result)?;
         validator.bounds(&import.requirements)?;
-        for call in &import.callables {
+        for operation in &import.callables {
+            let required = operation.requirement();
+            validator.validate_type(&required.receiver)?;
+            validator.trait_application(&required.interface)?;
+            validator.types(&required.arguments)?;
+            let OperationWitness::Selected(call) = operation else {
+                continue;
+            };
             validator.types(&call.instance.arguments)?;
             validator.validate_type(&call.requirement.receiver)?;
             validator.trait_application(&call.requirement.interface)?;
@@ -48,6 +56,21 @@ pub(super) fn validate<'a>(
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match instruction {
+                Instruction::Call {
+                    callee: CallTarget::Shared(contract),
+                    ..
+                } => {
+                    validator.types(&contract.instance.arguments)?;
+                    validator.types(&contract.arguments)?;
+                    validator.types(&contract.signature.params)?;
+                    validator.validate_type(&contract.signature.result)?;
+                    for operation in &contract.operations {
+                        let required = operation.requirement();
+                        validator.validate_type(&required.receiver)?;
+                        validator.trait_application(&required.interface)?;
+                        validator.types(&required.arguments)?;
+                    }
+                }
                 Instruction::MakeArray { element, .. }
                 | Instruction::RepeatArray { element, .. } => validator.validate_type(element)?,
                 Instruction::MapResultError { ty, .. }

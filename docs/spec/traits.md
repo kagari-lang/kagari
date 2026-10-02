@@ -191,7 +191,8 @@ Static trait-method calls infer method-local generic arguments from their
 arguments and expected result, check those arguments against the method's
 bounds, and specialize reachable local or dependency-defined implementations.
 The method's arguments follow the implementation's type arguments in the
-concrete instance key; interface values still reject generic methods.
+concrete instance key. Interface calls retain method arguments separately and
+use the shared generic entry specified below. FA01 owns the executable migration.
 
 Struct and enum declarations retain generic binders and inline bounds in checked
 signatures. Type applications such as `Cell<i32>` resolve those binders, check
@@ -432,8 +433,7 @@ Interface-callable methods must:
 
 - not return `Self`
 - not take `Self` in parameters other than the receiver
-- not require method-level generic instantiation at the call site
-- not mention unconstrained generic method parameters
+- bind method-level generic parameters explicitly and satisfy their bounds at each call
 - have parameter and return types representable in the runtime value model
 
 Traits may still contain methods that are useful for static generic bounds but are not callable through an interface value.
@@ -443,10 +443,20 @@ The compiler rejects use of a trait as an interface type when the trait contains
 
 Trait methods and inherent methods may have generic parameters in the syntax.
 
-Generic methods are primarily a static dispatch feature.
-They are not callable through an interface value unless the runtime provides an explicit specialization or adapter mechanism.
+Generic methods are callable through both statically known receivers and interface
+values. Each call supplies its method type arguments and proves their constraints.
+Interface dispatch selects the concrete implementation's override or inherited
+default; holding an object through an interface must not bypass that selection.
 
-This keeps interface dispatch simple and avoids hidden runtime monomorphization.
+Static calls may specialize the implementation. Dynamic calls use checked shared
+entries with explicit type/constraint arguments and may select a precompiled
+specialization when available. Shared script bodies and native bindings obey the
+same signature and constraint rules. Runtime execution does not infer source types
+or require call-time monomorphization. An enclosing generic function may forward
+its checked generic environment, including through retained closures.
+
+The [foundation API completion plan](../foundation-api-completion.md) tracks the
+implementation of this approved contract; end-to-end execution is not yet complete.
 
 ## Receiver Model
 
@@ -599,7 +609,7 @@ Semantic checking applies it to private trait implementations as well, before
 any executable interface table is generated.
 An applied generic trait can be an interface type when its methods meet the
 interface rules; the trait's own type parameters do not count as method-local
-generic parameters. Interface method-local generics remain unsupported.
+generic parameters. Method-local arguments are checked at each interface call.
 Local and imported interface annotations use these same contracts for argument
 checking, Self substitution, and definition queries. Invalid parameter types retain
 Error facts without discarding later parameters or unrelated declarations.
@@ -771,8 +781,9 @@ no implementation uses it. Required methods without bodies remain mandatory.
 `self.method()` in a default body selects the concrete receiver's implementation,
 including explicit overrides and parent implementations. Static calls,
 concrete method calls and dynamic interface slots use the same selected body.
-Generic impls and method-local generic defaults are specialized at compile time;
-method-local generics and `Self` in results remain incompatible with interfaces.
+Static calls specialize generic impls and method-local generic defaults at compile
+time. Dynamic calls use checked shared entries with type and constraint arguments.
+Erased `Self` in results remains incompatible with interfaces.
 Ordinary associated outputs and lexical closures follow the usual type and
 ownership rules.
 

@@ -18,7 +18,14 @@ impl FunctionLowerer<'_, '_> {
         )?;
         let ty = lower_type(&concrete[0]);
         let (_, output) = op
-            .contract(&ty)
+            .contract_in(
+                &ty,
+                self.function
+                    .semantic
+                    .generic
+                    .as_ref()
+                    .map_or(&[], |body| body.parameters.as_slice()),
+            )
             .ok_or(MirLoweringError::MissingBinding("standard enum contract"))?;
         let dst = self.alloc_temp(output);
         self.emit(Instruction::StandardEnum { dst, value, ty, op });

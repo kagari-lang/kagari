@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 mod operands;
 use kagari_abi::{
+    callable::{interface::InterfaceCallContract, shared::SharedCall},
     effects::{EffectSet, runtime_primitive_effects},
     native_import::NativeImport,
     numeric::{NumericConversion, NumericOperation},
@@ -265,6 +266,7 @@ pub enum Terminator {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CallTarget {
+    Shared(Box<SharedCall>),
     SourceFunction(Box<SourceFunctionContract>),
     Function(InstanceId),
     InterfaceMethod(Box<InterfaceCallContract>),
@@ -278,12 +280,6 @@ pub enum CallTarget {
     },
     RuntimePrimitive(RuntimePrimitive),
     RuntimeHelper(RuntimeHelper),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InterfaceCallContract {
-    pub interface: NominalAbiType,
-    pub method_slot: u32,
 }
 
 impl Instruction {
@@ -400,7 +396,7 @@ impl CallTarget {
             Self::Function(_) | Self::SourceFunction(_) | Self::Value(_) | Self::Closure { .. } => {
                 EffectSet::call()
             }
-            Self::InterfaceMethod(_) => EffectSet::runtime_call(),
+            Self::InterfaceMethod(_) | Self::Shared(_) => EffectSet::runtime_call(),
             Self::Native(_) => EffectSet::native_call(),
             Self::RuntimePrimitive(intrinsic) => runtime_primitive_effects(*intrinsic),
             Self::RuntimeHelper(helper) => helper.effects(),

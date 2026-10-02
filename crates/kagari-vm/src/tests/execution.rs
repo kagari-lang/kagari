@@ -203,6 +203,7 @@ fn interface_instruction_module() -> BytecodeModule {
                 value: Register::new(0),
                 module: ModuleRef::new(0),
                 implementation: InterfaceTableRef::new(0),
+                arguments: vec![],
             },
             BytecodeInstruction::Return(Some(Register::new(1))),
         ],
@@ -238,6 +239,7 @@ fn interface_instruction_module() -> BytecodeModule {
         })),
     ];
     module.interface_tables = vec![InterfaceTableRecord {
+        parents: vec![],
         view: None,
         arguments: Vec::new(),
         declaration: impl_id,

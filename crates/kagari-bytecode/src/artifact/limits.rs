@@ -4,9 +4,11 @@ use crate::{
         MAX_ARTIFACT_INSTRUCTIONS, MAX_ARTIFACT_MODULES, MAX_ARTIFACT_NESTED_RECORDS,
         MAX_ARTIFACT_TABLE_RECORDS, exceeds_encoded_size,
     },
+    instruction::{BytecodeInstruction, CallTarget},
     module::BytecodeModule,
     program::BytecodeProgram,
 };
+use kagari_abi::callable::witness::OperationWitness;
 use kagari_abi::{
     callable::CallableImplementation,
     native_import::callables::NativeCallableRequirement,
@@ -40,12 +42,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 .is_none_or(|host| add(host.params.len()))
             || !add(import.requirements.len())
             || !add_abi_bounds(&import.requirements, &mut add)
-            || !add(import.callables.len())
-            || !import.callables.iter().all(|call| {
-                add(call.instance.arguments.len())
-                    && add(call.signature.params.len())
-                    && add_callable_requirement(&call.requirement, &mut add)
-            })
+            || !add_operations(&import.callables, &mut add)
         {
             return false;
         }
@@ -67,6 +64,44 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         }
     }
     for function in &module.functions {
+        for instruction in &function.instructions {
+            if let Some(arguments) = instruction.layout_arguments()
+                && (!add(arguments.len()) || !arguments.iter().all(AbiType::within_wire_limits))
+            {
+                return false;
+            }
+            if let BytecodeInstruction::Call {
+                callee: CallTarget::Shared { contract, .. },
+                ..
+            } = instruction
+                && (!add(contract.arguments.len())
+                    || !add(contract.instance.arguments.len())
+                    || !add(contract.signature.params.len())
+                    || !add_operations(&contract.operations, &mut add))
+            {
+                return false;
+            }
+            if let BytecodeInstruction::MakeInterface { arguments, .. } = instruction
+                && (!add(arguments.len()) || !arguments.iter().all(AbiType::within_wire_limits))
+            {
+                return false;
+            }
+            if let BytecodeInstruction::Call {
+                callee: CallTarget::InterfaceMethod { contract, .. },
+                ..
+            } = instruction
+                && (!add(contract.arguments.len())
+                    || !add_operations(&contract.operations, &mut add))
+            {
+                return false;
+            }
+        }
+        if let Some(body) = &function.metadata.semantic.generic
+            && (!add(body.parameters.len()) || !add_abi_bounds(&body.bounds, &mut add))
+        {
+            return false;
+        }
+
         if function
             .metadata
             .semantic
@@ -105,7 +140,16 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         {
             return false;
         }
-        if !add(table.arguments.len()) || !add(table.methods.len()) {
+        if !add(table.arguments.len())
+            || !add(table.methods.len())
+            || !add(table.parents.len())
+            || table.parents.iter().any(|parent| {
+                !add(parent.interface.arguments.len())
+                    || !add(parent.interface.associated_types.len())
+                    || !add(parent.implementation.arguments.len())
+            })
+            || table.methods.iter().any(|slot| !add(slot.arguments.len()))
+        {
             return false;
         }
     }
@@ -341,10 +385,14 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                     })
             }) && table.declaration.within_path_limit()
                 && table.arguments.iter().all(&valid)
-                && table
-                    .methods
-                    .iter()
-                    .all(|slot| slot.method.within_path_limit())
+                && table.parents.iter().all(|parent| {
+                    valid(&AbiType::Trait(parent.interface.clone()))
+                        && parent.implementation.declaration.within_path_limit()
+                        && parent.implementation.arguments.iter().all(&valid)
+                })
+                && table.methods.iter().all(|slot| {
+                    slot.method.within_path_limit() && slot.arguments.iter().all(&valid)
+                })
         })
         && module.functions.iter().all(|function| {
             function.identity.as_ref().is_none_or(|identity| {
@@ -665,4 +713,21 @@ pub(super) fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static st
         return Some("artifact encoded size limit exceeded");
     }
     None
+}
+
+fn add_operations(operations: &[OperationWitness], add: &mut impl FnMut(usize) -> bool) -> bool {
+    add(operations.len())
+        && operations.iter().all(|operation| {
+            add_callable_requirement(operation.requirement(), add)
+                && match operation {
+                    OperationWitness::Selected(selected) => {
+                        add(selected.instance.arguments.len())
+                            && add(selected.signature.params.len())
+                    }
+                    OperationWitness::Forward(_) => true,
+                    OperationWitness::SharedMethod(selected) => {
+                        add(selected.implementation.arguments.len())
+                    }
+                }
+        })
 }

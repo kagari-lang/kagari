@@ -99,6 +99,7 @@ impl<'a> Executor<'a> {
                 self.dispatch_iterator(&source, &ty, op, Some(dst))?;
             }
             BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
+                let ty = self.current_frame()?.resolve_type(&ty)?;
                 let result = self.standard_enum_operation(value, &ty, op)?;
                 self.current_frame_mut()?.write_register(dst, result)?;
             }
@@ -113,19 +114,22 @@ impl<'a> Executor<'a> {
                 dst,
                 value,
                 enumeration,
+                arguments,
                 variant,
             } => {
-                let result = self.test_enum_variant(value, enumeration, variant)?;
+                let result = self.test_enum_variant(value, enumeration, &arguments, variant)?;
                 self.current_frame_mut()?.write_register(dst, result)?;
             }
             BytecodeInstruction::ReadEnumPayload {
                 dst,
                 value,
                 enumeration,
+                arguments,
                 variant,
                 index,
             } => {
-                let result = self.read_enum_payload(value, enumeration, variant, index)?;
+                let result =
+                    self.read_enum_payload(value, enumeration, &arguments, variant, index)?;
                 self.current_frame_mut()?.write_register(dst, result)?;
             }
             BytecodeInstruction::LoadConst { dst, constant } => {
@@ -252,8 +256,8 @@ impl<'a> Executor<'a> {
                 let count = usize::try_from(count)
                     .map_err(|_| VmError::Trap("array length exceeds platform capacity"))?;
                 let array = self
-                    .runtime
-                    .alloc_array_repeat(&self.current_loaded()?, element, value, count)
+                    .current_frame()?
+                    .alloc_array_repeat(self.runtime, &element, value, count)
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?
                     .write_register(dst, Value::Array(array))?;
@@ -273,9 +277,10 @@ impl<'a> Executor<'a> {
             } => {
                 let values = self.read_path_args(&captures)?;
                 let loaded = self.current_loaded()?;
+                let environment = self.current_frame()?.environment();
                 let closure = self
                     .runtime
-                    .make_closure(&loaded, function, values)
+                    .make_closure(&loaded, function, values, environment)
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?.write_register(dst, closure)?;
             }
@@ -311,6 +316,20 @@ impl<'a> Executor<'a> {
                 source,
                 target,
             } => {
+                let AbiType::Trait(source) = self
+                    .current_frame()?
+                    .resolve_type(&AbiType::Trait(source))?
+                    .into_owned()
+                else {
+                    return Err(VmError::TypeMismatch("interface upcast source"));
+                };
+                let AbiType::Trait(target) = self
+                    .current_frame()?
+                    .resolve_type(&AbiType::Trait(target))?
+                    .into_owned()
+                else {
+                    return Err(VmError::TypeMismatch("interface upcast target"));
+                };
                 let value = self.current_frame()?.read_register(value)?;
                 let view = self
                     .runtime
@@ -323,32 +342,38 @@ impl<'a> Executor<'a> {
                 value,
                 module,
                 implementation,
+                arguments,
             } => {
                 let receiver = self.current_frame()?.read_register(value)?;
+                let arguments = self
+                    .current_frame()?
+                    .type_arguments(self.runtime, &arguments)?;
                 let loaded = self.current_loaded()?.member(module).ok_or(
                     VmError::UnsupportedInstruction("invalid interface module slot"),
                 )?;
                 let interface = self
                     .runtime
-                    .make_interface(&loaded, implementation.index(), receiver)
+                    .make_interface_applied(&loaded, implementation.index(), &arguments, receiver)
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?.write_register(dst, interface)?;
             }
             BytecodeInstruction::MakeEnum {
                 dst,
                 enumeration,
+                arguments,
                 variant,
                 fields,
             } => {
-                let value = self.make_enum(enumeration, variant, &fields)?;
+                let value = self.make_enum(enumeration, &arguments, variant, &fields)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::MakeStruct {
                 dst,
                 structure,
+                arguments,
                 fields,
             } => {
-                let value = self.make_struct(structure, &fields)?;
+                let value = self.make_struct(structure, &arguments, &fields)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::ReadAggregateField { dst, base, field } => {
@@ -471,6 +496,10 @@ impl<'a> Executor<'a> {
             .collect::<Result<Vec<_>, _>>()?;
 
         match callee {
+            CallTarget::Shared { .. } => self
+                .stack
+                .push_shared_call(self.runtime, &arg_values, dst)
+                .map_err(VmError::RuntimeError),
             CallTarget::Native(_) => unreachable!("native calls execute before argument packing"),
             CallTarget::ModuleFunction { module, function } => {
                 self.current_loaded()?
@@ -488,17 +517,13 @@ impl<'a> Executor<'a> {
                 let module = self.current_frame()?.module();
                 self.push_frame(module, id, &arg_values, dst)
             }
-            CallTarget::InterfaceMethod {
-                interface,
-                method_slot,
-                ..
-            } => {
-                let boxed = arg_values
+            CallTarget::InterfaceMethod { contract, .. } => {
+                let receiver = arg_values
                     .first()
                     .ok_or(VmError::TypeMismatch("interface method receiver"))?;
                 let resolved = self
                     .runtime
-                    .resolve_interface_method_slot(boxed, &interface, method_slot as usize)
+                    .resolve_interface_call(&*self.current_frame()?, &contract, receiver)
                     .map_err(VmError::RuntimeError)?;
                 let arguments = iter::once(resolved.receiver().clone())
                     .chain(arg_values.into_iter().skip(1))
@@ -513,21 +538,19 @@ impl<'a> Executor<'a> {
                 params,
                 return_type,
             } => {
+                let (params, return_type) = self
+                    .current_frame()?
+                    .closure_signature(register, &params, return_type)
+                    .map_err(VmError::RuntimeError)?;
                 let value = self.current_frame()?.read_register(register)?;
                 let closure = self
                     .runtime
                     .resolve_closure(&value)
                     .map_err(VmError::RuntimeError)?;
-                let metadata = closure
-                    .implementation
-                    .bytecode
-                    .functions
-                    .get(closure.function.index())
-                    .ok_or(VmError::InvalidFunctionRef(closure.function))?;
-                if metadata.metadata.return_type != return_type
-                    || metadata.metadata.params.get(closure.captures.len()..)
-                        != Some(params.as_slice())
-                {
+                let (actual_params, actual_result) = closure
+                    .physical_signature()
+                    .map_err(VmError::RuntimeError)?;
+                if actual_result != return_type || actual_params != params {
                     return Err(VmError::TypeMismatch("closure call contract"));
                 }
                 self.stack

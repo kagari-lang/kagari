@@ -1,11 +1,12 @@
 mod authority;
 mod loading;
 mod objects;
+use frame::types::{TypeEnvironment, arguments::ScopedSignature};
 use host::HostCallContext;
 use kagari_abi::{
     ids::FunctionRef,
     standard::RuntimePrimitive,
-    types::{AbiType, NominalAbiType},
+    types::{AbiType, GenericParameterAbi, NominalAbiType},
 };
 use kagari_bytecode::{instruction::BinaryOp, module::CallableTarget};
 use kagari_common::host_interface::path::HostPathDeclaration;
@@ -128,11 +129,19 @@ pub struct Runtime {
 /// A resolved dynamic method whose interface receiver stays rooted across
 /// safepoints and synchronous host reentry.
 pub struct RootedInterfaceMethod {
+    type_parameters: Vec<GenericParameterAbi>,
+    entry_parameters: Vec<GenericParameterAbi>,
+    entry_arguments: Vec<AbiType>,
+    environment: Option<Rc<TypeEnvironment>>,
+    scoped_signature: Option<ScopedSignature>,
     result_adapter: Option<InterfaceResultBinding>,
     _root: RootedValue,
     receiver: value::Value,
     concrete_type: AbiType,
     interface_type: NominalAbiType,
+    interface_expression: NominalAbiType,
+    receiver_environment: Option<Rc<TypeEnvironment>>,
+    receiver_table: Option<InterfaceResultBinding>,
     implementation: LoadedModule,
     target: CallableTarget,
     parameter_types: Vec<AbiType>,

@@ -4,6 +4,7 @@ mod native;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
+    frame::types::{TypeEnvironment, compatibility::TypeView},
     gc::interfaces::InterfaceValueSnapshot,
     module::{LoadedModule, ModuleKey, RetainedRuntimeProgram, StructLayoutRef},
     native::{
@@ -19,12 +20,12 @@ use crate::{
 use kagari_abi::{
     ids::FunctionRef,
     representation::ValueType,
-    standard::surface::StandardEnum as StandardEnumKind,
     types::{AbiType, native::NativeStorageLayout},
 };
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     rc::{Rc, Weak},
@@ -172,13 +173,66 @@ pub enum GcObjectKind {
 
 #[derive(Debug, Clone)]
 pub struct ClosureValueSnapshot {
+    pub environment: Option<Rc<TypeEnvironment>>,
     pub implementation: LoadedModule,
     pub function: FunctionRef,
     pub captures: Vec<Value>,
 }
 
 impl ClosureValueSnapshot {
-    pub(crate) fn matches_function(&self, params: &[AbiType], result: &AbiType) -> bool {
+    pub fn physical_signature(&self) -> Result<(Cow<'_, [ValueType]>, ValueType), RuntimeError> {
+        let function = self
+            .implementation
+            .bytecode
+            .functions
+            .get(self.function.index())
+            .ok_or_else(|| RuntimeError::module_validation("closure function"))?;
+        let parameters = function
+            .metadata
+            .params
+            .get(self.captures.len()..)
+            .ok_or_else(|| RuntimeError::module_validation("closure captures"))?;
+        if function.metadata.return_type != ValueType::Generic
+            && !parameters.contains(&ValueType::Generic)
+        {
+            return Ok((Cow::Borrowed(parameters), function.metadata.return_type));
+        }
+        let resolve = |physical, semantic: Option<&AbiType>| {
+            if physical != ValueType::Generic {
+                return Ok(physical);
+            }
+            let ty =
+                semantic.ok_or_else(|| RuntimeError::module_validation("generic closure type"))?;
+            let environment = self
+                .environment
+                .as_ref()
+                .ok_or_else(|| RuntimeError::module_validation("generic closure environment"))?;
+            Ok(environment.resolve(ty)?.representation())
+        };
+        let params = function
+            .metadata
+            .params
+            .iter()
+            .enumerate()
+            .skip(self.captures.len())
+            .map(|(index, ty)| resolve(*ty, function.metadata.semantic.params.get(&index)))
+            .collect::<Result<_, _>>()?;
+        Ok((
+            Cow::Owned(params),
+            resolve(
+                function.metadata.return_type,
+                function.metadata.semantic.result.as_ref(),
+            )?,
+        ))
+    }
+
+    pub(crate) fn matches_function(
+        &self,
+        params: &[AbiType],
+        result: &AbiType,
+        owner: &LoadedModule,
+        environment: Option<&TypeEnvironment>,
+    ) -> bool {
         let Some(function) = self
             .implementation
             .bytecode
@@ -187,21 +241,30 @@ impl ClosureValueSnapshot {
         else {
             return false;
         };
+        let compatible = |actual: &AbiType, expected: &AbiType| {
+            TypeView::new(actual, &self.implementation, self.environment.as_deref())
+                .compatible(TypeView::new(expected, owner, environment))
+        };
         let captures = self.captures.len();
-        let suffix = function.metadata.params.get(captures..);
-        suffix.is_some_and(|types| {
-            types.len() == params.len()
-                && types
-                    .iter()
-                    .zip(params)
-                    .enumerate()
-                    .all(|(slot, (actual, expected))| {
-                        *actual == expected.representation()
-                            && function.metadata.semantic.params.get(&(captures + slot))
-                                == Some(expected)
-                    })
-        }) && function.metadata.return_type == result.representation()
-            && function.metadata.semantic.result.as_ref() == Some(result)
+        function
+            .metadata
+            .params
+            .get(captures..)
+            .is_some_and(|suffix| suffix.len() == params.len())
+            && params.iter().enumerate().all(|(index, expected)| {
+                function
+                    .metadata
+                    .semantic
+                    .params
+                    .get(&(captures + index))
+                    .is_some_and(|actual| compatible(actual, expected))
+            })
+            && function
+                .metadata
+                .semantic
+                .result
+                .as_ref()
+                .is_some_and(|actual| compatible(actual, result))
     }
 }
 
@@ -370,12 +433,12 @@ impl GcHeap {
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
         if fields.len() != layout.layout().fields.len()
-            || !fields
-                .iter()
-                .zip(&layout.layout().fields)
-                .all(|(value, field)| {
-                    self.valid_payload(value) && self.matches_abi(value, &field.ty, layout.module())
-                })
+            || !fields.iter().enumerate().all(|(slot, value)| {
+                self.valid_payload(value)
+                    && layout.field_type(slot).is_some_and(|(ty, environment)| {
+                        self.matches_type_in(value, ty, layout.module(), environment)
+                    })
+            })
         {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -394,7 +457,7 @@ impl GcHeap {
         if !tag.accepts_representations(&fields)
             || !fields.iter().all(|value| self.valid_payload(value))
             || matches!(&tag, crate::value::EnumTag::Declared(layout)
-                if !fields.iter().zip(&layout.variant().payload).all(|(value, ty)| self.matches_abi(value, ty, layout.module())))
+                if !fields.iter().enumerate().all(|(slot, value)| layout.payload_type(slot).is_some_and(|(ty, environment)| self.matches_type_in(value, ty, layout.module(), environment))))
         {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -463,23 +526,22 @@ impl GcHeap {
                 (Value::Range(value), AbiType::Range(_, _)) if value.matches(ty) => {},
                 (Value::Closure(id), AbiType::Function { params, result }) => {
                     let Some(snapshot) = self.closure_snapshot(id) else { return false; };
-                    if !snapshot.matches_function(params, result) { return false; }
+                    if !snapshot.matches_function(params, result, owner, None) { return false; }
                 },
                 (Value::Tuple(values), AbiType::Tuple(types)) if values.len() == types.len() => {
                     pending.extend(values.into_iter().zip(types));
                 },
                 (Value::Struct(id), AbiType::Struct(expected)) => {
-                    if !self.struct_layout(id).is_some_and(|layout| owner.members().any(|member| member.bytecode.structures.iter().any(|current| current.declaration == expected.declaration && current.arguments == expected.arguments && layout.layout() == current))) { return false; }
+                    if !self.struct_layout(id).is_some_and(|layout| owner.find_struct_layout(expected).is_some_and(|current| layout.matches(&current))) { return false; }
                 },
-                (Value::Enum(id), AbiType::Enum(expected)) => {
-                    if !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if owner.members().any(|member| member.bytecode.enumerations.iter().any(|current| current.declaration == expected.declaration && current.arguments == expected.arguments && layout.layout() == current)))) { return false; }
+                (Value::Enum(id), AbiType::Enum(_)) => {
+                    if !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if layout.matches_type(ty, owner, None))) { return false; }
                 },
-                (Value::Interface(id), AbiType::Trait(expected)) => {
-                    if !self.interface_snapshot(id).is_some_and(|value| value.interface_type == *expected) { return false; }
+                (Value::Interface(id), AbiType::Trait(_)) => {
+                    if !self.interface_snapshot(id).is_some_and(|value| value.matches_type(ty, owner, None)) { return false; }
                 },
                 (Value::GcHandle(id), AbiType::NativeObject(_)) => {
-                    let objects = self.objects.borrow();
-                    if !matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty) && object.payload::<SequencePayload>().map_or(true, |sequence| sequence.contract.matches(&sequence.element, owner))) { return false; }
+                    if !self.matches_native_type(id, ty, owner, None) { return false; }
                 },
                 (Value::GcHandle(id), AbiType::Iter(element)) => {
                     let objects=self.objects.borrow();
@@ -506,18 +568,12 @@ impl GcHeap {
                 },
                 (Value::Enum(id), AbiType::StandardEnum { kind, args }) => {
                     let Some(snapshot) = self.enum_snapshot(id) else { return false; };
-                    let index = match (kind, snapshot.tag) {
-                        (StandardEnumKind::Bound, EnumTag::BoundUnbounded) => continue,
-                        (StandardEnumKind::Bound, EnumTag::BoundIncluded | EnumTag::BoundExcluded) => 0,
-                        (StandardEnumKind::ParseError, EnumTag::ParseError(index)) if index < 5 => continue,
-                        (StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => continue,
-                        (StandardEnumKind::Ordering, EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater) => continue,
-                        (StandardEnumKind::Option, EnumTag::OptionNone) => continue,
-                        (StandardEnumKind::Option, EnumTag::OptionSome)
-                        | (StandardEnumKind::Result, EnumTag::ResultOk) => 0,
-                        (StandardEnumKind::Result, EnumTag::ResultErr) => 1,
-                        _ => return false,
+                    let Some(payload) = snapshot.tag.standard_payload(*kind) else { return false; };
+                    let Some(index) = payload else {
+                        if !snapshot.fields.is_empty() { return false; }
+                        continue;
                     };
+                    if snapshot.fields.len() != 1 { return false; }
                     let Some(ty) = args.get(index) else { return false; };
                     pending.extend(snapshot.fields.into_iter().map(|value| (value, ty)));
                 },
@@ -594,7 +650,11 @@ impl GcHeap {
             expected.layout().fields.get(slot).ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid field slot")
             })?;
-        if !field.mutable || !self.matches_abi(&next_value, &field.ty, expected.module()) {
+        if !field.mutable
+            || !expected.field_type(slot).is_some_and(|(ty, environment)| {
+                self.matches_type_in(&next_value, ty, expected.module(), environment)
+            })
+        {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "field is read-only or value has the wrong concrete type",
@@ -705,6 +765,14 @@ impl GcHeap {
                 RuntimeErrorKind::ScriptTrap,
                 "invalid capture cell",
             )),
+        }
+    }
+
+    pub(crate) fn captured_cell_value(&self, id: HeapObjectId) -> Option<Value> {
+        let objects = self.objects.borrow();
+        match self.readable_object(&objects, id)? {
+            HeapObject::Cell { ty, value } if value.has_representation(*ty) => Some(value.clone()),
+            _ => None,
         }
     }
 

@@ -15,9 +15,9 @@ pub(super) fn invoke_script(
     arguments: &[Value],
 ) -> NativeResult<Value> {
     let stack = match target {
-        ScriptCall::Direct(target) => {
+        ScriptCall::Selected(target) => {
             let stack = runtime.enter_execution_stack(owner)?;
-            stack.push_callable(owner.clone(), target, arguments, None, None)?;
+            stack.push_selected_call(runtime, owner, target, arguments)?;
             stack
         }
         ScriptCall::Closure(closure) => {

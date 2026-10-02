@@ -250,6 +250,9 @@ where
     }
 
     pub fn slots(&self, slots: &SemanticSlots) -> Result<(), TypeTransformError> {
+        if let Some(body) = &slots.generic {
+            self.bounds(&body.bounds)?;
+        }
         if let Some(required) = &slots.protocol_adapter {
             self.validate_type(&required.receiver)?;
             self.contract(&required.interface)?;

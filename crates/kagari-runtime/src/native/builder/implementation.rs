@@ -10,7 +10,7 @@ use crate::{
 };
 use kagari_abi::{
     declaration::{ImplDecl, ModuleDecl},
-    types::{AbiType, GenericParameterAbi, substitution::TypeSubstitution},
+    types::{GenericParameterAbi, substitution::TypeSubstitution},
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use std::collections::BTreeMap;
@@ -27,12 +27,11 @@ impl<'module> ImplementationBuilder<'module> {
         &mut self,
         configure: impl FnOnce(&mut InherentMethodsBuilder) -> NativeResult<T>,
     ) -> NativeResult<T> {
-        let AbiType::NativeObject(nominal) = &self.receiver.0 else {
-            return Err(RuntimeError::metadata_conflict(
-                "inherent methods require an owned nominal type",
-            ));
-        };
-        if nominal.declaration.module != self.module.declaration.identity {
+        if !self
+            .module
+            .declaration
+            .owns_inherent_receiver(&self.receiver.0)
+        {
             return Err(RuntimeError::metadata_conflict(
                 "inherent methods belong to the type's defining module",
             ));

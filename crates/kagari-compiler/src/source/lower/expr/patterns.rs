@@ -121,6 +121,12 @@ impl FunctionLowerer<'_, '_> {
         fail: BlockId,
         bindings: &mut Vec<(LocalId, MirValue)>,
     ) -> Result<(), MirLoweringError> {
+        let semantic = self.semantic_type(expected)?;
+        self.function
+            .semantic
+            .registers
+            .entry(value.temp.index())
+            .or_insert(semantic);
         if self
             .analyzed
             .typed
@@ -157,6 +163,17 @@ impl FunctionLowerer<'_, '_> {
                             *merged
                         } else {
                             let merged = self.alloc_temp(value.ty);
+                            let semantic = self
+                                .function
+                                .semantic
+                                .locals
+                                .get(&local.index())
+                                .ok_or(MirLoweringError::MissingBinding("pattern binding type"))?
+                                .clone();
+                            self.function
+                                .semantic
+                                .registers
+                                .insert(merged.temp.index(), semantic);
                             canonical.insert(name, merged);
                             bindings.push((local, merged));
                             merged

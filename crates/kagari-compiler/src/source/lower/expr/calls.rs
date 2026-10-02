@@ -17,15 +17,17 @@ use kagari_hir::{
 };
 
 use kagari_abi::{
-    language::Protocol, native_import::NativeImport, representation::ValueType,
+    callable::interface::InterfaceCallContract,
+    language::Protocol,
+    native_import::{NativeImport, NativeSignature},
+    representation::ValueType,
     standard::RuntimePrimitive,
 };
 
 use kagari_common::host_interface;
 
 use kagari_mir::instruction::{
-    CallTarget, Instruction, InterfaceCallContract, MirValue, RuntimeHelper,
-    SourceFunctionContract, ValueBuffer,
+    CallTarget, Instruction, MirValue, RuntimeHelper, SourceFunctionContract, ValueBuffer,
 };
 use smallvec::SmallVec;
 use std::{ops::ControlFlow, slice};
@@ -235,6 +237,35 @@ impl FunctionLowerer<'_, '_> {
             }
             return self.lower_protocol(protocol, &ty, &values, 0);
         }
+        if let TypeckCallTarget::TraitMethod {
+            ref method,
+            ref interface,
+        } = call.target
+            && let Some(receiver) = call.receiver
+            && let Some(ty) = self.analyzed.typed.type_table.expr_type(receiver)
+            && matches!(
+                ty.instantiate(&self.instance.substitution),
+                TypeId::Generic(_)
+            )
+        {
+            let value = self.lower_expr(receiver)?;
+            if self.current_block_terminated() {
+                return Ok(value);
+            }
+            let mut values = vec![value];
+            match self.lower_values(args)? {
+                ControlFlow::Continue(args) => values.extend(args),
+                ControlFlow::Break(value) => return Ok(value),
+            }
+            return self.lower_applied_method(
+                interface.clone(),
+                ty,
+                method,
+                &call.type_arguments,
+                &values,
+            );
+        }
+
         let (target, impl_arguments, linked_trait_target) = if let TypeckCallTarget::TraitMethod {
             method,
             interface,
@@ -277,23 +308,20 @@ impl FunctionLowerer<'_, '_> {
                     if self.analyzed.aggregates.trait_closure(child, &ty, &self.planner.options.cancel)
                         .is_ok_and(|parents| parents.contains(&interface)))
             {
-                let trait_contract = self
-                    .planner
-                    .catalog
-                    .trait_(&interface.declaration)
-                    .ok_or(MirLoweringError::MissingBinding("trait contract"))?;
                 let method_contract = self
                     .planner
                     .catalog
                     .trait_method(&method)
                     .ok_or(MirLoweringError::MissingBinding("trait method contract"))?;
-                if method_contract.generic_params.len() != trait_contract.generic_params.len()
-                    || !call.type_arguments.is_empty()
-                {
-                    return Err(MirLoweringError::UnsupportedExpr(
-                        "interface method requires static specialization",
-                    ));
-                }
+                let arguments = self.planner.arguments(
+                    &call.type_arguments,
+                    &self.instance.substitution,
+                    span,
+                )?;
+                let slot = method_contract.slot;
+                let operations = self
+                    .planner
+                    .method_operations(&method, &interface, &arguments, span)?;
                 (
                     TypeckCallTarget::TraitMethod {
                         method,
@@ -302,8 +330,11 @@ impl FunctionLowerer<'_, '_> {
                     Vec::new(),
                     Some(CallTarget::InterfaceMethod(Box::new(
                         InterfaceCallContract {
+                            receiver: None,
+                            operations,
+                            arguments: arguments.iter().map(lower_type).collect(),
                             interface: lower_nominal_type(&interface),
-                            method_slot: u32::try_from(method_contract.slot).map_err(|_| {
+                            method_slot: u32::try_from(slot).map_err(|_| {
                                 MirLoweringError::UnsupportedExpr("interface method slot overflow")
                             })?,
                         },
@@ -419,6 +450,53 @@ impl FunctionLowerer<'_, '_> {
                             .zip(method_arguments.iter().cloned()),
                     )
                     .collect();
+                let arguments = impl_arguments
+                    .iter()
+                    .chain(&method_arguments)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if arguments.iter().any(|ty| !ty.is_concrete()) {
+                    let normalize = |parameter: &TypeId| {
+                        lower_type(
+                            &self.planner.catalog.normalize_type(
+                                &parameter
+                                    .with_self(&method_contract.owner, &ty)
+                                    .instantiate(&substitution),
+                            ),
+                        )
+                    };
+                    let signature = NativeSignature {
+                        params: method_contract
+                            .params
+                            .iter()
+                            .map(|param| normalize(&param.ty))
+                            .collect(),
+                        result: normalize(&method_contract.return_type),
+                    };
+                    let callee = CallTarget::Shared(Box::new(self.planner.shared_call(
+                        &implementation,
+                        &arguments,
+                        signature,
+                        span,
+                    )?));
+                    let value = self.lower_expr(receiver)?;
+                    if self.current_block_terminated() {
+                        return Ok(value);
+                    }
+                    let mut values = ValueBuffer::new();
+                    values.push(value);
+                    match self.lower_values(args)? {
+                        ControlFlow::Continue(args) => values.extend(args),
+                        ControlFlow::Break(value) => return Ok(value),
+                    }
+                    let dst = self.alloc_temp(self.expr_type(expr)?);
+                    self.emit(Instruction::Call {
+                        dst: Some(dst),
+                        callee,
+                        args: values,
+                    });
+                    return Ok(dst);
+                }
                 let params = method_contract
                     .params
                     .iter()
@@ -531,6 +609,35 @@ impl FunctionLowerer<'_, '_> {
                 match self.lower_values(args)? {
                     ControlFlow::Continue(values) => lowered.extend(values),
                     ControlFlow::Break(value) => return Ok(value),
+                }
+                if matches!(
+                    target,
+                    TypeckCallTarget::Function(_) | TypeckCallTarget::SourceFunction(_)
+                ) {
+                    let arguments = self.planner.arguments(
+                        &impl_arguments
+                            .iter()
+                            .chain(&call.type_arguments)
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                        &self.instance.substitution,
+                        span,
+                    )?;
+                    if arguments.iter().any(|ty| !ty.is_concrete()) {
+                        let signature = call
+                            .signature
+                            .as_ref()
+                            .ok_or(MirLoweringError::MissingBinding("shared call signature"))?;
+                        let callee =
+                            self.shared_function_call(&target, &arguments, signature, span)?;
+                        let dst = self.alloc_temp(self.expr_type(expr)?);
+                        self.emit(Instruction::Call {
+                            dst: Some(dst),
+                            callee,
+                            args: lowered,
+                        });
+                        return Ok(dst);
+                    }
                 }
                 if self.engine_native_for_call(&target)? {
                     return self.lower_engine_call(

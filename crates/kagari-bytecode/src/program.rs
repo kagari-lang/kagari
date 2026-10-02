@@ -245,6 +245,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                     ..
                 }
                 | BytecodeInstruction::Call {
+                    callee: CallTarget::Shared { module: target, .. },
+                    ..
+                }
+                | BytecodeInstruction::Call {
                     callee: CallTarget::InterfaceMethod { module: target, .. },
                     ..
                 }

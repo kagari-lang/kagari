@@ -116,24 +116,36 @@ Map remove returns the previous value or None; Set remove returns a boolean.
 Interface push/insert/set/clear return unit. Existing native fluent push/insert
 methods continue returning their concrete receiver.
 
-## Optional library algorithms
+## Foundation algorithms
 
-The current optional std::collections module exports ordinary sort/sort_by and
-lazy map functions. These are not additional members of compiler-owned collection
-traits. Both sorts are stable and preserve shared container identity. Infallible
-primitive ordering operates directly on compact storage. Fallible comparisons
-prepare a permutation and publish once; failure preserves the original slots,
-while completed effects on referenced objects remain visible. The exact Rust
-stable-sort comparison sequence is unspecified. Comparator consistency is the
-caller's obligation.
+The accepted [foundation completion plan](../foundation-api-completion.md) adds
+sorted, sorted_by, sorted_by_key, reversed and distinct to List; sort, sort_by,
+sort_by_key, reverse, retain and dedup belong to MutableList. Method-specific Ord
+and Eq bounds do not restrict construction of the interface itself. Key methods
+accept a method-local K: Ord and are callable through interfaces. The methods
+provide native defaults which custom implementations may reuse or override.
+
+Sorting is stable. Key selectors run during comparisons without an implicit
+cached-key prepass. In-place algorithms preserve container identity and do not
+promise rollback on callback failure, receiver failure or cancellation. Built-in
+ArrayList sorting preserves the original element multiset; its order may change
+on failure. Length-changing operations and writes through custom containers may
+leave partial progress. Completed callback effects remain visible. New-result
+methods copy the collection structure without cloning referenced elements.
+Comparator consistency is the caller's obligation; comparison counts are unspecified.
+
+Implementation migration is in progress: FA03 replaces the existing optional
+sort/sort_by free functions and transactional permutation path with these methods.
+The old failure behavior is not the target contract and must not be preserved
+through rollback-only buffers.
 
 MapIterator retains its source cursor and mapper. Constructing it does not call
 the mapper. Aliases share progress, and next consumes its input before invoking
 the mapper. Managed cursor dependencies participate in scoped iteration guards,
 including through erased Iterator interfaces. See [native declarations](standard-declarations.md).
 
-Snapshots, copying, list queries, windows/chunks, capacity APIs, bulk callback
-updates, set algebra, joining, grouping and additional constructors are deferred.
+APIs outside the plan's accepted rows, including windows/chunks, capacity APIs,
+set algebra, joining, grouping and additional constructors, remain deferred.
 They are not required methods of List, Map, Set or their mutable counterparts.
 There are no temporary implementations or aliases for predecessor names.
 

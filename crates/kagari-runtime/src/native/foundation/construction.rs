@@ -76,10 +76,10 @@ fn parse(target: BuiltinType, text: &str) -> NativeResult<Result<Value, u8>> {
 }
 
 pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let AbiType::Array(item, _) = cx.result_type() else {
+    let AbiType::Array(_, _) = cx.result_type() else {
         return Err(invalid());
     };
-    let result = cx.allocate_sequence((**item).clone(), vec![])?;
+    let result = cx.allocate_result()?;
     let _root = cx.heap().root_value(result.clone()).ok_or_else(invalid)?;
     let Value::Array(id) = result else {
         return Err(invalid());

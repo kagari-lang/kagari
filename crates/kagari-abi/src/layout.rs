@@ -1,8 +1,9 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
+mod applications;
 
 use crate::{
     standard::surface::StandardEnum as StandardEnumKind,
-    types::{AbiType, PublicAbiItem, TypeAbi, TypeAbiKind},
+    types::{AbiType, PublicAbiItem, TypeAbi, TypeAbiKind, substitution::TypeSubstitution},
 };
 
 use kagari_common::{
@@ -58,9 +59,9 @@ pub fn struct_abi_matches(
             cancel.check()?;
             if field.name != abi.name
                 || field.mutable != abi.mutable
-                || abi
-                    .ty
-                    .instantiate(&layout.declaration, &layout.arguments)
+                || TypeSubstitution::for_owner(&layout.declaration, &layout.arguments)
+                    .apply(&abi.ty, cancel)
+                    .ok()
                     .as_ref()
                     != Some(&field.ty)
             {
@@ -111,8 +112,9 @@ pub fn enum_abi_matches(
             }
             for (concrete, ty) in variant.payload.iter().zip(&abi.payload) {
                 cancel.check()?;
-                if ty
-                    .instantiate(&layout.declaration, &layout.arguments)
+                if TypeSubstitution::for_owner(&layout.declaration, &layout.arguments)
+                    .apply(ty, cancel)
+                    .ok()
                     .as_ref()
                     != Some(concrete)
                 {
@@ -153,6 +155,47 @@ pub fn validate_enum_layouts(
     structures: &[StructLayout],
     cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {
+    cancel
+        .check()
+        .map_err(|_| LayoutValidationError::Cancelled)?;
+    if structures.iter().any(|layout| !layout.types_valid(cancel))
+        || layouts.iter().any(|layout| !layout.types_valid(cancel))
+    {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        return Err(LayoutValidationError::Invalid);
+    }
+    let structure_templates: HashMap<_, _> = structures
+        .iter()
+        .filter(|layout| layout.arguments.iter().any(|ty| !ty.is_concrete()))
+        .map(|layout| (&layout.declaration, layout))
+        .collect();
+    for applied in structures {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        if let Some(template) = structure_templates.get(&applied.declaration)
+            && template.apply(&applied.arguments, cancel).as_deref() != Some(applied)
+        {
+            return Err(LayoutValidationError::Invalid);
+        }
+    }
+    let enum_templates: HashMap<_, _> = layouts
+        .iter()
+        .filter(|layout| layout.arguments.iter().any(|ty| !ty.is_concrete()))
+        .map(|layout| (&layout.declaration, layout))
+        .collect();
+    for applied in layouts {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        if let Some(template) = enum_templates.get(&applied.declaration)
+            && template.apply(&applied.arguments, cancel).as_deref() != Some(applied)
+        {
+            return Err(LayoutValidationError::Invalid);
+        }
+    }
     let mut pending = structures
         .iter()
         .flat_map(|s| {
@@ -212,10 +255,10 @@ pub fn validate_enum_layouts(
             .map_err(|_| LayoutValidationError::Cancelled)?;
 
         match ty {
-            AbiType::Projection { .. } | AbiType::Parameter { .. } | AbiType::SelfType(_) => {
+            AbiType::Projection { .. } | AbiType::SelfType(_) => {
                 return Err(LayoutValidationError::Invalid);
             }
-            AbiType::Builtin(_) | AbiType::Host(_) => {}
+            AbiType::Builtin(_) | AbiType::Host(_) | AbiType::Parameter { .. } => {}
             AbiType::Tuple(types) => pending.extend(types),
             AbiType::Function { params, result } => {
                 pending.extend(params);
@@ -269,11 +312,11 @@ pub fn validate_enum_layouts(
                 }
                 if (kind == DefinitionKind::Struct
                     && !structures.iter().any(|layout| {
-                        &layout.declaration == id && layout.arguments == instance.arguments
+                        &layout.declaration == id && layout.accepts(&instance.arguments)
                     }))
                     || (kind == DefinitionKind::Enum
                         && !layouts.iter().any(|layout| {
-                            &layout.declaration == id && layout.arguments == instance.arguments
+                            &layout.declaration == id && layout.accepts(&instance.arguments)
                         }))
                 {
                     return Err(LayoutValidationError::Invalid);

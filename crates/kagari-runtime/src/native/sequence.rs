@@ -186,7 +186,7 @@ impl NativeStorage {
             .ok_or_else(|| RuntimeError::module_validation("sequence element type"))?;
             Ok(SequencePayload {
                 element: item.clone(),
-                contract: Rc::new(StorageType::prepare(item.clone(), context.owner())?),
+                contract: context.element_contract(element)?,
                 values: SequenceStorage::empty(item),
             })
         })

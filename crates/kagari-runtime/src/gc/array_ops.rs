@@ -141,7 +141,7 @@ impl GcHeap {
         let length = self.array_len(source).ok_or_else(invalid)?;
         let target_contract = self.array_contract(target).ok_or_else(invalid)?;
         let source_contract = self.array_contract(source).ok_or_else(invalid)?;
-        if !source_contract.matches(&target_contract.ty, &target_contract.owner) {
+        if !source_contract.same_type(&target_contract) {
             return Err(invalid());
         }
         self.resources.poll_execution()?;

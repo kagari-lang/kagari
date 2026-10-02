@@ -968,6 +968,21 @@ fn nominal_valid(id: &DefinitionId, kind: DefinitionKind) -> bool {
             .last()
             .is_some_and(|part| part.kind == kind && !part.name.is_empty())
 }
+/// Check portable type expressions against an explicitly supplied binder scope.
+pub fn types_in_scope<'a>(
+    types: impl IntoIterator<Item = &'a AbiType>,
+    parameters: &[GenericParameterAbi],
+    cancel: &CancellationToken,
+) -> bool {
+    let parameters = parameters
+        .iter()
+        .map(|parameter| (parameter.owner.clone(), parameter.position))
+        .collect();
+    types
+        .into_iter()
+        .all(|ty| ty.within_wire_limits() && type_valid(ty, &parameters, None, cancel))
+}
+
 fn type_valid(
     ty: &AbiType,
     params: &Parameters,

@@ -1,7 +1,8 @@
 use kagari_abi::{
+    callable::witness::OperationWitness,
     effects::EffectSet,
     layout::{EnumLayout, StructLayout},
-    native_import::NativeImport,
+    native_import::{NativeImport, callables::NativeCallableApplication},
     representation::ValueType,
     slots::SemanticSlots,
     types::{ConcreteFunctionIdentity, ModuleAbi, NominalAbiType},
@@ -16,7 +17,7 @@ use crate::{
     ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId},
     instruction::{CallTarget, Instruction, InstructionBuffer, Terminator},
 };
-use std::iter;
+use std::{borrow::Cow, iter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirModule {
@@ -84,14 +85,14 @@ impl MirFunction {
             .locals
             .iter()
             .enumerate()
-            .filter(|(_, local)| local.ty == ValueType::HeapObject)
+            .filter(|(_, local)| local.ty.may_contain_gc_reference())
             .map(|(index, _)| LocalId::new(index))
             .collect();
         let temps = self
             .temps
             .iter()
             .enumerate()
-            .filter(|(_, temp)| temp.ty == ValueType::HeapObject)
+            .filter(|(_, temp)| temp.ty.may_contain_gc_reference())
             .map(|(index, _)| TempId::new(index))
             .collect();
         (locals, temps)
@@ -99,6 +100,36 @@ impl MirFunction {
 }
 
 impl MirModule {
+    pub fn selected_callables(&self) -> impl Iterator<Item = &NativeCallableApplication> {
+        self.native_applications()
+            .flat_map(|import| &import.callables)
+            .filter_map(|operation| match operation {
+                OperationWitness::Selected(selected) => Some(selected.as_ref()),
+                OperationWitness::Forward(_) | OperationWitness::SharedMethod(_) => None,
+            })
+            .chain(
+                self.functions
+                    .iter()
+                    .flat_map(|function| &function.blocks)
+                    .flat_map(|block| &block.instructions)
+                    .filter_map(|instruction| match instruction {
+                        Instruction::Call {
+                            callee: CallTarget::Shared(contract),
+                            ..
+                        } => Some(&contract.operations),
+                        Instruction::Call {
+                            callee: CallTarget::InterfaceMethod(contract),
+                            ..
+                        } => Some(&contract.operations),
+                        _ => None,
+                    })
+                    .flatten()
+                    .filter_map(|operation| match operation {
+                        OperationWitness::Selected(selected) => Some(selected.as_ref()),
+                        OperationWitness::Forward(_) | OperationWitness::SharedMethod(_) => None,
+                    }),
+            )
+    }
     pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {
         self.native_targets.iter().chain(
             self.functions
@@ -114,10 +145,13 @@ impl MirModule {
                 }),
         )
     }
-    pub fn structure(&self, instance: &NominalAbiType) -> Option<&StructLayout> {
-        self.structures.iter().find(|layout| {
-            layout.declaration == instance.declaration && layout.arguments == instance.arguments
-        })
+    pub fn structure(&self, instance: &NominalAbiType) -> Option<Cow<'_, StructLayout>> {
+        self.structures
+            .iter()
+            .find(|layout| {
+                layout.declaration == instance.declaration && layout.accepts(&instance.arguments)
+            })
+            .and_then(|layout| layout.apply(&instance.arguments, &Default::default()))
     }
 }
 

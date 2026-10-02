@@ -5,7 +5,7 @@ use kagari_abi::{
     callable::CallableImplementation,
     ids::FunctionRef,
     native_import::NativeImport,
-    types::{AbiType, ConcreteFunctionIdentity, PublicAbiItem},
+    types::{AbiType, ConcreteFunctionIdentity, GenericParameterAbi, PublicAbiItem},
 };
 use kagari_bytecode::{
     instruction::NativeImportId,
@@ -60,12 +60,36 @@ pub(super) fn interface_instances(
     let demands = owners
         .iter()
         .flat_map(|owner| owner.interface_instances.iter().cloned());
-    for instance in allocations.chain(demands) {
-        if instance.declaration.module == ir.identity && !instances.contains(&instance) {
+    for mut instance in allocations.chain(demands) {
+        if instance.declaration.module != ir.identity {
+            continue;
+        }
+        instance.arguments = table_arguments(ir, &instance.declaration, &instance.arguments);
+        if !instances.contains(&instance) {
             instances.push(instance);
         }
     }
     instances
+}
+
+pub(super) fn table_arguments(
+    ir: &VerifiedMirModule,
+    declaration: &DefinitionId,
+    arguments: &[AbiType],
+) -> Vec<AbiType> {
+    if arguments.iter().all(AbiType::is_concrete) {
+        return arguments.to_vec();
+    }
+    ir.abi
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) if table.declaration == *declaration => {
+                Some(table.generic_params.iter().map(|p| p.as_type()).collect())
+            }
+            _ => None,
+        })
+        .expect("verified interface template")
 }
 
 pub(super) fn collect_interface_tables(
@@ -119,7 +143,11 @@ pub(super) fn collect_interface_tables(
                 unreachable!("verified interface type");
             };
             let mut methods = vec![];
+            let shared_receiver = instance.arguments.iter().any(|ty| !ty.is_concrete());
             for method in &abi.methods {
+                if instance.arguments.is_empty() && !abi.generic_params.is_empty() {
+                    continue;
+                }
                 let segment = DefinitionPathSegment {
                     kind: DefinitionKind::Method,
                     name: method.name.clone(),
@@ -127,12 +155,25 @@ pub(super) fn collect_interface_tables(
                 };
                 let declaration = child(&abi.declaration, segment.clone());
                 let member = child(&interface.declaration, segment);
+                let mut entry_arguments: Vec<_> = if shared_receiver {
+                    instance
+                        .arguments
+                        .iter()
+                        .cloned()
+                        .chain(method.generic_params.iter().map(|p| p.as_type()))
+                        .collect()
+                } else {
+                    method.generic_params.iter().map(|p| p.as_type()).collect()
+                };
                 if matches!(
                     method.implementation,
                     CallableImplementation::Native(_) | CallableImplementation::NativeDefault(_)
                 ) {
                     if !method.generic_params.is_empty()
-                        || (instance.arguments.is_empty() && !abi.generic_params.is_empty())
+                        && method
+                            .params
+                            .first()
+                            .is_none_or(|parameter| parameter.name != "self")
                     {
                         continue;
                     }
@@ -141,7 +182,7 @@ pub(super) fn collect_interface_tables(
                         CallableImplementation::NativeDefault(_)
                     ) {
                         let applied = abi
-                            .instantiate(&instance.arguments)
+                            .instantiate_in(&instance.arguments, &abi.generic_params)
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
                         let applied = applied
                             .methods
@@ -153,17 +194,67 @@ pub(super) fn collect_interface_tables(
                         else {
                             unreachable!("applied default");
                         };
-                        catalog
+                        let mut assumptions = abi
+                            .instantiate_in(&instance.arguments, &abi.generic_params)
+                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
+                            .bounds;
+                        assumptions.extend(applied.bounds.clone());
+                        let scope = abi
+                            .generic_params
+                            .iter()
+                            .chain(&applied.generic_params)
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        let mut instance = catalog
                             .as_ref()
                             .expect("default catalog")
-                            .resolve_native_default(application, &cancel)
+                            .resolve_native_default_in(application, &scope, &assumptions, &cancel)
                             .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
-                            .instance
+                            .instance;
+                        if instance.arguments.iter().any(|ty| !ty.is_concrete()) {
+                            entry_arguments = instance.arguments.clone();
+                            instance.arguments = (0..instance.arguments.len())
+                                .map(|position| {
+                                    GenericParameterAbi {
+                                        owner: instance.declaration.clone(),
+                                        position,
+                                    }
+                                    .as_type()
+                                })
+                                .collect();
+                        } else {
+                            entry_arguments.clear();
+                        }
+                        instance
                     } else {
                         ConcreteFunctionIdentity {
+                            arguments: if shared_receiver {
+                                entry_arguments
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(position, _)| {
+                                        GenericParameterAbi {
+                                            owner: declaration.clone(),
+                                            position,
+                                        }
+                                        .as_type()
+                                    })
+                                    .collect()
+                            } else {
+                                instance
+                                    .arguments
+                                    .iter()
+                                    .cloned()
+                                    .chain(
+                                        method
+                                            .generic_params
+                                            .iter()
+                                            .map(|parameter| parameter.as_type()),
+                                    )
+                                    .collect()
+                            },
                             declaration,
-                            arguments: instance.arguments.clone(),
                         }
                     };
                     let contract = ir
@@ -183,23 +274,31 @@ pub(super) fn collect_interface_tables(
                     methods.push(InterfaceMethodSlot {
                         method: member,
                         target: CallableTarget::Native(NativeImportId::new(index)),
+                        arguments: entry_arguments,
                     });
                 } else {
                     for function in &ir.functions {
                         if function.instance.declaration == declaration
-                            && function.instance.arguments == instance.arguments
+                            && function.instance.arguments
+                                == if shared_receiver {
+                                    vec![]
+                                } else {
+                                    instance.arguments.clone()
+                                }
                         {
                             methods.push(InterfaceMethodSlot {
                                 method: member.clone(),
                                 target: CallableTarget::Script(FunctionRef::new(
                                     function.id.index(),
                                 )),
+                                arguments: entry_arguments.clone(),
                             });
                         }
                     }
                 }
             }
             Ok(InterfaceTableRecord {
+                parents: vec![],
                 view: None,
                 declaration: instance.declaration,
                 arguments: instance.arguments,
