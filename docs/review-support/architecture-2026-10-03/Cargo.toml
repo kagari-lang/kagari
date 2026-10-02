@@ -1,0 +1,20 @@
+[package]
+name = "kagari-architecture-review-probes"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "kagari-interface-review-probe"
+path = "src/main.rs"
+
+[dependencies]
+kagari-bytecode = { path = "../../../crates/kagari-bytecode" }
+kagari-common = { path = "../../../crates/kagari-common" }
+kagari-embed = { path = "../../../crates/kagari-embed" }
+kagari-runtime = { path = "../../../crates/kagari-runtime" }
+
+[profile.dev]
+opt-level = 1
