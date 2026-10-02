@@ -1,9 +1,11 @@
 # Collection Interfaces and Storage
 
-This is the authoritative collection access and construction contract. Value,
-identity and failure rules are defined in [value semantics](value-semantics.md).
-Public declarations, implementations and executable API examples live in
-`stdlib/array.kgr`, `stdlib/map.kgr` and `stdlib/set.kgr`.
+This defines the collection access and construction contract. Value, identity
+and failure rules are defined in [value semantics](value-semantics.md).
+The 2026-10-02 [native collections reset](../native-provider-refactor.md) makes
+foundational collection traits compiler-owned. This is the target contract;
+the predecessor implementation is removed/replaced in the plan's phase order.
+Generated .kgr files are tooling views, not the source of these declarations.
 
 ## Types
 
@@ -13,11 +15,22 @@ Public declarations, implementations and executable API examples live in
 | `Map<K, V>` | `MutableMap<K, V>: Map<K, V>` | `LinkedHashMap<K, V>` |
 | `Set<T>` | `MutableSet<T>: Set<T>` | `LinkedHashSet<T>` |
 
-These are ordinary source-declared traits, usable as generic bounds or dynamic
-interface types. Script structs can implement them. The concrete classes supply
-native storage; the interface does not select an allocator or implementation.
-`[1, 2]`, `[value; count]` and `ArrayList::from_fn` create `ArrayList` objects.
+These are complete compiler-owned trait contracts, usable as generic bounds or
+dynamic interface types. Native and script types implement them through ordinary
+trait checking. The contracts, parent relationships, associated outputs and
+read-only/writable conversions exist without optional native libraries.
+
 `[T]` means read-only `List<T>`, not fixed-size storage, a slice or a borrow.
+Existing `[1, 2]` and `[value; count]` literals create the canonical `ArrayList<T>`.
+Its minimal construction, access, mutation and iteration implementation is part
+of the runtime foundation and remains available when algorithm modules are off.
+There is no optional provider that redeclares or replaces the same core array type.
+ArrayList::from_fn and other callback conveniences remain library algorithms.
+
+Concrete additional classes register native storage independently of their trait
+impls. An interface does not select an allocator or implementation. Additional
+hash/tree/queue types use the same checked registration path without extending
+core value/type enums for each collection.
 
 Map and Set interfaces do not impose Eq/Hash or traversal order. The initial
 LinkedHash implementations require `Eq + Hash` on keys/elements and preserve
@@ -74,12 +87,17 @@ its data object and execution version. Views do not copy collection storage.
 
 | Interface | Members, in addition to its parents |
 | --- | --- |
-| `List<T>` | `len`, `is_empty`, `get`; inherits `Index<usize, Output=T>` and `Iterable<Item=T, Iter=Iter<T>>` |
+| `List<T>` | `len`, `is_empty`, `get`; inherits `Index<usize, Output=T>` and `Iterable<Item=T>` |
 | `MutableList<T>` | `push`, `pop`, `insert`, `remove`, `clear`, `set` |
-| `Map<K,V>` | `len`, `is_empty`, `contains_key`, `get`; inherits `Iterable<Item=(K,V), Iter=Iter<(K,V)>>` |
+| `Map<K,V>` | `len`, `is_empty`, `contains_key`, `get`; inherits `Iterable<Item=(K,V)>` |
 | `MutableMap<K,V>` | `insert`, `remove`, `clear` |
-| `Set<T>` | `len`, `is_empty`, `contains`; inherits `Iterable<Item=T, Iter=Iter<T>>` |
+| `Set<T>` | `len`, `is_empty`, `contains`; inherits `Iterable<Item=T>` |
 | `MutableSet<T>` | `insert`, `remove`, `clear` |
+
+`Iterable` declares its associated `Iter` with an `Iterator<Item = Item>` bound.
+Concrete implementations supply their own iterator type; the contract does not
+require a particular optional `Iter<T>` class. Checked interface metadata retains
+actual associated outputs and targets for static and dynamic dispatch.
 
 List interface indices use `usize`; unsuffixed literals receive that context.
 Native ArrayList indexing additionally accepts the existing integer index types.
@@ -88,6 +106,16 @@ List insert permits an index equal to the length. `pop` returns None when empty.
 Map remove returns the previous value or None; Set remove returns a boolean.
 Interface push/insert/set/clear return unit. Existing native fluent push/insert
 methods continue returning their concrete receiver.
+
+## Optional library algorithms
+
+The algorithms and extended constructors below describe native modules when
+installed. They are not additional required members of compiler-owned collection
+traits or a promise to restore all predecessor APIs in the reset proof.
+Sorting, search, grouping, joins and callback conveniences use ordinary registered
+functions or library-owned extension traits. Compiler-owned contracts do not
+contain their implementations. Other concrete collection types belong to their
+own native modules.
 
 Native-only operations such as `fill`, `copy_within`, `copy_from`
 and set algebra remain on the concrete implementation in this batch. The source
@@ -140,11 +168,15 @@ objects. See [array repetition](value-semantics.md#repeat-arrays-and-bulk-replac
 
 ## Compiler, artifacts and host boundaries
 
-The standard declaration catalog owns interface signatures, docs, source
-locations and native impl witnesses. HIR owns coercions, parent interface facts
-and selected methods. Completion exposes only the members of the visible type.
-Native bridge functions are ordinary verified code with concrete signatures;
-interface contracts and parent tables are verified and linked before execution.
+The compiler-owned language catalog owns foundational interface signatures,
+documentation and parent/associated contracts. Tooling projects those declarations
+and maps them to generated navigation spans. Native modules own their concrete
+implementation records, storage bindings and optional algorithm declarations.
+HIR owns coercions and checked implementation selection. Completion exposes only
+the members of the visible type. Native entries are checked against concrete
+signatures; interface contracts and parent tables are verified/linked before
+execution. Rust bodies remain trusted implementations, not bytecode whose
+behavior is proven by declaration validation.
 Bytecode rejects forged receiver upgrades and raw storage writes through an
 interface. The current KBC/runtime ABI encodes native bridges and normalized collection
 operations; see [artifact versions](artifacts.md). Older products are rejected
@@ -154,10 +186,14 @@ The host ABI continues to describe native storage access independently of the
 script interface hierarchy. Native read-only host arrays/maps/sets retain their
 restricted capabilities; they cannot be converted to mutable collection views.
 Trusted hosts remain responsible for their declared effects and roots. GC,
-resource budgets, pinned versions and cleanup apply equally to native and script
-interface implementations. This batch does not add a new JIT backend.
+pinned versions and cleanup apply equally to native and script implementations.
+Storage factories, trace/drop hooks and scoped access form the generic native
+object boundary; they do not introduce a new JIT backend.
 
 ## Validation
+
+The following describes predecessor coverage, not acceptance of the unimplemented
+reset. The active plan owns focused checks and final integration evidence.
 
 Coverage includes native and script implementations, generic and dynamic calls,
 mutable-to-read-only upcasts, live aliasing, indexed compound assignment, custom

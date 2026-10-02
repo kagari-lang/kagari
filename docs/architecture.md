@@ -15,6 +15,13 @@ replacement; they do not require preserving library-owned language declarations,
 mandatory callback state machines or full-library restoration. The reset plan
 supersedes those implementation details while preserving language semantics.
 
+Foundational List/MutableList, Map/MutableMap, Set/MutableSet and iteration traits
+are compiler-owned complete contracts. [T] and array literals use the language's
+always-present default ArrayList and minimal runtime implementation. Optional
+native modules add algorithms and additional concrete types. Generic storage
+registration owns allocation, GC tracing, destruction and scoped object access;
+new collection types do not add concrete dispatch variants to generic layers.
+
 The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
 implementation checkpoints and final acceptance. Language/runtime behavior follows
 the semantic specifications.
@@ -307,24 +314,28 @@ The syntax layer must not encode semantic shortcuts that only exist because of t
 
 Kagari has a typed standard surface defined in `docs/spec/builtins.md`.
 
-The builtin layer owns:
+The language foundation owns primitive/value types, Option/Result, syntax-required
+range forms and the complete operator, collection, iteration and callable traits.
+It owns [T] typing, existing collection literal semantics, the canonical default
+ArrayList declaration and its minimal runtime behavior. Native/script impls use
+ordinary checked trait records; the compiler does not select storage algorithms
+from interface names.
 
-- primitive numeric, boolean, string, unit, tuple, array, map, set, `Option`, and `Result` types
-- standard modules such as `std::debug`, `std::math`, `std::array`, `std::map`, `std::set`, `std::string`, `std::option`, `std::result`, and `std::iter`
-- iterable protocol support used by `for`
-- builtin metadata for type checking, bytecode, reflection profiles, reload validation, and JIT lowering
+Runtime owns GC-managed object identity, generic registered native storage and
+scoped access. Continuous primitive buffers are one layout capability. Other
+native storage supplies checked factories, tracing/destruction and access entries
+without adding a concrete type to the compiler/ABI/VM's global catalog.
 
-The standard library is not a historical compatibility layer and is not implemented as a second copy of core containers in Kagari source.
-Container storage is engine-owned. Public native library functions use registered
-declarations and linked import slots; the current implementation installs only the array proof.
-Remaining library algorithms are tracked in the [active plan](native-provider-refactor.md).
-Native registration definitions are the target authoritative declaration surface.
-The minimal array package follows that model; remaining `stdlib/*.kgr` declarations
-retain their legacy source route during NR04 restoration. Generated declarations
-and registration metadata do not own storage, GC, resource accounting or host state.
+Optional native modules own algorithms and additional collection implementations.
+Native registrations explicitly declare their own types, functions and impls;
+compiler-owned contracts are referenced rather than redeclared. Generated tooling
+views project the same checked declarations. The [active plan](native-provider-refactor.md)
+owns migration order and the bounded algorithm/extension proof. There is no second
+copy of collection algorithms in Kagari source.
 
-Ordered map and set behavior is deterministic.
-The runtime implementation uses insertion-ordered `indexmap` backing for script-visible `Map<K, V>` and `Set<T>` behavior.
+The predecessor ordered map/set implementations use deterministic insertion
+order; foundational Map/Set traits do not prescribe that policy.
+Those runtime implementations use insertion-ordered `indexmap` backing for script-visible `Map<K, V>` and `Set<T>` behavior.
 Hash-key eligibility and custom equality/hash protocols follow the checked contracts in [builtins](spec/builtins.md). Runtime callbacks execute on the same explicit frame stack with ordinary resource and reentry rules.
 
 Standard library calls flow through one structural path:

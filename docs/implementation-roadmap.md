@@ -13,18 +13,22 @@ Execution has four phases, in strict order:
    Retain independently justified language/runtime infrastructure, not hidden
    library dependencies. Finish cleanup before replacement coding.
 2. Implement complete compiler-owned language traits/types independently of native
-   installation: equality/hash/ordering, operators/indexing, iteration, callable
-   and existing implicit formatting/range contracts. Native and script types
-   implement these ordinary contracts.
+   installation: equality/hash/ordering, operators/indexing, foundational
+   List/MutableList, Map/MutableMap, Set/MutableSet, iteration, callable and existing
+   formatting/range contracts. Array literals and minimal default ArrayList
+   operations remain available without optional algorithms.
 3. Define Kagari modules through ModuleBuilder and bind Rust functions through
    NativeBinding with checked conversion views; retire macro-derived declarations.
    Replace mandatory continuations with efficient synchronous functions and
-   callbacks. Prepare callable targets once; use compact primitive collection
-   buffers and scoped bulk access. Lazy cursors retain persistent state; genuine
+   callbacks. Prepare targets once; register native object storage/GC hooks without
+   adding concrete type variants to generic layers. Use compact primitive buffers
+   and scoped bulk access. Lazy cursors retain persistent state; genuine
    asynchronous suspension alone needs resumable execution machinery.
-4. Prove one optional ArrayList package, including contiguous i32 storage, script
-   comparators, a lazy map iterator, tooling declarations, source-free execution
-   and measured costs. Do not expand this into whole-library restoration.
+4. Prove one optional algorithm module over the language's ArrayList, including
+   contiguous i32 storage, script comparators, lazy map, tooling declarations,
+   source-free execution and measured costs. The existing external consumer also
+   proves non-sequence native storage registration. No Map/Set algorithm family
+   or full-library restoration is added.
 
 The plan owns exact scope, acceptance and the only active checklist/ledger.
 Budget schedules and permission matrices do not constrain its native ABI or

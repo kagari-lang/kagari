@@ -20,6 +20,8 @@ its replacement; do not keep both architectures while migrating algorithms.
   a separate standard-library crate.
 - Language types and protocols required by syntax, static checking or implicit
   value semantics are always available, independently of installed libraries.
+  This includes complete List/MutableList, Map/MutableMap and Set/MutableSet
+  contracts, not just operators and iteration.
 - Library and application native functions share registration, checked signatures,
   linking and execution. Native packages implement compiler-owned protocols
   without redeclaring their contracts.
@@ -45,6 +47,50 @@ script-struct layouts, a complete async executor, JIT/LLVM feature expansion,
 new syntax, LSP transport, broad Rust interoperability and a separate execution-
 policy migration. Necessary consumer changes belong to their owning phase.
 
+## Collection ownership boundary
+
+| Layer | Owns |
+| --- | --- |
+| Compiler/language | Complete foundational trait declarations, associated outputs, inheritance, interface conversions and read/write semantics; [T] and collection literal typing |
+| Runtime foundation | GC-managed object identity, generic native storage registration, continuous primitive buffers, scoped access and ordinary native invocation |
+| Native library | Concrete additional collection types and Rust algorithms such as sorting, searching, deduplication, grouping and set operations |
+
+List<T>, MutableList<T>, Map<K,V>, MutableMap<K,V>, Set<T>, MutableSet<T>,
+Iterator and Iterable are always-present language contracts. They use ordinary
+trait checking and implementation selection. The compiler does not select a
+hash table, tree or traversal algorithm from a collection trait's name.
+
+Foundational members describe access, mutation and traversal. Convenience or
+callback algorithms do not become compiler features merely because they operate
+on a foundational interface. Map/Set contracts impose neither Eq/Hash nor a
+traversal order: a hash implementation can require Eq + Hash, while a tree
+implementation can require Ord. Each concrete implementation owns that choice.
+Iterable's associated Iter must satisfy Iterator<Item = Item>; do not fix it to
+an optional library's concrete Iter<T>. Checked static/dynamic interface metadata
+retains the actual associated outputs and implementation targets.
+
+[T] denotes the compiler-owned List<T> contract. Existing array literals create
+the language's canonical ArrayList<T> with a minimal always-present runtime
+implementation. Literal construction, core list/index/iteration behavior and
+read-only/writable conversions do not require the optional algorithm library.
+Phase 1 removes predecessor registrations; phase 2 establishes these language
+contracts/basic operations, and phase 3 optimizes their storage/call boundary.
+There is only one default array object and implementation, not a core array plus
+an independently installed replacement of the same type.
+
+Optional modules add sort/sort_by and the lazy adapter proof through ordinary
+registered functions or library-owned extension traits. Do not mutate the core
+type declaration at runtime or reinstall its contracts with the algorithm module.
+Disabling the module removes its algorithms; ArrayList and language syntax remain.
+
+New native objects register allocation, GC tracing, destruction and scoped access
+through the generic storage interface. Adding a queue, tree or application object
+must not add a named variant to Value, HeapObject or NativeTypeConstructor, nor
+add compiler/verifier/VM dispatch branches. Finite primitive layouts remain valid;
+a growing catalog of concrete collection types is not a physical layout model.
+This manual GC-managed storage contract does not require the deferred automatic
+Rust interoperability design or a full Map/Set algorithm implementation.
+
 ## Proposed data structures and explicit API
 
 This is a design proposal, not an implemented interface. Naming follows modules
@@ -67,6 +113,7 @@ they do not add execution phases or restore more algorithm families.
 | NativeBinding | Synchronous Rust entry with explicit argument/result conversion views, checked against a declaration before installation |
 | LinkedNativeFunction | Closed layouts, linked entry, selected callable slots and retained generations; prepared before execution |
 | CallContext | Scoped view over existing rooted arguments and prepared targets; no owned copy of the API/signature graph |
+| NativeStorage | Registered factory, tracing/destruction and scoped views for a native object; optional checked layout capabilities enable specialized access |
 | SequenceStorage | Shared object containing a concrete contiguous primitive buffer or traced values |
 | NativeCursor | Persistent cursor, traced captures and pinned callable handles; no expired context or Rust buffer borrow |
 
@@ -144,46 +191,37 @@ transfers it into the caller's rooted destination before the native scope ends.
 
 ### Explicit Kagari declarations
 
-List/MutableList illustrate library-owned declarations over the proof operations;
-Index comes from the compiler-owned catalog. These views do not add new algorithms.
+List/MutableList now come from LanguageContracts. The compiler constructs their
+complete declarations through the same explicit declaration model; a library
+references these contracts and defines only its own additional types/traits.
 
 ```rust
 let mut module = ModuleBuilder::new("example::collections", &language);
+let list = language.list();
+let mutable = language.mutable_list();
+let len = list.method("len")?;
+let get = list.method("get")?;
+let set = mutable.method("set")?;
 
-let mut list = module.define_trait("List");
-let t = list.type_parameter("T");
-list.parent(
-    language.index().apply([Type::usize()]).associated("Output", t.ty()),
-)?;
-let len = list.define_method(MethodDecl::instance("len").returns(Type::usize()))?;
-let get = list.define_method(
-    MethodDecl::instance("get")
-        .parameter("index", Type::usize())
-        .returns(language.option(t.ty())),
-)?;
-let list = list.finish()?;
-
-let mut mutable = module.define_trait("MutableList");
-let t = mutable.type_parameter("T");
-mutable.parent(list.apply([t.ty()]))?;
-let set = mutable.define_method(
-    MethodDecl::instance("set")
-        .parameter("index", Type::usize())
-        .parameter("value", t.ty())
-        .returns(Type::unit()),
-)?;
-let mutable = mutable.finish()?;
-
-let mut array = module.define_type("ArrayList");
-let t = array.type_parameter("T");
-array.reference_semantics();
-array.sequence_storage(t.ty());
-let array = array.finish()?;
+let mut buffer = module.define_type("Buffer");
+let t = buffer.type_parameter("T");
+buffer.reference_semantics();
+buffer.sequence_storage(t.ty());
+let buffer = buffer.finish()?;
 ```
 
-This declares List<T>: Index<usize, Output = T>, MutableList<T>: List<T> and a
-nominal shared ArrayList<T>. No corresponding Rust trait or generic Rust struct
-is required. Read/write behavior follows Kagari contracts, not a Rust &mut self.
+Buffer<T> is an application/library-owned type implementing existing language
+contracts. It is not another definition of the language's default ArrayList<T>.
+Custom library traits can still be declared explicitly:
+
+```rust
+let mut sized = module.define_trait("SizedView");
+sized.define_method(MethodDecl::instance("size").returns(Type::usize()))?;
+let sized = sized.finish()?;
+```
+
+No corresponding Rust trait or struct hierarchy is required. Kagari read/write
+behavior follows its language contracts, not a Rust &mut self receiver.
 
 The sequence storage capability includes an element layout contract and its
 runtime factory. It can serve arbitrary native type identities; the compiler
@@ -198,7 +236,7 @@ concrete implementation function; it does not install a universal trait body.
 ```rust
 let mut implementation = module.implement();
 let t = implementation.type_parameter("T");
-implementation.receiver(array.apply([t.ty()]));
+implementation.receiver(buffer.apply([t.ty()]));
 implementation.implements(list.apply([t.ty()]));
 implementation.bind(len, NativeBinding::new(
     Args::receiver(Codec::sequence(t.ty())),
@@ -214,7 +252,7 @@ implementation.finish()?;
 
 let mut implementation = module.implement();
 let t = implementation.type_parameter("T");
-implementation.receiver(array.apply([t.ty()]));
+implementation.receiver(buffer.apply([t.ty()]));
 implementation.implements(mutable.apply([t.ty()]));
 implementation.bind(set, NativeBinding::new(
     Args::receiver(Codec::sequence(t.ty()))
@@ -226,7 +264,7 @@ implementation.finish()?;
 
 let mut implementation = module.implement();
 let t = implementation.type_parameter("T");
-implementation.receiver(array.apply([t.ty()]));
+implementation.receiver(buffer.apply([t.ty()]));
 implementation.implements(language.index().apply([Type::usize()]));
 implementation.associated_type("Output", t.ty());
 implementation.bind(language.index().method("index")?, NativeBinding::new(
@@ -240,10 +278,14 @@ let module = module.finish()?;
 engine.install(module)?;
 ```
 
-Index satisfies List's parent; List satisfies MutableList's parent. Module
-finalization checks the whole graph independent of authoring order. Inherent
-new/push/sort methods use the same impl builder without implements, declare their
-FunctionDecl explicitly and attach NativeBinding entries.
+These excerpts show selected bindings, not a complete finished Buffer module.
+The full implementations also bind all required foundational members (including
+is_empty and structural mutations) and provide the associated Iterable/Iterator
+implementation; missing members/parents are rejected at module finalization.
+Index/Iterable satisfy List's parents, and List satisfies MutableList's parent.
+Inherent methods on Buffer use the same impl builder without implements.
+Algorithms on the core ArrayList use functions or library-owned extension traits;
+they do not require cross-owner inherent mutation or duplicate core declarations.
 
 Free functions follow the same separation:
 
@@ -337,6 +379,20 @@ straight on a primitive buffer. Callback sorting releases buffer borrows before
 reentry and uses rooted working storage. A fallible comparator propagates its
 first error, never a fake ordering supplied to make a Rust sorting API succeed.
 
+NativeStorage holds runtime factories and trace/drop/access entries. TypeDecl
+carries the corresponding portable identity/layout contract, never Rust pointers.
+A native type attaches its implementation explicitly:
+
+```rust
+object.native_storage(storage_registration);
+```
+
+The registration is checked against the declared type and its representation.
+Objects remain GC-owned; contained script references are visited as GC edges.
+Borrowed views cannot survive unsafe mutation or reentry. Generic opaque access
+works even when no sequence capability exists; optimized sequence access is an
+optional registered capability, not a mandatory representation for every object.
+
 NativeCursor retains position/state, traced captures and pinned callable handles.
 A map adapter retains its source and mapper, not a program counter for synchronous
 callback returns. Captures are GC edges, not independently permanent roots. Normal
@@ -409,6 +465,8 @@ library. Audit existing syntax/specifications first; do not copy all 38 old trai
 | PartialEq / Eq / Hash | Complete signatures, eligibility, scalar behavior, object identity, tuple/enum composition and explicit override precedence |
 | PartialOrd / Ord | Signatures, Ordering, scalar implementations and floating-point partial ordering |
 | Arithmetic, bitwise and unary operator traits | Existing signatures, associated outputs, checked primitives and ordinary user implementation selection |
+| List / MutableList | Complete access/mutation signatures, Index/Iterable parents and read-only/writable interface semantics; [T] names List<T> |
+| Map / MutableMap / Set / MutableSet | Complete lookup/mutation/traversal contracts and normal interface conversions; no storage algorithm or universal Eq/Hash/order requirement |
 | Index and existing writable indexing rules | Index/output contracts, read/write lowering and once-only evaluation; no new assignment syntax |
 | Iterator / Iterable | Associated item/iterator contracts and ordinary selected implementations used by for loops |
 | Fn | Function/closure contracts, argument tuples, associated outputs and normal callable implementations |
@@ -419,10 +477,13 @@ Primitive types, Option, Result, Ordering and syntax-required range forms also
 belong to the language. Their declarations stay available with libraries disabled.
 Option/Result convenience methods and collection algorithms remain library work.
 
-List/MutableList, Map/Set interfaces, FromIterator, Sum/Product and conversion/
-parsing helpers remain library declarations where existing syntax or implicit
-semantics does not require them. Their presence in the predecessor catalog does
-not make them compiler features or require their restoration in phase 4.
+The foundational collection surface follows the access/mutation/traversal members
+in [collection access](spec/collection-access.md#shared-interface-surface), with
+Iterable constrained by its actual associated iterator instead of a fixed Iter<T>.
+Callback conveniences such as get_or_insert_with/update, sorting and grouping are
+library algorithms. FromIterator, Sum/Product and conversion/parsing helpers remain
+library declarations where no language syntax or implicit semantics requires them.
+Moving basic contracts into the compiler does not restore all predecessor methods.
 
 - HIR receives complete compiler-owned declarations, bounds and associated outputs.
   Native and script impls use ordinary trait checking and nominal identities;
@@ -438,8 +499,10 @@ not make them compiler features or require their restoration in phase 4.
 
 Exit: with libraries disabled, primitive operators, implicit value behavior,
 user-defined operator/index impls, closures, Option/Result propagation and for
-loops over user-defined iterators type check and execute. Invalid signatures,
-bounds and associated outputs are rejected. Existing language semantics are
+loops over user-defined iterators type check and execute. Array literals, [T],
+MutableList views and basic default-array operations also work without algorithm
+modules. Complete Map/Set declarations are available without hash/tree providers.
+Invalid signatures, bounds and associated outputs are rejected. Existing language semantics are
 covered and phase 1 language-contract build gaps are resolved.
 
 ## Phase 3 — Optimize native calls and collection storage
@@ -465,6 +528,10 @@ synchronous calls back into script code.
 - Interpreter and future compiled callers share prepared contracts. Use matching
   generation-pinned compiled callback targets when actually available, without
   expanding the JIT backend as part of this phase.
+- Implement generic NativeStorage registration with checked factories, GC tracing,
+  destruction and scoped access. Registered nominal types/codecs must not require
+  new named variants or per-type dispatch cases in generic layers. Retain checked
+  primitive/sequence layout capabilities for efficient interpreter/compiled access.
 - Choose storage from the declared element type at construction, including empty
   collections. ArrayList<i32> uses Vec<i32>; supported primitive types have compact
   contiguous buffers. Generic/reference-bearing values may use traced Vec<Value>.
@@ -490,11 +557,13 @@ these properties and record remaining unavoidable costs before acceptance.
 
 ## Phase 4 — Verify one representative library
 
-Task: implement one optional ArrayList package using the completed boundaries.
-The fixed surface is ArrayList<T> with new, len, push, get, set, sort, sort_by and
-iter, plus one lazy map adapter and next. Implement compiler-owned Index, Iterable
-and Iterator as applicable. Reuse Rust storage and established Rust algorithms;
-do not restart full-library restoration or write a parallel Kagari algorithm.
+Task: implement one optional algorithm module over the language's default
+ArrayList<T>. The bounded proof covers its foundational new/len/push/get/set/iter
+behavior, optional sort/sort_by, and one lazy map adapter with next. Core list,
+Index, Iterable and Iterator contracts/basic operations are already provided by
+phases 2-3; do not redeclare or reinstall them here. Use ordinary functions or
+library-owned extension traits for algorithms. Reuse Rust implementations; do not
+restart full-library restoration or write a parallel Kagari algorithm.
 
 - Prove compact i32 buffers and a traced GC-reference fallback, preserving shared
   identity and mutation behavior.
@@ -504,10 +573,14 @@ do not restart full-library restoration or write a parallel Kagari algorithm.
   unchanged while preserving completed effects on referenced payloads.
 - Verify lazy consumption, retained captures, shared cursor behavior and cleanup
   on early exit/failure.
-- Install the package by default through the ordinary engine mechanism. Disabling
-  it removes its APIs while language protocols remain available.
-- Add one application-owned native consumer using identical registration/callback
-  APIs, without compiler/verifier/VM changes for its business algorithms.
+- Install the algorithm module by default through the ordinary engine mechanism.
+  Disabling it removes algorithms while ArrayList literals/basic operations and
+  all foundational collection protocols remain available.
+- The one application-owned consumer includes a small non-sequence native object
+  retaining a script value, using generic storage/trace/drop registration and the
+  same binding/callback interface. It must require no new Value/HeapObject/type-
+  constructor variants or compiler/verifier/VM branches. This tests the extension
+  boundary without adding a second standard collection algorithm family.
 - Generate .kgr views and check signatures/docs/navigation through existing tooling
   queries. Generate one target/ artifact and run an independent source-free
   consumer, including mismatched-contract rejection.
@@ -546,7 +619,7 @@ No build/test failure remains in retained workspace consumers.
 - [ ] Phase 1: old library implementation and tracked executable fixtures removed.
 - [ ] Phase 2: compiler-owned language protocols implemented independently.
 - [ ] Phase 3: efficient synchronous native calls and typed storage implemented.
-- [ ] Phase 4: representative ArrayList package and measured proof accepted.
+- [ ] Phase 4: ArrayList algorithm module, storage extension and measured proof accepted.
 
 ## Progress ledger
 
@@ -580,3 +653,11 @@ ModuleBuilder/ModuleDecl, NativeModule, NativeBinding, LinkedNativeFunction and
 CallContext. Authoring uses define_trait, define_type, define_method,
 define_function, implement and bind. Existing implementation names remain cleanup
 input; no compatibility aliases or Rust implementation changes are introduced.
+
+2026-10-02 — Foundational collections moved into the language at the user's request.
+Complete List/MutableList, Map/MutableMap, Set/MutableSet and iteration contracts
+are compiler-owned. Array literals use the always-present canonical ArrayList;
+optional modules add algorithms and additional types. NativeStorage registration
+is the object/GC extension boundary. The existing external-consumer proof now
+checks a non-sequence object; Map/Set algorithms remain out of scope. Four phases
+remain unstarted, with no resumed goal or Rust implementation claimed.

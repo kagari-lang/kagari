@@ -8,8 +8,15 @@ predecessor implementation awaiting removal.
 The target keeps complete language contracts in the compiler. ModuleBuilder
 defines Kagari declarations and impls; NativeBinding attaches Rust functions
 through checked conversion views. Tooling projects the same declarations; calls
-are synchronous by default. The former NR restoration obligations are historical, not acceptance
-requirements. Corresponding phase implementation updates the detailed contracts.
+are synchronous by default. The former NR restoration obligations are historical,
+not acceptance requirements. Corresponding phase implementation updates the
+detailed contracts.
+
+List/MutableList, Map/MutableMap, Set/MutableSet and iteration contracts belong to
+the compiler-owned catalog. Modules reference these complete contracts when
+registering impls; they do not declare them again. Array literals/basic ArrayList
+behavior are always available. Optional modules own algorithms and additional
+native types, using generic storage/GC registration rather than core enum entries.
 
 Native registration definitions own API declarations and Rust implementation
 bindings. The standard library is an optional native package installed by Engine
