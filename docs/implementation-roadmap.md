@@ -21,8 +21,10 @@ Execution has four phases, in strict order:
    optional modules; hash bounds belong to the concrete types.
    Default backing is Rust std::collections::HashMap/HashSet; indexmap belongs to
    optional standard-library LinkedHashMap/LinkedHashSet.
-3. Define Kagari modules through ModuleBuilder and bind Rust functions through
-   NativeBinding with checked conversion views; retire macro-derived declarations.
+3. Define Kagari modules through ModuleBuilder with scoped implement/trait_impl
+   blocks. Ordinary bind checks Rust conversion views against existing Kagari
+   signatures; bind_with supplies explicit NativeBinding codecs where needed.
+   Retire macro-derived declarations.
    Replace mandatory continuations with efficient synchronous functions and
    callbacks. Prepare targets once; register native object storage/GC hooks without
    adding concrete type variants to generic layers. Use compact primitive buffers

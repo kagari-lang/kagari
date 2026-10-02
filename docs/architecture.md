@@ -6,8 +6,10 @@ When existing code conflicts with the specifications, the specifications are aut
 
 The [native collections reset plan](native-provider-refactor.md) defines the
 2026-10-02 target: compiler-owned language protocols, explicit module declarations
-through ModuleBuilder and Rust bodies through NativeBinding, synchronous calls,
-typed contiguous collection storage and one representative optional library.
+through ModuleBuilder with scoped implement/trait_impl blocks. Ordinary bind and
+explicit bind_with produce the same checked NativeBinding against existing Kagari
+signatures. The target includes synchronous calls, typed contiguous collection
+storage and one representative optional library.
 Rust functions supply bodies;
 Rust traits/signatures and #[native_module] do not define Kagari contracts.
 The native-specific descriptions below record predecessor mechanisms awaiting

@@ -132,7 +132,7 @@ they do not add execution phases or restore more algorithm families.
 | TraitDecl / MethodDecl | Parents, bounds, associated types and full Kagari method signatures, including receivers and method binders |
 | ImplDecl | Its own binders/bounds, receiver, applied trait, associated bindings and concrete member implementations; inherent impls have no trait |
 | NativeModule | Checked ModuleDecl plus local Rust binding entries and storage factories |
-| NativeBinding | Synchronous Rust entry with explicit argument/result conversion views, checked against a declaration before installation |
+| NativeBinding | Prepared synchronous Rust entry and checked argument/result conversion views; ordinary bind assembles it from an existing declaration, while bind_with supplies explicit codecs |
 | LinkedNativeFunction | Closed layouts, linked entry, selected callable slots and retained generations; prepared before execution |
 | CallContext | Scoped view over existing rooted arguments and prepared targets; no owned copy of the API/signature graph |
 | NativeStorage | Registered factory, tracing/destruction and scoped views for a native object; optional checked layout capabilities enable specialized access |
@@ -176,9 +176,13 @@ checked ID references. A library defines Kagari traits without declaring matchin
 Rust traits; Rust receiver syntax and inheritance do not define Kagari semantics.
 
 The define_ operations add declarations; method(name) resolves an existing member.
-ModuleBuilder::implement starts an impl builder with its own parameter scope;
-receiver and implements then set its header. Binding attaches a body to a checked
-member, while finish validates and publishes the completed declaration/module.
+ModuleBuilder::implement(receiver, closure) opens a scoped receiver implementation
+group. trait_impl(applied_trait, closure) declares an individual Kagari impl within
+it. bind(member_name, entry) attaches a Rust body to that trait's checked member;
+bind_with accepts an explicit NativeBinding for unusual or ambiguous conversions.
+Closure completion assembles the impl records; module.finish validates the complete
+module before publication. These authoring closures run during registration, not
+on each native call.
 
 The execution view is conceptually separate:
 
@@ -221,10 +225,6 @@ references these contracts and defines only its own additional types/traits.
 let mut module = ModuleBuilder::new("example::collections", &language);
 let list = language.list();
 let mutable = language.mutable_list();
-let len = list.method("len")?;
-let get = list.method("get")?;
-let set = mutable.method("set")?;
-
 let mut buffer = module.define_type("Buffer");
 let t = buffer.type_parameter("T");
 buffer.reference_semantics();
@@ -252,62 +252,95 @@ the checked runtime buffer contract, not the memory layout of Rust's Vec struct.
 
 ### Bind concrete implementations
 
-Impl builders explicitly define Kagari impls. Binding a member creates its actual
-concrete implementation function; it does not install a universal trait body.
+Group implementations by their receiver type, declare each applied Kagari trait
+explicitly, and bind ordinary Rust functions directly. Configure the receiver's
+Rust access codec once for the group instead of repeating it for each method.
 
 ```rust
-let mut implementation = module.implement();
-let t = implementation.type_parameter("T");
-implementation.receiver(buffer.apply([t.ty()]));
-implementation.implements(list.apply([t.ty()]));
-implementation.bind(len, NativeBinding::new(
-    Args::receiver(Codec::sequence(t.ty())),
-    Codec::usize(),
-    entries::len,
-))?;
-implementation.bind(get, NativeBinding::new(
-    Args::receiver(Codec::sequence(t.ty())).arg(Codec::usize()),
-    Codec::option(Codec::value(t.ty())),
-    entries::get,
-))?;
-implementation.finish()?;
+module.implement(buffer, |implementation| {
+    let t = implementation.parameter("T")?;
+    implementation.receiver_codec(Codec::sequence(t.ty()))?;
 
-let mut implementation = module.implement();
-let t = implementation.type_parameter("T");
-implementation.receiver(buffer.apply([t.ty()]));
-implementation.implements(mutable.apply([t.ty()]));
-implementation.bind(set, NativeBinding::new(
-    Args::receiver(Codec::sequence(t.ty()))
-        .arg(Codec::usize()).arg(Codec::value(t.ty())),
-    Codec::unit(),
-    entries::set,
-))?;
-implementation.finish()?;
+    implementation.trait_impl(list.apply([t.ty()]), |methods| {
+        methods.bind("len", entries::len)?;
+        methods.bind("get", entries::get)?;
+        // Bind the remaining required List members here.
+        Ok(())
+    })?;
 
-let mut implementation = module.implement();
-let t = implementation.type_parameter("T");
-implementation.receiver(buffer.apply([t.ty()]));
-implementation.implements(language.index().apply([Type::usize()]));
-implementation.associated_type("Output", t.ty());
-implementation.bind(language.index().method("index")?, NativeBinding::new(
-    Args::receiver(Codec::sequence(t.ty())).arg(Codec::usize()),
-    Codec::value(t.ty()),
-    entries::index,
-))?;
-implementation.finish()?;
+    implementation.trait_impl(mutable.apply([t.ty()]), |methods| {
+        methods.bind("set", entries::set)?;
+        // Bind the remaining required MutableList members here.
+        Ok(())
+    })?;
 
-let module = module.finish()?;
-engine.install(module)?;
+    implementation.trait_impl(
+        language.index().apply([Type::usize()]),
+        |methods| {
+            methods.associated_type("Output", t.ty())?;
+            methods.bind("index", entries::index)?;
+            Ok(())
+        },
+    )?;
+
+    Ok(())
+})?;
 ```
+
+Passing the Buffer type declaration creates a fresh scoped receiver template
+Buffer<T>. parameter("T") retrieves its existing template parameter; it does not
+declare another parameter or reuse the type declaration's binder identity. Each
+trait_impl lowers to its own ImplDecl with fresh binders and explicit substitutions
+from that template. Separate groups do not share binder identities. A concrete
+receiver such as buffer.apply([Type::i32()]) opens a specialized group with no
+unbound T. Additional impl bounds are declared explicitly, never inferred from a
+Rust function's generic bounds.
+
+Member names resolve within the applied trait during registration, then become
+checked MethodId/FunctionId references. Binding creates a concrete implementation
+function; it does not install a universal trait body or perform name lookup during
+execution. Declaration order of trait_impl blocks does not determine parent validity:
+module finalization checks their complete parent and associated-type closure.
 
 These excerpts show selected bindings, not a complete finished Buffer module.
 The full implementations also bind all required foundational members (including
 is_empty and structural mutations) and provide the associated Iterable/Iterator
 implementation; missing members/parents are rejected at module finalization.
 Index/Iterable satisfy List's parents, and List satisfies MutableList's parent.
-Inherent methods on Buffer use the same impl builder without implements.
-Algorithms on the core ArrayList use functions or library-owned extension traits;
-they do not require cross-owner inherent mutation or duplicate core declarations.
+After completing these implementations, module.finish() produces the checked
+module for engine.install(module).
+
+Inherent methods use implementation.inherent_impl(closure), with explicit method
+declarations before binding. Algorithms on the core ArrayList use functions or
+library-owned extension traits; this API does not allow cross-owner inherent
+mutation or duplicate core declarations.
+
+bind follows three steps: substitute the existing Kagari declaration, assemble
+conversion views supported by the Rust entry type and configured receiver codec,
+then validate exact compatibility. Primitive and generic views can use the short
+form only when the conversion is unambiguous. A generic argument/result view takes
+its semantic type from its declared signature position, not from the erased Rust
+wrapper. Rust cannot invent a trait, method, impl, bound or Kagari result type.
+CallContext is injected and NativeResult describes the Rust invocation outcome;
+neither adds an argument or Result wrapper to the Kagari declaration.
+
+When a conversion needs explicit configuration, replace the short get binding
+above with this alternative in the same trait scope:
+
+```rust
+methods.bind_with("get", NativeBinding::new(
+    Args::receiver(Codec::sequence(t.ty())).arg(Codec::usize()),
+    Codec::option(Codec::value(t.ty())),
+    entries::get,
+))?;
+```
+
+bind and bind_with produce the same checked NativeBinding and runtime entry; they
+are authoring forms of one invocation mechanism. An explicit codec remains subject
+to the same signature checks. Ambiguous conversions produce registration errors,
+not a guessed mapping or a runtime fallback. If bind_with supplies a receiver codec,
+it must agree with the configured receiver contract and access representation.
+No conversion inference, builder closure or name lookup remains in the hot path.
 
 Free functions follow the same separation:
 
@@ -318,16 +351,13 @@ let add = module.define_function(
         .parameter("right", Type::i32())
         .returns(Type::i32()),
 )?;
-module.bind(add, NativeBinding::new(
-    Args::empty().arg(Codec::i32()).arg(Codec::i32()),
-    Codec::i32(),
-    entries::checked_add,
-))?;
+module.bind(add, entries::checked_add)?;
 ```
 
 This independent excerpt runs before module finalization. Its Rust body receives
-the context and two i32 values and returns NativeResult<i32>. Binding codecs do
-not create or overwrite the declared function's Kagari signature.
+the context and two i32 values and returns NativeResult<i32>. module.bind_with
+accepts an explicit NativeBinding when needed. Both forms preserve the already
+declared Kagari signature.
 
 Codecs describe the bridge into Rust, not the authoritative Kagari signature.
 Sharing a Rust integer representation does not make Kagari usize and u64 the
@@ -541,7 +571,11 @@ Task: put a small prepared boundary around ordinary Rust functions, including
 synchronous calls back into script code.
 
 - Implement the explicit declaration/impl/binding API above. Kagari signatures
-  are authoritative; checked codecs adapt Rust implementations.
+  are authoritative; scoped implement/trait_impl groups reduce repeated receiver
+  configuration. Ordinary bind and explicit bind_with produce equivalent prepared
+  entries and reject incompatible signatures/codecs. Check fresh impl binders,
+  associated substitutions and missing parent/member rejection during registration;
+  Rust signatures do not declare the Kagari contract.
 - Direct calls return results without allocating Box<Completed> or entering an
   advance/receive handshake. Separate them from genuinely suspended invocations.
 - Use scoped contexts over already-rooted arguments. Do not rebuild argument
@@ -703,3 +737,11 @@ modules provide other containers and extension algorithms. Phase 2 owns the thre
 implementations, phase 3 their generic native boundary, and phase 4 retains the
 ArrayList algorithm proof. Four phases remain unstarted; no new syntax, separate
 stdlib crate, resumed goal or implementation completion is claimed.
+
+2026-10-02 — Scoped implementation authoring adopted at the user's request.
+implement(receiver, closure) groups trait_impl blocks with fresh per-impl binders
+and a shared receiver codec. Ordinary bind checks Rust conversions against an
+existing Kagari member; bind_with supplies explicit codecs for ambiguous/special
+representations. Both produce the same prepared binding, without runtime name
+resolution or a second signature authority. Examples and ownership descriptions
+are updated; four phases remain unstarted and the previous goal remains paused.

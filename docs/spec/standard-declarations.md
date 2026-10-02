@@ -6,8 +6,10 @@ registration ownership of language protocols, Rust-derived declaration macros
 and mandatory continuation examples below. Those examples describe the
 predecessor implementation awaiting removal.
 The target keeps complete language contracts in the compiler. ModuleBuilder
-defines Kagari declarations and impls; NativeBinding attaches Rust functions
-through checked conversion views. Tooling projects the same declarations; calls
+defines Kagari declarations and scoped implement/trait_impl blocks. Ordinary bind
+checks Rust entry conversions against existing Kagari signatures; bind_with accepts
+explicit NativeBinding codecs. Both produce the same prepared binding. Tooling
+projects the same declarations; calls
 are synchronous by default. The former NR restoration obligations are historical,
 not acceptance requirements. Corresponding phase implementation updates the
 detailed contracts.
