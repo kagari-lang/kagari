@@ -58,6 +58,17 @@ language and safety behavior still requires meaningful coverage. Obsolete
 consumer failures are retired explicitly; failures in retained consumers must
 be resolved by final acceptance.
 
+## Foundation trait ownership correction (approved; implementation pending)
+
+The user has approved bringing the remaining seven previously implemented traits
+into compiler-owned core: Into, TryFrom, TryInto, FromStr, FromIterator, Sum and
+Product. Together with the 31 current contracts this is the original 38-trait set.
+No Try, FromResidual or other new trait is added. The [existing plan's boundary
+correction](native-provider-refactor.md#approved-foundation-boundary-correction)
+owns the finite follow-up; concrete algorithms and additional containers retain
+their runtime/library owners. This updates ownership without claiming the seven
+contracts are already executable or restarting the completed reset checkpoints.
+
 ## Execution policy work deferred
 
 The [execution-policy proposal](execution-policy-refactor.md) is separate future

@@ -1,7 +1,8 @@
 # Native Collections Reset Plan
 
-Status: all four phases are accepted. The optional library proof, predecessor
-consumer disposition and final workspace/feature checks are complete.
+Status: the original four phases are accepted. A subsequent approved boundary
+correction includes all 38 predecessor foundational traits in compiler-owned core.
+The seven additional contracts are planned below; their implementation is pending.
 The goal follows this replacement plan, not the retired restoration sequence.
 
 This completed native-library plan replaces NR00-NR05, the full-library
@@ -18,10 +19,11 @@ its replacement; do not keep both architectures while migrating algorithms.
 
 - Collection algorithms stay in Rust. Do not rewrite them in Kagari or introduce
   a separate standard-library crate.
-- Language types and protocols required by syntax, static checking or implicit
-  value semantics are always available, independently of installed libraries.
-  This includes complete List/MutableList, Map/MutableMap and Set/MutableSet
-  contracts, not just operators and iteration.
+- Language types and foundational protocols are always available, independently
+  of installed libraries. Core owns all 38 previously implemented traits, including
+  conversion, parsing and iterator-construction/aggregation contracts. Direct
+  syntax participation is not a requirement for a foundational trait to belong
+  to core. This does not introduce traits absent from the predecessor.
 - Library and application native functions share registration, checked signatures,
   linking and execution. Native packages implement compiler-owned protocols
   without redeclaring their contracts.
@@ -46,6 +48,45 @@ Out of scope: full-library restoration, extended Map/Set algorithms, arbitrary i
 script-struct layouts, a complete async executor, JIT/LLVM feature expansion,
 new syntax, LSP transport, broad Rust interoperability and a separate execution-
 policy migration. Necessary consumer changes belong to their owning phase.
+
+## Approved foundation boundary correction
+
+After the four-phase reset was accepted, the user clarified that every previously
+implemented foundational trait belongs to compiler-owned core. The earlier
+syntax-required-only selection was too narrow. The current implementation has 31
+contracts; the target is the original 38, with these seven additions:
+
+| Contract | Existing responsibility to preserve |
+| --- | --- |
+| Into<Target> | Conversion counterpart of From, including the existing derived relationship |
+| TryFrom<Source> | Fallible conversion with associated Error and Result<Self, Error> |
+| TryInto<Target> | Fallible conversion counterpart with associated Error and the existing derived relationship |
+| FromStr | Parsing contract with associated Err and Result<Self, Err> |
+| FromIterator<T> | Construction through from_iter<I: Iterable<Item = T>>(source: I) -> Self |
+| Sum<T> | Aggregation through sum<I: Iterable<Item = T>>(source: I) -> Self |
+| Product<T> | Aggregation through product<I: Iterable<Item = T>>(source: I) -> Self |
+
+Their complete declarations, generic bounds and associated types must be available
+with optional native modules disabled, through the same core identities, prelude
+and generated tooling as the existing contracts. Native and script types implement
+them through ordinary checked impls. Preserve predecessor contract semantics and
+applicable base implementations; do not treat recognition of seven names alone as
+completion. Verification must exercise user implementations and generic calls,
+invalid signatures/bounds and source-free checked artifacts.
+
+Compiler-owned declarations do not require a special opcode or method-name selector
+for each contract. Keep syntax hooks limited to actual language operations, and use
+the common trait selection/binding path for ordinary contracts. Concrete collection
+construction, aggregation and parsing algorithms retain their implementation owners;
+additional containers and convenience pipelines remain optional library work.
+Do not restore old stdlib sources, macros, native continuation dispatch or the full
+predecessor helper catalog to support these contracts.
+
+Scope is exactly the previously implemented trait set. Do not add Try,
+FromResidual or other new traits. Existing Option/Result propagation semantics
+remain unchanged. This correction supersedes the seven-trait exclusions in the
+historical phase scope and progress ledger; it does not reopen the accepted four
+checkpoints or imply that the pending implementation has passed their checks.
 
 ## Collection ownership boundary
 
@@ -533,7 +574,9 @@ reproduction and phase 2 owner; do not reinstall the old package to bridge it.
 ## Phase 2 — Implement compiler-owned language protocols
 
 Task: provide complete contracts and implementations without any installed native
-library. Audit existing syntax/specifications first; do not copy all 38 old traits.
+library. The accepted reset originally selected 31 contracts. The approved
+boundary correction above now includes all 38 existing foundational contracts,
+without restoring the old library implementation.
 
 | Family | Language-owned responsibility |
 | --- | --- |
@@ -558,11 +601,10 @@ The foundational collection surface follows the access/mutation/traversal member
 in [collection access](spec/collection-access.md#shared-interface-surface), with
 Iterable constrained by its actual associated iterator instead of a fixed Iter<T>.
 Callback conveniences such as get_or_insert_with/update, sorting and grouping are
-library algorithms. FromIterator, Sum/Product and conversion/parsing helpers remain
-library declarations where no language syntax or implicit semantics requires them.
-The existing Result `?` specification does require From, so that minimal forward
-contract belongs to the language; this does not restore the predecessor conversion
-package or its method-name selectors.
+library algorithms. The approved correction places FromIterator, Sum/Product and
+conversion/parsing trait declarations in core as well. Convenience methods and
+concrete algorithms retain their runtime/library owners. Result `?` continues to
+use From; no predecessor conversion package or method-name selectors are restored.
 Moving basic contracts into the compiler does not restore all predecessor methods.
 
 - HIR receives complete compiler-owned declarations, bounds and associated outputs.
@@ -1880,3 +1922,13 @@ policy redesign and broader JIT optimization remain outside this completed scope
 Primitive sort and callback-sort measurements above retain their stated execution
 routes and costs; they do not establish a universal JIT speedup. No further phase
 or compatibility layer was introduced. This checkpoint carries Native-Reset-Phase: 4.
+
+
+2026-10-02 — Approved foundation ownership correction (documentation only).
+
+The user retained the original trait set and explicitly excluded new traits.
+The target is now all 38 predecessor contracts: add Into, TryFrom, TryInto,
+FromStr, FromIterator, Sum and Product to compiler-owned core. Try and
+FromResidual are not added. Current code still exposes 31 contracts; this entry
+records the approved boundary and pending implementation, not a new acceptance
+result. The completed four-phase checks above remain evidence for that code state.

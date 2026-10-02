@@ -226,6 +226,13 @@ Contiguous primitive buffers are one layout capability. Other
 native storage supplies checked factories, tracing/destruction and access entries
 without adding a concrete type to the compiler/ABI/VM's global catalog.
 
+The approved foundation boundary includes all 38 predecessor traits. Seven
+contracts remain to be added to the current 31: Into, TryFrom, TryInto, FromStr,
+FromIterator, Sum and Product. Core owns their declarations and type contracts;
+ordinary trait checking and native binding handle their implementations. Merely
+being default-available does not require special compiler dispatch. Try and
+FromResidual are outside this correction; no new propagation protocol is added.
+
 Optional native modules own algorithms and additional collection implementations
 such as LinkedList, TreeMap/TreeSet and LinkedHashMap/LinkedHashSet. Disabling
 these modules retains the three defaults and language contracts.

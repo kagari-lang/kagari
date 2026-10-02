@@ -12,6 +12,16 @@ Predecessor string helpers, numeric convenience methods, enum combinators,
 extended iterator algorithms, collection snapshots and additional container
 classes are withdrawn, rather than implicitly restored by language protocols.
 
+## Foundation trait scope
+
+The approved foundation consists of all 38 traits implemented before the reset.
+Current code provides 31. The remaining Into, TryFrom, TryInto, FromStr,
+FromIterator, Sum and Product belong to compiler-owned core and are pending
+implementation under the [approved correction](../native-provider-refactor.md#approved-foundation-boundary-correction).
+Their ownership does not depend on optional library installation or direct syntax
+support. Algorithms and additional container implementations remain separate.
+Try and FromResidual are not added; Option/Result `?` keeps its current semantics.
+
 ## Core Builtin Types
 
 The core type set includes:
@@ -202,12 +212,17 @@ and Result error propagation. Identity conversion preserves the same value or ob
 identity. Distinct error conversion runs once on Err, never on Ok, and cannot search
 a chain of intermediate conversions. Conversion traps retain completed effects.
 
-Into, TryFrom, TryInto and numeric conversion convenience methods from the
-predecessor library are not part of the current 31-protocol language catalog.
-Numeric `as` conversions retain their language rules. Optional future conversion
-libraries must use ordinary declaration and binding mechanisms.
+Into, TryFrom, TryInto and FromStr are approved compiler-owned foundation
+contracts, pending implementation. Preserve their predecessor conversion/associated
+error semantics through checked trait implementations. Numeric convenience methods
+and parsing algorithms are separate from ownership of these contracts. Numeric
+`as` conversions retain their language rules.
 
 ## Iteration protocols
+
+FromIterator<T>, Sum<T> and Product<T> are also approved core contracts, pending
+implementation. Their generic source parameter uses Iterable<Item = T>. This
+does not automatically install collection, reduction or pipeline algorithms.
 
 `core::language::{Iterator, Iterable}` are prelude traits:
 
