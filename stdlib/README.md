@@ -1,5 +1,10 @@
 # Kagari standard library
 
+This directory describes the predecessor library scheduled for removal in phase 1
+of the [native collections reset](../docs/native-provider-refactor.md). The
+registration and continuation inventory below is historical/current cleanup
+input, not the target design or a requirement to restore every module.
+
 The native-provider restoration currently installs these optional registered modules:
 
 - [array](array.kgr): ArrayList new/len/is_empty/push/from_fn/sort_by/sort,
@@ -42,9 +47,9 @@ exports an enum's constructors at module scope. Remaining namespace/prelude
 migration belongs to the retirement step. Generated views are refreshed by the
 native provider artifact example; they are never executable declaration inputs.
 
-The [active plan](../docs/native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
-records restoration order, acceptance conditions and carried errors. Existing
-behavior tests remain required for final acceptance.
+The [active plan](../docs/native-provider-refactor.md)
+records cleanup-first ordering and the bounded replacement proof. Retained
+language/boundary tests remain required; obsolete APIs are retired explicitly.
 
 Sorting accepts either a supplied comparator or a checked `Ord::cmp` target.
 Both use the same bounded native continuation and stable bottom-up merge. Working

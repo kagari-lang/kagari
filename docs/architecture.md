@@ -4,13 +4,21 @@ This document defines the production architecture for Kagari.
 It describes the intended system shape that implementation work must converge on.
 When existing code conflicts with the specifications, the specifications are authoritative.
 
+The [native collections reset plan](native-provider-refactor.md) defines the
+2026-10-02 target: compiler-owned language protocols, synchronous native calls,
+typed contiguous collection storage and one representative optional library.
+The native-specific descriptions below record predecessor mechanisms awaiting
+replacement; they do not require preserving library-owned language declarations,
+mandatory callback state machines or full-library restoration. The reset plan
+supersedes those implementation details while preserving language semantics.
+
 The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
 implementation checkpoints and final acceptance. Language/runtime behavior follows
 the semantic specifications.
 
-The [native registration plan](native-provider-refactor.md#current-design-decision-2026-10-01)
-records the active declaration direction. Native API definitions authored in Rust
-own signatures, generic parameters, trait contracts, documentation and binding IDs.
+The [native registration plan](native-provider-refactor.md)
+replaces the predecessor declaration/execution direction described here. Native
+API definitions authored in Rust own signatures, generic parameters, trait contracts, documentation and binding IDs.
 `#[native_module]` generates records and checked invocation adapters from actual
 Rust functions, checked representation aliases/wrappers, traits and impls. `NativeValue` supplies
 metadata and conversions, so aliases use their resolved Rust types. Rust checks

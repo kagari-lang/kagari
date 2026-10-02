@@ -1,5 +1,14 @@
 # Native API and standard library declarations
 
+Implementation transition (2026-10-02): the
+[native collections reset plan](../native-provider-refactor.md) supersedes the
+registration ownership of language protocols and mandatory continuation examples
+below. Those examples describe the predecessor implementation awaiting removal.
+The target keeps complete language contracts in the compiler and derives native
+API/tooling declarations from Rust registrations, with synchronous calls by
+default. The former NR restoration obligations are historical, not acceptance
+requirements. Corresponding phase implementation updates the detailed contracts.
+
 Native registration definitions own API declarations and Rust implementation
 bindings. The standard library is an optional native package installed by Engine
 by default, using the same path as application-owned APIs. `.kgr` declaration text
@@ -17,7 +26,7 @@ mark the exported items. `#[native_default]` adds a trait default from its execu
 Rust function template, retaining that template as a private registration. Low-level factories declare scratch roots and own resumable
 state; ordinary typed functions do not manage scratch slots themselves. The
 current adapter supports a bounded set of values and declarations, rather than
-arbitrary Rust/opaque types. See [the typed authoring checkpoint](../native-provider-refactor.md#typed-rust-authoring-implementation).
+arbitrary Rust/opaque types. See [the native reset plan](../native-provider-refactor.md).
 
 Registered free-function ABI records may carry ordinary named trait bounds,
 including applied generic trait arguments. Direct HIR import checks these bounds;
@@ -284,9 +293,9 @@ its bounds before comparing the value. Equal min/max operands preserve the left
 operand, including the sign of floating-point zero.
 Remaining source package declarations and namespace/prelude metadata use their legacy route during
 restoration; the rules below describe that route where not superseded here.
-Other standard implementation APIs are temporarily removed; their specified
-semantics and tests remain NR04 restoration obligations. See the
-[active plan](../native-provider-refactor.md#registration-owned-minimal-checkpoint-2026-10-01).
+Other predecessor library APIs are withdrawn by the reset. Retained language
+semantics and boundary tests remain required; complete restoration is out of scope. See the
+[active plan](../native-provider-refactor.md).
 
 ## Declaration mode
 
@@ -325,7 +334,7 @@ cannot install handlers or acquire provider authority. Instance methods are decl
 `self` inside an inherent or native trait `impl`; there is no method-alias attribute.
 
 The implementation sequence and acceptance status are tracked in
-[the implementation roadmap](../implementation-roadmap.md#standard-library-and-hir-integration-interim-checkpoint).
+[the implementation roadmap](../implementation-roadmap.md).
 
 
 ## Public functions and method views

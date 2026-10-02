@@ -1,5 +1,11 @@
 # Standard Library and HIR Integration Plan
 
+Historical plan, superseded on 2026-10-02 by the
+[native collections reset](native-provider-refactor.md). ST/NR acceptance,
+restoration and accounting obligations stated below are historical records and
+are not prerequisites of the active four-phase plan. This document is retained
+for evidence, not as a second active checklist.
+
 Status: interim migration checkpoint; ST00-ST05 implementation scope complete.
 Final ST06 acceptance and matched measurements remain open and carry into
 [native provider replacement](native-provider-refactor.md) final acceptance under

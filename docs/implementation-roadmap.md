@@ -1,141 +1,47 @@
 # Kagari Implementation Roadmap
 
-## Standard library and HIR integration (interim checkpoint)
+## Native collections reset (active plan; implementation not started)
 
-The [standard-library integration plan](stdlib-hir-refactor.md) records completed
-ST00–ST05 migration scope and open ST06 final acceptance and matched measurements.
-The user's 2026-10-01 direction carries those obligations into NR final acceptance
-and starts with HIR/MIR data design and a minimal standard-library replacement.
-`kagari-stdlib` prepares installed sources; ordinary HIR declarations, signature
-checking and snapshot queries replace the ABI generator and source descriptors.
-Required, Script and Native implementations share checked callable facts; Engine
-and Host providers retain distinct authority and borrow/resource contracts.
+The [native collections reset plan](native-provider-refactor.md) replaces the
+previous ST/NR full-library restoration sequence. The old goal remains paused;
+this planning update does not resume implementation.
 
-Compiler lowering consumes checked substitutions, associated outputs and selected
-witnesses. Portable MIR/bytecode validate complete declarations, layouts, native
-imports and private dependencies without source catalogs. Runtime owns every public
-native standard algorithm through shared Rust helpers or rooted continuations,
-including lazy adapters, prepared mutations, custom keys and selected script calls.
-Core language primitives keep generic typed instructions. The plan's final ownership
-map covers the complete ST00 inventory. These are predecessor results; the NR reset removed its old algorithms.
-Current products use runtime ABI v139, KBC v116, KMIR v14, registration-owned minimal native declarations
-and helper ABI v6; older products require rebuilds.
+Execution has four phases, in strict order:
 
-ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
-specifications, whole-workspace acceptance, structural review and matched baseline
-measurements. Legacy host declaration documents, automatic Rust signature extraction, LSP
-transport and further backend expansion remain later work. This migration does not
-reopen completed historical phase ledgers.
+1. Remove the old library crate, source/declaration catalogs, restored native
+   packages/algorithms, standard-method selectors and tracked executable fixtures.
+   Retain independently justified language/runtime infrastructure, not hidden
+   library dependencies. Finish cleanup before replacement coding.
+2. Implement complete compiler-owned language traits/types independently of native
+   installation: equality/hash/ordering, operators/indexing, iteration, callable
+   and existing implicit formatting/range contracts. Native and script types
+   implement these ordinary contracts.
+3. Replace mandatory native continuations with efficient synchronous functions and
+   callbacks. Prepare callable targets once; use compact primitive collection
+   buffers and scoped bulk access. Lazy cursors retain persistent state; genuine
+   asynchronous suspension alone needs resumable execution machinery.
+4. Prove one optional ArrayList package, including contiguous i32 storage, script
+   comparators, a lazy map iterator, tooling declarations, source-free execution
+   and measured costs. Do not expand this into whole-library restoration.
 
-## Native provider and contract unification (implementation started)
+The plan owns exact scope, acceptance and the only active checklist/ledger.
+Budget schedules and permission matrices do not constrain its native ABI or
+acceptance. No routine version bumps, repeated complete artifact regeneration or
+inherited ST06/NR05 matrix is required. Full repository checks belong to final
+integration; focused checks serve intermediate implementation.
 
-The [native provider refactor plan](native-provider-refactor.md) starts from the
-ST interim checkpoint under the revised 2026-10-01 data-first direction. Its
-HIR/MIR design separates declarations, checked applications, concrete callable
-tables and provider imports. A small `std::array` slice plus an external callback
-consumer must prove the boundary before restoring the remaining implementations.
-NR00-NR05 replace remaining per-standard-method infrastructure policy with common
-native contracts, provider registration and a shared callback/resumption lifecycle
-usable by both built-in and host implementations. Adding a native function using
-existing capabilities must require only its declaration, implementation, provider
-registration and tests, without changes to generic HIR/compiler/verifier/VM logic.
-Provider authority, storage primitives and observable execution semantics remain
-explicit. NR00 audits the current checkpoint and retained primitive inventory;
-NR05 restores full coverage and closes carried ST06 acceptance and measurements.
-The first implementation checkpoint separates method override policy from native
-default identities and carries it through HIR, MIR/bytecode ABI and offline checking.
-The reset removes old algorithms/binding catalogs. The source-owned follow-up
-removes the separate provider crate and handwritten contract/access tables: HIR
-checks declarations, native imports carry opaque IDs and runtime links registered
-handlers against exported checked declarations using the common native driver. ArrayList new/len/push/from_fn and List
-methods pass source, encoded and source-free execution. Broader witness/default
-metadata, persistent state, library restoration and legacy tests remain pending.
-The latest registration-owned checkpoint replaces the array declaration binary
-with native API definitions shared by direct HIR import, runtime installation and
-`.kgr` generation for tooling. Default array installation can be disabled; user
-native packages use the same path. MutableList.set and ArrayList's derived trait
-implementation provide the minimal proof. The typed `#[native_module]` checkpoint
-now derives signatures and invocation adapters from actual Rust functions, array
-wrappers, traits and impls, including aliases and checked generic values. Engine
-builder installation selects ordinary native packages. Rust trait conformance,
-callback steps and runtime value checks remain explicit. Arbitrary Rust/opaque type
-derives and full interoperability migration remain pending.
-Other library declarations and legacy
-host type/path adapters remain migration work. No NR implementation phase has been
-accepted yet.
+The [standard-library integration document](stdlib-hir-refactor.md) and earlier
+ST/NR commits are historical evidence. Their complete restoration obligations and
+per-step execution model are superseded, not carried into this reset. Retained
+language and safety behavior still requires meaningful coverage. Obsolete
+consumer failures are retired explicitly; failures in retained consumers must
+be resolved by final acceptance.
 
-The portable native-default checkpoint maps trait binders explicitly to ordinary
-registered templates, validates inherited obligations and associated outputs, and
-resolves concrete native slots on the shared execution driver. Registered records
-now enter HIR directly and source compilation materializes direct, generic, dynamic
-and selected calls without synthetic script bodies. Final override checks, returned
-GC objects, budget cleanup and generation-pinned callbacks pass source-to-encoded
-proofs. Typed Rust templates now add owned default members and final policies
-without duplicate Rust trait signatures; helper templates stay private. Complete
-external default/template catalogs and projected requirements remain NR02 work.
+## Execution policy work deferred
 
-The concrete-default checkpoint retains actual registered implementation headers
-and methods in the common proof catalog, derives provider module dependencies and
-allows typed concrete selected receivers. A three-package application proves
-native/script direct and dynamic defaults plus nested callbacks with default
-packages disabled. Ordinary projected selected receivers now retain actual
-associated contracts and implied base obligations, with exact registered templates
-carried through artifact emission and linking. The registered cmp package now owns
-comparison protocols, Ordering and actual scalar implementation facts, including
-all integer widths and partial floating-point ordering. Installed namespace aliases
-and real representation providers work with default packages disabled. Prepared
-sort_by/sort now use supplied or selected comparators through the common driver;
-application sorting and a distinct reverse algorithm share rooted preparation.
-Application-owned returned cursors now trace idle captures as GC edges, pin actual
-selected/script callbacks across calls and reload, and obtain fresh common native
-invocations. Aliases share progress; access epochs and scoped dependency guards
-release on completion, traps, cancellation and budget/allocation exhaustion.
-GC threshold one and cyclic collection pass the bounded Cursor/Source/map proof.
-Full standard Iterator restoration, broader state capture schemas, remaining
-library restoration and final acceptance remain open.
-
-The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
-refines NR00-NR05 and was activated in goal mode on 2026-10-01. Start with an ordinary math package and inventory;
-complete selected trait calls, typed callbacks and the bounded returned-state proof before
-bulk restoration. Restore direct helpers, Array/List, Iterator/String state,
-Map/Set and cross-protocol composition in that order. Finish namespace/prelude
-registration, retire kagari-stdlib and rebuild fixtures before full NR05/ST06
-acceptance. The first math package checkpoint restores checked floor/ceil/sqrt, validates
-array/application package composition and records entry workloads. Common typed
-callback packs and resumed results now support external zero/binary/unit and
-repeated nested calls. Selected trait targets and prepared sorting are exercised;
-the application returned-state proof now passes. Direct-family/protocol restoration
-is next. Full-library and whole-workspace acceptance remain open.
-Typed values additionally cover nested tuples, Ordering and a rooted script
-Result handle that preserves Err provenance across native calls. These common
-conversions do not complete the selected-trait or returned-state checkpoints.
-Free-function registration records also carry named trait bounds through HIR,
-generated where clauses and encoded/source-free verification. Runtime linking
-matches complete templates against the sealed verified product. Ordinary associated
-declarations, bindings and output projections now share direct HIR/static/offline
-checking; typed Rust traits/impls derive their own associated and Self signatures.
-Ordinary native interface slots now enter real native frames. Registered generic
-free functions also carry checked selected trait-member callbacks, including
-associated-output receivers, script/private implementations and retained versions.
-Impl/inherent-method bounds and selected method callbacks now share checked MIR
-target records, including source-free dynamic slots. Injected typed selected
-handles derive local or explicitly cataloged external trait requirements for
-free/inherent entries. External native implementations preserve actual Rust trait
-conformance while mapping explicit script identities; composition, installation
-and portable linking check the retained contracts. The later checkpoints above
-complete projected receivers, native defaults, prepared sort_by/sort and the
-bounded application returned-state proof. Frozen full sorting-family budgets,
-full state adapters and library-wide composition remain pending.
-
-## Permissions and execution protection refactor queued
-
-The [execution policy refactor plan](execution-policy-refactor.md) follows NR05
-acceptance and precedes async implementation. EP00-EP05 replace per-execution
-permission matrices with installed API access and exact logical charging with
-coarse runaway protection. Runtime heap/depth limits, root work/cancellation and
-host-owned scheduling/service limits remain distinct. Field writeability follows
-declarations and exposed adapters, not extra permission flags. This is queued
-planning only; existing ST/NR semantics remain in force until its implementing phases.
+The [execution-policy proposal](execution-policy-refactor.md) is separate future
+work. Its former ST06/NR05 ordering does not govern this reset, and permission or
+budget redesign must not become a prerequisite or an expanding parallel phase.
 
 ## Rust value and opaque interoperability queued
 
