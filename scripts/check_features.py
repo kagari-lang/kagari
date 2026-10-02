@@ -67,6 +67,8 @@ def run(native_proof: bool = False) -> None:
             options.append('optional = true')
         lines.append(f'kagari-{name} = {{ {", ".join(options)} }}')
     targets = ["native_provider_artifact", "native_registration", "native_math", "native_callbacks", "native_values", "native_bounds", "native_associated", "native_selected", "native_defaults", "native_default_source", "native_default_typed", "native_default_external", "native_ops", "native_concrete", "native_projected", "native_cmp", "native_sorting", "native_state", "native_numeric", "native_math_complete", "native_string", "native_debug"] if native_proof else ["artifact_features"]
+    if native_proof:
+        targets.append("native_scalar_protocol")
     for target in targets:
         lines += ['[[test]]', f'name = "{target}"',
                   f'path = {json.dumps(str(ROOT / "crates/kagari-embed/tests" / f"{target}.rs"))}']

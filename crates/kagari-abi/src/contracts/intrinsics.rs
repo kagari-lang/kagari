@@ -15,7 +15,15 @@ pub(super) fn verify(
         (Intrinsic::ValueEq, [left, right]) if left == right => ValueType::Bool,
         (
             Intrinsic::ValueHash,
-            [ValueType::Bool | ValueType::I32 | ValueType::I64 | ValueType::U64 | ValueType::Str],
+            [
+                ValueType::Unit
+                | ValueType::Bool
+                | ValueType::I32
+                | ValueType::I64
+                | ValueType::U64
+                | ValueType::Str
+                | ValueType::HeapObject,
+            ],
         ) => ValueType::I64,
         (Intrinsic::ValueDebug | Intrinsic::ValueDisplay, [_]) => ValueType::Str,
         (Intrinsic::StringPartsJoin, [ValueType::HeapObject, ValueType::Str]) => ValueType::Str,

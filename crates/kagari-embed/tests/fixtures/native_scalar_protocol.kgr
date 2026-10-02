@@ -1,0 +1,61 @@
+use std::hash::Hash;
+use std::string::String;
+use std::fmt::{Debug, Display};
+use std::cmp::{PartialEq, Eq, Ordering};
+use game::selection::{stamp, diagnostic, display};
+use game::presentation::{Render, fingerprint};
+struct Identifier { val key: i64 }
+impl PartialEq for Identifier { fn eq(self, other: Self) -> bool { self.key == other.key } }
+impl Eq for Identifier {}
+impl Hash for Identifier { fn hash(self) -> i64 { self.key } }
+impl Debug for Identifier { fn debug(self) -> String { "identifier debug" } }
+impl Display for Identifier { fn display(self) -> String { "identifier display" } }
+struct Payload { val number: i32 }
+fn signed() -> bool {
+    (-128i8).hash() == stamp(-128i8) && (-32768i16).hash() == stamp(-32768i16) &&
+    (-2147483648i32).hash() == stamp(-2147483648i32) &&
+    (-9223372036854775808i64).hash() == stamp(-9223372036854775808i64) &&
+    (-1isize).hash() == stamp(-1isize) &&
+    (-128i8).debug() == "-128" && (-32768i16).display() == "-32768" &&
+    (-2147483648i32).debug() == "-2147483648" &&
+    (-9223372036854775808i64).display() == "-9223372036854775808" &&
+    (-1isize).debug() == diagnostic(-1isize)
+}
+fn unsigned() -> bool {
+    255u8.hash() == stamp(255u8) && 65535u16.hash() == stamp(65535u16) &&
+    4294967295u32.hash() == stamp(4294967295u32) &&
+    18446744073709551615u64.hash() == stamp(18446744073709551615u64) &&
+    42usize.hash() == stamp(42usize) &&
+    255u8.debug() == "255" && 65535u16.display() == "65535" &&
+    4294967295u32.debug() == "4294967295" &&
+    18446744073709551615u64.display() == "18446744073709551615" &&
+    42usize.display() == display(42usize)
+}
+fn other() -> bool {
+    true.hash() == stamp(true) && ().hash() == stamp(()) &&
+    Ordering::Less.hash() == stamp(Ordering::Less) && diagnostic(Ordering::Less) == "Ordering::Less" &&
+    "é😀".hash() == stamp("é😀") && "é😀".hash() == fingerprint("é😀") &&
+    true.debug() == "true" && false.display() == "false" && ().debug() == "()" &&
+    1.25f32.debug() == "1.25" && (-0.0f64).display() == "-0" &&
+    "é😀".debug() == "é😀".render() && "é😀".display() == "é😀"
+}
+fn custom() -> bool {
+    val value = Identifier { key: 42i64 };
+    stamp(value) == 42i64 && value.hash() == 42i64 &&
+    diagnostic(value) == "identifier debug" && display(value) == "identifier display"
+}
+fn implicit() -> bool {
+    val first = Payload { number: 7 };
+    val alias = first;
+    first.hash() == alias.hash() &&
+    (1i32, true).debug() == "(1, true)" &&
+    (Identifier { key: 42i64 }, 1i32).hash() == (Identifier { key: 42i64 }, 1i32).hash()
+}
+fn string_debug() -> String { "é😀".debug() }
+fn string_display() -> String { display("é😀") }
+fn string_hash() -> i64 { stamp("é😀") }
+fn app_main() -> String { "é😀".render() }
+fn render_view(value: Render) -> String { value.render() }
+fn dynamic() -> bool {
+    render_view("é😀") == diagnostic("é😀")
+}

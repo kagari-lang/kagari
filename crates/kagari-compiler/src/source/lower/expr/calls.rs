@@ -190,7 +190,10 @@ impl FunctionLowerer<'_, '_> {
             }
             return self.lower_selected_operator(expr, &values);
         }
-        if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
+        if let TypeckCallTarget::TraitMethod {
+            ref interface,
+            ref method,
+        } = call.target
             && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
             && protocol.equality_protocol()
         {
@@ -215,6 +218,20 @@ impl FunctionLowerer<'_, '_> {
             match self.lower_values(args)? {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
+            }
+            if self
+                .planner
+                .catalog
+                .implementation_method(method, interface, &ty)
+                .is_some()
+            {
+                return self.lower_applied_method(
+                    interface.clone(),
+                    ty,
+                    method,
+                    &call.type_arguments,
+                    &values,
+                );
             }
             return self.lower_protocol(protocol, &ty, &values, 0);
         }

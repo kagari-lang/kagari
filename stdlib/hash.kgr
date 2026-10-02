@@ -1,3 +1,77 @@
+// Generated from native registration definitions. Do not edit.
+
+/// A script hash consistent with equality, not a persistent identifier.
 pub trait Hash {
+    /// Return the runtime key hash of this value.
     fn hash(self) -> i64;
+}
+
+impl Hash for i8 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for i16 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for i32 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for i64 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for isize {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for u8 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for u16 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for u32 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for u64 {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for usize {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for bool {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for String {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for () {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
+}
+
+impl Hash for Ordering {
+    /// Return the runtime key hash of this value.
+    pub fn hash(self) -> i64;
 }

@@ -6,6 +6,8 @@ pub mod catalog;
 pub mod cmp_api;
 pub mod debug_api;
 pub mod factory;
+pub mod fmt_api;
+pub mod hash_api;
 pub mod math_api;
 pub mod numeric_api;
 pub mod ops_api;

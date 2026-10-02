@@ -1,6 +1,168 @@
+// Generated from native registration definitions. Do not edit.
+
+/// A bounded diagnostic rendering; objects may retain identity previews.
 pub trait Debug {
+    /// Render this value with diagnostic quoting and escapes.
     fn debug(self) -> String;
 }
+
+/// A bounded plain rendering for displayable values.
 pub trait Display {
+    /// Render this value without diagnostic string quoting.
     fn display(self) -> String;
+}
+
+impl Debug for Ordering {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Debug for i8 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for i8 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for i16 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for i16 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for i32 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for i32 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for i64 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for i64 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for isize {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for isize {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for u8 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for u8 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for u16 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for u16 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for u32 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for u32 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for u64 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for u64 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for usize {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for usize {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for bool {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for bool {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for String {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for String {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for () {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for () {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for f32 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for f32 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
+}
+
+impl Debug for f64 {
+    /// Render this value with diagnostic quoting and escapes.
+    pub fn debug(self) -> String;
+}
+
+impl Display for f64 {
+    /// Render this value without diagnostic string quoting.
+    pub fn display(self) -> String;
 }

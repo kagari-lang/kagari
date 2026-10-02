@@ -16,9 +16,15 @@ Rust functions, checked representation aliases/wrappers, traits and impls. `Nati
 metadata and conversions, so aliases use their resolved Rust types. Rust checks
 function bodies and trait method signatures; shared support supplies identities
 and generic binders. Open script generics use rooted checked value proxies.
-The bundled ops, array, cmp, debug, math, numeric, Option, Result and String modules compose the default, optional library using
+The bundled ops, array, cmp, debug, hash, fmt, math, numeric, Option, Result and String modules compose the default, optional library using
 the same NativeApi installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
+
+The registered hash/fmt protocols own their actual scalar implementations. Shared
+checked scalar helpers preserve script hashes and bounded rendering, charge native
+work and retain converted values through the pinned call view. Implicit object
+identity and member-composition bridges remain language primitives; selected
+callback facts for those implicit implementations are still migration work.
 
 Closed numeric Rust adapters own their signature predicates. NativeNumber<T>
 and NativeSignedNumber<T> emit OrderedNumber and SignedNumber respectively;

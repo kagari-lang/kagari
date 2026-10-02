@@ -243,6 +243,19 @@ Self-parameter protocols retain their static applicability and cannot be boxed
 as dynamic interface values. Narrow unsigned values use the ABI's I64 runtime
 representation with checked range conversion; u64/usize use U64.
 
+The optional `std::hash` and `std::fmt` packages own their Hash, Debug and Display
+declarations. Actual native Hash implementations cover all ten integer widths,
+bool, String, unit and Ordering. Debug covers the same values plus f32/f64.
+Display covers all integer widths, bool, String, unit and f32/f64; Ordering
+retains no implicit Display.
+Shared checked helpers preserve the runtime key hash and diagnostic/plain
+rendering rules, including UTF-8, string escapes, signed zero and the existing
+one-MiB formatting bound. Native work charges scalar input and output bytes.
+These protocols retain their static-only interface applicability. Application
+protocols use the ordinary checked native slots and may define dynamic interfaces.
+Implicit identity/member semantics remain language primitives; carrying their
+callable facts into selected native callbacks remains an open migration item.
+
 Installed native modules may declare a package alias independently of canonical
 identity. Conflicting aliases or an alias shadowing another installed canonical
 package reject composition. HIR resolves registered representation references

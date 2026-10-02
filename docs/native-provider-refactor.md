@@ -237,7 +237,7 @@ an execution owner without rebuilding a central method catalog in production.
 | LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
 | collect/partition, destination impls, Sum/Product and conversion blankets | 7 | Pending selected destinations and complete composition |
 | debug direct entries / assert_eq | 3 / 7 | print/assert/panic restored from actual Rust functions, with guarded common host invocation and native Never; selected assert_eq remains pending in 7 |
-| cmp/hash/fmt/ops/convert/iter contracts, seven enums and thirteen type constructors | 2-3 | cmp/Ordering/scalar comparison facts and ops/range/Bound registered; remaining declarations and primitive ownership pending in 3 |
+| cmp/hash/fmt/ops/convert/iter contracts, seven enums and thirteen type constructors | 2-3 | cmp/Ordering/scalar comparison facts, hash/fmt contracts/scalar impls and ops/range/Bound registered; convert/iter and implicit callable facts remain pending in 3/7 |
 | Implicit scalar/operator/index/range/closure implementation facts | 3 and 7 | Classify validated engine primitives in 3; composed/blanket contracts finish in 7 |
 | Namespace, variant exports, prelude and legacy source crate | 8 | Pending migration and retirement |
 | Existing fixture constructors and full artifact | Affected checkpoints 1-3 / 8 | Minimal math/array artifact updated in 1; carried old-model targets remain NR04 debt |
@@ -268,6 +268,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Restore all six direct Option/Result queries with rooted payloads and preserved error provenance.
   - [x] Restore print/assert/panic with guarded host invocation and an uninhabited native result.
   - [x] Preserve implicit Struct/Tuple/enum equality without installed protocol declarations; retain checked custom composition.
+  - [x] Register Hash/Debug/Display with actual scalar implementations, shared checked helpers and application/source-free proofs.
+  - [ ] Carry implicit protocol callable facts into selected native callbacks; retain default identity/member semantics and custom composition.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
 - [ ] 5: Iterator and String/range traversal/state.
 - [ ] 6: Map/Set and custom keys/snapshots/grouping.
@@ -3677,3 +3679,121 @@ claim full workspace/all-target acceptance from the focused comparison proof.
 
 Next restore actual hash/fmt/convert/iter contracts and retained primitive facts,
 then continue full Array/List, state/traversal, Map/Set and composition restoration.
+
+### NR04 checkpoint: registered hash/fmt scalar protocols (2026-10-02)
+
+Task: restore Hash/Debug/Display declarations and actual scalar implementation
+facts through native registration. Keep the complete restoration goal active;
+no NR phase or full protocol-callable coverage is accepted by this checkpoint.
+
+- Register std::hash::Hash from its actual Rust trait and fourteen Rust impls:
+  all ten integer widths, bool, String, unit and Ordering. Register std::fmt::Debug
+  and Display from actual Rust traits with thirty-one impls: sixteen Debug impls
+  and fifteen Display impls. Floats supply formatting but not Hash; Ordering
+  supplies Hash/Debug and retains no Display.
+- Shared checked scalar operations validate the converted first argument against
+  its pinned application and limit it to builtin/Ordering representations. They
+  reuse the script MapKey hash and bounded language formatter, preserving integer
+  wire categories, UTF-8, diagnostic escapes, signed zero and the one-MiB output
+  bound. Native work charges input and formatted output bytes; conversion roots
+  and dependency versions belong to NativeCall. No raw heap/host reference is
+  exposed, and these helpers do not select arbitrary user protocols.
+- Explicit equality-protocol method calls with an actual checked implementation
+  now use ordinary applied-method lowering. Registered scalar .hash()/.eq() calls
+  no longer bypass their native implementation records. Binary implicit equality
+  and default identity/member composition retain their existing language bridge.
+- Repair the closed hash primitive's physical contract to admit Unit/HeapObject,
+  matching its existing runtime implementation and language defaults. Float and
+  host operands remain invalid; runtime handle/value-category checks remain.
+  This changes no serialized record. ABI 139 / KBC 116 / KMIR 14 / helper ABI 6
+  remain current. Newly selected native methods/default exports change affected
+  products and logical native-call charging; rebuild those products.
+- Default selection installs the two ordinary packages. Remove hash/fmt from the
+  legacy source manifest and generate both .kgr views from registration records.
+  Extend the exact native declaration URI inventory rather than weakening its
+  complete equality assertion. String/Option/Ordering signatures require their
+  actual installed representation providers, as in the existing native route.
+- A separate application Render protocol and fingerprint function use the same
+  checked operations. The application owns its Text representation and can run
+  with every standard package absent. Its dynamic Render slot uses the common
+  native driver. Separate selected standard Hash/Debug/Display callbacks exercise
+  real native scalar and user-script implementations with defaults disabled.
+- Rebuild the current native proof products. Provider/projected products reflect
+  additional default declarations; cmp reflects the ordinary registered .eq()
+  path. Other current generated products retain their bytes. Add the dedicated
+  scalar protocol product to the standalone feature proof.
+
+Behavioral evidence:
+
+- All integer widths at representative bounds, bool, String, unit, Ordering,
+  floating formatting, custom script hashing/formatting, default object alias
+  hashes, custom member hashes and Tuple diagnostics execute source-free.
+- Diagnostic/plain text and hashes agree with language value semantics for empty,
+  UTF-8, quoted, escaped and control-character inputs. Text hashes use script
+  key hashing rather than Rust's scalar/string Hash implementation directly.
+- Selected native/script callbacks, application dynamic slots, every instruction
+  budget cut, frame/root release and forced collection pass with GC threshold one.
+  Larger String inputs charge the exact input/output-byte delta, including escapes.
+  Oversized diagnostic/plain results trap cleanly; insufficient input work budgets
+  fail before formatting completes. Forged selected native hash results reject
+  offline. Actual prepared backend execution preserves results through its native
+  call interpreter fallback.
+- Source products retain exact encoded bytes. Hash/Debug declaration navigation
+  uses generated registered coordinates; invalid float Hash, wrong result types
+  and unsupported Display contexts reject statically. Application-only Text,
+  Render and fingerprint compile and execute without standard installation.
+
+Validation discoveries and open capability:
+
+- Initial Rust receivers used by-value self, which the checked authoring adapter
+  correctly rejects. Use &self and checked scalar copies. Initial source closure
+  omitted actual String/Option providers; install their real packages and import
+  the named String representation rather than fabricate declarations.
+- A first text test attempted SDK entry arguments, which remain unsupported.
+  Use zero-argument fixture entries and rebuild/reverify patched constants through
+  the existing source-free artifact pattern; retain all parameter/value checks.
+- Canonical Hash/Debug/Display interface values are rejected under the existing
+  static-only protocol rule. Do not reopen that semantic boundary to make a
+  dynamic test pass; the application-owned Render interface supplies the actual
+  shared native-slot proof.
+- A temporary source probe adding
+  `fn implicit_selected_probe() -> i64 { stamp(Payload { number: 7 }) }`
+  to this fixture passes static Hash eligibility but fails MIR lowering with
+  MissingBinding("checked native callable requirement"). The actual catalog
+  contains no explicit impl target for this language-provided identity Hash.
+  Direct default Hash works; selected callbacks still need checked portable
+  implicit protocol callable facts, including member/custom composition. Reproduce
+  with the scalar generator after adding that probe. Its failed generator never
+  publishes a product, and the fixture was restored before final generation.
+  Log: target/native-scalar-protocol-implicit-selected-probe.log. Step 3/7 owns this
+  capability; prioritize it before depending on generic key/container callbacks.
+  Do not freeze this limitation with a test asserting the incorrect rejection,
+  invent an implementation ID or add a named compiler-library fallback.
+
+Consolidated validation:
+
+- Scalar protocol tests pass 7 artifact-only and 11 source+native tests.
+- uv run --locked scripts/check_features.py --native-proof passes twenty-three
+  standalone targets in all four routes: 138 artifact-only, 214 source, 142 native
+  and 219 source+native tests. All eight production boundaries and the independent
+  ABI build graph pass. Scalar protocols contribute 7/10/8/11 tests across those
+  routes. Execution-only consumers exclude HIR, syntax and the legacy source crate.
+- Workspace library Clippy and focused scalar/cmp/registration tests and generator
+  Clippy pass with warnings denied. Structure checks pass for 903 Rust files,
+  zero violations/exceptions. Manual review confirms explicit owner imports,
+  no Rust re-exports, actual trait conformance and preserved runtime validation.
+- Format and git diff --check pass. Complete workspace/all-target acceptance stays
+  open for the carried failures and full restoration obligations below.
+
+Logs: target/native-scalar-protocol-check.log, target/native-scalar-protocol-tests.log,
+target/native-scalar-protocol-artifact-tests.log, target/native-scalar-protocol-generate.log,
+target/native-scalar-protocol-*-generate.log, target/native-scalar-protocol-clippy.log,
+target/native-scalar-protocol-focused-clippy.log, target/native-scalar-protocol-structure.log
+and target/native-scalar-protocol-feature-matrix.log.
+
+Carried errors retain their existing owners: fourteen ABI/seventeen HIR removed-model
+lib-test errors, three legacy source-package preparation/documentation failures,
+remaining collections/state/composition, frozen budgets, consumer/source retirement
+and complete NR05/ST06 acceptance/measurements. No full workspace/all-target result
+is claimed. Next complete the checked implicit selected-callable capability and
+remaining convert/iter declarations, then continue the original restoration order.

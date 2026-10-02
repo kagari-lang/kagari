@@ -14,6 +14,7 @@ pub mod range;
 pub mod reorder;
 pub mod representation;
 pub mod result;
+pub mod scalar_protocol;
 pub mod selected;
 pub mod text;
 mod tuples;
