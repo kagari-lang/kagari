@@ -801,7 +801,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let source = dir.join("main.kgr");
         let artifact = dir.join("main.kbc");
-        fs::write(&source, "fn fail()->Result<i32,String>{\n    Err(\"original\")\n}\nfn main()->Result<i32,String>{fail().map_err(|e|\"mapped\")}").unwrap();
+        fs::write(&source, "fn fail()->Result<i32,String>{\n    Err(\"original\")\n}\nfn main()->Result<i32,String>{Ok(fail()?)}").unwrap();
         run_cli(Cli {
             command: Command::Emit {
                 source: source.clone(),
@@ -820,7 +820,7 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(direct.exit_code(), 1);
-        assert!(direct.to_string().contains("Result::Err: mapped"));
+        assert!(direct.to_string().contains("Result::Err: original"));
         assert!(direct.to_string().contains("main.kgr:2:5"));
         // Portable reporting must not read edited source files during artifact execution.
         fs::write(&source, "this is no longer the compiled code").unwrap();

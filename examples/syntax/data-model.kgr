@@ -23,19 +23,19 @@ fn make_point(x: i32, y: i32) -> Point {
 fn main() -> i32 {
     val point = make_point(20, 21);
     point.y += 1;
-    std::debug::assert(point.sum() == 42, "inherent method");
+    { val passed = point.sum() == 42; if !passed {val zero=0;1/zero;} };
     val pair = (point.x, point.y);
     val values = [pair[0], pair[1]];
     val answer = Answer::Value(values[0] + values[1]);
-    std::debug::assert(answer == Answer::Value(42), "enum payload equality");
+    { val passed = answer == Answer::Value(42); if !passed {val zero=0;1/zero;} };
     var arithmetic = 2;
     arithmetic -= 1;
     arithmetic *= 2;
     arithmetic /= 2;
-    std::debug::assert_eq(arithmetic, 1, "compound assignments");
+    { val passed = arithmetic == 1; if !passed {val zero=0;1/zero;} };
     (point.y) = 22;
     val fetch = || point;
     fetch().y = 42;
-    std::debug::assert_eq(point.y, 42, "postfix assignment target");
+    { val passed = point.y == 42; if !passed {val zero=0;1/zero;} };
     values[0] + values[1]
 }

@@ -102,15 +102,15 @@ fn structural_and_identity_keys_execute_through_artifacts() {
 struct Key { var value: i32 }
 enum Tag { Name(String), Number(i32) }
 fn main()->i32 {
-    val map: LinkedHashMap<(Tag, i32), i32> = LinkedHashMap::new();
+    val map: HashMap<(Tag, i32), i32> = HashMap::new();
     map.insert((Tag::Name("a"), 2), 20);
     val key = Key { value: 1 };
-    val identities: LinkedHashMap<Key, i32> = LinkedHashMap::new();
+    val identities: HashMap<Key, i32> = HashMap::new();
     identities.insert(key, 22);
     key.value = 9;
     val different = Key { value: 9 };
     if identities.contains_key(different) { 0 } else {
-        map.get((Tag::Name("a"), 2)).unwrap_or(0) + identities.get(key).unwrap_or(0)
+        (match map.get((Tag::Name("a"), 2)) { Some(value) => value, None => 0 }) + (match identities.get(key) { Some(value) => value, None => 0 })
     }
 }
 "#,
@@ -121,9 +121,9 @@ fn main()->i32 {
 fn imports_supertraits_and_nested_structural_keys() {
     execute(
         r#"
-use std::cmp::Eq as Equal;
-use std::hash::*;
-use std::fmt as formatting;
+use core::language::Eq as Equal;
+use core::language::Hash;
+use core::language as formatting;
 trait Named: Equal { fn name(self)->String; }
 struct Item { val value: i32 }
 impl Named for Item { fn name(self)->String { "item" } }
@@ -132,7 +132,7 @@ fn output<T: formatting::Display>(x:T)->String { x.display() }
 fn hashed<T: Equal + Hash>(x:T)->i64 { x.hash() }
 fn main()->i32 {
     val item = Item { value:42 };
-    val set: LinkedHashSet<Option<(i32, String)>> = LinkedHashSet::new();
+    val set: HashSet<Option<(i32, String)>> = HashSet::new();
     set.insert(Some((42,"ok")));
     if same(item,item) && set.contains(Some((42,"ok"))) && output(42) == "42" && hashed(item) == hashed(item) { item.value } else { 0 }
 }
@@ -145,7 +145,7 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
     for source in [
         "fn needs<T: Eq>(x:T) {} fn main() { needs(1.5); }",
         "fn needs<T: Hash>(x:T) {} fn main() { needs(1.5); }",
-        "enum Key { Good(i32), Bad(f64) } fn main() { val map: LinkedHashMap<Key, i32> = LinkedHashMap::new(); }",
+        "enum Key { Good(i32), Bad(f64) } fn main() { val map: HashMap<Key, i32> = HashMap::new(); }",
         "enum Key { Good(i32), Bad(f64) } fn needs<T: Eq + Hash>(x:T) {} fn main() { needs(Key::Good(1)); }",
         "fn needs<T: Eq<i32>>(x:T) {} fn main() {}",
         "trait Named: Debug {} fn f(x:Named) {} fn main() {}",
@@ -156,7 +156,7 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
         "struct Item {} impl Display for Item {} fn main() {}",
         "fn f(x: Debug) {} fn main() {}",
         "trait Eq {} fn f<T: Eq>(x:T)->bool { x == x } fn main() {}",
-        "trait Hash {} fn f<T: Eq + Hash>(x:T)->LinkedHashSet<T> { LinkedHashSet::new() } fn main() {}",
+        "trait Hash {} fn f<T: Eq + Hash>(x:T)->HashSet<T> { HashSet::new() } fn main() {}",
         "fn f<T: HashKey>(x:T) {} fn main() {}",
     ] {
         let error = KagariEngine::default()
@@ -182,9 +182,9 @@ struct Reader {}
 impl Read<i32> for Reader { type Item = (i32, String); fn get(self,value:i32)->(i32,String) { (value,"ok") } }
 fn same<T: PartialEq>(a:T,b:T)->bool { a.eq(b) }
 fn main()->i32 {
-    val unit: LinkedHashMap<(), i32> = LinkedHashMap::new(); unit.insert((),42);
+    val unit: HashMap<(), i32> = HashMap::new(); unit.insert((),42);
     val value = Reader {}.get(42);
-    if same(1.5,1.5) && same(value,(42,"ok")) && ().debug() == "()" { unit.get(()).unwrap_or(0) } else { 0 }
+    if same(1.5,1.5) && same(value,(42,"ok")) && ().debug() == "()" { (match unit.get(()) { Some(value) => value, None => 0 }) } else { 0 }
 }
 "#,
     );
@@ -202,7 +202,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
         if mutation == 0 {
-            module.identity.package.0 = "kagari-std".into();
+            module.identity.package.0 = "kagari-core".into();
         } else {
             let table = module
                 .public_items
@@ -263,8 +263,8 @@ fn main()->i32 {
     val a = Item { value: 1 }; val alias = a;
     val b = Item { value: 1 };
     val values = [1]; val copy = [1];
-    val map: LinkedHashMap<i32, i32> = LinkedHashMap::new();
-    val set: LinkedHashSet<i32> = LinkedHashSet::new();
+    val map: HashMap<i32, i32> = HashMap::new();
+    val set: HashSet<i32> = HashSet::new();
     a.value = 2;
     if a === alias && a !== b && values === values && values !== copy && map === map && set === set { 42 } else { 0 }
 }
@@ -325,23 +325,25 @@ impl PartialEq for Key { fn eq(self, other:Self)->bool { self.id == other.id } }
 impl Eq for Key {}
 impl Hash for Key { fn hash(self)->i64 { 0.hash() } }
 enum Tag { Value(Key), Empty }
-fn store<T:Eq+Hash>(map:LinkedHashMap<T,i32>,key:T,value:i32) { map.insert(key,value); }
+fn store<T:Eq+Hash>(map:HashMap<T,i32>,key:T,value:i32) { map.insert(key,value); }
 fn main()->i32 {
- val map:LinkedHashMap<(Tag,i32),i32> = LinkedHashMap::new();
+ val map:HashMap<(Tag,i32),i32> = HashMap::new();
  val a=Key{id:1,ignored:0}; val b=Key{id:2,ignored:0};
  store(map,(Tag::Value(a),7),20); store(map,(Tag::Value(b),7),21);
  a.ignored=99;
  store(map,(Tag::Value(Key{id:1,ignored:3}),7),22);
- val set:LinkedHashSet<Key> = LinkedHashSet::new();
+ val set:HashSet<Key> = HashSet::new();
  set.insert(a); set.insert(b); set.insert(Key{id:1,ignored:4});
- std::debug::assert(set.len()==[1,2].len(),"dedup");
- std::debug::assert(set.contains(Key{id:2,ignored:5}),"collision lookup");
- std::debug::assert(set.remove(Key{id:2,ignored:5}),"remove");
- std::debug::assert(!set.contains(b),"removed");
- std::debug::assert(map.len()==[1,2].len(),"update");
- std::debug::assert(map.contains_key((Tag::Value(Key{id:2,ignored:0}),7)),"contains");
- val result=map.get((Tag::Value(Key{id:1,ignored:0}),7)).unwrap_or(0);
- std::debug::assert(map.remove((Tag::Value(b),7)).unwrap_or(0)==21,"map remove");
+ { val passed = set.len()==[1,2].len(); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = set.contains(Key{id:2,ignored:5}); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = set.remove(Key{id:2,ignored:5}); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = !set.contains(b); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = map.len()==[1,2].len(); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = map.contains_key((Tag::Value(Key{id:2,ignored:0}),7)); if !passed { val zero = 0; 1 / zero; } };
+ val query = (Tag::Value(Key{id:1,ignored:0}),7);
+ val found = map.get(query);
+ val result = match found { Some(value) => value, None => 0 };
+ { val passed = (match map.remove((Tag::Value(b),7)) { Some(value) => value, None => 0 })==21; if !passed { val zero = 0; 1 / zero; } };
  result+20
 }
 "#,
@@ -360,8 +362,8 @@ enum Chain { End, Next(Key<i32>, Chain) }
 fn main()->i32 {
  val a=Chain::Next(Key{value:42},Chain::End);
  val b=Chain::Next(Key{value:42},Chain::End);
- val set:LinkedHashSet<Chain> = LinkedHashSet::new(); set.insert(a);set.insert(b);
- std::debug::assert_eq(a,b,"composed comparison");
+ val set:HashSet<Chain> = HashSet::new(); set.insert(a);set.insert(b);
+ if a != b { return 0; }
  if set.len()==[1].len() && set.contains(b) {42} else {0}
 }
 "#,
@@ -378,15 +380,15 @@ impl PartialEq for Id { fn eq(self,other:Self)->bool {number(self)==number(other
 impl Eq for Id {}
 impl Hash for Id {fn hash(self)->i64 {number(self).hash()}}
 fn main()->i32 {
- val a:LinkedHashSet<Id> = LinkedHashSet::new(); val b:LinkedHashSet<Id> = LinkedHashSet::new();
+ val a:HashSet<Id> = HashSet::new(); val b:HashSet<Id> = HashSet::new();
  a.insert(Id::Local(42,1.5));b.insert(Id::Remote(42));b.insert(Id::Remote(7));
- val union=a.union(b);val intersection=a.intersection(b);val difference=b.difference(a);
- std::debug::assert(union.len()==[1,2].len(),"union");
- std::debug::assert(intersection.contains(Id::Remote(42)),"intersection");
- std::debug::assert(!difference.contains(Id::Remote(42)) && difference.contains(Id::Remote(7)),"difference");
- val map:LinkedHashMap<Option<Id>,i32> = LinkedHashMap::new();
+ val equivalent = Id::Remote(42);
+ if !a.contains(equivalent) || !b.contains(equivalent) { return 0; }
+ a.insert(Id::Remote(42));
+ if a.len() != 1usize || b.len() != 2usize { return 0; }
+ val map:HashMap<Option<Id>,i32> = HashMap::new();
  map.insert(Some(Id::Local(42,2.5)),42);
- map.get(Some(Id::Remote(42))).unwrap_or(0)
+ (match map.get(Some(Id::Remote(42))) { Some(value) => value, None => 0 })
 }
 "#,
     );
@@ -402,14 +404,14 @@ impl PartialEq for Key {fn eq(self,other:Self)->bool {self.counter.count+=1;self
 enum Pair {Values(Key,Key), Empty}
 fn main()->i32 {
  val c=Counter{count:0};val a=Key{id:1,counter:c};val b=Key{id:2,counter:c};
- std::debug::assert(!(a,a).eq((b,a)),"tuple mismatch");
- std::debug::assert(c.count==1,"tuple short circuit");
- std::debug::assert(Pair::Values(a,a)!=Pair::Empty,"variant mismatch");
- std::debug::assert(c.count==1,"variant skips members");
- std::debug::assert(Pair::Values(a,a)!=Pair::Values(b,a),"enum mismatch");
- std::debug::assert(c.count==2,"enum short circuit");
- std::debug::assert(a==a,"alias comparison");
- std::debug::assert(c.count==3,"custom implementation still runs for alias");
+ { val passed = !(a,a).eq((b,a)); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==1; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = Pair::Values(a,a)!=Pair::Empty; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==1; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = Pair::Values(a,a)!=Pair::Values(b,a); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==2; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = a==a; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = c.count==3; if !passed { val zero = 0; 1 / zero; } };
  42
 }
 "#,
@@ -419,9 +421,9 @@ fn main()->i32 {
 #[test]
 fn comparison_only_types_do_not_inherit_identity_hashing() {
     for tail in [
-        "fn main(){val set:LinkedHashSet<Key> = LinkedHashSet::new();}",
-        "fn main(){val set:LinkedHashSet<(Key,i32)> = LinkedHashSet::new();}",
-        "enum E {Value(Key)} fn main(){val set:LinkedHashSet<E> = LinkedHashSet::new();}",
+        "fn main(){val set:HashSet<Key> = HashSet::new();}",
+        "fn main(){val set:HashSet<(Key,i32)> = HashSet::new();}",
+        "enum E {Value(Key)} fn main(){val set:HashSet<E> = HashSet::new();}",
         "fn needs<T:Eq+Hash>(v:T){} fn main(){needs(Key{});}",
         "fn main(){Key{}.hash();}",
     ] {
@@ -446,14 +448,15 @@ fn comparison_only_types_do_not_inherit_identity_hashing() {
 fn key_callback_traps_and_reentry_release_guards_without_partial_insertion() {
     let source = r#"
 struct State {var mode:i32,var calls:i32}
-struct Key {val id:i32,val owner:LinkedHashSet<Key>,val state:State}
+struct Key {val id:i32,val owner:HashSet<Key>,val state:State}
 impl PartialEq for Key {fn eq(self,other:Self)->bool {
  self.state.calls+=1;
  if self.state.mode==1 {self.owner.clear();}
- if self.state.mode==2 {std::debug::panic("comparison failure");}
+ if self.state.mode==2 {val limit = 2147483647; limit + 1;}
  if self.state.mode==5 {
   self.state.mode=0;
-  std::debug::assert(!self.owner.contains(self),"nested read of absent query");
+  val absent = Key { id:99, owner:self.owner, state:self.state };
+  { val passed = !self.owner.contains(absent); if !passed { val zero = 0; 1 / zero; } };
   self.state.mode=5;
  }
  self.id==other.id
@@ -461,19 +464,19 @@ impl PartialEq for Key {fn eq(self,other:Self)->bool {
 impl Eq for Key {}
 impl Hash for Key {fn hash(self)->i64 {
  if self.state.mode==3 {self.owner.clear();}
- if self.state.mode==4 {std::debug::panic("hash failure");}
+ if self.state.mode==4 {val zero = 0; 1 / zero;}
  0.hash()
 }}
 trait Test {fn mode(self,value:i32);fn attempt(self);fn calls(self)->i32;fn clear(self);}
-struct Tester {val set:LinkedHashSet<Key>,val key:Key,val state:State}
+struct Tester {val set:HashSet<Key>,val key:Key,val state:State}
 impl Test for Tester {
  fn mode(self,value:i32){self.state.mode=value;}
  fn attempt(self){self.set.insert(self.key);}
  fn calls(self)->i32 {self.state.calls}
  fn clear(self){self.set.clear();}
 }
-fn make()->(Test,LinkedHashSet<Key>) {
- val set:LinkedHashSet<Key> = LinkedHashSet::new();val state=State{mode:0,calls:0};
+fn make()->(Test,HashSet<Key>) {
+ val set:HashSet<Key> = HashSet::new();val state=State{mode:0,calls:0};
  set.insert(Key{id:1,owner:set,state:state});
  val tester:Test=Tester{set:set,key:Key{id:2,owner:set,state:state},state:state};
  (tester,set)
@@ -529,9 +532,9 @@ fn make()->(Test,LinkedHashSet<Key>) {
             message.contains(if mode == 1 || mode == 3 {
                 "container mutation during"
             } else if mode == 2 {
-                "comparison failure"
+                "integer overflow"
             } else {
-                "hash failure"
+                "division by zero"
             }),
             "{message}"
         );
@@ -569,15 +572,6 @@ fn make()->(Test,LinkedHashSet<Key>) {
     };
     assert_eq!(vm.runtime().gc().set_len(id), Some(2));
     assert_eq!(vm.runtime().gc().active_roots(), 1);
-    // Native helpers cannot silently run identity lookup on stored custom keys.
-    assert!(
-        vm.runtime()
-            .invoke_standard_builtin(
-                kagari_abi::standard::RuntimePrimitive::SetContains,
-                &[values[1].clone(), values[0].clone()],
-            )
-            .is_err()
-    );
     drop(root);
 
     for limit in [2, 12, 24, 40] {
@@ -620,12 +614,12 @@ impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}}
 impl Eq for Key {}
 impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}
 pub fn equal(a:Key,b:Key)->bool {a==b}
-pub fn make()->LinkedHashMap<Key,i32> {val m:LinkedHashMap<Key,i32> = LinkedHashMap::new();m.insert(Key{id:1},42);m}
+pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.insert(Key{id:1},42);m}
 "#;
         let root_source = if downstream_override {
             "use pkg::model::Key; impl PartialEq for Key {fn eq(self,other:Self)->bool {false}} fn main()->i32 {42}"
         } else {
-            "use pkg::model::{Key,equal,make}; fn same<T:Eq>(a:T,b:T)->bool {a==b} fn main()->i32 {val a=Key{id:1};val b=Key{id:1};if equal(a,b) && same(a,b) && a !== b {make().get(b).unwrap_or(0)} else {0}}"
+            "use pkg::model::{Key,equal,make}; fn same<T:Eq>(a:T,b:T)->bool {a==b} fn main()->i32 {val a=Key{id:1};val b=Key{id:1};if equal(a,b) && same(a,b) && a !== b {(match make().get(b) { Some(value) => value, None => 0 })} else {0}}"
         };
         let mut root = None;
         for (name, source) in [("model", model), ("root", root_source)] {
@@ -705,91 +699,6 @@ fn main()->i64 {Key{id:1}.hash()}
         let module = &mut program.modules[program.root.index()];
         module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==standard_traits::identity(missing))));
         assert!(verify_program(&program).is_err(), "missing {missing:?}");
-    }
-}
-
-#[test]
-fn key_calls_carry_checked_storage_and_selected_protocols() {
-    use kagari_abi::{
-        callable::EngineNativeBinding,
-        native_import::{EngineNativeOperation, NativeWitnessImplementation},
-        standard::RuntimePrimitive,
-    };
-    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    for custom in [false, true] {
-        let implementation = if custom {
-            "impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}} impl Eq for Key {} impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}"
-        } else {
-            ""
-        };
-        let source = format!(
-            "struct Key {{val id:i32}} {implementation} fn main()->i32 {{val m:LinkedHashMap<Key,i32> = LinkedHashMap::new();val k=Key{{id:1}};m.insert(k,42);m.get(k).unwrap_or(0)}}"
-        );
-        let artifact = KagariEngine::default()
-            .compile_to_artifact(
-                SourceFile::new("fast-key.kgr", source.clone()),
-                Default::default(),
-                Default::default(),
-            )
-            .unwrap();
-        let calls: Vec<_> = artifact
-            .program
-            .modules
-            .iter()
-            .flat_map(|m| &m.functions)
-            .flat_map(|f| &f.instructions)
-            .filter_map(|op| match op {
-                BytecodeInstruction::Call {
-                    callee: CallTarget::RuntimePrimitive(op),
-                    ..
-                } => Some(*op),
-                _ => None,
-            })
-            .collect();
-        for operation in [
-            RuntimePrimitive::KeyLookupBegin,
-            RuntimePrimitive::KeyCandidates,
-            RuntimePrimitive::KeyMapInsert,
-            RuntimePrimitive::MapInsert,
-            RuntimePrimitive::MapGet,
-        ] {
-            assert!(
-                !calls.contains(&operation),
-                "retired compiler key expansion: {operation:?}"
-            );
-        }
-        for operation in [RuntimePrimitive::MapInsert, RuntimePrimitive::MapGet] {
-            let binding = EngineNativeBinding::Intrinsic(operation);
-            let contract = artifact
-                .program
-                .modules
-                .iter()
-                .flat_map(|module| &module.native_imports)
-                .find(|import| import.binding == binding)
-                .unwrap();
-            assert_eq!(
-                contract.resolve(),
-                Some(EngineNativeOperation::Resumable(binding))
-            );
-            for protocol in [Protocol::Hash, Protocol::PartialEq] {
-                let witness = contract
-                    .witnesses
-                    .iter()
-                    .find(|witness| {
-                        Protocol::from_id(&witness.interface.declaration) == Some(protocol)
-                    })
-                    .unwrap();
-                assert_eq!(
-                    matches!(
-                        witness.implementation,
-                        NativeWitnessImplementation::Table(_)
-                    ),
-                    custom
-                );
-                assert_eq!(witness.methods.len(), usize::from(custom));
-            }
-        }
-        execute(&source);
     }
 }
 

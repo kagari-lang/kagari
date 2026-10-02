@@ -77,15 +77,15 @@ fn zero<F: Fn() -> i32>(f: F) -> i32 { f() }
 fn unit<F: Fn()>(f: F) { f(); }
 fn main() -> i32 {
     val add = Adder { base: 10 };
-    std::debug::assert(add(2) == 12, "object call");
-    std::debug::assert(apply(add, 3) == 15, "generic object");
-    std::debug::assert(apply(|x| x + 1, 41) == 42, "closure context");
-    std::debug::assert(infer(21, |x| x * 2) == 42, "inferred output");
-    std::debug::assert(two(|x, y| x + y) == 42, "two args");
-    std::debug::assert(zero(|| 42) == 42, "zero args");
+    { val passed = add(2) == 12; if !passed { return 0; } };
+    { val passed = apply(add, 3) == 15; if !passed { return 0; } };
+    { val passed = apply(|x| x + 1, 41) == 42; if !passed { return 0; } };
+    { val passed = infer(21, |x| x * 2) == 42; if !passed { return 0; } };
+    { val passed = two(|x, y| x + y) == 42; if !passed { return 0; } };
+    { val passed = zero(|| 42) == 42; if !passed { return 0; } };
     unit(|| { add.base = 0; });
     val f: fn(i32) -> i32 = |x| x + 1;
-    std::debug::assert(f.call((41,)) == 42, "explicit tuple call");
+    { val passed = f.call((41,)) == 42; if !passed { return 0; } };
     add(42)
 }
 "#,
@@ -96,6 +96,7 @@ fn main() -> i32 {
 fn callable_adapters_keep_shared_receivers_alive_and_work_in_collections() {
     execute(
         r#"
+use std::collections;
 struct Counter { var value: i32 }
 impl Fn<(i32,)> for Counter {
     type Output = i32;
@@ -107,15 +108,16 @@ fn consume(f: fn(i32) -> i32) -> i32 { f(20) }
 fn main() -> i32 {
     val counter = Counter { value: 0 };
     val f: fn(i32) -> i32 = counter;
-    std::debug::assert(f(1) == 1, "assigned adapter");
-    std::debug::assert(consume(counter) == 21, "argument adapter");
-    std::debug::assert(erase(counter)(1) == 22, "generic adapter");
-    val xs: ArrayList<i32> = [1, 2].iter().map(counter).collect();
-    std::debug::assert(xs[0] == 23 && xs[1] == 25, "iterator callback");
+    { val passed = f(1) == 1; if !passed { return 0; } };
+    { val passed = consume(counter) == 21; if !passed { return 0; } };
+    { val passed = erase(counter)(1) == 22; if !passed { return 0; } };
+    val mapped = collections::map([1, 2], counter);
+    val first = mapped.next(); val second = mapped.next();
+    { val passed = first == Some(23) && second == Some(25); if !passed { return 0; } };
     val escaped = make();
     val garbage = [Counter { value: 10 }, Counter { value: 20 }];
-    std::debug::assert(garbage.len() == 2, "allocate between calls");
-    std::debug::assert(escaped(1) == 1 && escaped(1) == 2, "capture root");
+    { val passed = garbage.len() == 2; if !passed { return 0; } };
+    { val passed = escaped(1) == 1 && escaped(1) == 2; if !passed { return 0; } };
     counter(17)
 }
 "#,
@@ -151,7 +153,7 @@ fn callable_errors_are_reported_before_codegen() {
 fn callable_bounds_work_in_methods_and_where_clauses() {
     execute(
         r#"
-use std::ops::Fn as Callable;
+use core::language::Fn as Callable;
 struct Run {}
 impl Run {
     fn apply<T, R, F: Callable(T) -> R>(self, x: T, f: F) -> R { f(x) }
@@ -161,10 +163,10 @@ trait Invoke {
 }
 struct Runner {}
 impl Invoke for Runner {}
-fn apply<F>(f: F) -> i32 where F: std::ops::Fn(i32,) -> i32 { f(21) }
+fn apply<F>(f: F) -> i32 where F: Callable(i32,) -> i32 { f(21) }
 fn main() -> i32 {
-    std::debug::assert(Run {}.apply(21, |x| x * 2) == 42, "inherent method");
-    std::debug::assert(Runner {}.invoke(21, |x| x * 2) == 42, "trait method");
+    { val passed = Run {}.apply(21, |x| x * 2) == 42; if !passed { return 0; } };
+    { val passed = Runner {}.invoke(21, |x| x * 2) == 42; if !passed { return 0; } };
     apply(|x| x * 2)
 }
 "#,
@@ -180,7 +182,7 @@ struct Add { val trace: Trace }
 impl Fn<(i32, i32)> for Add {
     type Output = i32;
     fn call(self, args: (i32, i32)) -> i32 {
-        std::debug::assert(self.trace.digits == 123, "receiver and arguments evaluated once");
+        { val passed = self.trace.digits == 123; if !passed { return 0; } };
         args[0] + args[1]
     }
 }
@@ -190,8 +192,8 @@ fn first<T, R, F: Fn(T) -> R>(f: F, x: T) -> R { f(x) }
 fn projected<F: Fn<(i32,)>>(f: F) -> F::Output { f(21) }
 fn twice(x: i32) -> i32 { x * 2 }
 fn main() -> i32 {
-    std::debug::assert(first(|x| x.len_chars(), "abc") == 3, "later argument context");
-    std::debug::assert(projected(|x| twice(x)) == 42, "function value and associated output");
+    { val passed = first(|x| x.len(), [1, 2, 3]) == 3; if !passed { return 0; } };
+    { val passed = projected(|x| twice(x)) == 42; if !passed { return 0; } };
     val trace = Trace { digits: 0 };
     receiver(trace)(argument(trace, 2, 20), argument(trace, 3, 22))
 }
@@ -207,11 +209,12 @@ fn callable_traps_release_roots_and_allow_subsequent_execution() {
             SourceFile::new(
                 "callable-trap.kgr",
                 r#"
+use std::collections;
 struct Failure {}
 impl Fn<(i32,)> for Failure { type Output=i32;
- fn call(self, args:(i32,))->i32 { std::debug::assert(false,"callback failed"); args[0] }
+ fn call(self, args:(i32,))->i32 { val zero = 0; args[0] / zero }
 }
-fn main(){ val xs:ArrayList<i32> = [1].iter().map(Failure{}).collect(); }
+fn main(){ val mapped = collections::map([1], Failure{}); mapped.next(); }
 fn healthy()->i32{42}
 "#,
             ),
@@ -238,28 +241,26 @@ fn healthy()->i32{42}
 }
 
 #[test]
-fn standard_callbacks_consume_the_coerced_function_signature() {
+fn native_callbacks_consume_the_coerced_function_signature() {
     execute(
         r#"
-struct Identity {}
-impl Fn<(i32,)> for Identity { type Output=i32; fn call(self,args:(i32,))->i32 {args[0]} }
-struct Factory {}
-impl Fn<()> for Factory { type Output=i32; fn call(self,args:())->i32 {42} }
-struct Update {}
-impl Fn<(Option<i32>,)> for Update {type Output=i32; fn call(self,args:(Option<i32>,))->i32 {args[0].unwrap_or(40)+2} }
-struct Keep {}
-impl Fn<(i32,)> for Keep {type Output=bool; fn call(self,args:(i32,))->bool {args[0]>1} }
-fn main()->i32 {
-    val xs=[3,1,2];
-    xs.sort_by_key(Identity{});
-    std::debug::assert(xs[0]==1 && xs[2]==3,"sort callback output");
-    xs.retain(Keep{});
-    std::debug::assert(xs.len()==2,"retain callback");
-    val m=LinkedHashMap::new();
-    std::debug::assert(m.get_or_insert_with("a",Factory{})==42,"zero argument callback");
-    std::debug::assert(m.update("b",Update{})==42,"nested argument callback");
-    val absent: Option<i32> = None;
-    std::debug::assert(absent.unwrap_or_else(Factory{})==42,"lazy optional callback");
+use std::collections;
+struct Compare {}
+impl Fn<(i32, i32)> for Compare {
+    type Output = Ordering;
+    fn call(self, args: (i32, i32)) -> Ordering { args[0].cmp(args[1]) }
+}
+struct Increment {}
+impl Fn<(i32,)> for Increment {
+    type Output = i32;
+    fn call(self, args: (i32,)) -> i32 { args[0] + 1 }
+}
+fn main() -> i32 {
+    val xs = [3, 1, 2];
+    collections::sort_by(xs, Compare {});
+    if xs[0] != 1 || xs[2] != 3 { return 0; }
+    val mapped = collections::map(xs, Increment {});
+    if mapped.next() != Some(2) { return 0; }
     42
 }
 "#,

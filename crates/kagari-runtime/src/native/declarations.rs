@@ -15,6 +15,7 @@ use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone)]
 pub struct FunctionDecl {
+    pub(crate) documentation: Option<String>,
     pub(crate) name: String,
     pub(crate) params: Vec<ParameterAbi>,
     pub(crate) result: Type,
@@ -22,10 +23,15 @@ pub struct FunctionDecl {
 impl FunctionDecl {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
+            documentation: None,
             name: name.into(),
             params: vec![],
             result: Type::unit(),
         }
+    }
+    pub fn documentation(mut self, text: impl Into<String>) -> Self {
+        self.documentation = Some(text.into());
+        self
     }
     pub fn parameter(mut self, name: impl Into<String>, ty: Type) -> Self {
         self.params.push(ParameterAbi {

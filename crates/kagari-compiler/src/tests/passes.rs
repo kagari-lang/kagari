@@ -6,7 +6,7 @@ use kagari_abi::{effects::EffectSet, operations::BinaryOp};
 use kagari_common::cancellation::CancellationToken;
 use kagari_mir::{
     ids::BlockId,
-    instruction::{Constant, Instruction, Terminator},
+    instruction::{CallTarget, Constant, Instruction, Terminator},
     passes::{PassOptions, PassResult, optimize},
     verify::{MirVerificationErrorKind, VerifiedMirModule, verify_mir},
 };
@@ -156,7 +156,7 @@ fn scalar_facts_do_not_flow_through_heap_reads_or_calls() {
             .iter()
             .flat_map(|function| &function.blocks)
             .flat_map(|block| &block.instructions)
-            .any(|instruction| matches!(instruction, Instruction::ReadAggregateIndex { .. }))
+            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::SourceFunction(contract), .. } if contract.declaration.path.last().is_some_and(|part| part.name == "index")))
     );
 }
 

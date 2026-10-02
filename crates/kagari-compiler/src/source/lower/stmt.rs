@@ -12,17 +12,13 @@ use kagari_hir::{
         stmt::StmtKind,
     },
     typeck::table::ResolvedIteration,
-    types::{TypeId, abi::lower_type},
+    types::TypeId,
 };
 
 use kagari_abi::{
-    language::Protocol,
-    operations::{IterOp, StandardEnumOp},
-    representation::ValueType,
+    language::Protocol, operations::StandardEnumOp, representation::ValueType,
     standard::surface::StandardEnum,
 };
-
-use std::slice;
 
 use kagari_mir::instruction::{Instruction, MirValue, Terminator};
 
@@ -294,20 +290,10 @@ impl FunctionLowerer<'_, '_> {
             &self.protocol_method(Protocol::Iterable, 0)?,
             &[source],
         )?;
-        let concrete_iterator = self
-            .planner
-            .arguments(
-                slice::from_ref(&fact.iterator),
-                &self.instance.substitution,
-                self.function.debug.source_span,
-            )?
-            .remove(0);
-        let iter_abi = if matches!(concrete_iterator, kagari_hir::types::TypeId::Iter(_)) {
-            Some(lower_type(&concrete_iterator))
-        } else {
-            None
-        };
-        if iter_abi.is_some() {
+        // Any heap-backed iterator may retain managed native iteration sources.
+        // The storage descriptor, rather than a named library type, owns them.
+        let scoped = iterator.ty == ValueType::HeapObject;
+        if scoped {
             self.emit(Instruction::BeginIteration {
                 collection: iterator,
             });
@@ -350,14 +336,7 @@ impl FunctionLowerer<'_, '_> {
         self.ensure_jump(next_block);
         self.loops.pop();
         self.switch_to_block(exit);
-        if let Some(ty) = iter_abi {
-            let dst = self.alloc_temp(ValueType::Unit);
-            self.emit(Instruction::Iter {
-                dst,
-                value: Some(iterator),
-                ty,
-                op: IterOp::Close,
-            });
+        if scoped {
             self.emit(Instruction::EndIteration);
         }
         Ok(())

@@ -1,4 +1,7 @@
-use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use kagari_abi::{
+    budget::LogicalBudgetCharge, ids::FunctionRef, native_import::NativeImport,
+    representation::ValueType,
+};
 use {
     kagari_bytecode::{
         module::RootSlotLayout,
@@ -13,7 +16,9 @@ use {
 
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
-    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register},
+    instruction::{
+        BytecodeInstruction, CallTarget, ConstantOperand, NativeImportId, PathId, Register,
+    },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
 };
 use kagari_common::source::SourceFile;
@@ -184,13 +189,32 @@ fn host_path_artifact(
         BytecodeProgram {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
+                native_imports: if instructions.iter().any(|instruction| {
+                    matches!(
+                        instruction,
+                        BytecodeInstruction::Call {
+                            callee: CallTarget::Native(_),
+                            ..
+                        }
+                    )
+                }) {
+                    vec![NativeImport::from_host(
+                        &kagari_common::host_interface::HostFunctionDeclaration::new(
+                            "host.player",
+                            vec![],
+                            HostValueType::opaque("game.Player"),
+                        ),
+                    )]
+                } else {
+                    vec![]
+                },
                 host_interface: kagari_common::host_interface::HostInterface {
                     paths: vec![],
                     types: if instructions.iter().any(|instruction| {
                         matches!(
                             instruction,
                             BytecodeInstruction::Call {
-                                callee: CallTarget::Native(NativeCall::Host(_)),
+                                callee: CallTarget::Native(_),
                                 ..
                             }
                         )
@@ -203,7 +227,7 @@ fn host_path_artifact(
                         matches!(
                             instruction,
                             BytecodeInstruction::Call {
-                                callee: CallTarget::Native(NativeCall::Host(_)),
+                                callee: CallTarget::Native(_),
                                 ..
                             }
                         )
@@ -609,7 +633,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::Native(NativeCall::Host(kagari_bytecode::HostImportId::new(0))),
+                callee: CallTarget::Native(NativeImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::LoadConst {
@@ -677,7 +701,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::Native(NativeCall::Host(kagari_bytecode::HostImportId::new(0))),
+                callee: CallTarget::Native(NativeImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::ReadPath {

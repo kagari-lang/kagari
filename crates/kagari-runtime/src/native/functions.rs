@@ -113,3 +113,4 @@ pub struct ValueArgument;
 single_view_functions!(ValueArgument, ValueHandle, Value);
 view_function!([]; SequenceArgument => view SequenceHandle, Sequence, values:0; CallableArgument => view CallableHandle, Callable, callback:1);
 view_function!([]; SequenceMutArgument => view SequenceMutHandle, MutableSequence, values:0; CallableArgument => view CallableHandle, Callable, callback:1);
+view_function!([]; ValueArgument => view ValueHandle, Value, value:0; CallableArgument => view CallableHandle, Callable, callback:1);

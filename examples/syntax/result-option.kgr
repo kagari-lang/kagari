@@ -1,30 +1,12 @@
-// Business failures remain ordinary values; `?` returns from the nearest function.
-fn lookup(present: bool) -> Option<i32> {
-    if present { Some(20) } else { None }
+// `?` returns from the nearest function; failures remain ordinary values.
+fn lookup(present:bool)->Option<i32>{if present{Some(20)}else{None}}
+fn compute(present:bool)->Result<i32,String>{
+    val first=match lookup(present){Some(value)=>value,None=>{return Err("missing");}};
+    val second:Result<i32,String> = Ok(22);Ok(first+second?)
 }
-
-fn compute(present: bool) -> Result<i32, String> {
-    // Convert absence explicitly; this callback runs only for None.
-    val first = lookup(present).ok_or_else(|| "missing value")?;
-    val second: Result<i32, String> = Ok(22);
-    Ok(first + second?)
-}
-
-fn optional(present: bool) -> Option<i32> {
-    Some(lookup(present)? + 22)
-}
-
-fn main() -> i32 {
-    std::debug::assert(Some(Some(42)).flatten() == Some(42), "flatten");
-    val absent: Option<i32> = None;
-    std::debug::assert(absent.unwrap_or_else(|| 42) == 42, "lazy fallback");
-    val failed = compute(false).map_err(|message| message.concat(" in compute"));
-    val successful = compute(true);
-    val missing = optional(false);
-    if failed.is_err() && missing.is_none() {
-        match successful {
-            Ok(answer) => answer,
-            Err(message) => 0,
-        }
-    } else { 0 }
+fn optional(present:bool)->Option<i32>{Some(lookup(present)?+22)}
+fn main()->i32{
+    if optional(false)!=None {return 0;}
+    if val Ok(_) = compute(false) {return 0;}
+    match compute(true){Ok(value)=>value,Err(_)=>0}
 }

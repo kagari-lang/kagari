@@ -7,15 +7,13 @@ use kagari_common::{
     },
     source::SourceFile,
 };
+use kagari_runtime::host::HostError;
+use kagari_vm::reentry::reenter;
 
 use std::sync::{Arc, Mutex};
 use {
     kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        host::HostFunction,
-        security::LanguageProfile,
-        value::{EnumTag, Value},
-    },
+    kagari_runtime::{host::HostFunction, security::LanguageProfile, value::Value},
 };
 use {
     kagari_embed::{
@@ -73,7 +71,13 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         allow_jit: true,
         ..Default::default()
     };
-    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (ArrayList<i32>, LinkedHashMap<String, bool>, LinkedHashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (ArrayList<i32>, HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> (ArrayList<i32>, HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
+    let payload = artifact.program.modules[artifact.program.root.index()]
+        .functions
+        .iter()
+        .find(|function| function.name == "payload")
+        .unwrap()
+        .id;
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -99,26 +103,10 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |context, _| {
                 calls.lock().unwrap().push("make");
-                let runtime = context.runtime();
-                Ok(Value::Tuple(vec![
-                    Value::Array(runtime.alloc_array(vec![Value::I32(7)]).unwrap()),
-                    Value::Map(
-                        runtime
-                            .alloc_map(vec![(Value::Str("yes".into()), Value::Bool(true))])
-                            .unwrap(),
-                    ),
-                    Value::Set(runtime.alloc_set(vec![Value::Str("name".into())]).unwrap()),
-                    Value::Enum(
-                        runtime
-                            .alloc_enum(EnumTag::OptionSome, vec![Value::I32(8)])
-                            .unwrap(),
-                    ),
-                    Value::Enum(
-                        runtime
-                            .alloc_enum(EnumTag::ResultOk, vec![Value::I32(9)])
-                            .unwrap(),
-                    ),
-                ]))
+                let owner = context.runtime().execution_root().unwrap();
+                let payload = reenter(context, &owner, payload, &[])
+                    .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
+                Ok(payload.value())
             }))
             .unwrap();
         let calls = trace.clone();

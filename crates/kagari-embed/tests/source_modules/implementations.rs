@@ -36,7 +36,7 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
             .program
             .modules
             .iter()
-            .any(|module| module.identity.package == PackageId("kagari-std".into()))
+            .any(|module| module.identity.package == PackageId("kagari-core".into()))
     );
     assert_eq!(
         artifact.verification.dependency_fingerprints.len(),

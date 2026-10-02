@@ -791,10 +791,8 @@ See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which retu
 
 ## Standard protocol identities
 
-The standard PartialEq, Eq, Hash, Debug, Display, PartialOrd, Ord, Add, Sub, Mul,
-Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr, Neg, Not, Index, From, Into, TryFrom,
-TryInto, Iterator, Iterable, FromIterator, Sum and Product
-contracts are described in
+The language protocols, including value/operator traits, From for Result propagation,
+Iterator/Iterable and the six collection interfaces, are listed in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs
@@ -821,7 +819,7 @@ extensions over this shared identity and bound infrastructure.
 
 ## Unified callable protocol
 
-`std::ops::Fn<Args>` is a prelude trait with an associated `Output` and
+`core::language::Fn<Args>` is a prelude trait with an associated `Output` and
 `fn call(self, args: Args) -> Self::Output`. Values of type `fn(...) -> R`, including closures, automatically
 implement it for their parameter tuple and result. User types may implement it
 with the ordinary `impl Fn<(T,)> for Receiver` syntax.
@@ -834,9 +832,7 @@ new function-value type: stored callbacks still use `fn(A, B) -> R`.
 
 ```kgr
 fn apply<T, R, F: Fn(T) -> R>(value: T, f: F) -> R { f(value) }
-fn main() {
-    std::debug::assert(apply(21, |x| x * 2) == 42, "callable inference");
-}
+fn main() -> i32 { apply(21, |x| x * 2) }
 ```
 
 The bound supplies contextual closure parameter types and participates in result

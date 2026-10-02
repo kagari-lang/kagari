@@ -56,6 +56,7 @@ pub(crate) fn interfaces(
                 .map(|kind| kind.nominal()),
             );
         }
+        add_iterator_view(aggregates, ty, &mut bounds);
         return bounds;
     }
     if !matches!(

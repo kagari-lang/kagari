@@ -62,20 +62,15 @@ fn execute(source: &str) {
 }
 
 #[test]
-fn explicit_and_derived_conversions() {
+fn explicit_and_generic_from_conversions() {
     execute(
         r#"
-struct Count {val value:i32}
-impl From<i32> for Count {fn from(value:i32)->Self {Count{value}}}
-impl TryFrom<i32> for Count {type Error=String;fn try_from(value:i32)->Result<Self,String> {if value<0 {Err("negative")}else{Ok(Count{value})}}}
-fn convert<S,D:From<S>>(value:S)->D {D::from(value)}
-fn into<S:Into<D>,D>(value:S)->D {value.into()}
-fn checked<S:TryInto<D,Error=String>,D>(value:S)->Result<D,String> {value.try_into()}
+struct Count { val value:i32 }
+impl From<i32> for Count { fn from(value:i32)->Self { Count{value} } }
+fn convert<S,D:From<S>>(value:S)->Result<i32,D> { val error:Result<i32,S> = Err(value); Ok(error?) }
 fn main()->i32 {
- val a=Count::from(10);val b:Count=convert(11);val c:Count=into(21);
- val ok:Result<Count,String> = checked(42);
- val bad=Count::try_from(-1);
- if bad.is_err() && ok.is_ok() {a.value+b.value+c.value}else{0}
+    val a:Result<i32,Count> = convert(10); val b:Result<i32,Count> = convert(11);
+    match a {Err(x)=>match b {Err(y)=>x.value+y.value+21,Ok(_)=>0},Ok(_)=>0}
 }
 "#,
     );
@@ -87,22 +82,20 @@ fn conversions_can_be_owned_by_the_source_and_preserve_identity() {
         r#"
 struct Count {val value:i32}
 impl From<Count> for i32 {fn from(value:Count)->i32 {value.value}}
-fn main()->i32 {val a=Count{value:42};val b:Count=a.into();val result:i32=b.into();if a===b && i32::from(a)==42 {result}else{0}}
+fn identity(value:Count)->Result<i32,Count> {val x:Result<i32,Count> = Err(value);Ok(x?)}
+fn convert(value:Count)->Result<i32,i32> {val x:Result<i32,Count> = Err(value);Ok(x?)}
+fn main()->i32 {val a=Count{value:42};match identity(a){Err(b)=>if a===b {match convert(b){Err(n)=>n,Ok(_)=>0}}else{0},Ok(_)=>0}}
 "#,
     );
 }
 #[test]
 fn invalid_conversion_implementations_are_diagnostics() {
     for source in [
-        "struct X{} impl Into<i32> for X {fn into(self)->i32 {1}} fn main(){}",
-        "struct X{} impl TryInto<i32> for X {type Error=String;fn try_into(self)->Result<i32,String>{Ok(1)}} fn main(){}",
         "struct X{} impl From<X> for X {fn from(value:X)->X {value}} fn main(){}",
         "struct X{} impl<T> From<X> for T {fn from(value:X)->T {loop{}}} fn main(){}",
         r#"impl From<i32> for String {fn from(value:i32)->String {"x"}} fn main(){}"#,
         "struct X{} impl From<i32> for X {fn from(self,value:i32)->Self {self}} fn main(){}",
-        "struct X{} impl TryFrom<i32> for X {fn try_from(value:i32)->Result<Self,String>{Ok(X{})}} fn main(){}",
         "struct X{} fn main()->X {X::from(1)}",
-        "fn main(){val x=1.into();}",
         "struct X{} impl From<i32> for X {fn from(v:i32)->X {X{}}} fn main(){X{}.from(1);}",
     ] {
         assert!(
@@ -119,17 +112,22 @@ fn invalid_conversion_implementations_are_diagnostics() {
 }
 
 #[test]
-fn qualified_calls_and_fallible_error_projections_evaluate_once() {
+fn aliased_and_generic_from_bounds_evaluate_once() {
     execute(
         r#"
-use std::convert::From as Convert;
+use core::language::From as Convert;
 struct Count{val value:i32}
 impl Convert<i32> for Count{fn from(value:i32)->Self{Count{value}}}
-impl TryFrom<i32> for Count{type Error=String;fn try_from(value:i32)->Result<Self,String>{if value<0 {Err("negative")}else{Ok(Count{value})}}}
 struct Calls{var count:i32}
 fn source(c:Calls)->i32{c.count+=1;21}
-fn checked<S:TryInto<D>,D>(value:S)->Result<D,<S as TryInto<D>>::Error>{value.try_into()}
-fn main()->i32{val calls=Calls{count:0};val a=<Count as Convert<i32>>::from(source(calls));val b:Result<Count,String> = checked(source(calls));std::debug::assert_eq(calls.count,2,"single evaluation");match b{Ok(n)=>a.value+n.value,Err(e)=>0}}
+fn convert<S,D:Convert<S>>(value:S)->Result<i32,D> {val x:Result<i32,S> = Err(value);Ok(x?)}
+fn main()->i32 {
+    val calls=Calls{count:0};
+    val a:Result<i32,Count> = convert(source(calls));
+    val b:Result<i32,Count> = convert(source(calls));
+    if calls.count != 2 { return 0; }
+    match a {Err(x)=>match b {Err(y)=>x.value+y.value,Ok(_)=>0},Ok(_)=>0}
+}
 "#,
     );
 }
@@ -169,7 +167,7 @@ impl<T> Iterator for Wrapper<T>{type Item=T;fn next(self)->Option<T>{if self.con
 use pkg::model::Wrapper;
 fn total<I:Iterable<Item=i32>>(values:I)->i32{var n=0;for x in values{n+=x;}n}
 fn propagate()->Result<i32,Wrapper<i32>> {val x:Result<i32,i32> = Err(42);Ok(x?)}
-fn main()->i32 {val a:Wrapper<i32> = 42.into();std::debug::assert_eq(total(a),42,"explicit conversion");match propagate(){Err(w)=>total(w),Ok(x)=>x}}
+fn main()->i32 {match propagate(){Err(w)=>total(w),Ok(x)=>x}}
 "#,
         ),
     ] {

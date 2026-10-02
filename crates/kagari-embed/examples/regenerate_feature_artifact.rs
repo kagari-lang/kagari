@@ -3,13 +3,20 @@ use kagari_common::source::SourceFile;
 use kagari_embed::engine::KagariEngine;
 use std::{fs, path::Path};
 
+// The producer and independent consumer install the exact same public provider.
+#[path = "../tests/support/native_provider.rs"]
+mod provider;
+
 fn main() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let source = SourceFile::new(
         "memory://feature-artifact.kgr",
         fs::read_to_string(fixtures.join("feature_artifact.kgr")).unwrap(),
     );
-    let artifact = KagariEngine::default()
+    let artifact = KagariEngine::builder()
+        .install(provider::module(Default::default()))
+        .build()
+        .unwrap()
         .compile_to_artifact(source, Default::default(), Default::default())
         .unwrap();
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))

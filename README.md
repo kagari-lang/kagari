@@ -112,31 +112,21 @@ Profiles are selected with `--profile restricted`, `--profile dev`, or `--profil
 
 ## Standard Library
 
-Kagari's core standard library is a typed intrinsic surface defined in [docs/spec/builtins.md](docs/spec/builtins.md).
-The compiler resolves these modules and methods to stable intrinsic identifiers, bytecode validation checks their signatures, and the VM executes them through runtime helpers.
-Core container storage remains runtime-native and participates in GC tracing, resource accounting, reflection metadata, reload validation, and JIT fallback behavior.
+Language-owned protocols and the default `ArrayList`, `HashMap` and `HashSet`
+are declared by the compiler. Hash storage uses Rust's standard collections and
+has no insertion-order guarantee; custom keys implement Kagari `Eq` and `Hash`.
+Container storage participates in GC tracing, checked calls and hot reload.
 
-The core standard modules are:
+Optional libraries and application native functions use the same explicit Rust
+registration API. The default optional `std::collections` module provides
+`sort`, `sort_by` and lazy `map`; an engine can omit this module. Generated `.kgr`
+views support completion and navigation without becoming executable dependencies.
+Other container implementations and algorithm families remain deferred.
 
-- `std::array`
-- `std::map`
-- `std::set`
-- `std::string`
-- `std::option`
-- `std::result`
-- `std::iter`
-- `std::math`
-- `std::debug`
-
-`Map<K, V>` and `Set<T>` are deterministic insertion-ordered collections backed by `indexmap`.
-Their initial production key/member surface accepts only standard hash-key values: `bool`, integer types, and `String`.
-Floating-point, aggregate, host, and interface keys remain rejected until their equality and hashing semantics are specified.
-
-Host-sensitive capabilities such as file systems, networking, timers, process control, persistence, service registries, and logging sinks are not core standard modules.
-Hosts expose those capabilities explicitly through the host registry and security policy.
-
-See [examples/standard-library.kgr](examples/standard-library.kgr) for a small program using arrays, maps, sets, strings, math, and debug assertions.
-See [examples/interface-dispatch.kgr](examples/interface-dispatch.kgr) for a concrete trait value whose method dispatches through a verified interface slot.
+See [native declarations](docs/spec/standard-declarations.md) for registration,
+[language contracts](docs/spec/builtins.md) for foundational behavior, and
+[the library example](examples/standard-library.kgr) for sorting and iteration.
+Host-sensitive capabilities such as I/O remain explicit embedding interfaces.
 
 ## Engineering Priorities
 

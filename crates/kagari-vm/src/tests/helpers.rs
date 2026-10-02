@@ -1,6 +1,6 @@
 use kagari_abi::{
-    budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType,
-    standard::RuntimePrimitive,
+    budget::LogicalBudgetCharge, ids::FunctionRef, native_import::NativeImport,
+    representation::ValueType,
 };
 use {
     kagari_bytecode::module::FunctionMetadata,
@@ -215,16 +215,23 @@ fn path_module(
         ],
         ..Default::default()
     };
+    let host_interface = kagari_common::host_interface::HostInterface {
+        paths: vec![],
+        types: vec![player_type_declaration()],
+        functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+            "host.player",
+            vec![],
+            HostValueType::opaque("game.Player"),
+        )],
+    };
+    let native_imports = host_interface
+        .functions
+        .iter()
+        .map(NativeImport::from_host)
+        .collect();
     BytecodeModule {
-        host_interface: kagari_common::host_interface::HostInterface {
-            paths: vec![],
-            types: vec![player_type_declaration()],
-            functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
-                "host.player",
-                vec![],
-                HostValueType::opaque("game.Player"),
-            )],
-        },
+        host_interface,
+        native_imports,
         module_slots: vec![],
         constants: instructions_constants,
         types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],

@@ -140,13 +140,13 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
 }
 
 #[test]
-fn jit_fallback_executes_standard_intrinsics_deterministically() {
+fn jit_fallback_executes_foundation_bindings_deterministically() {
     let module = common::compile_test_bytecode(
         r#"
 fn main() -> (usize, usize, i32) {
     val values = [1, 2];
     values.push(3);
-    (values.len(), "ok".len_chars(), std::math::max(4, 7))
+    (values.len(), values.len() - 1usize, match values.pop() { Some(value) => value + 4, None => 0 })
 }
 
 "#,

@@ -1,6 +1,10 @@
 #![cfg(feature = "source")]
 mod contracts;
 mod external;
+// The source emitter and standalone artifact consumer share the reviewed provider.
+mod library;
+#[path = "../support/native_provider.rs"]
+mod provider;
 use contracts::alter_bindings;
 use kagari_abi::{
     scalar::BuiltinType,
@@ -18,7 +22,7 @@ use kagari_runtime::value::Value;
 fn engine(config: EngineConfig) -> KagariEngine {
     KagariEngine::builder()
         .config(config)
-        .install(external::module())
+        .install(provider::module(Default::default()))
         .build()
         .unwrap()
 }

@@ -1,4 +1,4 @@
-use std::ops::Add;
+use core::language::Add;
 struct Vector { val x: i32 }
 impl Add<Vector> for Vector {
     type Output = Vector;

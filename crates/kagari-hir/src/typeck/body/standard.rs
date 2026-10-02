@@ -145,9 +145,8 @@ impl BodyChecker<'_> {
                     if source.is_unresolved() || target.is_unresolved() {
                         true
                     } else if self
-                        .aggregates
-                        .implementation_count_bounded(&interface, &target, 4096, 64, self.cancel)
-                        .is_ok_and(|count| count == 1)
+                        .select_operator(&target, interface.clone(), env)
+                        .is_some()
                         && let Some(contract) = self.aggregates.trait_(&interface.declaration)
                         && let [method] = contract.methods.as_slice()
                     {

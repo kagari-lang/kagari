@@ -11,10 +11,10 @@ fn apply<T, R, F: Fn(T) -> R>(value: T, f: F) -> R { f(value) }
 fn visit<F: Fn()>(f: F) { f(); }
 fn main() -> i32 {
     val counter = Counter { value: 0 };
-    std::debug::assert(apply(20, counter) == 20, "stateful callable");
+    { val passed = apply(20, counter) == 20; if !passed {val zero=0;1/zero;} };
     val callback: fn(i32) -> i32 = counter;
-    std::debug::assert(callback(1) == 21, "callback shares the receiver");
+    { val passed = callback(1) == 21; if !passed {val zero=0;1/zero;} };
     visit(|| { counter.value += 1; });
-    std::debug::assert(apply(21, |x| x * 2) == 42, "inferred closure");
+    { val passed = apply(21, |x| x * 2) == 42; if !passed {val zero=0;1/zero;} };
     counter(20)
 }

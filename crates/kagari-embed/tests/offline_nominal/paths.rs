@@ -1,5 +1,6 @@
 use super::*;
 use kagari_common::host_interface::path::HostPathSegmentDeclaration;
+use kagari_runtime::host::HostPathAdapter;
 use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
 
 use kagari_embed::program::PreparedProgram;

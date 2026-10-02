@@ -1,28 +1,13 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/string-interpolation.kgr
 // Result: main returns 42.
 fn main() -> i32 {
-    std::debug::assert("a,b,c".splitn(2usize, ",").join("|") == "a|b,c", "lazy split");
-    std::debug::assert("straße".to_uppercase() == "STRASSE", "Unicode expansion");
-    std::debug::assert("é".bytes().count() == 2usize, "UTF-8 bytes");
-    std::debug::assert("42".parse::<i32>() == Ok(42), "parse");
-    val padded = "  hello 😀  ";
-    val clean = padded.trim();
-    std::debug::assert(clean.find("😀") == Some(6usize), "byte offset");
-    std::debug::assert(clean.strip_prefix("hello ") == Some("😀"), "prefix");
     val name = "Kagari";
     val score = 40;
     val message = f"Hello {name}, score={score + 2}";
-    std::debug::assert(message == "Hello Kagari, score=42", "display interpolation");
-    std::debug::assert(f"{name:?}" == "\"Kagari\"", "debug interpolation");
-    std::debug::assert(f"{{{name}}}" == "{Kagari}", "literal braces");
-    std::debug::assert(f"{f"score={score}"}" == "score=40", "nested interpolation");
-    std::debug::assert(f"" == "", "empty interpolation");
-    std::debug::assert(["red", "green", "blue"].join(", ") == "red, green, blue", "join");
-    val names: List<String> = ["Alice", "Bob"];
-    std::debug::assert(names.join("/") == "Alice/Bob", "read-only join");
-    val labels = [1, 2, 3].iter().map(|value| f"item={value}").join(", ");
-    std::debug::assert(labels == "item=1, item=2, item=3", "formatted pipeline");
-    val map = LinkedHashMap::from([("first", 1), ("second", 2)]);
-    std::debug::assert(map.keys().join("/") == "first/second", "key snapshot");
+    { val passed = message == "Hello Kagari, score=42"; if !passed {val zero=0;1/zero;} };
+    { val passed = f"{name:?}" == "\"Kagari\""; if !passed {val zero=0;1/zero;} };
+    { val passed = f"{{{name}}}" == "{Kagari}"; if !passed {val zero=0;1/zero;} };
+    { val passed = f"{f"score={score}"}" == "score=40"; if !passed {val zero=0;1/zero;} };
+    { val passed = f"" == ""; if !passed {val zero=0;1/zero;} };
     42
 }

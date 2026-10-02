@@ -1,4 +1,5 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{KagariEngine, source::CompileOptions},
@@ -71,7 +72,15 @@ fn main() {
     let mut runtime = engine.runtime(context.clone());
     runtime
         .register_host_function(HostFunction::new(standard_log(), move |call, _| {
-            let scratch = Value::Array(call.runtime().alloc_array(vec![Value::I32(3)]).unwrap());
+            let scratch = Value::Array(
+                call.runtime()
+                    .alloc_array(
+                        &call.runtime().execution_root().unwrap(),
+                        AbiType::Builtin(BuiltinType::I32),
+                        vec![Value::I32(3)],
+                    )
+                    .unwrap(),
+            );
             call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
             let root = call.runtime().execution_root().unwrap();
             let value = reenter(call, &root, make, &[])

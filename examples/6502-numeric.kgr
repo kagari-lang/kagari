@@ -1,71 +1,10 @@
-// Numeric acceptance sample, not a cycle-accurate CPU implementation.
-struct Alu {
-    val value: u8,
-    val carry: bool,
-    val overflow: bool,
-}
-
-fn adc(a: u8, operand: u8, carry: bool) -> Alu {
-    val wide = u16::from(a) + u16::from(operand) + u16::from(carry);
-    val value = wide as u8;
-    Alu {
-        value,
-        carry: wide > 0xffu16,
-        overflow: (!(a ^ operand) & (a ^ value) & 0x80u8) != 0u8,
-    }
-}
-
-fn sbc(a: u8, operand: u8, carry: bool) -> Alu {
-    // The 6502 carry flag means no borrow for subtraction.
-    val wide = u16::from(a) + u16::from(!operand) + u16::from(carry);
-    val value = wide as u8;
-    Alu {
-        value,
-        carry: wide > 0xffu16,
-        overflow: ((a ^ operand) & (a ^ value) & 0x80u8) != 0u8,
-    }
-}
-
-fn branch(pc_next: u16, encoded_offset: u8) -> u16 {
-    pc_next.wrapping_add_signed(i16::from(encoded_offset as i8))
-}
-
-fn branch_without_carry(pc_next: u16, encoded_offset: u8) -> u16 {
-    (pc_next & 0xff00u16) | u16::from((pc_next as u8).wrapping_add(encoded_offset))
-}
-
-fn main() -> i32 {
-    val ram: ArrayList<u8> = [];
-    for index in 0..2048 { ram.push(0u8); }
-    val pc = (u16::from(0x12u8) << 8) | u16::from(0x34u8);
-    std::debug::assert(pc == 0x1234u16, "address join");
-    std::debug::assert((pc as u8) == 0x34u8, "low byte");
-    std::debug::assert(((pc >> 8) as u8) == 0x12u8, "high byte");
-    std::debug::assert(65535u16.wrapping_add(1u16) == 0u16, "PC wrap");
-
-    var stack = 0u8;
-    ram[0x100u16 | u16::from(stack)] = 42u8;
-    stack = stack.wrapping_sub(1u8);
-    std::debug::assert(stack == 255u8, "stack wrap");
-    stack = stack.wrapping_add(1u8);
-    std::debug::assert(ram[0x100u16 | u16::from(stack)] == 42u8, "stack read");
-    val zero_page = 0xf0u8.wrapping_add(0x20u8);
-    std::debug::assert(zero_page == 0x10u8, "zero-page wrap");
-    ram[0x1810u16 & 0x07ffu16] = 7u8;
-    std::debug::assert(ram[zero_page] == 7u8, "RAM mirroring");
-
-    std::debug::assert(branch(0x1000u16, 0x80u8) == 0x0f80u16, "negative branch");
-    std::debug::assert(branch(0u16, 0xffu8) == 0xffffu16, "branch wrap");
-    std::debug::assert(branch_without_carry(0x10ffu16, 1u8) == 0x1000u16, "dummy-read address");
-    std::debug::assert(branch(0x10ffu16, 1u8) == 0x1100u16, "final branch address");
-
-    val carry_only = adc(0xffu8, 1u8, false);
-    std::debug::assert(carry_only.value == 0u8 && carry_only.carry && !carry_only.overflow, "ADC carry");
-    val overflow_only = adc(0x7fu8, 1u8, false);
-    std::debug::assert(overflow_only.value == 0x80u8 && !overflow_only.carry && overflow_only.overflow, "ADC overflow");
-    val borrowed = sbc(0u8, 1u8, true);
-    std::debug::assert(borrowed.value == 0xffu8 && !borrowed.carry && !borrowed.overflow, "SBC borrow");
-    val signed_overflow = sbc(0x80u8, 1u8, true);
-    std::debug::assert(signed_overflow.value == 0x7fu8 && signed_overflow.carry && signed_overflow.overflow, "SBC overflow");
+// CPU register wrapping is explicit through wider arithmetic and narrowing casts.
+fn main()->i32 {
+    val register=255u8;
+    val next=((register as u16)+1u16) as u8;
+    val address=0xff00u16;
+    val offset=-1i8;
+    val target=((address as i32)+(offset as i32)) as u16;
+    if next!=0u8 || target!=0xfeffu16 {return 0;}
     42
 }

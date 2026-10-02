@@ -1,6 +1,6 @@
 use kagari_abi::{
-    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
-    standard::bindings::NativeDefaultMethod,
+    callable::CallableImplementation,
+    language::{self, Protocol},
 };
 use {kagari_bytecode::program::ModuleRef, kagari_embed::context::JitPolicy};
 
@@ -268,9 +268,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 contract.methods[0].name = "missing_implementation".into();
             } else {
                 contract.methods[0].implementation =
-                    CallableImplementation::Native(NativeBinding::Engine(
-                        EngineNativeBinding::TraitDefault(NativeDefaultMethod::ListFirst),
-                    ));
+                    CallableImplementation::Native(language::identity(Protocol::List));
             }
         } else if mutation == 3 {
             let implementation = module

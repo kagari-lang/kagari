@@ -1,12 +1,9 @@
 use super::*;
 use crate::{error::VmError, tests::common::load_bytecode_program};
-use kagari_bytecode::{
-    artifact::KbcArtifact,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_bytecode::artifact::KbcArtifact;
 
 #[test]
-fn executes_source_lowered_print_builtin() {
+fn executes_source_lowered_declared_host_log() {
     let messages = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&messages);
 
@@ -25,7 +22,7 @@ fn executes_source_lowered_print_builtin() {
             },
         ))
         .expect("host function should register");
-    let bytecode = compile_test_bytecode(r#"fn main() { print("hello"); }"#);
+    let bytecode = compile_test_bytecode(r#"fn main() { host::log("hello"); }"#);
     let loaded = runtime
         .load_program("print.kgr", bytecode)
         .expect("print module should load");
@@ -41,97 +38,13 @@ fn executes_source_lowered_print_builtin() {
 }
 
 #[test]
-fn executes_source_lowered_standard_intrinsics() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-fn main() -> (usize, usize, i32, bool) {
-    val values = [1, 2];
-    values.push(3);
-    val popped = values.pop();
-    (values.len(), "kagari".len_chars(), std::math::clamp(4, 1, 3), popped.is_some())
-}
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(
-        report.return_value,
-        Value::Tuple(vec![
-            Value::U64(2),
-            Value::U64(6),
-            Value::I32(3),
-            Value::Bool(true),
-        ])
-    );
-}
-
-#[test]
-fn executes_source_standard_collection_string_math_and_debug_modules() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-fn main() -> (usize, bool, usize, usize, usize, usize, usize, usize, bool, bool, bool, i32) {
-    val map: LinkedHashMap<String, i32> = LinkedHashMap::new();
-    map.insert("a", 1);
-    map.insert("b", 2);
-    val keys = map.keys();
-    val values = map.values();
-    val entries = map.entries();
-
-    val set: LinkedHashSet<String> = LinkedHashSet::new();
-    set.insert("x");
-    set.insert("y");
-    val set_items = set.to_array();
-    val union = set.union(set);
-
-    std::debug::assert(map.contains_key("a"), "map key must exist");
-    (
-        map.len(),
-        map.contains_key("a"),
-        keys.len(),
-        values.len(),
-        entries.len(),
-        set.len(),
-        set_items.len(),
-        union.len(),
-        std::string::String::contains("kagari", "gar"),
-        std::string::String::starts_with("kagari", "ka"),
-        std::string::String::ends_with("kagari", "ri"),
-        std::math::max(1, 2)
-    )
-}
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(
-        report.return_value,
-        Value::Tuple(vec![
-            Value::U64(2),
-            Value::Bool(true),
-            Value::U64(2),
-            Value::U64(2),
-            Value::U64(2),
-            Value::U64(2),
-            Value::U64(2),
-            Value::U64(2),
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::I32(2),
-        ])
-    );
-}
-
-#[test]
-fn executes_bytecode_standard_collection_intrinsics() {
+fn executes_bytecode_foundation_collection_bindings() {
     let program = compile_test_bytecode(
         r#"
 fn main()->(usize,bool,usize,bool){
- val map:LinkedHashMap<String,i32> =LinkedHashMap::new();map.insert("k",7);
- val set:LinkedHashSet<String> =LinkedHashSet::new();set.insert("k");
- (map.len(),map.contains_key("k"),map.keys().len(),set.contains("k"))
+ val map:HashMap<String,i32> =HashMap::new();map.insert("k",7);
+ val set:HashSet<String> =HashSet::new();set.insert("k");
+ (map.len(),map.contains_key("k"),map.len(),set.contains("k"))
 }
 "#,
     );
@@ -156,60 +69,6 @@ fn main()->(usize,bool,usize,bool){
             Value::Bool(true),
         ])
     );
-}
-
-#[test]
-fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
-    let bytecode = test_function_module(
-        "main",
-        vec![
-            BytecodeInstruction::Call {
-                dst: Some(Register::new(0)),
-                callee: CallTarget::RuntimePrimitive(RuntimePrimitive::LinkedHashMapNew),
-                args: vec![],
-            },
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(1),
-                constant: ConstantOperand::I32(1),
-            },
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(2),
-                constant: ConstantOperand::F32(1.0),
-            },
-            BytecodeInstruction::Call {
-                dst: Some(Register::new(3)),
-                callee: CallTarget::RuntimePrimitive(RuntimePrimitive::MapInsert),
-                args: vec![Register::new(0), Register::new(2), Register::new(1)],
-            },
-            BytecodeInstruction::Return(Some(Register::new(3))),
-        ],
-        ValueType::HeapObject,
-        vec![
-            ValueType::HeapObject,
-            ValueType::I32,
-            ValueType::F32,
-            ValueType::HeapObject,
-        ],
-    );
-    let mut runtime = Runtime::default();
-
-    let error = runtime
-        .load_program(
-            "standard_invalid_key.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
-        .expect_err("float map key should reject before publication");
-
-    assert!(matches!(error.kind(), RuntimeErrorKind::ModuleValidation));
-    assert!(
-        error
-            .message()
-            .contains("invalid or unsupported native operand shape")
-    );
-    assert_eq!(runtime.resources().counters().loaded_modules, 0);
 }
 
 #[test]
@@ -243,21 +102,6 @@ fn main() -> usize {
         VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
     ));
-}
-
-#[test]
-fn executes_source_lowered_string_len_chars_method() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-fn main() -> usize {
-    "kagari".len_chars()
-}
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::U64(6));
 }
 
 #[test]

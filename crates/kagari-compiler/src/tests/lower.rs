@@ -1,4 +1,7 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::{
+    source::{lower::lower_to_mir, program::lower_program_to_mir},
+    tests::common,
+};
 use {
     crate::source::lower::{MirLoweringError, instances::MirLoweringOptions},
     kagari_common::span::Span,
@@ -9,61 +12,14 @@ use {
 };
 
 use kagari_abi::{
-    native_import::EngineNativeOperation,
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
-    standard::RuntimePrimitive,
 };
 
-use kagari_bytecode as bytecode;
-use kagari_common::integer::IntegerMethod;
 use kagari_mir::{
     function::MirFunction,
     instruction::{CallTarget, Instruction, MirValue, RuntimeHelper, Terminator},
 };
-
-#[test]
-fn source_native_bindings_select_engine_calls_through_aliases_and_primitive_impls() {
-    let checked = common::program_ok(
-        r#"
-use std::math::clamp as limit;
-fn main() -> i32 {
-    val value = (1i32).wrapping_add(41i32);
-    val parsed = i32::from_str_radix("2a", 16u32);
-    limit(value, 0, 100)
-}
-"#,
-    );
-    let ir = lower_to_mir(checked.root(), &Default::default()).unwrap();
-    let calls = ir
-        .functions
-        .iter()
-        .flat_map(|function| &function.blocks)
-        .flat_map(|block| &block.instructions)
-        .filter_map(|instruction| {
-            if let Instruction::Call { callee, .. } = instruction {
-                Some(callee)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    for expected in [
-        RuntimePrimitive::Integer(
-            IntegerMethod::WrappingAdd,
-            kagari_abi::scalar::BuiltinType::I32,
-        ),
-        RuntimePrimitive::ParseRadix(kagari_abi::scalar::BuiltinType::I32),
-        RuntimePrimitive::MathClamp,
-    ] {
-        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::Native(import) if import.resolve() == Some(EngineNativeOperation::Direct(expected)))).count(), 1, "{expected:?}");
-    }
-    assert!(
-        !calls
-            .iter()
-            .any(|callee| matches!(callee, CallTarget::SourceFunction(_)))
-    );
-}
 
 #[test]
 fn generic_interface_instances_share_the_instantiation_budget() {
@@ -229,7 +185,7 @@ fn checked_enum_constructors_lower_to_nominal_layout_operands() {
 fn native_and_script_enum_aliases_keep_distinct_layouts_and_refutable_unit_patterns() {
     let checked = common::program_ok(
         r#"
-use std::option::Option::{Some as Present, None as Absent};
+use core::language::Option::{Some as Present, None as Absent};
 enum Local<T> { Some(T), None }
 use self::Local::{Some, None};
 fn make<T>(value: T) -> Option<T> { Present(value) }
@@ -874,7 +830,7 @@ fn main() -> i32 {
 }
 
 #[test]
-fn stdlib_calls_lower_to_checked_engine_applications() {
+fn foundation_calls_lower_to_checked_native_imports() {
     let analyzed = common::program_ok(
         r#"
 fn main() -> usize {
@@ -885,14 +841,18 @@ fn main() -> usize {
 }
 "#,
     );
-    let ir =
-        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
+    let program = lower_program_to_mir(&analyzed, &Default::default()).unwrap();
+    let ir = program
+        .modules()
+        .iter()
+        .find(|module| &module.identity == program.root())
+        .unwrap();
     let function = &ir.functions[0];
 
     for expected in [
-        RuntimePrimitive::ArrayPush,
-        RuntimePrimitive::ArrayPop,
-        RuntimePrimitive::ArrayLen,
+        "$foundation_list_push_fluent",
+        "$foundation_list_pop",
+        "$foundation_list_len",
     ] {
         assert_eq!(
             function
@@ -901,7 +861,7 @@ fn main() -> usize {
                 .flat_map(|block| &block.instructions)
                 .filter(|instruction| matches!(instruction,
                     Instruction::Call { callee: CallTarget::Native(import), .. }
-                        if import.resolve() == Some(EngineNativeOperation::Direct(expected))
+                        if import.binding.path.last().is_some_and(|part| part.name == expected)
                 ))
                 .count(),
             1,
@@ -926,8 +886,12 @@ fn main() -> () {
 }
 "#,
     );
-    let ir =
-        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
+    let program = lower_program_to_mir(&analyzed, &Default::default()).unwrap();
+    let ir = program
+        .modules()
+        .iter()
+        .find(|module| &module.identity == program.root())
+        .unwrap();
     let function = &ir.functions[0];
 
     assert!(
@@ -956,7 +920,7 @@ fn main() -> () {
             .blocks
             .iter()
             .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(instruction, Instruction::ReadAggregateIndex { .. }))
+            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. } if import.binding.path.last().is_some_and(|part| part.name == "$foundation_list_index")))
     );
     assert!(
         function

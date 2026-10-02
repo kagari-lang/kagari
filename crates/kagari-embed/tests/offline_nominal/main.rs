@@ -4,7 +4,7 @@ use kagari_common::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         type_declaration::{
             HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
-            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership,
+            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
         },
         value_type::HostValueType,
     },

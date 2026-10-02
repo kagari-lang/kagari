@@ -7,7 +7,7 @@ use {
 };
 
 use kagari_abi::{ids::FunctionRef, types as abi};
-use kagari_bytecode::{self as bytecode, module::CallableTarget, program::verify_program};
+use kagari_bytecode::{module::CallableTarget, program::verify_program};
 use kagari_mir::program as mir_program;
 
 fn script_target(target: CallableTarget) -> FunctionRef {
@@ -130,18 +130,18 @@ fn applied_trait_template_keeps_impl_and_trait_arguments() {
 #[test]
 fn generic_interface_implementation_specializes_reachable_method() {
     let module = common::bytecode_ok(
-        "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
+        "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read(x: Get) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
     );
     assert_eq!(
         module.modules[module.root.index()].interface_tables.len(),
-        1
+        3
     );
-    assert_eq!(
-        module.modules[module.root.index()].interface_tables[0]
-            .methods
-            .len(),
-        2
-    );
+    let slots = module.modules[module.root.index()]
+        .interface_tables
+        .iter()
+        .flat_map(|table| &table.methods)
+        .collect::<Vec<_>>();
+    assert_eq!(slots.len(), 2);
     let abi = module.modules[module.root.index()]
         .public_items
         .iter()
@@ -152,8 +152,7 @@ fn generic_interface_implementation_specializes_reachable_method() {
         .unwrap();
     assert_eq!(abi.generic_params.len(), 1);
     assert!(abi.methods[0].generic_params.is_empty());
-    let arguments = module.modules[module.root.index()].interface_tables[0]
-        .methods
+    let arguments = slots
         .iter()
         .map(|slot| {
             module.modules[module.root.index()].functions[script_target(slot.target).index()]
@@ -171,8 +170,7 @@ fn generic_interface_implementation_specializes_reachable_method() {
         kagari_abi::scalar::BuiltinType::String
     )]));
     let mut wrong_arity = module.clone();
-    let method =
-        wrong_arity.modules[wrong_arity.root.index()].interface_tables[0].methods[0].target;
+    let method = slots[0].target;
     let method = script_target(method).index();
     wrong_arity.modules[wrong_arity.root.index()].functions[method]
         .identity
@@ -193,18 +191,25 @@ fn generic_interface_implementation_specializes_reachable_method() {
 #[test]
 fn generic_interface_slot_requires_instantiated_method_layout() {
     let module = common::bytecode_ok(
-        "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 7 }) }",
+        "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read(x: Echo<i32>) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 7 }) }",
     );
     assert_eq!(
-        module.modules[module.root.index()].interface_tables[0]
-            .methods
-            .len(),
+        module.modules[module.root.index()]
+            .interface_tables
+            .iter()
+            .map(|table| table.methods.len())
+            .sum::<usize>(),
         1
     );
     verify_program(&module).unwrap();
     let mut wrong_instance = module;
-    let method =
-        wrong_instance.modules[wrong_instance.root.index()].interface_tables[0].methods[0].target;
+    let method = wrong_instance.modules[wrong_instance.root.index()]
+        .interface_tables
+        .iter()
+        .flat_map(|table| &table.methods)
+        .next()
+        .unwrap()
+        .target;
     let method = script_target(method).index();
     wrong_instance.modules[wrong_instance.root.index()].functions[method]
         .identity

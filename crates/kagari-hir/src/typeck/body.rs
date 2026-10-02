@@ -866,11 +866,15 @@ impl<'a> BodyChecker<'a> {
                         )
                     })
                 {
-                    self.diagnostics.push(Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                        type_name: element.display_name(),
-                        constraint: "array repetition without shared mutable objects".into(),
-                        reason: "use ArrayList::from_fn(count, |index| value) to initialize each element".into(),
-                    }).with_span(self.lowered.source_map.expr_span(*value)));
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                            type_name: element.display_name(),
+                            constraint: "array repetition without shared mutable objects".into(),
+                            reason: "initialize each element separately to create distinct objects"
+                                .into(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*value)),
+                    );
                 }
                 let length_type = TypeId::Builtin(BuiltinType::USize);
                 let actual = self.infer_expr_with_coercion(*count, env, Some(&length_type));

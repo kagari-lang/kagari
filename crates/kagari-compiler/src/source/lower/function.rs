@@ -17,7 +17,7 @@ use kagari_abi::{
     native_import::callables::NativeCallableRequirement,
     representation::ValueType,
     scalar::BuiltinType,
-    standard::RuntimePrimitive,
+    standard::{RuntimePrimitive, surface::StandardEnum},
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
 use kagari_hir::{
@@ -126,7 +126,7 @@ pub(crate) fn lower_protocol<'a>(
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
-    let equality = protocol == Protocol::PartialEq;
+    let binary = matches!(protocol, Protocol::PartialEq | Protocol::Ord);
     let typed = TypedFunction {
         implementation: FunctionImplementation::Script,
         generic_params: Vec::new(),
@@ -134,12 +134,18 @@ pub(crate) fn lower_protocol<'a>(
         id: parent.id,
         name: String::new(),
         params: Default::default(),
-        return_type: TypeId::Builtin(match protocol {
-            Protocol::PartialEq => BuiltinType::Bool,
-            Protocol::Hash => BuiltinType::I64,
-            Protocol::Debug | Protocol::Display => BuiltinType::String,
-            _ => return Err(MirLoweringError::MissingBinding("closed protocol adapter")),
-        }),
+        return_type: match protocol {
+            Protocol::Ord => TypeId::StandardEnum {
+                kind: StandardEnum::Ordering,
+                args: vec![],
+            },
+            _ => TypeId::Builtin(match protocol {
+                Protocol::PartialEq => BuiltinType::Bool,
+                Protocol::Hash => BuiltinType::I64,
+                Protocol::Debug | Protocol::Display => BuiltinType::String,
+                _ => return Err(MirLoweringError::MissingBinding("closed protocol adapter")),
+            }),
+        },
     };
     let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
     let interface = protocol.nominal();
@@ -148,6 +154,7 @@ pub(crate) fn lower_protocol<'a>(
         kind: DefinitionKind::Method,
         name: match protocol {
             Protocol::PartialEq => "eq",
+            Protocol::Ord => "cmp",
             Protocol::Hash => "hash",
             Protocol::Debug => "debug",
             Protocol::Display => "display",
@@ -184,7 +191,7 @@ pub(crate) fn lower_protocol<'a>(
         lowerer.function.id.index()
     );
     let mut args = Vec::new();
-    for index in 0..if equality { 2 } else { 1 } {
+    for index in 0..if binary { 2 } else { 1 } {
         let physical = lowerer.value_type(&receiver)?;
         let name = format!("arg_{index}");
         let local = lowerer.alloc_local(name.clone(), physical, lowerer.function.debug.source_span);
@@ -216,6 +223,9 @@ pub(crate) fn lower_protocol<'a>(
         args.push(value);
     }
     let value = match protocol {
+        Protocol::Ord => {
+            lowerer.emit_intrinsic(RuntimePrimitive::ValueCmp, &args, ValueType::HeapObject)
+        }
         Protocol::Debug | Protocol::Display => lowerer.emit_intrinsic(
             if protocol == Protocol::Debug {
                 RuntimePrimitive::ValueDebug

@@ -7,7 +7,12 @@ use {
     kagari_runtime::{error::RuntimeErrorKind, module::LoadedModule, resource::ResourcePolicy},
 };
 
-use std::sync::{Arc, Mutex};
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
@@ -51,7 +56,6 @@ enum Expected {
     IndexTrap,
     HostFailure,
     ScriptTrap(&'static str),
-    BuiltinTrap(String),
     ResourceLimit,
     Cancelled,
 }
@@ -285,12 +289,12 @@ fn assert_outcome(
             case.name
         ),
         (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
+        (Expected::IndexTrap, Err(VmError::RuntimeError(error)))
+            if error.kind() == RuntimeErrorKind::IndexOutOfBounds => {}
         (Expected::HostFailure, Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::HostCallFailure => {}
         (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::ScriptTrap && error.message() == *message => {}
-        (Expected::BuiltinTrap(message), Err(VmError::BuiltinError(error)))
-            if error.kind() == RuntimeErrorKind::ScriptTrap && error.message() == message => {}
         (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::ResourceLimitExceeded => {}
         (Expected::Cancelled, Err(VmError::RuntimeError(error)))
@@ -413,12 +417,9 @@ fn run(
             },
         ))
         .unwrap();
-    let retained = case.array.map(|(initial, _)| {
-        let array = runtime
-            .alloc_array(initial.iter().copied().map(Value::I32).collect())
-            .unwrap();
-        let rooted = std::rc::Rc::new(runtime.root_value(Value::Array(array)).unwrap());
-        let capture_root = rooted.clone();
+    let observed_array = Rc::new(RefCell::new(None));
+    if case.array.is_some() {
+        let capture_array = observed_array.clone();
         let capture_host = host.clone();
         runtime
             .register_host_function(HostFunction::new(observe, move |_, _| {
@@ -426,14 +427,28 @@ fn run(
                     symbol: "observe.array",
                     args: vec![],
                 });
-                Ok(capture_root.value())
+                capture_array
+                    .borrow()
+                    .clone()
+                    .ok_or_else(|| HostError::new("array fixture is not initialized"))
             }))
             .unwrap();
-        rooted
-    });
+    }
     let loaded = runtime
         .load_verified_program(case.name, module.bytecode().clone())
         .unwrap();
+    let retained = case.array.map(|(initial, _)| {
+        let array = runtime
+            .alloc_array(
+                &loaded,
+                AbiType::Builtin(BuiltinType::I32),
+                initial.iter().copied().map(Value::I32).collect(),
+            )
+            .unwrap();
+        let rooted = runtime.root_value(Value::Array(array)).unwrap();
+        *observed_array.borrow_mut() = Some(rooted.value());
+        rooted
+    });
     let iteration = case.iterating.then(|| {
         runtime
             .gc()
@@ -622,7 +637,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         ),
         Case::new(
             "local-type-shadows-standard-constructor",
-            "struct LinkedHashMap {} fn unused(x: LinkedHashMap<i32, String>) {} fn main() {}",
+            "struct HashMap {} fn unused(x: HashMap<i32, String>) {} fn main() {}",
             Expected::Diagnostic("KG_TYPE_UNKNOWN_TYPE"),
         ),
         Case::new(
@@ -684,12 +699,12 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         ),
         Case::new(
             "shadowed-standard-namespace",
-            "use std::math as api; fn main(api: i32) -> i32 { api::clamp(1, 1, 1) }",
+            "use core::language as api; fn main(api: i32) -> i32 { match api::Option::Some(1) { Some(x) => x, None => 0 } }",
             Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME"),
         ),
         Case::new(
-            "resolved-standard-call",
-            "use std::math as api; fn main() -> i32 { api::clamp(5, 1, 3) + std::math::clamp(0, 2, 4) }",
+            "resolved-language-constructor",
+            "use core::language as api; fn main() -> i32 { match api::Option::Some(5) { Some(x) => x, None => 0 } }",
             Expected::Value(Value::I32(5)),
         ),
     ] {
@@ -758,15 +773,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         let mut case = Case::new(
             "host-iteration-rejects-script-structural-write",
             &source,
-            Expected::BuiltinTrap(format!(
-                "std::array::ArrayList::{}: structural modification during iteration",
-                operation
-                    .strip_prefix("a.")
-                    .unwrap()
-                    .split('(')
-                    .next()
-                    .unwrap()
-            )),
+            Expected::ScriptTrap("structural modification during iteration"),
         )
         .array(&[1, 2], &[42, 2])
         .effects(&["before"], &["before"]);
@@ -853,11 +860,9 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("generic-missing-bound", "trait Get { fn get(self) -> i32; } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> i32 { read(1) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("duplicate-field-declarations", "struct P { val x: i32, var x: i32 } fn main() {}", Expected::Diagnostic("KG_RESOLVE_DUPLICATE_FIELD")),
         Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
-        Case::new("explicit-string-lengths", "fn main() -> (usize, usize) { (\"中😀\".len_bytes(), \"中😀\".len_chars()) }", Expected::Value(Value::Tuple(vec![Value::U64(7), Value::U64(2)]))),
         Case::new("reject-obsolete-string-len", "fn main() { \"text\".len(); }", Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME")),
-        Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; (a.iter().count(), a.iter().skip(\"a\".len_bytes()).next().unwrap_or(0), a.iter().skip(a.len()).next().is_none()) }", Expected::Value(Value::Tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)]))),
-        Case::new("iter-string-option", "fn main() -> (usize, String, bool) { val s = \"中😀\"; (s.iter().count(), s.iter().skip(\"a\".len_bytes()).next().unwrap_or(\"missing\"), s.iter().skip(s.len_chars()).next().is_none()) }", Expected::Value(Value::Tuple(vec![Value::U64(2), Value::Str("😀".into()), Value::Bool(true)]))),
-        Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = [7]; val alias = a; val popped = a.pop().unwrap_or(0); (popped, alias.pop().is_none(), a.len()) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)]))),
+        Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }", Expected::Value(Value::Tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)]))),
+        Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = [7]; val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)]))),
         Case::new("user-print-is-direct-call", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }", Expected::Value(Value::I32(42))),
         Case::new("user-type-of-is-direct-call", "fn type_of(n: i32) -> i32 { n + 2 } fn main() -> i32 { type_of(40) }", Expected::Value(Value::I32(42))),
         Case::new("local-print-is-not-a-helper", "fn main() { val print = 1; print(2); }", Expected::Diagnostic("KG_TYPE_INVALID_CALL_TARGET")),
@@ -943,13 +948,10 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("enum_value", "fn main() -> bool { val a = [1]; val b = [1]; a.pop() == b.pop() }", Expected::Value(Value::Bool(true))),
         Case::new("enum_different_members", "fn main() -> bool { val a = [1, 2]; a.pop() != a.pop() }", Expected::Value(Value::Bool(true))),
         Case::new("enum_object_identity", "fn main() -> bool { val a = [[1]]; val b = [[1]]; a.pop() != b.pop() }", Expected::Value(Value::Bool(true))),
-        Case::new("enum_assert_eq", "fn main() { val a = [1]; val b = [1]; std::debug::assert_eq(a.pop(), b.pop(), \"same enum\"); }", Expected::Value(Value::Unit)),
-        Case::new("shallow_copy", "struct P { var n: i32 } fn main() -> bool { val a = [P { n: 1 }]; val b = ArrayList::from_iter(a); b[0].n = 7; a != b && a[0].n == 7 }", Expected::Value(Value::Bool(true))),
-        Case::new("map_alias_through_call", "fn change(value: LinkedHashMap<String, i32>) -> LinkedHashMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: LinkedHashMap<String, i32> = LinkedHashMap::new(); val b = change(a); val fresh: LinkedHashMap<String, i32> = LinkedHashMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(Value::Bool(true))),
-        Case::new("set_alias_through_call", "fn change(value: LinkedHashSet<String>) -> LinkedHashSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: LinkedHashSet<String> = LinkedHashSet::new(); val b = change(a); val fresh: LinkedHashSet<String> = LinkedHashSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(Value::Bool(true))),
-        Case::new("map_values_are_shallow", "struct Item { var value: i32 } fn main() -> bool { val item = Item { value: 1 }; val a: LinkedHashMap<String, Item> = LinkedHashMap::new(); a.insert(\"key\", item); val snapshot = a.values(); snapshot[0].value = 42; val values = ArrayList::from(snapshot); values.push(Item { value: 9 }); item.value == 42 && a.len() == [0].len() && values.len() == [0, 0].len() }", Expected::Value(Value::Bool(true))),
-        Case::new("set_projection_has_independent_structure", "fn main() -> bool { val a: LinkedHashSet<String> = LinkedHashSet::new(); a.insert(\"key\"); val values = a.to_array(); values[0] = \"changed\"; values.push(\"extra\"); a.contains(\"key\") && !a.contains(\"changed\") && a.len() == [0].len() && values.len() == [0, 0].len() }", Expected::Value(Value::Bool(true))),
-        Case::new("enum_tuple_members_keep_map_identity", "enum Packet { Data((LinkedHashMap<String, i32>, i32)) } fn main() -> bool { val a: LinkedHashMap<String, i32> = LinkedHashMap::new(); val b: LinkedHashMap<String, i32> = LinkedHashMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }", Expected::Value(Value::Bool(true))),
+        Case::new("enum_equality", "fn main() -> bool { val a = [1]; val b = [1]; a.pop() == b.pop() }", Expected::Value(Value::Bool(true))),
+        Case::new("map_alias_through_call", "fn change(value: HashMap<String, i32>) -> HashMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b = change(a); val fresh: HashMap<String, i32> = HashMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(Value::Bool(true))),
+        Case::new("set_alias_through_call", "fn change(value: HashSet<String>) -> HashSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: HashSet<String> = HashSet::new(); val b = change(a); val fresh: HashSet<String> = HashSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(Value::Bool(true))),
+        Case::new("enum_tuple_members_keep_map_identity", "enum Packet { Data((HashMap<String, i32>, i32)) } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b: HashMap<String, i32> = HashMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }", Expected::Value(Value::Bool(true))),
         Case::new("interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { a == b }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         Case::new("tuple_interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { (1, a) == (1, b) }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         reject,

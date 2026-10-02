@@ -1,9 +1,2 @@
-// Run: cargo run -p kagari-cli -- run examples/syntax/import-alias.kgr
-// Result: main returns 42.
-use std::math as math;
-
-fn main() -> i32 {
-    val result = math::clamp(50, 0, 42);
-    std::debug::assert_eq(result, 42, "aliased module import");
-    result
-}
+use std::collections as algorithms;
+fn main()->i32{val values=[22,20];algorithms::sort(values);values[0]+values[1]}

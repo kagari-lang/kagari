@@ -22,27 +22,27 @@ fn main() -> i32 {
         (1, (value, 3)) => value,
         _ => 0,
     };
-    std::debug::assert_eq(selected + bound, 42, "nested tuple pattern");
+    { val passed = selected + bound == 42; if !passed {val zero=0;1/zero;} };
     val point = Point { x: 20, y: 22 };
     val from_struct = match point {
         Point { x, y: 21 } => 0,
         Point { x, y: 22 } => x + 22,
         _ => 0,
     };
-    std::debug::assert_eq(from_struct, 42, "struct pattern");
+    { val passed = from_struct == 42; if !passed {val zero=0;1/zero;} };
     val answer = Answer::Value(42);
     val from_enum = match answer {
         Answer::Missing => 0,
         Answer::Value(value) => value,
     };
-    std::debug::assert_eq(from_enum, 42, "enum pattern");
+    { val passed = from_enum == 42; if !passed {val zero=0;1/zero;} };
     val from_group = match 42 {
         (answer) => answer,
     };
-    std::debug::assert_eq(from_group, 42, "parenthesized pattern");
+    { val passed = from_group == 42; if !passed {val zero=0;1/zero;} };
     val from_singleton = match (42,) {
         (value,) => value,
     };
-    std::debug::assert_eq(from_singleton, 42, "singleton tuple pattern");
+    { val passed = from_singleton == 42; if !passed {val zero=0;1/zero;} };
     selected + bound
 }

@@ -1,10 +1,8 @@
 use super::collect_module_abi;
 use kagari_abi::{
-    callable::{CallableImplementation, NativeBinding},
-    standard::{
-        surface::StandardEnum,
-        traits::{self, Protocol},
-    },
+    callable::CallableImplementation,
+    language::{self as traits, Protocol},
+    standard::surface::StandardEnum,
     types::{
         self as abi, AbiType, NominalAbiType, PublicAbiItem, TypeAbiKind,
         inheritance::trait_closure, native::NativeTypeConstructor, verify,
@@ -33,7 +31,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
     let mut seen_map = false;
     let mut seen_result = false;
     for declared in snapshot.declaration_snapshot().files() {
-        if declared.source().module_identity().package.0 != "kagari-std" {
+        if declared.source().module_identity().package.0 != "kagari-core" {
             continue;
         }
         let analyzed = snapshot.file(declared.source().id()).unwrap();
@@ -60,7 +58,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             assert!(ty.fields.is_empty());
             match ty.kind {
                 TypeAbiKind::Native(NativeTypeConstructor::Map) => {
-                    assert_eq!(ty.name, "LinkedHashMap");
+                    assert_eq!(ty.name, "HashMap");
                     assert_eq!(ty.generic_params.len(), 2);
                     seen_map = true;
                 }
@@ -82,7 +80,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             count += 1;
         }
     }
-    assert_eq!(count, 18);
+    assert_eq!(count, 15);
     assert!(seen_map && seen_result);
 }
 
@@ -98,7 +96,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     let root = snapshot.file(root).unwrap();
     let mut contracts = BTreeMap::new();
     for declared in snapshot.declaration_snapshot().files() {
-        if declared.source().module_identity().package.0 != "kagari-std" {
+        if declared.source().module_identity().package.0 != "kagari-core" {
             continue;
         }
         let analyzed = snapshot.file(declared.source().id()).unwrap();
@@ -126,11 +124,11 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             assert_eq!(record.methods.len(), source.methods.len());
             for (slot, method) in source.methods.iter().enumerate() {
                 assert_eq!(record.methods[slot].name, method.name);
-                let expected = match method.default {
+                let expected = match &method.default {
                     None => CallableImplementation::Required,
                     Some(MethodDefault::Script) => CallableImplementation::Script,
                     Some(MethodDefault::Native(HirNativeBinding::Entry(binding))) => {
-                        CallableImplementation::Native(NativeBinding::Entry(binding))
+                        CallableImplementation::Native(binding.clone())
                     }
                     Some(MethodDefault::Native(_)) => panic!("installed host default"),
                 };

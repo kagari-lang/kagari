@@ -1,19 +1,9 @@
-use std::convert::{From, TryFrom, TryFromIntError};
-
-fn byte(value: u16) -> Result<u8, TryFromIntError> {
-    Ok(u8::try_from(value)?)
-}
-
-fn main() -> i32 {
-    val hi = 0x12u8;
-    val lo = 0x34u8;
-    val address = (u16::from(hi) << 8) | u16::from(lo);
-    std::debug::assert(address == 0x1234u16, "join address");
-    std::debug::assert((address as u8) == lo, "truncate low byte");
-    std::debug::assert(((address >> 8) as u8) == hi, "high byte");
-    std::debug::assert(byte(256u16).is_err(), "checked narrowing");
-    std::debug::assert((0xffu8 as i8) == -1i8, "signed interpretation");
-    val sample = f64::from(255u8) / 255.0;
-    std::debug::assert(sample == 1.0, "float conversion");
+// Explicit casts have language-defined truncation and saturation rules.
+fn main()->i32 {
+    val hi=0x12u8;val lo=0x34u8;
+    val address=((hi as u16)<<8)|(lo as u16);
+    if address!=0x1234u16 || (address as u8)!=lo {return 0;}
+    if ((address>>8) as u8)!=hi || (0xffu8 as i8)!=-1i8 {return 0;}
+    if (999.75 as u8)!=255u8 || ((255u8 as f64)/255.0)!=1.0 {return 0;}
     42
 }

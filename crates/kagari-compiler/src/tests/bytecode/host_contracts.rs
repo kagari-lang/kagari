@@ -1,8 +1,5 @@
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
-use kagari_bytecode::{
-    self as bytecode,
-    program::{BytecodeProgram, ModuleRef, verify_program},
-};
+use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
 use kagari_common::host_interface::value_type::HostValueType;
 
 use kagari_abi::budget::LogicalBudgetCharge;
@@ -21,7 +18,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .clear();
     assert!(matches!(
         verify_program(&absent),
-        Err(BytecodeVerificationError::InvalidHostImport { .. })
+        Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let mut wrong_parameter = module.clone();
     wrong_parameter.modules[wrong_parameter.root.index()]
@@ -36,7 +33,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .passing = kagari_common::host_interface::HostPassingStyle::Owned;
     assert!(matches!(
         verify_program(&wrong_parameter),
-        Err(BytecodeVerificationError::TypeMismatch { .. })
+        Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let mut wrong_arity = module.clone();
     wrong_arity.modules[wrong_arity.root.index()]
@@ -46,7 +43,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .clear();
     assert!(matches!(
         verify_program(&wrong_arity),
-        Err(BytecodeVerificationError::InvalidOperation { .. })
+        Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let mut duplicate = module;
     let duplicated = duplicate.modules[duplicate.root.index()]

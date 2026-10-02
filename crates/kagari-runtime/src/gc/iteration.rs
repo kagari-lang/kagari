@@ -1,0 +1,143 @@
+//! Scoped native iteration resources, including library-owned wrapper payloads.
+use crate::{
+    error::{RuntimeError, RuntimeErrorKind},
+    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, iter::NativeIter},
+    value::Value,
+};
+use kagari_abi::types::AbiType;
+use std::collections::HashSet;
+
+fn invalid() -> RuntimeError {
+    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid iterator resource")
+}
+impl GcHeap {
+    pub fn begin_collection_iteration(
+        &self,
+        value: &Value,
+    ) -> Result<CollectionIteration, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if matches!(value, Value::GcHandle(_) | Value::Interface(_)) {
+            let mut guard = CollectionIteration {
+                _children: Vec::new(),
+                iter_loops: Vec::new(),
+                active: self.iterations.clone(),
+                id: None,
+                _root: self.root_value(value.clone()).ok_or_else(|| {
+                    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid iterator")
+                })?,
+            };
+            let mut pending = vec![value.clone()];
+            let mut visited = HashSet::new();
+            while let Some(value) = pending.pop() {
+                self.ensure_execution_allowed()?;
+                self.resources.consume_instruction_steps(1)?;
+                match value {
+                    Value::GcHandle(id) => {
+                        if !visited.insert(id) {
+                            continue;
+                        }
+                        let mut objects = self.objects.borrow_mut();
+                        let (loops, dependencies) = match self.object_mut(&mut objects, id) {
+                            Some(HeapObject::Native(object))
+                                if matches!(object.ty, AbiType::Iter(_)) =>
+                            {
+                                let iter = object.payload_mut::<NativeIter>()?;
+                                iter.guard = None;
+                                (Some(iter.loops.clone()), vec![iter.source.clone()])
+                            }
+                            Some(HeapObject::Native(object)) => {
+                                let mut sources = Vec::new();
+                                object
+                                    .iteration_sources(&mut |source| sources.push(source.clone()));
+                                (None, sources)
+                            }
+                            _ => return Err(invalid()),
+                        };
+                        if let Some(loops) = loops {
+                            let count = loops
+                                .get()
+                                .checked_add(1)
+                                .ok_or_else(|| self.resource_limit("iterator loop depth"))?;
+                            guard
+                                .iter_loops
+                                .try_reserve(1)
+                                .map_err(|_| self.resource_limit("iterator guards"))?;
+                            guard.iter_loops.push(loops.clone());
+                            loops.set(count);
+                        }
+                        pending.extend(dependencies);
+                    }
+                    Value::Interface(id) => {
+                        if !visited.insert(id.0) {
+                            continue;
+                        }
+                        let objects = self.objects.borrow();
+                        let Some(HeapObject::Interface { snapshot, .. }) =
+                            self.readable_object(&objects, id.0)
+                        else {
+                            return Err(invalid());
+                        };
+                        pending.push(snapshot.data.clone());
+                    }
+                    source => guard
+                        ._children
+                        .push(self.begin_collection_iteration(&source)?),
+                }
+            }
+            return Ok(guard);
+        }
+        if matches!(
+            value,
+            Value::Str(_) | Value::Range(_) | Value::Struct(_) | Value::Enum(_) | Value::Tuple(_)
+        ) {
+            return Ok(CollectionIteration {
+                _children: Vec::new(),
+                iter_loops: Vec::new(),
+                active: self.iterations.clone(),
+                id: None,
+                _root: self.root_value(value.clone()).ok_or_else(invalid)?,
+            });
+        }
+        let id = match value {
+            Value::Array(id) | Value::Map(id) | Value::Set(id) => *id,
+            _ => {
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "expected collection",
+                ));
+            }
+        };
+        let expected = match value {
+            Value::Array(_) => GcObjectKind::Array,
+            Value::Map(_) => GcObjectKind::Map,
+            _ => GcObjectKind::Set,
+        };
+        if self.object_kind(id) != Some(expected) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid collection handle",
+            ));
+        }
+        let root = self.root_value(value.clone()).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid collection handle")
+        })?;
+        let mut active = self.iterations.borrow_mut();
+        let count = active
+            .get(&id)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| self.resource_limit("iteration depth"))?;
+        active
+            .try_reserve(1)
+            .map_err(|_| self.resource_limit("iteration registry"))?;
+        active.insert(id, count);
+        Ok(CollectionIteration {
+            _children: Vec::new(),
+            iter_loops: Vec::new(),
+            active: self.iterations.clone(),
+            id: Some(id),
+            _root: root,
+        })
+    }
+}

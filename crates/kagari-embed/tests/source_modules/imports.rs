@@ -258,13 +258,13 @@ fn wildcard_import_follows_a_public_module_alias() {
 }
 
 #[test]
-fn wildcard_import_follows_a_public_standard_module_alias() {
+fn wildcard_import_follows_a_public_native_module_alias() {
     let engine = KagariEngine::default();
-    insert(&engine, "facade", "pub use std::math;");
+    insert(&engine, "facade", "pub use std::collections;");
     let root = insert(
         &engine,
         "root",
-        "use pkg::facade::math::*; fn main() -> i32 { min(42, 99) }",
+        "use pkg::facade::collections::*; fn main() -> i32 { val values = [22, 20]; sort(values); values[0] + values[1] }",
     );
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();

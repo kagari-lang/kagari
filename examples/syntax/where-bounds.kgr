@@ -30,7 +30,7 @@ fn value_of<T>(item: T) -> i32 where T: Read {
 
 fn main() -> i32 {
     val result = value_of(Number { value: 42 });
-    std::debug::assert_eq(result, 42, "where bound dispatch");
-    std::debug::assert_eq(value_of_extra(Number { value: 41 }), 42, "supertrait clause");
+    { val passed = result == 42; if !passed {val zero=0;1/zero;} };
+    { val passed = value_of_extra(Number { value: 41 }) == 42; if !passed {val zero=0;1/zero;} };
     result
 }

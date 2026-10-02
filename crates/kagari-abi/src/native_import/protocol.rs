@@ -3,6 +3,7 @@ use crate::{
     language::Protocol,
     native_import::{NativeSignature, callables::NativeCallableRequirement},
     scalar::BuiltinType,
+    standard::surface::StandardEnum,
     types::AbiType,
 };
 use kagari_common::identity::DefinitionKind;
@@ -12,10 +13,18 @@ pub fn adapter_contract(
 ) -> Option<(Protocol, NativeSignature)> {
     let kind = Protocol::from_id(&required.interface.declaration)?;
     let (member, result, count) = match kind {
-        Protocol::PartialEq => ("eq", BuiltinType::Bool, 2),
-        Protocol::Hash => ("hash", BuiltinType::I64, 1),
-        Protocol::Debug => ("debug", BuiltinType::String, 1),
-        Protocol::Display => ("display", BuiltinType::String, 1),
+        Protocol::PartialEq => ("eq", AbiType::Builtin(BuiltinType::Bool), 2),
+        Protocol::Hash => ("hash", AbiType::Builtin(BuiltinType::I64), 1),
+        Protocol::Debug => ("debug", AbiType::Builtin(BuiltinType::String), 1),
+        Protocol::Display => ("display", AbiType::Builtin(BuiltinType::String), 1),
+        Protocol::Ord => (
+            "cmp",
+            AbiType::StandardEnum {
+                kind: StandardEnum::Ordering,
+                args: vec![],
+            },
+            2,
+        ),
         _ => return None,
     };
     let mut owner = required.member.clone();
@@ -34,7 +43,7 @@ pub fn adapter_contract(
         kind,
         NativeSignature {
             params: vec![required.receiver.clone(); count],
-            result: AbiType::Builtin(result),
+            result,
         },
     ))
 }

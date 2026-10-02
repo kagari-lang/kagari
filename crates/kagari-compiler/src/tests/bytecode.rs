@@ -16,7 +16,6 @@ use kagari_bytecode::{
 use kagari_abi::{
     ids::FunctionRef,
     representation::ValueType,
-    standard::RuntimePrimitive,
     types::{PublicAbiItem, TypeAbiKind},
 };
 
@@ -82,29 +81,4 @@ mod host_contracts;
 mod identities;
 mod interfaces;
 mod lowering;
-mod native_array_copy;
-mod native_equality;
-mod native_initialization;
-mod native_lists;
-mod native_numeric;
-mod native_snapshots;
 mod validation;
-
-mod native_array_ranges;
-
-mod native_retention;
-
-mod native_sets;
-mod native_sorting;
-
-mod native_key_construction;
-mod native_keys;
-
-mod native_grouping;
-
-mod native_string_iterators;
-
-mod native_destinations;
-mod native_list_join;
-mod native_protocol_entries;
-mod native_terminal_destinations;

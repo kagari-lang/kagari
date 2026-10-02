@@ -19,6 +19,9 @@ use std::{
 /// scripts or retain a reference past tracing. Rust Drop owns payload destruction.
 pub trait NativePayload: Any + Debug {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value));
+    /// Managed iterators used by this payload. These are also GC edges. A for
+    /// scope keeps their sources protected and releases them on every exit.
+    fn iteration_sources<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
     /// Logical heap units retained by the payload, excluding its object header.
     fn units(&self) -> usize;
 }
@@ -60,6 +63,7 @@ struct StorageEntries {
     layout: NativeStorageLayout,
     factory: Option<Box<Factory>>,
     trace: Box<Trace>,
+    iteration_sources: Box<Trace>,
     units: Box<Units>,
 }
 
@@ -116,6 +120,12 @@ impl NativeStorage {
                         .expect("factory and trace entries share the sealed Rust payload type")
                         .trace(visit)
                 }),
+                iteration_sources: Box::new(|payload, visit| {
+                    payload
+                        .downcast_ref::<S>()
+                        .expect("sealed Rust payload type")
+                        .iteration_sources(visit)
+                }),
                 units: Box::new(|payload| {
                     payload
                         .downcast_ref::<S>()
@@ -162,6 +172,9 @@ impl NativeStorage {
         (self.entries.trace)(payload.as_ref(), &mut |value| {
             valid &= value.is_default_heap_payload() && heap.validate_value(value);
         });
+        (self.entries.iteration_sources)(payload.as_ref(), &mut |value| {
+            valid &= value.is_default_heap_payload() && heap.validate_value(value);
+        });
         if !valid {
             return Err(RuntimeError::module_validation(
                 "native factory retained an invalid script value",
@@ -201,6 +214,13 @@ impl NativeObject {
     }
     pub(crate) fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         (self.storage.entries.trace)(self.payload.as_ref(), visit);
+        self.iteration_sources(visit);
+    }
+    pub(crate) fn iteration_sources<'payload>(
+        &'payload self,
+        visit: &mut dyn FnMut(&'payload Value),
+    ) {
+        (self.storage.entries.iteration_sources)(self.payload.as_ref(), visit);
     }
     pub(crate) fn units(&self) -> usize {
         (self.storage.entries.units)(self.payload.as_ref())

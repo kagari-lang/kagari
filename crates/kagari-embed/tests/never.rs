@@ -60,7 +60,7 @@ fn execute(source: &str, entry: &str, expected: i32) {
 fn never_calls_branches_and_generic_arguments() {
     execute(
         r#"
-fn fail() -> ! { std::debug::panic("failed") }
+fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
 fn forever() -> ! { loop {} }
 fn absurd(x: !) -> i32 { x }
 fn absurd_generic<T>(x: !) -> T { x }
@@ -111,7 +111,7 @@ fn rejects_normal_returns_and_nested_never_coercions() {
 fn never_closures_and_loop_joins() {
     execute(
         r#"
-fn fail() -> ! { std::debug::panic("failed") }
+fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
 fn invoke<T>(callback: fn() -> T) -> T { callback() }
 fn accept(callback: fn() -> !) -> ! { callback() }
 fn inferred_argument() { invoke(|| fail()); }
@@ -138,7 +138,7 @@ fn never_preserves_effects_and_releases_resources_on_traps_and_budget_exhaustion
             SourceFile::new(
                 "never-effects.kgr",
                 r#"
-fn fail(values: ArrayList<i32>) -> ! { values.push(20); print("before"); std::debug::panic("stop"); }
+fn fail(values: ArrayList<i32>) -> ! { values.push(20); print("before"); val zero = 0; 1 / zero; loop {} }
 fn later(values: ArrayList<i32>) -> i32 { print("after"); values.push(99); 99 }
 fn consume(a: i32, b: i32) -> i32 { a + b }
 fn main() -> i32 { val values = [1]; consume(fail(values), later(values)) }
@@ -205,10 +205,10 @@ fn never_survives_trait_dispatch_and_callable_adapters() {
         r#"
 trait Halt { fn stop(self) -> !; }
 struct Stop {}
-impl Halt for Stop { fn stop(self) -> ! { std::debug::panic("stop") } }
+impl Halt for Stop { fn stop(self) -> ! { val zero = 0; 1 / zero; loop {} } }
 impl Fn<()> for Stop {
     type Output = !;
-    fn call(self, args: ()) -> ! { std::debug::panic("call") }
+    fn call(self, args: ()) -> ! { val zero = 0; 1 / zero; loop {} }
 }
 fn via_interface(value: Halt) -> ! { value.stop() }
 fn via_callback(callback: fn() -> !) -> ! { callback() }
@@ -227,16 +227,16 @@ fn main() -> i32 {
 fn never_containers_and_short_circuiting_keep_normal_paths() {
     execute(
         r#"
-fn fail() -> ! { std::debug::panic("stop") }
+fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
 fn main() -> i32 {
     val values: ArrayList<!> = [];
     val readonly: List<!> = values;
     val missing: Option<!> = None;
     val result: Result<!, i32> = Err(42);
-    val copied: Result<!, i32> = result.map(|value: !| value);
+    val copied: Result<!, i32> = match result { Ok(value) => value, Err(error) => Err(error) };
     val unused = false && fail();
     val skipped = true || fail();
-    std::debug::assert(readonly.len() == 0usize && missing.is_none() && skipped && !unused, "normal paths");
+    if !(readonly.len() == 0usize && (match missing { None => true, Some(value) => value }) && skipped && !unused) { return 0; }
     match copied { Ok(value) => value, Err(error) => error }
 }
 "#,

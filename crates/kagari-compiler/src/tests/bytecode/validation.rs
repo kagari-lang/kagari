@@ -1,386 +1,12 @@
 use crate::tests::bytecode::*;
 use kagari_bytecode::{
-    self as bytecode,
     artifact::KbcArtifact,
     instruction::{ConstantOperand, NativeImportId},
-    module::{CallableTarget, FunctionRecord, RootSlotLayout},
+    module::{FunctionRecord, RootSlotLayout},
     program::verify_program,
 };
 
-use bincode::{DefaultOptions, Options};
-use kagari_abi::{
-    budget::LogicalBudgetCharge,
-    callable::{EngineNativeBinding, NativeCall},
-    effects::EffectSet,
-    language::{self as standard_traits, Protocol},
-    native_import::{EngineNativeOperation, NativeWitnessImplementation},
-    scalar::BuiltinType,
-    standard::{
-        RuntimePrimitive,
-        bindings::{NativeDefaultMethod, NativeProtocolMethod},
-    },
-    types::AbiType,
-};
-
-#[test]
-fn native_aggregation_rejects_forged_generic_method_applications() {
-    for (operation, method) in [
-        (NativeDefaultMethod::Sum, "sum"),
-        (NativeDefaultMethod::Product, "product"),
-    ] {
-        let declarations = r#"
-struct Bucket<T> {val items:ArrayList<T>}
-impl<T> Sum<T> for Bucket<T> {fn sum<I:Iterable<Item=T>>(source:I)->Self {val items:ArrayList<T> = ArrayList::new();for item in source {items.push(item);}Bucket{items}}}
-impl<T> Product<T> for Bucket<T> {fn product<I:Iterable<Item=T>>(source:I)->Self {val items:ArrayList<T> = ArrayList::new();for item in source {items.push(item);}Bucket{items}}}
-"#;
-        let program = common::bytecode_ok(&format!(
-            "{declarations}\nfn main()->Bucket<i32> {{[20,22].iter().{method}()}}"
-        ));
-        let root = program.root.index();
-        let import = program.modules[root]
-            .native_imports
-            .iter()
-            .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
-            .unwrap();
-        let destination = program.modules[root].native_imports[import]
-            .witnesses
-            .iter()
-            .position(|witness| {
-                Protocol::from_id(&witness.interface.declaration).is_some_and(Protocol::aggregation)
-            })
-            .unwrap();
-        verify_program(&program).unwrap();
-        let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-        for mutation in 0..12 {
-            let mut forged = artifact.clone();
-            let contract = &mut forged.program.modules[root].native_imports[import];
-            let witness = &mut contract.witnesses[destination];
-            match mutation {
-                0 => {
-                    contract.witnesses.remove(destination);
-                }
-                1 => witness.implementation = NativeWitnessImplementation::Primitive,
-                2 => witness.methods.clear(),
-                3 => {
-                    witness.methods[0].arguments.pop();
-                }
-                4 => witness.methods[0].arguments[1] = AbiType::Builtin(BuiltinType::I32),
-                5 => {
-                    witness.methods[0].declaration.path.last_mut().unwrap().name = "missing".into()
-                }
-                6 => witness.methods.push(witness.methods[0].clone()),
-                7 => {
-                    let NativeWitnessImplementation::Table(instance) = &mut witness.implementation
-                    else {
-                        unreachable!()
-                    };
-                    instance.arguments[0] = AbiType::Builtin(BuiltinType::U32);
-                }
-                8 => contract.requirements.clear(),
-                9 => contract.signature.result = AbiType::Builtin(BuiltinType::I32),
-                10 => {
-                    let target = witness.methods[0].clone();
-                    let module = &mut forged.program.modules[root];
-                    let function = module
-                        .functions
-                        .iter_mut()
-                        .find(|function| function.identity.as_ref() == Some(&target))
-                        .unwrap();
-                    let id = function.id;
-                    function.identity = None;
-                    module.function_table[id.index()].identity = None;
-                    for table in &mut module.interface_tables {
-                        table
-                            .methods
-                            .retain(|method| method.target != CallableTarget::Script(id));
-                    }
-                }
-                _ => witness.methods[0].arguments[0] = AbiType::Builtin(BuiltinType::U32),
-            }
-            assert!(
-                verify_program(&forged.program).is_err(),
-                "{operation:?} mutation {mutation}"
-            );
-            let bytes = DefaultOptions::new()
-                .with_fixint_encoding()
-                .with_little_endian()
-                .serialize(&forged)
-                .unwrap();
-            assert!(
-                !KbcArtifact::from_bytes(&bytes)
-                    .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
-                "encoded {operation:?} mutation {mutation}"
-            );
-        }
-    }
-}
-
-#[test]
-fn native_extrema_reject_forged_ordering_witnesses_and_missing_targets() {
-    let program = common::bytecode_ok(
-        r#"
-struct Rank<T> {val value:T}
-impl<T:PartialEq> PartialEq for Rank<T> {fn eq(self,other:Self)->bool {self.value==other.value}}
-impl<T:Eq> Eq for Rank<T> {}
-impl<T:PartialOrd> PartialOrd for Rank<T> {fn partial_cmp(self,other:Self)->Option<Ordering> {self.value.partial_cmp(other.value)}}
-impl<T:Ord> Ord for Rank<T> {fn cmp(self,other:Self)->Ordering {self.value.cmp(other.value)}}
-fn main()->Option<ArrayList<i32>> {[[1],[2]].iter().min_by_key(|n|Rank{value:n[0]})}
-"#,
-    );
-    let root = program.root.index();
-    let import = program.modules[root]
-        .native_imports
-        .iter()
-        .position(|import| {
-            import.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::MinByKey)
-        })
-        .unwrap();
-    let ordinal = program.modules[root].native_imports[import]
-        .witnesses
-        .iter()
-        .position(|witness| {
-            Protocol::from_id(&witness.interface.declaration) == Some(Protocol::Ord)
-        })
-        .unwrap();
-    verify_program(&program).unwrap();
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    for mutation in 0..9 {
-        let mut forged = artifact.clone();
-        let contract = &mut forged.program.modules[root].native_imports[import];
-        match mutation {
-            0 => {
-                contract.witnesses.remove(ordinal);
-            }
-            1 => {
-                contract.witnesses[ordinal].implementation = NativeWitnessImplementation::Primitive
-            }
-            2 => contract.witnesses[ordinal].receiver = AbiType::Builtin(BuiltinType::I64),
-            3 => {
-                contract.witnesses[ordinal].interface.declaration =
-                    standard_traits::identity(Protocol::Eq)
-            }
-            4 => {
-                let NativeWitnessImplementation::Table(instance) =
-                    &mut contract.witnesses[ordinal].implementation
-                else {
-                    unreachable!()
-                };
-                instance.arguments[0] = AbiType::Builtin(BuiltinType::I64);
-            }
-            5 => contract.witnesses.push(contract.witnesses[ordinal].clone()),
-            6 => {
-                let AbiType::Function { result, .. } = &mut contract.signature.params[1] else {
-                    unreachable!()
-                };
-                **result = AbiType::Builtin(BuiltinType::Bool);
-            }
-            7 => {
-                let module = &mut forged.program.modules[root];
-                let function = module
-                    .functions
-                    .iter_mut()
-                    .find(|function| {
-                        function.identity.as_ref().is_some_and(|instance| {
-                            instance
-                                .declaration
-                                .path
-                                .last()
-                                .is_some_and(|part| part.name == "cmp")
-                        })
-                    })
-                    .unwrap();
-                let id = function.id;
-                function.identity = None;
-                module.function_table[id.index()].identity = None;
-                for table in &mut module.interface_tables {
-                    table
-                        .methods
-                        .retain(|method| method.target != CallableTarget::Script(id));
-                }
-            }
-            _ => contract.requirements.clear(),
-        }
-        assert!(
-            verify_program(&forged.program).is_err(),
-            "ordering mutation {mutation}"
-        );
-        let bytes = DefaultOptions::new()
-            .with_fixint_encoding()
-            .with_little_endian()
-            .serialize(&forged)
-            .unwrap();
-        assert!(
-            !KbcArtifact::from_bytes(&bytes)
-                .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
-            "encoded ordering mutation {mutation}"
-        );
-    }
-}
-
-#[test]
-fn native_terminal_imports_reject_forged_receiver_witnesses() {
-    for operation in [NativeDefaultMethod::Fold, NativeDefaultMethod::Join] {
-        let declarations = r#"
-struct Counter<T> {val item:T,var done:bool}
-impl<T> Iterator for Counter<T> {type Item=T;fn next(self)->Option<T>{if self.done {None}else{self.done=true;Some(self.item)}}}
-"#;
-        let entry = if operation == NativeDefaultMethod::Join {
-            "fn main()->String {Counter{item:\"x\",done:false}.join(\"/\")}"
-        } else {
-            "fn main()->i32 {Counter{item:42,done:false}.fold(0,|a,n|a+n)}"
-        };
-        let program = common::bytecode_ok(&format!("{declarations}\n{entry}"));
-        let root = program.root.index();
-        let import = program.modules[root]
-            .native_imports
-            .iter()
-            .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
-            .unwrap();
-        verify_program(&program).unwrap();
-        let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-        for mutation in 0..8 {
-            let mut forged = artifact.clone();
-            let contract = &mut forged.program.modules[root].native_imports[import];
-            match mutation {
-                0 => contract.witnesses.clear(),
-                1 => contract.witnesses[0].implementation = NativeWitnessImplementation::Primitive,
-                2 => contract.witnesses[0].receiver = AbiType::Builtin(BuiltinType::I32),
-                3 => {
-                    *contract.witnesses[0]
-                        .interface
-                        .associated_types
-                        .values_mut()
-                        .next()
-                        .unwrap() = AbiType::Builtin(BuiltinType::I64)
-                }
-                4 => {
-                    let NativeWitnessImplementation::Table(instance) =
-                        &mut contract.witnesses[0].implementation
-                    else {
-                        unreachable!()
-                    };
-                    instance.arguments[0] = AbiType::Builtin(BuiltinType::I64);
-                }
-                5 => contract.witnesses.push(contract.witnesses[0].clone()),
-                6 => {
-                    if operation == NativeDefaultMethod::Join {
-                        contract.signature.params[1] = AbiType::Builtin(BuiltinType::Bool);
-                    } else {
-                        let AbiType::Function { result, .. } = &mut contract.signature.params[2]
-                        else {
-                            unreachable!()
-                        };
-                        **result = AbiType::Builtin(BuiltinType::Bool);
-                    }
-                }
-                _ => {
-                    // Leave the implementation declaration intact while removing
-                    // its compiled next target from the linked callable identities.
-                    let module = &mut forged.program.modules[root];
-                    let function = module
-                        .functions
-                        .iter_mut()
-                        .find(|function| {
-                            function.identity.as_ref().is_some_and(|instance| {
-                                instance
-                                    .declaration
-                                    .path
-                                    .last()
-                                    .is_some_and(|part| part.name == "next")
-                            })
-                        })
-                        .unwrap();
-                    let id = function.id;
-                    function.identity = None;
-                    module.function_table[id.index()].identity = None;
-                    for table in &mut module.interface_tables {
-                        table
-                            .methods
-                            .retain(|method| method.target != CallableTarget::Script(id));
-                    }
-                }
-            }
-            assert!(
-                verify_program(&forged.program).is_err(),
-                "mutation {mutation}"
-            );
-            let bytes = DefaultOptions::new()
-                .with_fixint_encoding()
-                .with_little_endian()
-                .serialize(&forged)
-                .unwrap();
-            assert!(
-                !KbcArtifact::from_bytes(&bytes)
-                    .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
-                "encoded mutation {mutation}"
-            );
-        }
-    }
-}
-
-#[test]
-fn resumable_native_calls_reject_forged_callback_contracts_and_arity() {
-    let program = common::bytecode_ok(
-        "fn main() -> i32 { val value: Option<i32> = None; value.unwrap_or_else(|| 42) }",
-    );
-    let root = program.root.index();
-    let import = program.modules[root]
-        .native_imports
-        .iter()
-        .position(|import| {
-            matches!(
-                import.resolve(),
-                Some(EngineNativeOperation::Resumable(
-                    EngineNativeBinding::Intrinsic(RuntimePrimitive::OptionUnwrapOrElse)
-                ))
-            )
-        })
-        .unwrap();
-    verify_program(&program).unwrap();
-    let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
-    for mutation in 0..6 {
-        let mut forged = artifact.clone();
-        let module = &mut forged.program.modules[root];
-        let contract = &mut module.native_imports[import];
-        match mutation {
-            0 => contract.binding_version += 1,
-            1 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
-            2 => {
-                let AbiType::Function { params, .. } = &mut contract.signature.params[1] else {
-                    unreachable!()
-                };
-                params.push(AbiType::Builtin(BuiltinType::Bool));
-            }
-            3 => {
-                let AbiType::Function { result, .. } = &mut contract.signature.params[1] else {
-                    unreachable!()
-                };
-                **result = AbiType::Builtin(BuiltinType::Bool);
-            }
-            4 => contract.instance.arguments.clear(),
-            _ => {
-                let instruction = module.functions.iter_mut().flat_map(|function| &mut function.instructions).find(|instruction| matches!(instruction, BytecodeInstruction::Call { callee: CallTarget::Native(id), .. } if id.index() == import)).unwrap();
-                let BytecodeInstruction::Call { args, .. } = instruction else {
-                    unreachable!()
-                };
-                args.pop();
-            }
-        }
-        assert!(
-            verify_program(&forged.program).is_err(),
-            "mutation {mutation}"
-        );
-        // Encode untrusted bytes directly; the trusted writer also rejects these contracts.
-        let bytes = DefaultOptions::new()
-            .with_fixint_encoding()
-            .with_little_endian()
-            .serialize(&forged)
-            .unwrap();
-        let accepted = KbcArtifact::from_bytes(&bytes)
-            .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok());
-        assert!(!accepted, "decoded mutation {mutation}");
-    }
-}
+use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet, standard::RuntimePrimitive};
 
 #[test]
 fn rejects_function_fallthrough_before_loading() {
@@ -409,13 +35,19 @@ fn rejects_function_fallthrough_before_loading() {
 
 #[test]
 fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
-    let module = common::bytecode_ok("fn main() -> bool { val a = [7]; a.get(a.len()).is_none() }");
+    let module = common::bytecode_ok(
+        "fn main() -> bool { val a = [7]; match a.get(a.len()) { None => true, Some(_) => false } }",
+    );
     let get = NativeImportId::new(
         module.modules[module.root.index()]
             .native_imports
             .iter()
             .position(|import| {
-                import.resolve() == Some(EngineNativeOperation::Direct(RuntimePrimitive::ArrayGet))
+                import
+                    .binding
+                    .path
+                    .last()
+                    .is_some_and(|part| part.name == "$foundation_list_get")
             })
             .unwrap(),
     );
@@ -584,11 +216,11 @@ fn verifier_rejects_type_inconsistent_bytecode() {
 }
 
 #[test]
-fn stdlib_verifier_rejects_invalid_standard_intrinsic_signatures() {
+fn verifier_rejects_invalid_language_primitive_signatures() {
     let mut bytecode = common::bytecode_ok(
         r#"
-fn main(value: String) -> usize {
-    value.len_chars()
+fn main(value: ArrayList<i32>) -> usize {
+    value.len()
 }
 "#,
     );
@@ -602,14 +234,14 @@ fn main(value: String) -> usize {
             Some(callee)
         })
         .expect("expected standard intrinsic call");
-    *call = CallTarget::RuntimePrimitive(RuntimePrimitive::MathSqrt);
+    *call = CallTarget::RuntimePrimitive(RuntimePrimitive::ValueCmp);
 
     assert!(matches!(
         verify_program(&bytecode),
         Err(
             BytecodeVerificationError::RuntimePrimitiveSignatureMismatch {
-                intrinsic: RuntimePrimitive::MathSqrt,
-                reason: "invalid or unsupported native operand shape",
+                intrinsic: RuntimePrimitive::ValueCmp,
+                reason: "invalid language primitive operands",
                 ..
             }
         )
@@ -620,8 +252,8 @@ fn main(value: String) -> usize {
         artifact,
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::RuntimePrimitiveSignatureMismatch {
-                intrinsic: RuntimePrimitive::MathSqrt,
-                reason: "invalid or unsupported native operand shape",
+                intrinsic: RuntimePrimitive::ValueCmp,
+                reason: "invalid language primitive operands",
                 ..
             }
         ))
@@ -859,9 +491,8 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
     };
     use kagari_common::range::RangeKind;
-    let module = common::bytecode_ok(
-        "fn main() { val a = [1, 2, 3]; val range = 0usize..2usize; range.start_bound(); a.copy_within(range, 1usize); }",
-    );
+    let module =
+        common::bytecode_ok("fn main() { val range = 0usize..2usize; range.start_bound(); }");
     verify_program(&module).unwrap();
     for mutation in 0..6 {
         let mut invalid = module.clone();
@@ -907,7 +538,11 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         .native_imports
         .iter()
         .position(|import| {
-            import.binding == EngineNativeBinding::Protocol(NativeProtocolMethod::RangeStartBound)
+            import
+                .binding
+                .path
+                .last()
+                .is_some_and(|part| part.name == "$foundation_Range_start_bound")
         })
         .unwrap();
     for mutation in 0..4 {
@@ -990,79 +625,20 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
             .rev()
             .find(|i| matches!(i, BytecodeInstruction::MakeArray { .. }))
             .unwrap();
-        let BytecodeInstruction::MakeArray { dst, elements } = instruction else {
+        let BytecodeInstruction::MakeArray {
+            dst,
+            elements,
+            element,
+        } = instruction
+        else {
             unreachable!()
         };
         *instruction = BytecodeInstruction::RepeatArray {
             dst: *dst,
             value: elements[0],
+            element: element.clone(),
             count,
         };
         assert!(verify_program(&module).is_err(), "{value}");
-    }
-}
-
-#[test]
-fn string_iterator_rejects_forged_constructor_contracts() {
-    let module =
-        common::bytecode_ok("fn main() { val parts = \"a,b\".split(\",\"); parts.next(); }");
-    verify_program(&module).unwrap();
-    let root = module.root.index();
-    let import = module.modules[root]
-        .native_imports
-        .iter()
-        .position(|import| {
-            import.binding == EngineNativeBinding::Intrinsic(RuntimePrimitive::StringSplit)
-        })
-        .unwrap();
-    assert_eq!(
-        module.modules[root].native_imports[import].resolve(),
-        Some(EngineNativeOperation::Resumable(
-            EngineNativeBinding::Intrinsic(RuntimePrimitive::StringSplit)
-        ))
-    );
-    let artifact = KbcArtifact::from_program(module.clone(), Default::default()).unwrap();
-    for mutation in 0..6 {
-        let mut invalid = module.clone();
-        let owner = &mut invalid.modules[root];
-        match mutation {
-            0 => {
-                owner.native_imports[import].signature.params.pop();
-            }
-            1 => {
-                owner.native_imports[import].binding =
-                    EngineNativeBinding::Intrinsic(RuntimePrimitive::StringSplitN)
-            }
-            5 => {
-                owner.native_imports[import].signature.result =
-                    AbiType::Iter(Box::new(AbiType::Builtin(BuiltinType::U8)))
-            }
-            _ => {
-                let instruction=owner.functions.iter_mut().flat_map(|function|&mut function.instructions).find(|instruction|matches!(instruction,BytecodeInstruction::Call{callee:CallTarget::Native(id),..} if id.index()==import)).unwrap();
-                let BytecodeInstruction::Call { dst, args, .. } = instruction else {
-                    unreachable!()
-                };
-                match mutation {
-                    2 => {
-                        args.pop();
-                    }
-                    3 => args.clear(),
-                    _ => args[0] = dst.unwrap(),
-                }
-            }
-        }
-        assert!(verify_program(&invalid).is_err(), "mutation {mutation}");
-        let mut forged = artifact.clone();
-        forged.program = invalid;
-        let bytes = DefaultOptions::new()
-            .with_fixint_encoding()
-            .with_little_endian()
-            .serialize(&forged)
-            .unwrap();
-        assert!(
-            !KbcArtifact::from_bytes(&bytes)
-                .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
-            "encoded mutation {mutation}"
-        );
     }
 }

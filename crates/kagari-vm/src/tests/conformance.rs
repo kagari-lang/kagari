@@ -155,7 +155,9 @@ fn interpreter_conformance_classifies_failure_paths() {
     let error = vm
         .execute(&loaded, "main")
         .expect_err("out of bounds index should trap");
-    assert!(matches!(error.cause(), VmError::InvalidIndex(3)));
+    assert!(
+        matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds)
+    );
 
     let missing = vm
         .execute(&loaded, "missing")

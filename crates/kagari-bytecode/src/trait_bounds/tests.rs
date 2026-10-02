@@ -58,7 +58,7 @@ fn module(items: Vec<PublicAbiItem>) -> BytecodeModule {
 
 fn with_hash_bounds(module: &BytecodeModule) -> bool {
     let protocol = BytecodeModule {
-        identity: intrinsic::applied(Protocol::Hash, vec![])
+        identity: primitive::applied(Protocol::Hash, vec![])
             .declaration
             .module,
         public_items: vec![PublicAbiItem::Trait(record("Hash"))],
@@ -76,7 +76,7 @@ fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implemen
         declaration: member.clone(),
         generic_params: vec![],
         parameter_bounds: vec![],
-        bounds: vec![ConstraintAbi::Trait(intrinsic::applied(
+        bounds: vec![ConstraintAbi::Trait(primitive::applied(
             Protocol::Hash,
             vec![],
         ))],
@@ -124,7 +124,7 @@ fn linked_family_bounds_use_declared_input_assumptions_and_check_unused_projecti
         owner: member.clone(),
         position: 0,
     };
-    let hash = ConstraintAbi::Trait(intrinsic::applied(Protocol::Hash, vec![]));
+    let hash = ConstraintAbi::Trait(primitive::applied(Protocol::Hash, vec![]));
     let mut declaration = record("Family");
     declaration.associated_types.push(AssociatedTypeAbi {
         declaration: member.clone(),

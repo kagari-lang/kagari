@@ -3,10 +3,10 @@
 fn main() -> i32 {
     val object = [1];
     val alias = object;
-    std::debug::assert(object === alias && object !== [1], "object identity");
+    { val passed = object === alias && object !== [1]; if !passed {val zero=0;1/zero;} };
     val value = (8 + 4) * 4 / 2 % 10;
     val valid = !(value < 4) && value >= 4 || false;
-    std::debug::assert_eq(value, 4, "operator precedence");
+    { val passed = value == 4; if !passed {val zero=0;1/zero;} };
     if valid && (true || 1 / 0 == 0) {
         42
     } else {

@@ -7,6 +7,7 @@ use crate::{
         context::{ArgumentView, CallContext},
         scalar::NativeScalar,
         sequence::{NativeElement, SequencePayload},
+        sequence_edit::SequenceEdit,
         storage::NativePayload,
     },
     value::Value,
@@ -121,6 +122,14 @@ pub struct SequenceMutHandle<'call>(SequenceHandle<'call>);
 impl<'call> SequenceMutHandle<'call> {
     pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
         SequenceHandle::from_argument(cx, index).map(Self)
+    }
+    /// Work on isolated storage and publish once on success. Aliases can read the
+    /// source during callbacks, but cannot change its slots until the edit ends.
+    pub fn edit<R>(
+        &mut self,
+        edit: impl for<'buffer> FnOnce(SequenceEdit<'buffer>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        self.0.heap.edit_sequence(self.0.id, edit)
     }
     pub fn read(&self) -> &SequenceHandle<'call> {
         &self.0

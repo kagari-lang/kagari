@@ -1,10 +1,8 @@
 use crate::tests::bytecode::*;
-use kagari_abi::{
-    budget::LogicalBudgetCharge, effects::EffectSet, native_import::EngineNativeOperation,
-};
+use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet};
 
 use kagari_bytecode::{
-    self as bytecode, instruction::ConstantOperand, module::FunctionRecord, program::verify_program,
+    instruction::ConstantOperand, module::FunctionRecord, program::verify_program,
 };
 
 #[test]
@@ -361,7 +359,7 @@ fn main() -> () {
     assert!(
         function.instructions.iter().any(|instruction| matches!(
             instruction,
-            BytecodeInstruction::ReadAggregateIndex { .. }
+            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. } if bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_list_index")
         ))
     );
     assert!(
@@ -639,7 +637,7 @@ fn main() -> i32 {
         }
     )));
     assert!(function.metadata.effects.writes_aggregate);
-    assert!(!function.metadata.effects.calls);
+    assert!(function.metadata.effects.calls);
 }
 
 #[test]
@@ -678,7 +676,7 @@ fn main() -> i32 { VALUE }
 }
 
 #[test]
-fn stdlib_calls_lower_to_provider_qualified_native_imports() {
+fn foundation_calls_lower_to_provider_qualified_native_imports() {
     let bytecode = common::bytecode_ok(
         r#"
 fn main() -> usize {
@@ -696,14 +694,14 @@ fn main() -> usize {
         .expect("expected main function");
 
     for expected in [
-        RuntimePrimitive::ArrayPush,
-        RuntimePrimitive::ArrayPop,
-        RuntimePrimitive::ArrayLen,
+        "$foundation_list_push_fluent",
+        "$foundation_list_pop",
+        "$foundation_list_len",
     ] {
         let imports = &bytecode.modules[bytecode.root.index()].native_imports;
         assert_eq!(function.instructions.iter().filter(|instruction| matches!(instruction,
-            BytecodeInstruction::Call { callee: CallTarget::Native(kagari_abi::callable::NativeCall::Provider(import)), .. }
-                if imports[import.index()].resolve() == Some(EngineNativeOperation::Direct(expected))
+            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. }
+                if imports[import.index()].binding.path.last().is_some_and(|part| part.name == expected)
         )).count(), 1, "{expected:?}");
     }
 }

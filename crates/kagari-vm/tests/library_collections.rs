@@ -1,0 +1,336 @@
+mod library_mapping;
+use kagari_bytecode::program::BytecodeProgram;
+use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::{analysis::AnalysisDatabase, declarations::DeclarationId};
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    gc::RootedValue,
+    library::collections,
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        declarations::FunctionDecl, language::LanguageContracts, module::NativeModule, types::Type,
+        views::ValueHandle,
+    },
+    value::Value,
+};
+use kagari_vm::vm::Vm;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("main.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(
+        modules
+            .iter()
+            .map(|module| module.declaration().clone())
+            .collect(),
+    );
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let checked = snapshot.check_program(root, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    lower_program_to_bytecode(&mir).unwrap()
+}
+fn run(text: &str) -> Value {
+    let library = collections::module().unwrap();
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = Runtime::new(config);
+    library.install(&mut runtime).unwrap();
+    let loaded = runtime
+        .load_program("sort", program(text, &[&library]))
+        .unwrap();
+    Vm::new(runtime)
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+}
+
+#[test]
+fn primitive_sort_and_supplied_comparator_preserve_shared_identity() {
+    assert_eq!(
+        run(r#"
+        use std::collections::{sort, sort_by};
+        fn main() -> bool {
+            val empty: ArrayList<i32> = []; sort(empty);
+            val values = [3, 1, 2, 1]; val alias = values;
+            sort(values);
+            if alias[0] != 1 || alias[1] != 1 || alias[2] != 2 || alias[3] != 3 { return false; }
+            sort_by(values, |a, b| b.cmp(a));
+            alias[0] == 3 && alias[1] == 2 && alias[2] == 1 && alias[3] == 1
+        }
+    "#),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn script_ord_is_selected_and_equal_elements_remain_stable() {
+    assert_eq!(
+        run(r#"
+        use std::collections::sort;
+        struct Rank { val key: i32, val tag: i32, var visits: i32 }
+        impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.key == other.key } }
+        impl Eq for Rank {}
+        impl PartialOrd for Rank { fn partial_cmp(self, other: Self) -> Option<Ordering> { self.key.partial_cmp(other.key) } }
+        impl Ord for Rank { fn cmp(self, other: Self) -> Ordering { self.visits += 1; self.key.cmp(other.key) } }
+        fn main() -> bool {
+            val a = Rank { key: 2, tag: 0, visits: 0 };
+            val b = Rank { key: 1, tag: 1, visits: 0 };
+            val c = Rank { key: 1, tag: 2, visits: 0 };
+            val d = Rank { key: 2, tag: 3, visits: 0 };
+            val values = [a,b,c,d]; sort(values);
+            values[0].tag == 1 && values[1].tag == 2 && values[2].tag == 0 && values[3].tag == 3
+                && a.visits + b.visits + c.visits + d.visits > 0
+        }
+    "#),
+        Value::Bool(true)
+    );
+}
+
+struct Probe {
+    module: NativeModule,
+    retained: Rc<RefCell<Option<RootedValue>>>,
+    calls: Rc<Cell<usize>>,
+}
+impl Probe {
+    fn new() -> Self {
+        let mut module = ModuleBuilder::new("test::probe", &LanguageContracts::default());
+        let retained = Rc::new(RefCell::new(None));
+        let calls = Rc::new(Cell::new(0));
+        let keep = module.define_function(FunctionDecl::new("keep")).unwrap();
+        module
+            .function(&keep, |function| {
+                let item = function.type_parameter("T")?;
+                function.parameter("value", item.ty());
+                Ok(())
+            })
+            .unwrap();
+        let capture = retained.clone();
+        module
+            .bind(
+                keep,
+                move |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
+                    *capture.borrow_mut() = Some(value.root()?);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let tick = module
+            .define_function(FunctionDecl::new("tick").returns(Type::usize()))
+            .unwrap();
+        let count = calls.clone();
+        module
+            .bind(
+                tick,
+                move |cx: &mut CallContext<'_>| -> NativeResult<usize> {
+                    count.set(count.get() + 1);
+                    cx.collect_garbage()?;
+                    Ok(count.get())
+                },
+            )
+            .unwrap();
+        Self {
+            module: module.finish().unwrap(),
+            retained,
+            calls,
+        }
+    }
+}
+
+#[test]
+fn comparator_failure_stops_callbacks_and_does_not_publish_a_partial_order() {
+    let probe = Probe::new();
+    let library = collections::module().unwrap();
+    let source = r#"
+        use std::collections::sort_by;
+        use test::probe::{keep, tick};
+        struct Item { val key: i32, var visits: i32 }
+        fn main() {
+            val values = [Item { key: 3, visits: 0 }, Item { key: 1, visits: 0 }, Item { key: 2, visits: 0 }, Item { key: 0, visits: 0 }]; keep(values);
+            sort_by(values, |a,b| { a.visits += 1; val count = tick(); if count == 3usize { val fail = 1 / 0; }; a.key.cmp(b.key) });
+        }
+    "#;
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = Runtime::new(config);
+    library.install(&mut runtime).unwrap();
+    probe.module.install(&mut runtime).unwrap();
+    let loaded = runtime
+        .load_program("sort", program(source, &[&library, &probe.module]))
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    assert!(vm.execute(&loaded, "main").is_err());
+    assert_eq!(probe.calls.get(), 3);
+    let Value::Array(array) = probe.retained.borrow().as_ref().unwrap().value() else {
+        panic!("array");
+    };
+    let values = vm.runtime().gc().array_snapshot(array).unwrap();
+    let mut keys = Vec::new();
+    let mut visits = 0;
+    for value in &values {
+        let Value::Struct(id) = value else {
+            panic!("item");
+        };
+        let (_, fields) = vm.runtime().gc().struct_snapshot(*id).unwrap();
+        for field in fields {
+            if field.name == "key" {
+                keys.push(field.value);
+            } else if field.name == "visits" {
+                let Value::I32(count) = field.value else {
+                    panic!("visit count");
+                };
+                visits += count;
+            }
+        }
+    }
+    assert_eq!(
+        keys,
+        vec![Value::I32(3), Value::I32(1), Value::I32(2), Value::I32(0)]
+    );
+    assert_eq!(
+        visits, 3,
+        "completed effects on referenced payloads survive failure"
+    );
+    vm.runtime()
+        .gc()
+        .array_push(array, values[0].clone())
+        .unwrap();
+    probe.retained.borrow_mut().take();
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() {
+    for mutation in ["values[0] = 9;", "values.push(9);", "sort(values);"] {
+        let probe = Probe::new();
+        let library = collections::module().unwrap();
+        let source = format!(
+            r#"
+            use std::collections::{{sort, sort_by}};
+            use test::probe::keep;
+            fn main() {{
+                val values = [3,1,2]; keep(values);
+                sort_by(values, |a,b| {{ {mutation} a.cmp(b) }});
+            }}
+        "#
+        );
+        let mut runtime = Runtime::default();
+        library.install(&mut runtime).unwrap();
+        probe.module.install(&mut runtime).unwrap();
+        let loaded = runtime
+            .load_program("sort", program(&source, &[&library, &probe.module]))
+            .unwrap();
+        let mut vm = Vm::new(runtime);
+        let error = vm.execute(&loaded, "main").unwrap_err();
+        assert!(
+            format!("{error:?}").contains("guarded callback"),
+            "{error:?}"
+        );
+        let Value::Array(array) = probe.retained.borrow().as_ref().unwrap().value() else {
+            panic!("array");
+        };
+        assert_eq!(
+            vm.runtime().gc().array_snapshot(array),
+            Some(vec![Value::I32(3), Value::I32(1), Value::I32(2)])
+        );
+        vm.runtime().gc().array_push(array, Value::I32(9)).unwrap();
+    }
+}
+
+#[test]
+fn primitive_selection_covers_unsigned_bounds_and_string_ordering() {
+    assert_eq!(
+        run(r#"
+        use std::collections::{sort, sort_by};
+        fn main() -> bool {
+            val values: ArrayList<u64> = [18446744073709551615u64, 0u64, 9223372036854775808u64];
+            sort(values);
+            if values[0] != 0u64 || values[2] != 18446744073709551615u64 { return false; }
+            sort_by(values, |a,b| b.cmp(a));
+            val text = ["z", "a", "a", "b"]; sort(text);
+            values[0] == 18446744073709551615u64 && text[0] == "a" && text[3] == "z"
+        }
+    "#),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn scalar_ord_overrides_are_rejected_before_native_selection() {
+    let library = collections::module().unwrap();
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set(
+            "invalid.kgr",
+            r#"
+        use std::collections::sort;
+        impl Ord for i32 { fn cmp(self, other: Self) -> Ordering { Ordering::Equal } }
+        fn main() { sort([1,3,2]); }
+    "#
+            .into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![library.declaration().clone()]);
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let error = snapshot
+        .check_program(file, &Default::default())
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("InvalidTraitImpl"));
+}
+
+#[test]
+fn generated_library_declarations_supply_navigation_docs_and_exported_signatures() {
+    let library = collections::module().unwrap();
+    let generated = library.declaration_source();
+    let text =
+        "use std::collections::{sort, sort_by}; fn main() { val values = [2,1]; sort(values); }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("tooling.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![library.declaration().clone()]);
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let offset = text.find("sort(values)").unwrap();
+    let target = snapshot.definition_at(file, offset).unwrap();
+    let source = snapshot.source(target.location.file).unwrap();
+    assert_eq!(source.name(), generated.uri);
+    assert_eq!(
+        &source.text()[target.location.range.start..target.location.range.end],
+        "sort"
+    );
+    let documentation = snapshot.documentation_at(file, offset).unwrap();
+    assert!(documentation.documentation.contains("Stably sort values"));
+    assert!(documentation.written_signature.contains("Ord"));
+    assert!(documentation.written_signature.contains("ArrayList"));
+    // visible_bindings is a lexical-local query. Module functions are exposed
+    // through the declaration inventory.
+    for name in ["sort", "sort_by"] {
+        let (id, site) = generated
+            .sites
+            .iter()
+            .find(|(id, _)| id.path.last().is_some_and(|part| part.name == name))
+            .unwrap();
+        let declaration = snapshot
+            .declaration(&DeclarationId::Definition(id.clone()))
+            .unwrap();
+        assert_eq!(declaration.name, name);
+        assert_eq!(declaration.location.range, site.name_span);
+    }
+}

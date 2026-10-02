@@ -232,18 +232,18 @@ fn assignment_targets_supply_constructor_context() {
 fn empty_container_context_reaches_returns_fields_and_arguments() {
     execute_contextual_source(
         r#"
-        struct Values { val array: ArrayList<i32>, val map: LinkedHashMap<i32, bool>, val set: LinkedHashSet<i32> }
+        struct Values { val array: ArrayList<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> }
         fn array() -> ArrayList<i32> { [] }
-        fn map() -> LinkedHashMap<i32, bool> { LinkedHashMap::new() }
-        fn set() -> LinkedHashSet<i32> { LinkedHashSet::new() }
-        fn empty(a: ArrayList<i32>, m: LinkedHashMap<i32, bool>, s: LinkedHashSet<i32>) -> bool {
+        fn map() -> HashMap<i32, bool> { HashMap::new() }
+        fn set() -> HashSet<i32> { HashSet::new() }
+        fn empty(a: ArrayList<i32>, m: HashMap<i32, bool>, s: HashSet<i32>) -> bool {
             a.is_empty() && m.is_empty() && s.is_empty()
         }
         fn main() -> i32 {
-            val value = Values { array: [], map: LinkedHashMap::new(), set: LinkedHashSet::new() };
-            var replacement: LinkedHashMap<i32, bool> = map();
-            replacement = LinkedHashMap::new();
-            if empty([], LinkedHashMap::new(), LinkedHashSet::new())
+            val value = Values { array: [], map: HashMap::new(), set: HashSet::new() };
+            var replacement: HashMap<i32, bool> = map();
+            replacement = HashMap::new();
+            if empty([], HashMap::new(), HashSet::new())
                 && empty(array(), map(), set()) && empty(value.array, value.map, value.set)
                 && replacement.is_empty() { 42 } else { 0 }
         }
@@ -378,9 +378,11 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].code, "KG_COMPILE_LIMIT_EXCEEDED");
     assert!(
-        engine
-            .source_snapshot()
-            .contains(diagnostics[0].span.unwrap())
+        checked.program().modules().iter().any(|module| {
+            let span = diagnostics[0].span.unwrap();
+            module.lowered.source.span(span.range) == Some(span)
+        }),
+        "{diagnostics:?}"
     );
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     assert_eq!(
@@ -413,7 +415,7 @@ fn cancelled_instantiation_keeps_the_checked_module_reusable() {
 fn unresolved_container_inference_is_a_diagnostic_before_codegen() {
     let engine = KagariEngine::default();
     let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_source(
-        SourceFile::new("inference.kgr", "fn main() { LinkedHashMap::new(); }"),
+        SourceFile::new("inference.kgr", "fn main() { HashMap::new(); }"),
         Default::default(),
     ) else {
         panic!("unresolved type must not enter checked HIR");
@@ -447,9 +449,9 @@ fn reflective_write_targets_supply_generic_constructor_context() {
 }
 
 #[test]
-fn standard_container_context_executes_through_methods_and_qualified_calls() {
+fn container_context_executes_through_native_methods() {
     execute_contextual_source(
-        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: ArrayList<Marker<i32>> = []; values.push(Marker { value: 10 }); std::array::ArrayList::push(values, Marker { value: 10 }); val map: LinkedHashMap<i32, Marker<i32>> = LinkedHashMap::new(); std::map::LinkedHashMap::insert(map, 1, Marker { value: 22 }); values[0].value + values[1].value + map.get(1).unwrap_or(Marker { value: 0 }).value }",
+        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: ArrayList<Marker<i32>> = []; values.push(Marker { value: 10 }); values.push(Marker { value: 10 }); val map: HashMap<i32, Marker<i32>> = HashMap::new(); map.insert(1, Marker { value: 22 }); values[0].value + values[1].value + (match map.get(1) {Some(v)=>v.value,None=>0}) }",
         42,
     );
 }
@@ -465,7 +467,7 @@ fn generic_negation_executes_using_checked_signed_number_bounds() {
 #[test]
 fn standard_equality_rhs_uses_left_constructor_context() {
     execute_contextual_source(
-        "enum Token<T> { Empty } fn main() -> i32 { std::debug::assert_eq(Token<i32>::Empty, Token::Empty, \"inferred rhs\"); std::math::clamp(42, 0, 100) }",
+        "enum Token<T> { Empty } fn main() -> i32 { if Token<i32>::Empty == Token::Empty {42}else{0} }",
         42,
     );
 }
@@ -552,11 +554,11 @@ fn terminating_function_arguments_skip_calls_and_generic_instances() {
 fn terminating_trait_and_standard_arguments_preserve_only_operand_effects() {
     for body in [
         "value.take(if tick(count) { return 40; } else { return 0; })",
-        r#"std::debug::assert(if tick(count) { return 40; } else { return 0; }, "unreachable"); 0"#,
+        "collections::sort(if tick(count) { return 40; } else { return 0; }); 0",
     ] {
         execute_contextual_source(
             &format!(
-                "struct Count {{ var value: i32 }} trait Take {{ fn take(self, input: bool) -> i32; }} impl Take for Count {{ fn take(self, input: bool) -> i32 {{ self.value += 100; 0 }} }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run<T: Take>(value: T, count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count, count) + count.value }}"
+                "use std::collections; struct Count {{ var value: i32 }} trait Take {{ fn take(self, input: bool) -> i32; }} impl Take for Count {{ fn take(self, input: bool) -> i32 {{ self.value += 100; 0 }} }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run<T: Take>(value: T, count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count, count) + count.value }}"
             ),
             42,
         );
@@ -564,20 +566,16 @@ fn terminating_trait_and_standard_arguments_preserve_only_operand_effects() {
 }
 
 #[test]
-fn terminating_math_and_equality_operands_skip_standard_calls() {
+fn terminating_native_arguments_skip_calls() {
     for body in [
-        "std::math::min(ARG, 7)",
-        "std::math::min(ARG, ARG)",
-        "std::math::max(7, ARG)",
-        "std::math::clamp(7, ARG, 9)",
-        "std::math::abs(ARG)",
-        r#"std::debug::assert_eq(ARG, 7, "unreachable"); 0"#,
-        r#"std::debug::assert_eq(7, ARG, "unreachable"); 0"#,
+        "collections::sort(ARG); 0",
+        "collections::sort_by([1], ARG); 0",
+        "collections::map(ARG, |n:i32|n); 0",
     ] {
         let body = body.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
         execute_contextual_source(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
             ),
             42,
         );
@@ -610,18 +608,12 @@ fn terminating_struct_fields_skip_unused_layouts_and_remaining_effects() {
 
 #[test]
 fn terminating_unary_operands_require_no_enclosing_result_layouts() {
-    for expression in [
-        "-(ARG)",
-        "!(ARG)",
-        "[-(ARG)]",
-        "(-(ARG), tick(count))",
-        "std::math::abs(-(ARG))",
-    ] {
+    for expression in ["-(ARG)", "!(ARG)", "[-(ARG)]", "(-(ARG), tick(count))"] {
         let expression =
             expression.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
         execute_contextual_source(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
             ),
             42,
         );
@@ -645,7 +637,7 @@ fn binary_termination_preserves_evaluation_order_and_short_circuit_paths() {
             expression.replace("ARG", "(if tick(count) { return 40; } else { return 0; })");
         execute_contextual_source(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
             ),
             result,
         );
@@ -736,20 +728,16 @@ fn terminating_index_receivers_skip_index_effects_and_reads() {
 }
 
 #[test]
-fn terminating_standard_receivers_skip_container_and_string_operations() {
+fn terminating_native_arguments_skip_remaining_operands() {
     for call in [
-        "std::array::ArrayList::len(ARG)",
-        "std::map::LinkedHashMap::len(ARG)",
-        "std::set::LinkedHashSet::len(ARG)",
-        "std::string::String::len_bytes(ARG)",
-        "std::option::Option::is_some(ARG)",
-        "std::result::Result::is_ok(ARG)",
-        "std::array::ArrayList::push(ARG, tick(count))",
+        "collections::sort(ARG)",
+        "collections::sort_by(ARG, |a:i32,b:i32|a.cmp(b))",
+        "collections::map(ARG, |n:i32|{tick(count);n})",
     ] {
         let expression = call.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
         execute_contextual_source(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
+                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
             ),
             42,
         );

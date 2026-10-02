@@ -129,6 +129,12 @@ impl GcHeap {
             .objects
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
+        let revision = objects
+            .get(id.slot)
+            .ok_or_else(|| RuntimeError::module_validation("invalid sequence receiver"))?
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| RuntimeError::module_validation("sequence revision exhausted"))?;
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
             return Err(RuntimeError::module_validation("invalid sequence receiver"));
         };
@@ -137,6 +143,10 @@ impl GcHeap {
             .ok_or_else(|| RuntimeError::module_validation("sequence scalar layout"))?;
         self.native_borrows.set(self.native_borrows.get() + 1);
         let _borrow = NativeBorrow(&self.native_borrows);
-        access(values)
+        let result = access(values);
+        // A bulk write may permute slots. Closed cursors must observe that change
+        // even when the closure returned an error after completed scalar writes.
+        objects[id.slot].revision = revision;
+        result
     }
 }

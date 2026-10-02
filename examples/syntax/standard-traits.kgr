@@ -1,9 +1,9 @@
 // Standard protocols use declaration identities, including aliased imports.
-use std::fmt::Display as Show;
+use core::language::Display as Show;
 
 struct Label { val value: i32 }
 impl Debug for Label {
-    fn debug(self) -> String { "Label(".concat(self.value.display()).concat(")") }
+    fn debug(self) -> String { f"Label({self.value})" }
 }
 impl Show for Label {
     fn display(self) -> String { self.value.display() }
@@ -43,24 +43,24 @@ impl Hash for Identifier {
 fn main() -> i32 {
     val first = User { id: 1, label: "before" };
     val second = User { id: 1, label: "other" };
-    std::debug::assert(first == second && first !== second, "value and identity");
-    val users: LinkedHashSet<(Entry, i32)> = LinkedHashSet::new();
+    { val passed = first == second && first !== second; if !passed {val zero=0;1/zero;} };
+    val users: HashSet<(Entry, i32)> = HashSet::new();
     users.insert((Entry::Present(first), 7));
     // label is excluded from equality/hash; id must remain stable while stored.
     first.label = "after";
-    std::debug::assert(users.contains((Entry::Present(second), 7)), "nested custom key");
-    val ids: LinkedHashSet<Identifier> = LinkedHashSet::new();
+    { val passed = users.contains((Entry::Present(second), 7)); if !passed {val zero=0;1/zero;} };
+    val ids: HashSet<Identifier> = HashSet::new();
     ids.insert(Identifier::Local(42));
-    std::debug::assert(ids.contains(Identifier::Remote(42)), "whole enum override");
-    val values: LinkedHashMap<(Key, i32), i32> = LinkedHashMap::new();
+    { val passed = ids.contains(Identifier::Remote(42)); if !passed {val zero=0;1/zero;} };
+    val values: HashMap<(Key, i32), i32> = HashMap::new();
     values.insert((Key::Name("answer"), 1), 20);
     val label = Label { value: 22 };
-    val identities: LinkedHashMap<Label, i32> = LinkedHashMap::new();
+    val identities: HashMap<Label, i32> = HashMap::new();
     identities.insert(label, 22);
-    std::debug::assert(same(label, label), "aliases share identity");
-    std::debug::assert(!same(label, Label { value: 22 }), "distinct objects");
-    std::debug::assert(hash((42, "x")) == hash((42, "x")), "equal values hash equally");
-    std::debug::assert(label.debug() == "Label(22)", "explicit Debug implementation");
-    std::debug::assert(show(label) == "22", "ordinary static trait dispatch");
-    values.get((Key::Name("answer"), 1)).unwrap_or(0) + identities.get(label).unwrap_or(0)
+    { val passed = same(label, label); if !passed {val zero=0;1/zero;} };
+    { val passed = !same(label, Label { value: 22 }); if !passed {val zero=0;1/zero;} };
+    { val passed = hash((42, "x")) == hash((42, "x")); if !passed {val zero=0;1/zero;} };
+    { val passed = label.debug() == "Label(22)"; if !passed {val zero=0;1/zero;} };
+    { val passed = show(label) == "22"; if !passed {val zero=0;1/zero;} };
+    (match values.get((Key::Name("answer"),1)){Some(n)=>n,None=>0}) + (match identities.get(label){Some(n)=>n,None=>0})
 }

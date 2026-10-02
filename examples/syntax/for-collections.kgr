@@ -1,25 +1,20 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/for-collections.kgr
 // Result: main returns 42.
 fn main() -> i32 {
-    val scores: LinkedHashMap<String, i32> = LinkedHashMap::new();
+    val scores: HashMap<String, i32> = HashMap::new();
     scores.insert("a", 20);
     scores.insert("b", 22);
     var total = 0;
     for (key, score) in scores {
         total += score;
     }
-    val names: LinkedHashSet<String> = LinkedHashSet::new();
+    val names: HashSet<String> = HashSet::new();
     names.insert("a");
     names.insert("b");
     var count = 0;
     for name in names {
         count += 1;
     }
-    std::debug::assert_eq(count, 2, "set iteration");
-    var chars = 0;
-    for ch in "中😀" {
-        chars += 1;
-    }
-    std::debug::assert_eq(chars, 2, "unicode scalar iteration");
+    { val passed = count == 2; if !passed {val zero=0;1/zero;} };
     total
 }

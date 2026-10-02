@@ -18,8 +18,9 @@ shallow. There is no generic deep-copy or deep-freeze operation in v1.
 [Collection access](collection-access.md) distinguishes read-only `List<T>`
 (`[T]`), `Map<K, V>` and `Set<T>` from writable `MutableList<T>`,
 `MutableMap<K, V>` and `MutableSet<T>`. Concrete storage is `ArrayList`,
-`LinkedHashMap` and `LinkedHashSet`. Literals infer `ArrayList<T>`. Access
-conversion preserves the underlying object; `Type::from(array)` creates a fresh shallow container.
+`HashMap` and `HashSet`. Literals infer `ArrayList<T>`. Access
+conversion preserves the underlying object. Copy/factory algorithms are not
+part of the current foundational collection interface.
 Read-only views do not freeze referenced objects or other writable aliases.
 
 An interface may retain a checked durable host root as its concrete payload;
@@ -384,17 +385,10 @@ Compound assignment remains restricted to primitive operations.
 
 ## Explicit integer arithmetic
 
-All integer types provide wrapping_add/sub/mul, checked_add/sub/mul/div/rem,
-overflowing_add/sub/mul and saturating_add/sub/mul. Checked operations return
-Option; overflowing operations return `(value, overflow)`; saturating operations
-clamp to the declared type range. Signed MIN divided or remaindered by -1 is
-an overflow, including for narrow types. Division by zero returns None in checked
-methods. Ordinary arithmetic, including compound assignment, still traps.
-
-Unsigned types provide wrapping_add_signed with the corresponding signed width.
-All integer types provide rotate_left/right with a u32 count reduced modulo the
-receiver width. These methods are pure value operations. Standard declarations
-and examples live in numeric.kgr (retired predecessor file).
+Ordinary arithmetic and compound assignment trap on overflow, including signed
+MIN divided or remaindered by -1. Optional wrapping, checked, overflowing,
+saturating and rotation helpers are deferred; they are not installed language
+methods. Explicit casts retain the rules below.
 
 ## Explicit numeric conversions
 
@@ -414,20 +408,10 @@ or `<<` when the tokens would otherwise begin generic type arguments.
 - Bool to integer: false becomes zero and true becomes one. Other boolean casts,
   object casts and user-defined `as` hooks are unsupported.
 
-`From` covers lossless portable Rust primitive conversions, with derived `Into`:
-unsigned-to-wider unsigned, signed-to-wider signed, unsigned-to-strictly-wider
-signed; i8/i16/u8/u16 to f32; i8/i16/i32/u8/u16/u32/f32 to f64; bool to integers.
-Identity From remains available. The pointer-sized matrix follows Rust's portable
-rules even though Kagari fixes both sizes at 64 bits: From to usize accepts u8/u16,
-and From to isize accepts i8/i16/u8. Other such conversions use TryFrom or `as`.
-
-All built-in integer pairs support `TryFrom`, with derived `TryInto`. Potentially
-lossy pairs return `Result<T, std::convert::TryFromIntError>` and produce
-`OutOfRange` when the value cannot be represented. Lossless built-in pairs also
-support TryFrom, with `Infallible` as Error; they always return Ok. These bindings
-do not add a general user-defined From-to-TryFrom blanket implementation.
-Fallible floating-point conversions are not provided. Const numeric casts share
-the runtime conversion implementation; trait calls remain outside scalar const-safe.
+The language's `From<S>` contract supports error conversion by `Result ?`,
+including identity and lossless primitive cases. It does not install the old
+Into/TryFrom/TryInto or parsing helper catalog. Const numeric casts share runtime
+conversion semantics; trait calls remain outside scalar const-safe evaluation.
 
 See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).
 
@@ -443,45 +427,14 @@ also applies at lengths zero and one and to an empty variant such as `None` in
 `Option<Struct>`. An unconstrained generic element type cannot prove the requirement.
 The count may be a runtime expression. Allocation and execution budgets are checked.
 
-`ArrayList::from_fn(count, initializer)` accepts every valid array element type.
-Evaluate the usize count and closure expressions once, in that order. Invoke the
-closure with each index from zero to count minus one; zero length makes no calls.
-An object constructed inside the closure is independent on each call. Returning an
-existing object explicitly shares it. This is per-element evaluation, not implicit
-cloning. Construction uses ordinary script frames and resource budgets. Trap or
-termination returns no partial array and releases execution roots; completed
-callback side effects remain visible. Generic code can use this API explicitly.
-
-`ArrayList<T>.fill(value)` and `copy_from(source: List<T>)` return unit.
-Copying requires equal lengths, supports self-copy, and preserves referenced object
-identities. Both methods replace slots without changing length, so they are allowed
-during iteration. Preparation validates inputs, charges work and temporary storage,
-and prepares all copies before committing any slot. Failed preparation leaves the
-destination unchanged; completed argument side effects are not rolled back.
-
+Objects requiring separate identity must be initialized separately, for example
+`[Cell { value: 1 }, Cell { value: 1 }]`. A repeated reference can be expressed
+explicitly as `[cell, cell]`. Optional factory/fill/copy algorithms are deferred.
 
 ## Ranges and interval copying
 
 Range expressions are immutable bounds values rather than arrays. See
-[range syntax and iteration](syntax.md) and the declarations in
-stdlib/ops.kgr (retired predecessor file). Iterators own their cursor; assigning a
+[range syntax and iteration](syntax.md). Iterators own their cursor; assigning a
 range copies its bounds, and iterating it twice creates independent cursors.
-
-`ArrayList<T>.copy_within<R: RangeBounds<usize>>(source, destination)` replaces
-slots in the same array and returns unit. Evaluate the receiver, source and
-`usize` destination once, left to right; then call `start_bound` and `end_bound`
-once each, in that order. These calls may execute script code. After they return,
-resolve unbounded endpoints against the current array length. Convert an excluded
-start or included end with checked `+ 1`. Require `start <= end <= length`,
-`destination <= length`, and sufficient space for `end - start` elements.
-Even an empty copy validates both the range and destination.
-
-Prepare a shallow snapshot of the source segment before writing any destination
-slot. Source and destination may overlap in either direction. Object identity,
-array length and iteration validity are preserved. Charge work and temporary
-storage and check cancellation during preparation. Committing slots runs no script
-code and performs no allocation. Failure before commit leaves the copy destination
-unchanged; argument and custom bound-method side effects remain visible.
-
-`copy_from` uses Kagari's read-only `List<T>` view. It does not introduce
-Rust borrowed slices or a `Copy` bound. No operation performs object graph cloning.
+RangeBounds belongs to the language. Optional interval-copy algorithms remain
+deferred and do not add methods to the foundational collection interfaces.

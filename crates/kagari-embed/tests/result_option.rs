@@ -13,8 +13,8 @@ use kagari_runtime::value::Value;
 fn propagation_requires_one_infallible_conversion_bound() {
     for source in [
         "fn forward<T,E,F>(value:Result<T,E>)->Result<T,F>{Ok(value?)} fn main(){}",
-        "struct E{} struct F{} impl TryFrom<E> for F {type Error=String;fn try_from(e:E)->Result<Self,String>{Ok(F{})}} fn main()->Result<i32,F>{val x:Result<i32,E>=Err(E{});Ok(x?)}",
-        "struct E{} struct Mid{} struct F{} impl From<E> for Mid {fn from(e:E)->Self{Mid{}}} impl From<Mid> for F {fn from(e:Mid)->Self{F{}}} fn main()->Result<i32,F>{val x:Result<i32,E>=Err(E{});Ok(x?)}",
+        "struct E{} struct F{} impl F {fn convert(e:E)->Result<Self,String>{Ok(F{})}} fn main()->Result<i32,F>{val x:Result<i32,E> = Err(E{});Ok(x?)}",
+        "struct E{} struct Mid{} struct F{} impl From<E> for Mid {fn from(e:E)->Self{Mid{}}} impl From<Mid> for F {fn from(e:Mid)->Self{F{}}} fn main()->Result<i32,F>{val x:Result<i32,E> = Err(E{});Ok(x?)}",
     ] {
         let error = KagariEngine::default()
             .compile_source(
@@ -37,7 +37,7 @@ struct Target {}
 impl From<Source> for Target {
     fn from(error: Source) -> Self {
         error.calls += 1;
-        std::debug::assert(false, "conversion failed");
+        val zero=0; 1/zero;
         Target {}
     }
 }
@@ -67,7 +67,7 @@ fn after() -> i32 { 42 }
         .unwrap();
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     assert!(
-        format!("{error:?}").contains("conversion failed"),
+        format!("{error:?}").contains("division by zero"),
         "{error:?}"
     );
     assert!(
@@ -169,18 +169,16 @@ fn main() -> i32 {
     val error = SourceError { reads: 0, conversions: 0 };
     val failure: Result<i32, AppError> = forward(read(error, true));
     val success: Result<i32, AppError> = forward(read(error, false));
-    std::debug::assert_eq(error.reads, 2, "operand evaluated once");
-    std::debug::assert_eq(error.conversions, 1, "success bypasses conversion");
-    match failure {
-        Err(e) => std::debug::assert(e.cause === error, "original payload retained"),
-        Ok(_) => std::debug::assert(false, "expected failure"),
-    };
+    if error.reads != 2 || error.conversions != 1 {return 0;}
+    val same = match failure {Err(e)=>e.cause === error,Ok(_)=>false};
+    if !same {return 0;}
     val callback: fn() -> Result<i32, AppError> = || { Ok(read(error, true)?) };
-    std::debug::assert(callback().is_err(), "closure return context");
-    std::debug::assert(direct(error).is_err(), "constructor source error inference");
-    std::debug::assert_eq(error.conversions, 3, "one conversion per failure");
-    std::debug::assert_eq(inferred_success().unwrap_or(0), 42, "unconstrained success fallback");
-    success.unwrap_or(0)
+    if val Ok(_) = callback() {return 0;}
+    if val Ok(_) = direct(error) {return 0;}
+    if error.conversions != 3 {return 0;}
+    val inferred = match inferred_success() {Ok(n)=>n,Err(_)=>0};
+    if inferred != 42 {return 0;}
+    match success {Ok(n)=>n,Err(_)=>0}
 }
 "#,
     );
@@ -228,32 +226,9 @@ fn main() -> i32 {
     val nested = callback();
     val inferred = || { val x = read(c, true)?; Ok(x + 2) };
     val answer = inferred();
-    if failed.is_err() && good.is_ok() && nested.is_err() && option().is_none() && c.calls == 4 && c.after == 20 {
-        answer.unwrap_or(0) + c.after
-    } else { 0 }
-}
-"#,
-    );
-}
-
-#[test]
-fn conversions_and_combinators_use_script_callbacks_lazily() {
-    execute(
-        r#"
-struct Counter { var count: i32 }
-fn error(c: Counter) -> String { c.count += 1; "missing" }
-fn main() -> i32 {
-    val c = Counter { count: 0 };
-    val some: Option<i32> = Some(20);
-    val none: Option<i32> = None;
-    val eager = some.ok_or(error(c));
-    val lazy = some.ok_or_else(|| error(c));
-    val failed = none.ok_or_else(|| error(c));
-    val converted = failed.map_err(|message| message.len_bytes());
-    val mapped = some.map(|x| x + 1).and_then(|x| Some(x + 1));
-    val result = eager.map(|x| x + 1).and_then(|x| Result<i32, String>::Ok(x + 1));
-    if c.count == 2 && converted.is_err() && lazy.is_ok() && result.unwrap_or(0) == 22 {
-        mapped.unwrap_or(0) + 20
+    val correct = match failed {Err(_)=>match good {Ok(_)=>match nested {Err(_)=>match option(){None=>true,Some(_)=>false},Ok(_)=>false},Err(_)=>false},Ok(_)=>false};
+    if correct && c.calls == 4 && c.after == 20 {
+        (match answer {Ok(n)=>n,Err(_)=>0}) + c.after
     } else { 0 }
 }
 "#,
@@ -264,8 +239,8 @@ fn main() -> i32 {
 fn variant_imports_aliases_and_or_patterns_resolve_semantically() {
     execute(
         r#"
-use std::option::{Some as Present, None as Absent};
-use std::result::*;
+use core::language::Option::{Some as Present, None as Absent};
+use core::language::Result::{Ok, Err};
 fn main() -> i32 {
     val value: Option<i32> = Present(42);
     val absent: Option<i32> = Absent;
@@ -280,10 +255,6 @@ fn main() -> i32 {
 #[test]
 fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
     for (source, code) in [
-        (
-            "fn f()->i32 { val x: Option<i32> = None; std::result::Result::map_err(x, |n: i32| n); 42 }",
-            "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
-        ),
         (
             "fn f()->i32 { val x: Option<i32> = None; x? }",
             "KG_TYPE_RETURN_TYPE_MISMATCH",
@@ -315,14 +286,6 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
         (
             "fn f()->Option<i32> { None() }",
             "KG_TYPE_INVALID_CALL_TARGET",
-        ),
-        (
-            "fn f()->i32 { val x: Option<i32> = Some(1); val y = x.ok_or_else(|x: i32| x); 42 }",
-            "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
-        ),
-        (
-            "fn f()->i32 { val x: Option<i32> = Some(1); val y = x.and_then(|n| n); 42 }",
-            "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
         ),
         (
             "fn f()->i32 { val x: Option<i32> = Some(1); match x { Some => 42, _ => 0, } }",
@@ -366,7 +329,8 @@ fn main()->i32 {
     values.push(2);
     val x: Result<i32, String> = Ok(20);
     val y: Option<Option<i32>> = Some(Some(22));
-    if left.is_none() && values.len() == [1, 2].len() { identity(x).unwrap_or(0) + nested(y).unwrap_or(0) } else { 0 }
+    val absent=match left {None=>true,Some(_)=>false};
+    if absent && values.len() == [1,2].len() {(match identity(x){Ok(n)=>n,Err(_)=>0}) + (match nested(y){Some(n)=>n,None=>0})}else{0}
 }
 "#,
     );
@@ -379,12 +343,14 @@ fn explicit_error_conversion_and_propagation_preserve_payload_identity() {
 struct ErrorInfo { var code: i32 }
 fn fail(error: ErrorInfo)->Result<i32, ErrorInfo> { Err(error) }
 fn forward(error: ErrorInfo)->Result<String, ErrorInfo> { fail(error)?; Ok("never") }
-fn translated()->Result<i32, String> { val x: Result<i32, i32> = Err(7); Ok(x.map_err(|code| "converted")?) }
+struct Converted {val code:i32}
+impl From<i32> for Converted {fn from(code:i32)->Self{Converted{code}}}
+fn translated()->Result<i32, Converted> { val x: Result<i32, i32> = Err(7); Ok(x?) }
 fn main()->i32 {
     val error = ErrorInfo { code: 0 };
     val returned = forward(error);
     if val Err(original) = returned { original.code = 42; }
-    if translated().is_err() { error.code } else { 0 }
+    match translated(){Err(e)=>if e.code==7 {error.code}else{0},Ok(_)=>0}
 }
 "#,
     );
@@ -507,10 +473,10 @@ fn payload_early_returns_and_closure_residual_inference_compose() {
         r#"
 fn early()->Option<i32> { Some({ return Some(42); }) }
 fn result()->Result<i32, String> { Err("skip") }
+fn apply<T,R>(value:T,callback:fn(T)->R)->R{callback(value)}
 fn main()->i32 {
-    val present: Option<i32> = Some(1);
-    val mapped = present.map(|n| { result()?; Ok(n) });
-    if val Some(Err(message)) = mapped { early().unwrap_or(0) } else { 0 }
+    val mapped = apply(1, |n| { result()?; Ok(n) });
+    if val Err(message) = mapped {match early(){Some(n)=>n,None=>0}}else{0}
 }
 "#,
     );

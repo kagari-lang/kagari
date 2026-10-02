@@ -33,6 +33,7 @@ pub mod jit_abi;
 #[cfg(test)]
 #[path = "../tests/support/layouts.rs"]
 mod layout_fixtures;
+pub mod library;
 pub mod metadata;
 pub mod module;
 pub mod native;

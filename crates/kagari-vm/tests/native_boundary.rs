@@ -1,5 +1,6 @@
 mod native_boundary_artifacts;
 mod native_boundary_callbacks;
+mod native_boundary_control;
 mod native_boundary_gc;
 mod native_boundary_host;
 mod native_boundary_interfaces;

@@ -289,7 +289,7 @@ Notes:
 - `x: T` is an ordinary parameter.
 - parameters are local bindings and cannot be rebound.
 - functions may declare generic parameters and a trailing `where` clause.
-- trait bounds may use parameterized trait references such as `Into<String>`
+- trait bounds may use parameterized trait references such as `From<String>`
 
 ### Modules and Imports
 
@@ -433,8 +433,8 @@ arguments and later local uses. Deferred obligations are revisited until those
 constraints stabilize; later arguments can supply context to earlier constructors
 and closures. A shape-unique declared implementation constrains both its receiver
 and trait arguments; its instantiated bounds propagate constraints to dependent
-implementations. An expected `Result<C, E>` can therefore constrain a preceding
-callback through `C: FromIterator<T>`. Applicability and all bounds remain checked
+implementations. An expected concrete generic return type can constrain a callback
+result, including an application or library native function. Applicability and all bounds remain checked
 after inference; ambiguous candidates cannot supply guessed types.
 This does not change source-order, exactly-once runtime evaluation. Caller-owned generic binders are valid context,
 including after trait `Self` substitution; unresolved callee binders are not.
@@ -759,7 +759,7 @@ includes the zero-iteration path, without constant-condition evaluation.
 The type `!` has no values. It is permitted in every type position, including
 function results, parameters, generic arguments and associated types. It differs
 from `()`, which has one value and indicates normal completion without a payload.
-`std::debug::panic` returns `!`; a user function declared `-> !` must have no normal
+A user function declared `-> !` must have no normal
 return or fallthrough path. Calls use their checked result contracts, including
 generic substitution and callable/trait dispatch, to determine normal completion.
 
@@ -778,8 +778,8 @@ This expression coercion does not recurse into type arguments: `ArrayList<!>` an
 `ArrayList<i32>` remain distinct, as do `fn() -> !` and `fn() -> i32`. A closure
 literal can still receive its result type from its expected callable signature.
 `Result<T, !>` can contain `Ok(T)` but cannot contain an `Err` value. Empty matches
-can eliminate a value of an uninhabited type. `std::convert::Infallible` remains a
-distinct zero-variant enum, not a type alias for `!`. No arbitrary trait obligations
+can eliminate a value of an uninhabited type. User-defined zero-variant enums
+remain distinct types. No arbitrary trait obligations
 are waived because a value or expression is uninhabited.
 
 Never does not mean unbudgeted execution: loops and recursive calls retain their

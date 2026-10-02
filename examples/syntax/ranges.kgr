@@ -16,12 +16,8 @@ fn main() -> i32 {
     val values = next()..=next();
     var subtotal = 0;
     for value in values { subtotal += value; }
-    val array = [1, 2, 3, 4];
-    array.copy_within(..2, 2);
-    array.copy_within(..=0, 1);
-    array.copy_within(3.., 0);
-    array.copy_within(.., 0);
-    val prefix = (254u8..).iter().take(2usize).collect::<ArrayList<u8>>();
-    std::debug::assert(prefix[1] == 255u8, "lazy open range");
+    val prefix: ArrayList<u8> = [];
+    for value in 254u8.. {prefix.push(value);if prefix.len()==2usize{break;}}
+    if prefix[1]!=255u8{return 0;}
     if sum == 6 && saw_max && calls == 2 && subtotal == 3 { 42 } else { 0 }
 }

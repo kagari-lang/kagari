@@ -31,7 +31,6 @@ fn variant(module: &LoadedModule, name: &str) -> kagari_runtime::module::EnumVar
 #[test]
 fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     use kagari_runtime::{
-        builtin::invoke_standard,
         error::RuntimeErrorKind,
         value::{EnumTag, Value},
         value_semantics::script_equal,
@@ -66,14 +65,6 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     assert_eq!(
         runtime.runtime().gc().enum_snapshot(handle).unwrap().fields,
         [Value::I32(42)]
-    );
-    assert!(
-        invoke_standard(
-            runtime.runtime().gc(),
-            kagari_abi::standard::RuntimePrimitive::OptionIsSome,
-            &[Value::Enum(handle)]
-        )
-        .is_err()
     );
     let standard = runtime
         .runtime()
@@ -121,7 +112,14 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         runtime.runtime().resources().counters().allocation_units,
         before
     );
-    let array = runtime.runtime().alloc_array(vec![Value::I32(1)]).unwrap();
+    let array = runtime
+        .runtime()
+        .alloc_array(
+            &loaded,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(1)],
+        )
+        .unwrap();
     let wrong = runtime
         .runtime()
         .alloc_enum(

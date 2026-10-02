@@ -304,9 +304,6 @@ impl GcHeap {
         op: IterOp,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
-            return Err(invalid());
-        };
         if op == IterOp::Close {
             self.validate_iter(value, ty)?;
             self.close_iter_tree(value)?;
@@ -315,6 +312,33 @@ impl GcHeap {
         if op != IterOp::Next {
             return Err(invalid());
         }
+        self.advance_iter_with(value, ty, |payload| {
+            let tag = if payload.is_some() {
+                EnumTag::OptionSome
+            } else {
+                EnumTag::OptionNone
+            };
+            self.alloc_enum(tag, payload.into_iter().collect())
+                .map(Value::Enum)
+        })
+    }
+    pub(crate) fn next_iter_item(
+        &self,
+        value: &Value,
+        ty: &AbiType,
+    ) -> Result<Option<Value>, RuntimeError> {
+        self.advance_iter_with(value, ty, Ok)
+    }
+    fn advance_iter_with<R>(
+        &self,
+        value: &Value,
+        ty: &AbiType,
+        finish: impl FnOnce(Option<Value>) -> Result<R, RuntimeError>,
+    ) -> Result<R, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
+            return Err(invalid());
+        };
         let (needs_guard, payload, next_position, string_cursor) = {
             let objects = self.objects.borrow();
             let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
@@ -397,13 +421,10 @@ impl GcHeap {
         } else {
             None
         };
-        // Allocate before committing the position so allocation failure does not skip an item.
-        let tag = if payload.is_some() {
-            EnumTag::OptionSome
-        } else {
-            EnumTag::OptionNone
-        };
-        let result = self.alloc_enum(tag, payload.clone().into_iter().collect())?;
+        // Prepare the public result before committing. Native adapters can take
+        // an item directly, without allocating an intermediate script Option.
+        let has_item = payload.is_some();
+        let result = finish(payload)?;
         let mut objects = self.objects.borrow_mut();
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, *id) else {
             return Err(invalid());
@@ -412,7 +433,7 @@ impl GcHeap {
         if let (Some(traversal), Some(cursor)) = (&mut iter.string, string_cursor) {
             traversal.cursor = cursor;
         }
-        if payload.is_some() {
+        if has_item {
             iter.position = next_position;
             if needs_guard {
                 session.iter_guards.borrow_mut().insert(*id);
@@ -422,7 +443,7 @@ impl GcHeap {
         } else {
             iter.guard = None;
         }
-        Ok(Value::Enum(result))
+        Ok(result)
     }
     pub(crate) fn release_iter_guards(&self, session: &Rc<SessionState>) {
         let mut objects = self.objects.borrow_mut();

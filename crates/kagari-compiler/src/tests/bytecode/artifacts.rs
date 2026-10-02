@@ -1,6 +1,5 @@
 use crate::tests::bytecode::*;
 use kagari_bytecode::{
-    self as bytecode,
     artifact::KBC_ARTIFACT_FORMAT_VERSION,
     program::{BytecodeProgram, ModuleRef},
 };

@@ -897,6 +897,7 @@ pub(crate) fn match_implementation(
                 }
             }
             (TypeId::Struct(left), TypeId::Struct(right))
+            | (TypeId::NativeObject(left), TypeId::NativeObject(right))
             | (TypeId::Enum(left), TypeId::Enum(right))
             | (TypeId::Trait(left), TypeId::Trait(right)) => {
                 if left.declaration != right.declaration

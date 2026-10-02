@@ -1,6 +1,5 @@
 use crate::{source::lower::lower_to_mir, tests::common};
 use kagari_bytecode::{
-    self as bytecode,
     instruction::{BytecodeInstruction, Register},
     program::verify_program,
     verifier::BytecodeVerificationError,
@@ -70,7 +69,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
 #[test]
 fn never_calls_terminate_without_emitting_following_effects() {
     let input = common::program_ok(
-        "fn fail() -> ! { std::debug::panic(\"stop\") } fn main() -> i32 { fail(); std::debug::print(\"unreachable\"); 42 }",
+        "fn fail() -> ! { fail() } fn effect() {} fn main() -> i32 { fail(); effect(); 42 }",
     );
     let mir = lower_to_mir(input.root(), &Default::default()).unwrap();
     let main = mir.functions.iter().find(|f| f.name == "main").unwrap();

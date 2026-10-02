@@ -36,10 +36,14 @@ impl KagariEngine {
     }
 
     pub fn new(config: EngineConfig) -> Self {
-        Self::with_native_modules(config, vec![]).expect("default native module installation")
+        Self::builder()
+            .config(config)
+            .build()
+            .expect("default native module installation")
     }
 
-    /// Built-in and application packages use the same checked installation path.
+    /// Install exactly this set of optional modules. Built-in and application
+    /// packages use the same checked installation path; use builder() for defaults.
     pub fn with_native_modules(
         config: EngineConfig,
         native_modules: Vec<NativeModule>,

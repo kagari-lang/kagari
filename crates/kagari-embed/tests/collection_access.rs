@@ -1,3 +1,4 @@
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_common::source::SourceFile;
 use {
     kagari_embed::{
@@ -5,7 +6,6 @@ use {
         engine::{EngineConfig, source::CompileOptions},
     },
     kagari_runtime::security::LanguageProfile,
-    kagari_vm::{reentry::reenter, vm::Vm},
 };
 
 use kagari_embed::{
@@ -67,30 +67,27 @@ fn execute(source: &str) {
 }
 
 #[test]
-fn constructors_views_and_shallow_factories() {
+fn constructors_and_live_views() {
     execute(
         r#"
 fn main() -> i32 {
-    val a = ArrayList::from([1, 2]);
+    val a = [1, 2];
     val r: [i32] = a;
     a.push(3);
-    std::debug::assert(r.len() == [0, 0, 0].len(), "live view");
-    val snapshot = ArrayList::from(a);
-    a.push(4);
-    std::debug::assert(snapshot.len() == [0, 0, 0].len(), "snapshot");
-    val m = LinkedHashMap::from([("a", 1), ("a", 2)]);
+    if r.len() != 3usize { return 0; }
+    val m: HashMap<String, i32> = HashMap::new();
+    m.insert("a", 1); m.insert("a", 2);
     val mr: Map<String, i32> = m;
-    std::debug::assert(mr.get("a") == Some(2), "duplicate");
+    if mr.get("a") != Some(2) { return 0; }
     m.insert("b", 3);
-    std::debug::assert(mr.contains_key("b"), "map view");
-    val s = LinkedHashSet::from([1, 1, 2]);
-    std::debug::assert(s.len() == [0, 0].len(), "dedup");
-    val ms = LinkedHashSet::from([1]);
-    ms.insert(2);
-    val empty: Map<String, i32> = LinkedHashMap::new();
+    if !mr.contains_key("b") { return 0; }
+    val s: HashSet<i32> = HashSet::new();
+    s.insert(1); s.insert(1); s.insert(2);
+    if s.len() != 2usize { return 0; }
+    val empty: Map<String, i32> = HashMap::new();
     val empty_array: ArrayList<i32> = ArrayList::new();
-    val empty_set: Set<i32> = LinkedHashSet::from([]);
-    std::debug::assert(empty.is_empty() && empty_array.is_empty() && empty_set.is_empty(), "empty");
+    val empty_set: Set<i32> = HashSet::new();
+    if !(empty.is_empty() && empty_array.is_empty() && empty_set.is_empty()) { return 0; }
     42
 }
 "#,
@@ -111,15 +108,15 @@ fn main() -> i32 {
     val view = readable(writable);
     val shelf = Shelf { items: writable };
     shelf.items[0].value = 40;
-    val copy = ArrayList::from(view);
+    val copy = [view[0]];
     writable[0] = Item { value: 7 };
-    std::debug::assert(copy[0] === item && copy !== view, "shallow independent slots");
-    std::debug::assert(view === writable && view == writable, "common access equality");
-    std::debug::assert(view.hash() == writable.hash(), "common identity hash");
+    if !(copy[0] === item && copy !== view) { return 0; }
+    if !(view === writable && view == writable) { return 0; }
+    if !(view.hash() == writable.hash()) { return 0; }
     val join = if true { view } else { writable };
     val other = match true { true => writable, false => view };
     val inspect = || size(join) == size(other);
-    std::debug::assert(inspect(), "captured view");
+    if !(inspect()) { return 0; }
     val nested: [ArrayList<i32>] = [[1]];
     nested[0].push(2);
     copy[0].value + nested[0][1]
@@ -134,15 +131,15 @@ fn readonly_operations_cannot_recover_write_access() {
         "fn main() { val a: [i32] = [1]; a.push(2); }",
         "fn main() { var a: [i32] = [1]; a[0] = 2; }",
         "fn main() { val a: [i32] = [1]; a[0] += 2; }",
-        "fn main() { val a: [i32] = [1]; std::array::ArrayList::push(a, 2); }",
+        "fn main() { val a: [i32] = [1]; ArrayList::push(a, 2); }",
         "fn main() { val a: [i32] = [1]; set_index(a, 0, 2); }",
-        "fn main() { val a: Map<i32, i32> = LinkedHashMap::from([(1, 2)]); a.insert(3, 4); }",
-        "fn main() { val a: Map<i32, i32> = LinkedHashMap::from([(1, 2)]); std::map::LinkedHashMap::clear(a); }",
-        "fn main() { val a: Set<i32> = LinkedHashSet::from([1]); a.remove(1); }",
-        "fn main() { val a: Set<i32> = LinkedHashSet::from([1]); std::set::LinkedHashSet::clear(a); }",
+        "fn main() { val a: Map<i32, i32> = HashMap::new(); a.insert(3, 4); }",
+        "fn main() { val a: Map<i32, i32> = HashMap::new(); HashMap::clear(a); }",
+        "fn main() { val a: Set<i32> = HashSet::new(); a.remove(1); }",
+        "fn main() { val a: Set<i32> = HashSet::new(); HashSet::clear(a); }",
         "fn main() { val a: [i32] = [1]; val b: ArrayList<i32> = a; }",
-        "fn main() { val a: Map<i32, i32> = LinkedHashMap::from([(1, 2)]); val b: LinkedHashMap<i32, i32> = a; }",
-        "fn main() { val a: Set<i32> = LinkedHashSet::from([1]); val b: LinkedHashSet<i32> = a; }",
+        "fn main() { val a: Map<i32, i32> = HashMap::new(); val b: HashMap<i32, i32> = a; }",
+        "fn main() { val a: Set<i32> = HashSet::new(); val b: HashSet<i32> = a; }",
         "fn change<T>(a: ArrayList<T>, v: T) { a.push(v); } fn main() { val a: [i32] = [1]; change(a, 2); }",
         "fn bad(a: [i32]) -> ArrayList<i32> { a }",
         "struct Box { val a: ArrayList<i32> } fn main() { val a: [i32] = [1]; Box { a } }",
@@ -166,133 +163,8 @@ fn readonly_operations_cannot_recover_write_access() {
 }
 
 #[test]
-fn factories_use_custom_key_protocols_and_ordered_single_evaluation() {
-    execute(
-        r#"
-struct Key { val id: i32 }
-impl PartialEq for Key { fn eq(self, other: Self) -> bool { self.id == other.id } }
-impl Eq for Key {}
-impl Hash for Key { fn hash(self) -> i64 { self.id.hash() } }
-struct Counter { var n: i32 }
-fn next(c: Counter) -> i32 { c.n += 1; c.n }
-fn main() -> i32 {
-    val c = Counter { n: 0 };
-    val first = Key { id: 1 };
-    val second = Key { id: 1 };
-    val entries = [(first, next(c)), (second, next(c))];
-    val map = LinkedHashMap::from(entries);
-    val mutable = LinkedHashMap::from(entries);
-    val set = LinkedHashSet::from([first, second]);
-    val mutable_set = LinkedHashSet::from([first, second]);
-    std::debug::assert(map.get(first) == Some(2) && mutable.get(second) == Some(2), "last value wins");
-    std::debug::assert(set.len() == [0].len() && mutable_set.len() == [0].len(), "custom dedup");
-    std::debug::assert(c.n == 2, "evaluated once");
-    val writable_copy = ArrayList::from(ArrayList::from([40, 2]));
-    writable_copy[0] + writable_copy[1]
-}
-"#,
-    );
-}
-
-#[test]
-fn associated_factories_resolve_qualified_names_and_function_aliases() {
-    execute(
-        r#"
-use std::array as arrays;
-use std::map::LinkedHashMap::from as map_of;
-fn main() -> i32 {
-    val array = arrays::ArrayList::from([20, 22]);
-    val set = std::set::LinkedHashSet::from([20, 22]);
-    val map = map_of([(1, array[0]), (2, array[1])]);
-    std::debug::assert(set.contains(22), "qualified factory");
-    map.get(1).unwrap_or(0) + map.get(2).unwrap_or(0)
-}
-"#,
-    );
-}
-
-#[test]
-fn factories_release_input_guards_after_callback_failure() {
-    let source = r#"
-struct Key { val input: ArrayList<Key> }
-impl PartialEq for Key { fn eq(self, other: Self) -> bool { self === other } }
-impl Eq for Key {}
-impl Hash for Key { fn hash(self) -> i64 { self.input.push(self); 1.hash() } }
-trait Test { fn attempt(self); fn clear(self) -> i32; }
-struct Tester { val input: ArrayList<Key> }
-impl Test for Tester {
-    fn attempt(self) { LinkedHashSet::from(self.input); }
-    fn clear(self) -> i32 { self.input.clear(); 42 }
-}
-fn make() -> Test {
-    val input: ArrayList<Key> = [];
-    input.push(Key { input });
-    Tester { input }
-}
-"#;
-    let mut config = EngineConfig::default();
-    config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("factory-cleanup.kgr", source),
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    let module = &artifact.program.modules[artifact.program.root.index()];
-    let declaration = module
-        .trait_contracts
-        .iter()
-        .find(|c| c.abi.name == "Test")
-        .unwrap()
-        .declaration
-        .clone();
-    let method = |name: &str| {
-        let mut id = declaration.clone();
-        id.path
-            .push(kagari_common::identity::DefinitionPathSegment {
-                kind: kagari_common::identity::DefinitionKind::Method,
-                name: name.into(),
-                occurrence: 0,
-            });
-        id
-    };
-    let mut runtime_config = kagari_runtime::RuntimeConfig::default();
-    runtime_config.gc.collection_threshold = Some(1);
-    let mut runtime = kagari_runtime::Runtime::new(runtime_config);
-    let loaded = runtime
-        .load_program("factory-cleanup", artifact.program)
-        .unwrap();
-    let mut vm = Vm::new(runtime);
-    let input = vm.execute(&loaded, "make").unwrap().return_value;
-    let root = vm.runtime().root_value(input.clone()).unwrap();
-    let error = vm
-        .invoke_interface_method(&input, &method("attempt"), &[])
-        .unwrap_err();
-    assert!(
-        format!("{error:?}").contains("structural modification during iteration"),
-        "{error:?}"
-    );
-    assert_eq!(vm.runtime().gc().active_roots(), 1);
-    assert!(vm.runtime().execution_root().is_none());
-    assert_eq!(
-        vm.invoke_interface_method(&input, &method("clear"), &[])
-            .unwrap(),
-        Value::I32(42)
-    );
-    drop(root);
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
-}
-
-#[test]
-fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
-    use kagari_abi::{standard::RuntimePrimitive, types::AbiType};
-    use kagari_bytecode::{
-        instruction::{BytecodeInstruction, CallTarget},
-        program::verify_program,
-    };
+fn forged_access_upgrades_are_rejected_before_loading() {
+    use kagari_bytecode::program::verify_program;
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
@@ -300,7 +172,7 @@ fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
                 "access-wire.kgr",
                 r#"
 pub fn inspect(values: [i32]) { values.len(); }
-fn main() { val values = ArrayList::from([1, 2]); inspect(values); }
+fn main() { val values = [1, 2]; inspect(values); }
 "#,
             ),
             Default::default(),
@@ -316,30 +188,6 @@ fn main() { val values = ArrayList::from([1, 2]); inspect(values); }
         .unwrap();
     let mut forged = artifact.program.clone();
     let function = &mut forged.modules[root].functions[index];
-    let instruction = function
-        .instructions
-        .iter_mut()
-        .find(|i| {
-            matches!(
-                i,
-                BytecodeInstruction::Call {
-                    callee: CallTarget::InterfaceMethod { .. },
-                    ..
-                }
-            )
-        })
-        .unwrap();
-    if let BytecodeInstruction::Call { dst, callee, args } = instruction {
-        *dst = Some(args[0]);
-        *callee = CallTarget::RuntimePrimitive(RuntimePrimitive::ArrayClear);
-    }
-    let error = verify_program(&forged).unwrap_err();
-    assert!(
-        format!("{error:?}").contains("invalid collection access flow"),
-        "{error:?}"
-    );
-    let mut forged = artifact.program.clone();
-    let function = &mut forged.modules[root].functions[index];
     if let Some(AbiType::Trait(interface)) = function.metadata.semantic.params.get_mut(&0) {
         interface.declaration.path.last_mut().unwrap().name = "MutableList".into();
     }
@@ -352,8 +200,8 @@ fn main() { val values = ArrayList::from([1, 2]); inspect(values); }
         .clear();
     assert!(verify_program(&forged).is_err());
     let mut forged = artifact.clone();
-    let table = forged.program.modules[root].public_items.iter_mut().find_map(|item| match item {
-        kagari_abi::types::PublicAbiItem::InterfaceTable(table) if table.native_bridge && matches!(&table.trait_type, AbiType::Trait(interface) if interface.declaration.path.last().unwrap().name == "List") => Some(table),
+    let table = forged.program.modules.iter_mut().flat_map(|module| &mut module.public_items).find_map(|item| match item {
+        kagari_abi::types::PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(interface) if interface.declaration.path.last().unwrap().name == "List") => Some(table),
         _ => None,
     }).unwrap();
     if let AbiType::Trait(interface) = &mut table.trait_type {
@@ -398,7 +246,7 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
             )
             .is_err()
     );
-    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = ArrayList::from(source); copy.push(2); copy[0] + copy[1] }"), options, Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = [source[0], 2]; copy[0] + copy[1] }"), options, Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let mut context = ExecutionContext {
         language_profile: profile,
@@ -410,7 +258,14 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
     runtime
         .register_host_function(HostFunction::new(declaration.clone(), |context, _| {
             Ok(Value::Array(
-                context.runtime().alloc_array(vec![Value::I32(40)]).unwrap(),
+                context
+                    .runtime()
+                    .alloc_array(
+                        &context.runtime().execution_root().unwrap(),
+                        AbiType::Builtin(BuiltinType::I32),
+                        vec![Value::I32(40)],
+                    )
+                    .unwrap(),
             ))
         }))
         .unwrap();
@@ -433,7 +288,16 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
     let mut mismatched = engine.runtime(context);
     mismatched
         .register_host_function(HostFunction::new(changed, |context, _| {
-            Ok(Value::Array(context.runtime().alloc_array(vec![]).unwrap()))
+            Ok(Value::Array(
+                context
+                    .runtime()
+                    .alloc_array(
+                        &context.runtime().execution_root().unwrap(),
+                        AbiType::Builtin(BuiltinType::I32),
+                        vec![],
+                    )
+                    .unwrap(),
+            ))
         }))
         .unwrap();
     assert!(
@@ -445,78 +309,4 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
             )
             .is_err()
     );
-}
-
-#[test]
-fn factory_input_and_destination_survive_host_reentry_and_collection() {
-    use kagari_common::host_interface::standard_log;
-    use kagari_runtime::host::{HostError, HostFunction};
-    use std::{cell::Cell, rc::Rc};
-    let mut config = EngineConfig::default();
-    config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
-    let mut context = ExecutionContext::default();
-    context.language_profile.allow_host_calls = true;
-    context.capabilities.host_calls = true;
-    context.host_policy.allowed_host_functions = vec!["host.log".into()];
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "factory-reentry.kgr",
-                r#"
-struct Key { val id: i32 }
-impl PartialEq for Key { fn eq(self, other: Self) -> bool { print("eq"); self.id == other.id } }
-impl Eq for Key {}
-impl Hash for Key { fn hash(self) -> i64 { print("hash"); 0.hash() } }
-fn scratch() -> [i32] { ArrayList::from([7, 8]) }
-fn main() -> i32 {
-    val first = Key { id: 1 };
-    val second = Key { id: 2 };
-    val map = LinkedHashMap::from([(first, 20), (second, 22)]);
-    map.get(first).unwrap_or(0) + map.get(second).unwrap_or(0)
-}
-"#,
-            ),
-            CompileOptions {
-                language_profile: context.language_profile,
-            },
-            Default::default(),
-        )
-        .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    let scratch = artifact.program.modules[artifact.program.root.index()]
-        .functions
-        .iter()
-        .find(|f| f.name == "scratch")
-        .unwrap()
-        .id;
-    let calls = Rc::new(Cell::new(0));
-    let recorded = calls.clone();
-    let mut runtime = engine.runtime(context.clone());
-    runtime
-        .register_host_function(HostFunction::new(standard_log(), move |call, _| {
-            recorded.set(recorded.get() + 1);
-            let root = call.runtime().execution_root().unwrap();
-            let result = reenter(call, &root, scratch, &[])
-                .map_err(|error| HostError::new(format!("callback: {error:?}")))?;
-            call.runtime().collect_garbage().unwrap();
-            assert!(call.runtime().gc().validate_value(&result.value()));
-            Ok(Value::Unit)
-        }))
-        .unwrap();
-    let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    let loaded = runtime
-        .load_program(&loaded_program, Default::default())
-        .unwrap();
-    assert_eq!(
-        runtime
-            .execute(&loaded, "main", &[], &context)
-            .unwrap()
-            .return_value,
-        Value::I32(42)
-    );
-    assert!(calls.get() >= 4);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert!(runtime.runtime().execution_root().is_none());
 }

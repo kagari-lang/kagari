@@ -1,0 +1,54 @@
+//! A traced foundation cursor for native iterator composition. Its position,
+//! generation and source guards remain owned by the checked heap cursor.
+use crate::{
+    error::RuntimeError,
+    native::{binding::NativeResult, context::CallContext, storage::NativePayload},
+    value::Value,
+};
+use kagari_abi::{operations::IterOp, types::AbiType};
+use std::rc::Rc;
+
+#[derive(Debug, Clone)]
+pub struct NativeCursor(Rc<Cursor>);
+#[derive(Debug)]
+struct Cursor {
+    value: Value,
+    ty: AbiType,
+}
+impl NativePayload for NativeCursor {
+    fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
+        visit(&self.0.value);
+    }
+    fn units(&self) -> usize {
+        1
+    }
+}
+impl NativeCursor {
+    pub fn next(&self, cx: &CallContext<'_>) -> NativeResult<Option<Value>> {
+        cx.heap().next_iter_item(&self.0.value, &self.0.ty)
+    }
+    pub fn close(&self, cx: &CallContext<'_>) -> NativeResult<()> {
+        cx.heap()
+            .advance_iter(&self.0.value, &self.0.ty, IterOp::Close)
+            .map(|_| ())
+    }
+}
+impl CallContext<'_> {
+    /// Create a shared cursor over a declared ArrayList argument. Store it in a
+    /// native payload and visit it in iteration_sources for for-scope cleanup.
+    pub fn sequence_cursor(&self, index: usize) -> NativeResult<NativeCursor> {
+        let ty = self.argument_type(index)?;
+        let AbiType::Array(item, _) = ty else {
+            return Err(RuntimeError::module_validation(
+                "sequence cursor requires ArrayList",
+            ));
+        };
+        let value =
+            self.runtime
+                .iter_operation(self.owner(), &self.argument(index)?, ty, IterOp::New)?;
+        Ok(NativeCursor(Rc::new(Cursor {
+            value,
+            ty: AbiType::Iter(item.clone()),
+        })))
+    }
+}

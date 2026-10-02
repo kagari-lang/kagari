@@ -9,8 +9,8 @@ fn main() -> i32 {
     flags <<= 1u16;
     flags >>= 2u32;
     flags %= 64u8;
-    std::debug::assert(flags == 6u8, "width and compound assignment");
-    std::debug::assert((1 | 2 & 0 ^ 4) == 5, "precedence");
-    std::debug::assert((-128i8 >> 7) == -1i8, "signed shift");
+    if !(flags == 6u8) {return 0;}
+    if !((1 | 2 & 0 ^ 4) == 5) {return 0;}
+    if !((-128i8 >> 7) == -1i8) {return 0;}
     42
 }

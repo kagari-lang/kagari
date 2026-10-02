@@ -7,9 +7,8 @@ use kagari_abi::{
 };
 use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
 
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+use kagari_common::identity::{
+    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
 };
 use kagari_hir::types::abi::lower_type;
 

@@ -12,7 +12,22 @@ use kagari_embed::{
 #[cfg(feature = "source")]
 use kagari_common::source::SourceFile;
 use kagari_runtime::value::Value;
-use std::{fs, path::Path, sync::OnceLock};
+use std::{cell::Cell, fs, path::Path, rc::Rc, sync::OnceLock};
+
+// Share application code with the emitter while compiling without its frontend.
+#[path = "support/native_provider.rs"]
+mod provider;
+// A structurally consistent forgery must still fail installed-contract linking.
+#[path = "native_provider_reset/contracts.rs"]
+mod contracts;
+
+fn engine(config: EngineConfig, drops: Rc<Cell<usize>>) -> KagariEngine {
+    KagariEngine::builder()
+        .config(config)
+        .install(provider::module(drops))
+        .build()
+        .unwrap()
+}
 
 fn artifact_bytes() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
@@ -28,7 +43,7 @@ fn artifact_bytes() -> &'static [u8] {
                 "memory://feature-artifact.kgr",
                 include_str!("fixtures/feature_artifact.kgr"),
             );
-            let artifact = KagariEngine::default()
+            let artifact = engine(Default::default(), Default::default())
                 .compile_to_artifact(source, Default::default(), Default::default())
                 .unwrap();
             fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -48,7 +63,7 @@ fn portable_artifact_executes_without_source_compilation() {
         PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
             .unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         runtime
@@ -67,7 +82,7 @@ fn source_free_native_bindings_execute_and_release_scopes() {
     let context = ExecutionContext::default();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let mut runtime = KagariEngine::new(config).runtime(context.clone());
+    let mut runtime = engine(config, Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     for _ in 0..3 {
         assert_eq!(
@@ -89,15 +104,15 @@ fn source_free_native_bindings_execute_and_release_scopes() {
 }
 
 #[test]
-fn source_free_native_imports_reject_forged_binding_versions() {
+fn source_free_native_imports_reject_forged_signatures() {
     let mut program = artifact().program;
     let import = program
         .modules
         .iter_mut()
         .flat_map(|module| &mut module.native_imports)
-        .next()
+        .find(|import| !import.signature.params.is_empty())
         .unwrap();
-    import.binding_version += 1;
+    import.signature.params.clear();
     assert!(KbcArtifact::from_program(program, Default::default()).is_err());
 }
 
@@ -127,7 +142,7 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
     {
         let program = result.unwrap();
         let context = ExecutionContext::default();
-        let mut runtime = KagariEngine::default().runtime(context.clone());
+        let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert_eq!(
             runtime
@@ -146,7 +161,7 @@ fn portable_fixture_matches_source_emission() {
         "memory://feature-artifact.kgr",
         include_str!("fixtures/feature_artifact.kgr"),
     );
-    let generated = KagariEngine::default()
+    let generated = engine(Default::default(), Default::default())
         .compile_to_artifact(source, Default::default(), Default::default())
         .unwrap();
     assert_eq!(generated.to_bytes().unwrap(), artifact_bytes());
@@ -252,7 +267,7 @@ mod native {
             },
             ..Default::default()
         };
-        let mut runtime = KagariEngine::default().runtime(context.clone());
+        let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let prepared = runtime
             .prepare_native(&program, &loaded, "main", &mut Backend, &Default::default())
@@ -276,7 +291,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let prepared = runtime
         .prepare_native(
@@ -311,4 +326,54 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
         report.jit.unwrap().status,
         JitExecutionStatus::InterpreterFallback
     );
+}
+
+#[test]
+fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
+    let program =
+        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
+            .unwrap();
+    let drops = Rc::new(Cell::new(0));
+    let mut config = EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let context = ExecutionContext::default();
+    let mut runtime = engine(config, drops.clone()).runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    for expected in 1..=3 {
+        let result = runtime
+            .execute(&loaded, "library_and_object", &[], &context)
+            .unwrap();
+        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
+        assert_eq!(drops.get(), expected);
+    }
+}
+
+#[test]
+fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
+    let mut artifact = artifact();
+    let mut changed = false;
+    contracts::alter_bindings(&mut artifact, |id| {
+        if id.path.last().is_some_and(|part| part.name == "sort") {
+            id.path.last_mut().unwrap().name = "sort_by".into();
+        }
+    });
+    for module in &artifact.program.modules {
+        changed |= module.native_imports.iter().any(|import| {
+            import
+                .binding
+                .path
+                .last()
+                .is_some_and(|part| part.name == "sort_by")
+                && import.signature.params.len() == 1
+        });
+    }
+    assert!(changed);
+    let artifact = KbcArtifact::from_program(artifact.program, Default::default()).unwrap();
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let mut runtime = engine(Default::default(), Default::default()).runtime(Default::default());
+    assert!(runtime.load_program(&program, Default::default()).is_err());
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }

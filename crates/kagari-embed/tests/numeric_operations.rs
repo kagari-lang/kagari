@@ -1,4 +1,6 @@
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_common::source::SourceFile;
+use std::{cell::RefCell, rc::Rc};
 use {
     kagari_embed::{
         context::JitPolicy,
@@ -69,7 +71,7 @@ fn execute(source: &str) {
 fn fixed_width_bits_and_shifts() {
     execute(
         r#"
-        fn assert(value: bool) { std::debug::assert(value, "numeric assertion"); }
+        fn assert(value: bool) { { val passed = value; if !passed {val zero=0;1/zero;} }; }
         const MASK: u8 = !0u8;
         fn main() -> i32 {
             var x = 128u8;
@@ -102,11 +104,11 @@ fn generic_bitwise_static_dispatch() {
     execute(
         r#"
         struct Bits { val value: i32 }
-        impl std::ops::BitOr<Bits> for Bits {
+        impl BitOr<Bits> for Bits {
             type Output = Bits;
             fn bitor(self, rhs: Bits) -> Bits { Bits { value: self.value | rhs.value } }
         }
-        fn combine<T: std::ops::BitOr<T, Output = T>>(a: T, b: T) -> T { a | b }
+        fn combine<T: BitOr<T, Output = T>>(a: T, b: T) -> T { a | b }
         fn main() -> i32 { combine(Bits { value: 32 }, Bits { value: 10 }).value }
     "#,
     );
@@ -184,10 +186,13 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     context.capabilities.host_calls = true;
     context.host_policy.allowed_host_functions = vec!["demo.memory".into()];
     let mut runtime = engine.runtime(context.clone());
-    let memory = runtime.runtime().alloc_array(vec![Value::I32(7)]).unwrap();
+    let memory_slot = Rc::new(RefCell::new(None));
+    let captured_memory = memory_slot.clone();
     runtime
         .register_host_function(HostFunction::new(declaration, move |_, _| {
-            Ok(Value::Array(memory))
+            Ok(Value::Array(
+                captured_memory.borrow().expect("initialized memory"),
+            ))
         }))
         .unwrap();
     let loaded_program =
@@ -195,6 +200,16 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
+    let memory = runtime
+        .runtime()
+        .alloc_array(
+            &loaded,
+            AbiType::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+        .unwrap();
+    let root = runtime.runtime().root_value(Value::Array(memory)).unwrap();
+    *memory_slot.borrow_mut() = Some(memory);
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     assert!(
         format!("{error:?}").contains("shift out of range"),
@@ -204,47 +219,15 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         runtime.runtime().gc().array_snapshot(memory).unwrap(),
         vec![Value::I32(7), Value::I32(1), Value::I32(2)]
     );
+    drop(root);
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
-}
-
-#[test]
-fn explicit_integer_policies() {
-    execute(
-        r#"
-        fn assert(value: bool) { std::debug::assert(value, "integer policy"); }
-        fn main() -> i32 {
-            assert(255u8.wrapping_add(1u8) == 0u8);
-            assert(0u16.wrapping_sub(1u16) == 65535u16);
-            assert(200u8.wrapping_mul(2u8) == 144u8);
-            assert(255u8.checked_add(1u8) == None);
-            assert(0u8.checked_sub(1u8) == None);
-            assert(200u8.checked_mul(2u8) == None);
-            assert(7u8.checked_div(0u8) == None);
-            assert((-128i8).checked_div(-1i8) == None);
-            assert((-128i8).checked_rem(-1i8) == None);
-            assert(42u8.checked_rem(5u8) == Some(2u8));
-            assert(255u8.overflowing_add(1u8) == (0u8, true));
-            assert(0u8.overflowing_sub(1u8) == (255u8, true));
-            assert(127i8.overflowing_add(1i8) == (-128i8, true));
-            assert(255u8.saturating_add(1u8) == 255u8);
-            assert((-128i8).saturating_sub(1i8) == -128i8);
-            assert((-128i8).saturating_mul(-1i8) == 127i8);
-            assert(18446744073709551615u64.wrapping_mul(18446744073709551615u64) == 1u64);
-            assert(18446744073709551615u64.saturating_mul(18446744073709551615u64) == 18446744073709551615u64);
-            assert(0u16.wrapping_add_signed(-1i16) == 65535u16);
-            assert(128u8.rotate_left(1u32) == 1u8);
-            assert(1u8.rotate_right(9u32) == 128u8);
-            42
-        }
-    "#,
-    );
 }
 
 #[test]
 fn numeric_casts_match_const_and_runtime_rules() {
     execute(
         r#"
-        fn assert(value: bool) { std::debug::assert(value, "cast"); }
+        fn assert(value: bool) { { val passed = value; if !passed {val zero=0;1/zero;} }; }
         const BYTE: u8 = 256u16 as u8;
         const SIGN: i8 = 255u8 as i8;
         const CLAMP: u8 = 999.75 as u8;
@@ -272,54 +255,9 @@ fn numeric_casts_match_const_and_runtime_rules() {
 }
 
 #[test]
-fn builtin_numeric_conversion_traits() {
-    execute(
-        r#"
-        use std::convert::{From, TryFrom, TryFromIntError, Infallible};
-        fn widen<T: From<u8>>(value: u8) -> T { T::from(value) }
-        fn checked<T: TryFrom<u16>>(value: u16) -> Result<T, T::Error> { T::try_from(value) }
-        fn narrow(value: u16) -> Result<u8, TryFromIntError> { Ok(u8::try_from(value)?) }
-        fn assert(value: bool) { std::debug::assert(value, "numeric conversion"); }
-        fn main() -> i32 {
-            assert(u16::from(255u8) == 255u16);
-            assert(widen::<u32>(42u8) == 42u32);
-            val wide: u16 = 42u8.into();
-            assert(wide == 42u16);
-            assert(f64::from(65535u16) == 65535.0);
-            assert(u8::from(true) == 1u8);
-            assert(narrow(255u16) == Ok(255u8));
-            assert(checked::<u8>(256u16).is_err());
-            assert(narrow(256u16) == Err(TryFromIntError::OutOfRange));
-            assert(u64::try_from(-1i8) == Err(TryFromIntError::OutOfRange));
-            val fail: Result<u8, TryFromIntError> = 256u16.try_into();
-            assert(fail.is_err());
-            val safe: Result<u16, Infallible> = u16::try_from(42u8);
-            assert(safe == Ok(42u16));
-            assert(i8::try_from(127u16) == Ok(127i8));
-            assert(i8::try_from(128u16).is_err());
-            42
-        }
-    "#,
-    );
-}
-
-#[test]
-fn numeric_conversion_example() {
-    execute(include_str!(
-        "../../../examples/syntax/numeric-conversions.kgr"
-    ));
-}
-
-#[test]
 fn conversions_reject_implicit_loss_and_invalid_cast_targets() {
     let engine = KagariEngine::default();
     for expr in [
-        "u8::from(256u16)",
-        "i8::from(255u8)",
-        "u16::from(-1i8)",
-        "f32::from(16777217u32)",
-        "f64::from(1u64)",
-        "u8::try_from(1.0)",
         "1u8 as bool",
         "true as f64",
         "1u8 as String",
@@ -344,7 +282,7 @@ fn casts_respect_early_return_and_nested_generics() {
         fn stop() -> i32 { (if true { return 42; } else { return 1; }) as u8; 0 }
         fn main() -> i32 {
             val nested: ArrayList<ArrayList<u8>> = [[8u8 >> 1]];
-            std::debug::assert(nested[0][0] == 4u8, "generic closers");
+            { val passed = nested[0][0] == 4u8; if !passed {val zero=0;1/zero;} };
             stop()
         }
     "#,
@@ -379,11 +317,6 @@ fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
         conversion.target = target;
         assert!(forged.validate_for_loader(&Default::default()).is_err());
     }
-}
-
-#[test]
-fn hardware_numeric_example_with_artifacts_and_gc() {
-    execute(include_str!("../../../examples/6502-numeric.kgr"));
 }
 
 #[test]

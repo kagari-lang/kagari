@@ -10,9 +10,10 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::BytecodeProgram,
 };
+use kagari_common::host_interface::{HostInterface, standard_log};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
 use kagari_runtime::{Runtime, module::LoadedModule};
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
@@ -60,7 +61,16 @@ pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
     let root = sources
         .set("test.kgr", source_text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_host_declarations(
+        HostDeclarations::new(HostInterface {
+            paths: vec![],
+            types: vec![],
+            functions: vec![standard_log()],
+        })
+        .unwrap(),
+    );
+    let snapshot = analysis
         .snapshot(
             sources.snapshot(),
             LanguageFeatureProfile {

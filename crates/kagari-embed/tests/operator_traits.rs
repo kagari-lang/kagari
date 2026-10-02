@@ -88,7 +88,7 @@ fn unordered_custom_comparisons_are_false_for_all_operators() {
 struct Unknown {}
 impl PartialEq for Unknown {fn eq(self,other:Self)->bool {false}}
 impl PartialOrd for Unknown {fn partial_cmp(self,other:Self)->Option<Ordering> {None}}
-fn main()->i32 {val a=Unknown{}; if !(a<a) && !(a<=a) && !(a>a) && !(a>=a) && a.partial_cmp(a).is_none() {42}else{0}}
+fn main()->i32 {val a=Unknown{}; if !(a<a) && !(a<=a) && !(a>a) && !(a>=a) && a.partial_cmp(a) == None {42}else{0}}
 "#,
     );
 }
@@ -120,7 +120,7 @@ fn invalid_ordering_contracts_are_diagnostics() {
 fn arithmetic_protocols_have_rhs_and_associated_output() {
     execute(
         r#"
-use std::ops::Add as Plus;
+use core::language::Add as Plus;
 struct Vector {val x:i32}
 impl Plus<Vector> for Vector {type Output=Vector;fn add(self,rhs:Vector)->Vector {Vector{x:self.x+rhs.x}}}
 impl Mul<i32> for Vector {type Output=Vector;fn mul(self,rhs:i32)->Vector {Vector{x:self.x*rhs}}}
@@ -201,10 +201,10 @@ fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
 fn ordering_aliases_patterns_and_float_unordered_behavior() {
     execute(
         r#"
-use std::cmp::Ordering as Order;
-use std::cmp::Ordering::*;
+use core::language::Ordering as Order;
+use core::language::Ordering::*;
 fn rank(x:Order)->i32 {match x {Less=>0,Equal=>1,Greater=>2}}
-fn main()->i32 {val nan=0.0/0.0; if nan.partial_cmp(nan).is_none() && !(nan<nan) && !(nan<=nan) && !(nan>nan) && !(nan>=nan) && rank(Order::Equal)==1 {42}else{0}}
+fn main()->i32 {val nan=0.0/0.0; if nan.partial_cmp(nan) == None && !(nan<nan) && !(nan<=nan) && !(nan>nan) && !(nan>=nan) && rank(Order::Equal)==1 {42}else{0}}
 "#,
     );
 }
@@ -225,7 +225,7 @@ fn number(s:State,digit:i32)->Number {s.steps=s.steps*10+digit;Number{value:21}}
 fn main()->i32 {
  val s=State{steps:0};val old=Item{value:0};val b=Bag{item:old,state:s};
  receiver(b)[index(s)].value=rhs(b);
- std::debug::assert(s.steps==1234 && old.value==42 && b.item.value==99,"getter captures object before RHS");
+ if !(s.steps==1234 && old.value==42 && b.item.value==99) { return 0; }
  s.steps=0;val sum=number(s,1)+number(s,2);
  if s.steps==12 {sum.value}else{0}
 }
@@ -372,8 +372,8 @@ fn main()->i32 {Number{value:20}+22}
 }
 
 #[test]
-fn builtin_arithmetic_and_indexing_keep_direct_instructions() {
-    use kagari_bytecode::instruction::BytecodeInstruction;
+fn arithmetic_stays_direct_and_indexing_uses_its_checked_native_binding() {
+    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -386,14 +386,32 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
             Default::default(),
         )
         .unwrap();
-    assert!(
-        !artifact
-            .program
-            .modules
-            .iter()
-            .flat_map(|m| &m.functions)
-            .flat_map(|f| &f.instructions)
-            .any(|i| matches!(i, BytecodeInstruction::Call { .. }))
+    let module = &artifact.program.modules[artifact.program.root.index()];
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap();
+    let calls = main
+        .instructions
+        .iter()
+        .filter_map(|instruction| match instruction {
+            BytecodeInstruction::Call { callee, .. } => Some(callee),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 1);
+    let CallTarget::Native(index) = calls[0] else {
+        panic!("native Index binding")
+    };
+    assert_eq!(
+        module.native_imports[index.index()]
+            .binding
+            .path
+            .last()
+            .unwrap()
+            .name,
+        "$foundation_list_index"
     );
 }
 

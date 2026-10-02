@@ -303,7 +303,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         owner
             .enumerations
             .iter()
-            .all(|layout| layout.declaration.module.package == PackageId("kagari-std".into()))
+            .all(|layout| layout.declaration.module.package == PackageId("kagari-core".into()))
     );
     let PublicAbiItem::Type(template) = owner
         .public_items

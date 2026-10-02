@@ -1,46 +1,9 @@
-// Nested traversal stays lazy; terminal operations select the result type.
-struct Total { val value: i32 }
-
-impl Sum<i32> for Total {
-    fn sum<I: Iterable<Item = i32>>(source: I) -> Self {
-        var value = 0;
-        for item in source { value += item; }
-        Total { value }
-    }
-}
-
-fn read(value: i32) -> Result<i32, String> {
-    if value < 0 { Err("negative value") } else { Ok(value) }
-}
-
-fn main() -> i32 {
-    var observed = 0;
-    val pipeline = [[0], [20, 22], [99]].iter().flatten()
-        .skip_while(|x| x == 0)
-        .take_while(|x| x < 99)
-        .inspect(|x| { observed += x; });
-    std::debug::assert_eq(observed, 0, "lazy construction");
-    val total: Total = pipeline.sum();
-    std::debug::assert_eq(observed, 42, "observed traversal");
-
-    val expanded: ArrayList<i32> = [20, 22].iter().flat_map(|x| [x]).collect();
-    std::debug::assert_eq(expanded.iter().min(), Some(20), "minimum");
-    std::debug::assert_eq(expanded.iter().max_by_key(|x| x), Some(22), "maximum");
-    std::debug::assert_eq(expanded.iter().reduce(|a, b| a + b), Some(42), "reduction");
-    val product: i32 = [6, 7].iter().product();
-    std::debug::assert_eq(product, 42, "product");
-
-    // The expected result type selects fallible collection, preserving Err origins.
-    val checked: Result<ArrayList<i32>, String> = expanded.iter().map(|x| read(x)).collect();
-    std::debug::assert_eq(checked.map(|x| x.len()), Ok("ab".len_bytes()), "checked collection");
-    val failed: Result<ArrayList<i32>, String> = [20, -1, 22].iter().map(|x| read(x)).collect();
-    std::debug::assert(failed.is_err(), "short circuit");
-    val missing: Option<ArrayList<i32>> = [Some(20), None].iter().collect();
-    std::debug::assert_eq(missing, None, "missing item");
-
-    val iter = expanded.iter().fuse();
-    std::debug::assert_eq(iter.nth("".len_bytes()), Some(20), "next position");
-    std::debug::assert_eq(iter.last(), Some(22), "last remaining item");
-    std::debug::assert_eq(iter.next(), None, "fused end");
-    total.value
+// A library-provided native iterator implements the same language Iterator.
+use std::collections;
+fn main()->i32 {
+    val mapped=collections::map([20,22],|value|value);
+    val alias=mapped;
+    if alias.next()!=Some(20) || mapped.next()!=Some(22){return 0;}
+    if mapped.next()!=None || alias.next()!=None {return 0;}
+    42
 }

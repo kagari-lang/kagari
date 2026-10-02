@@ -1,10 +1,10 @@
 # Native Collections Reset Plan
 
-Status: phases 1-3 have reached their scope checkpoints. Phase 4 owns the bounded
-optional library proof, predecessor-test disposition and final workspace acceptance.
+Status: all four phases are accepted. The optional library proof, predecessor
+consumer disposition and final workspace/feature checks are complete.
 The goal follows this replacement plan, not the retired restoration sequence.
 
-This is the active native-library plan. It replaces NR00-NR05, the full-library
+This completed native-library plan replaces NR00-NR05, the full-library
 restoration sequence and inherited ST06 acceptance obligations. Historical results
 are evidence about the predecessor, not a requirement to restore its public
 surface. See the [roadmap](implementation-roadmap.md) for other queued work.
@@ -460,11 +460,19 @@ Borrowed views cannot survive unsafe mutation or reentry. Generic opaque access
 works even when no sequence capability exists; optimized sequence access is an
 optional registered capability, not a mandatory representation for every object.
 
-NativeCursor retains position/state, traced captures and pinned callable handles.
-A map adapter retains its source and mapper, not a program counter for synchronous
-callback returns. Captures are GC edges, not independently permanent roots. Normal
-next returns synchronously; actual future async suspension uses a separate entry
-and state interface. No async executor is introduced by this proposal.
+NativeCursor shares a checked foundation cursor's position and source. A library
+map payload stores that cursor and a generation-pinned StoredCallable, without a
+program counter for synchronous callback returns. NativePayload::trace visits
+callback captures; NativePayload::iteration_sources declares wrapped iteration
+resources and also traces those GC edges. A for scope follows these resource
+edges once and releases source guards on break, return or failure. Generic loops
+do not know the library's concrete iterator type. Captures are GC edges, not
+independently permanent roots. A native next reads a source item without allocating
+an intermediate script Option, invokes its mapper synchronously and allocates the
+single declared Option result. Consumption and completed callback effects survive
+a mapper error; a later next does not repeat that source item. Recursive next on
+the same map iterator is rejected. Actual future async suspension uses a separate
+entry and state interface. No async executor is introduced by this proposal.
 
 ### Data flow and tooling
 
@@ -708,9 +716,9 @@ No build/test failure remains in retained workspace consumers.
 ## Checklist
 
 - [x] Phase 1: old library implementation and tracked executable fixtures removed.
-- [x] Phase 2: compiler-owned protocol/default declarations, lowering and base storage implemented; execution integration carried below.
+- [x] Phase 2: compiler-owned protocol/default declarations, lowering and base storage implemented; execution integration accepted in phases 3-4.
 - [x] Phase 3: efficient synchronous native calls and typed storage implemented and allocation acceptance measured.
-- [ ] Phase 4: ArrayList algorithm module, storage extension and measured proof accepted.
+- [x] Phase 4: ArrayList algorithm module, storage extension and measured proof accepted.
 
 ## Progress ledger
 
@@ -1440,3 +1448,435 @@ The 131 legacy VM lib-test errors above remain explicitly carried to phase 4;
 whole-workspace acceptance has not been claimed. Final logs additionally include
 runtime-metadata-lifetime.log, phase3-runtime-clippy.log and phase3-embed-final.log.
 No extra phase, compatibility layer, ABI bump or tracked binary was introduced.
+
+2026-10-02 — Phase 4 sorting and installation progress (not a checkpoint).
+Added optional std::collections::{sort, sort_by} in kagari-runtime::library, using
+ordinary ModuleBuilder declarations/bindings and Rust stable slice sorting.
+Compiler code contains no sorting-library dispatch. Selected intrinsic scalar Ord
+uses compact storage directly; fallible comparisons prepare a permutation and
+publish only on success. A failed comparator is never called again. Referenced
+payload/external effects already completed remain observable; target slot writes
+and nested edits through aliases are rejected. The precise Rust comparison
+sequence is unspecified, replacing the predecessor bottom-up-merge detail.
+
+SequenceMutHandle::edit provides an isolated, borrowed SequenceEdit view: scalar
+writes and validated reference-slot permutations can be prepared without a heap
+borrow across callbacks. The guarded source's existing argument root protects its
+values; no extra per-element roots or GC objects are needed. A higher-ranked
+buffer borrow prevents exchanging/escaping independently owned working buffers.
+Commit performs remaining validation before replacing storage. Mutable bulk views
+now advance structural revision, so closed cursors cannot silently resume after
+an arbitrary permutation.
+
+The first primitive sort test exposed a foundation gap: native required-callable
+selection supported implicit Eq/Hash/formatting but not Ord. Added Ord's checked
+adapter signature/body and its prepared intrinsic target through the existing
+protocol mechanism. This is reusable language capability, not library awareness.
+Unsigned physical U64 ordering was also missing from builtin_order; the boundary
+case now verifies values above i64::MAX through both sort and supplied comparator.
+A proposed scalar override fixture was invalid under the existing language's
+nominal-only override policy; its corrected negative check preserves that rule,
+while the positive nominal Ord case proves script dispatch and stability.
+
+KagariEngine::new and the ordinary builder install this optional module by default;
+.default_modules(false) keeps the foundation but removes optional algorithms.
+with_native_modules installs exactly its explicit module set. FunctionDecl now
+accepts documentation text; generated .kgr sites, exported signatures, use-site
+navigation and documentation are exercised. visible_bindings is a lexical-local
+query, not an imported-function query; the tooling test uses the declaration
+inventory for exported functions. Lazy method completion remains part of its proof.
+
+Validation: library_collections passes 7 cases, native_boundary remains 58/58,
+embedding native_provider_reset passes 12 cases (including default/disabled module
+installation), and both focused runtime bulk-edit tests pass. Focused VM/embedding
+Clippy, formatting, structure (844 files; zero exceptions) and diff checks pass.
+Logs under target/native-reset-entry/ include phase4-sort-final.log,
+phase4-sort-behavior.log, phase4-library-engine.log, phase4-bulk-edit.log,
+phase4-sort-clippy-final.log and phase4-structure-final.log. Intermediate diagnostics
+were repaired (incorrect helper result conversion, integration module collision,
+and the Ord adapter gap); no compatibility code was added.
+
+Phase 4 remains incomplete and uncommitted: next implement the library-owned lazy
+map/next type using NativePayload and StoredCallable, then finish the independent
+application object/artifact consumer, bounded comparisons/measurement, predecessor
+test disposition, documentation reconciliation and the final workspace checks.
+No additional checklist or restoration surface is introduced.
+
+2026-10-02 — Phase 4 lazy iteration and independent consumer proof
+(not a checkpoint).
+
+The optional module now owns MapIterator<T,U>, declared through ModuleBuilder and
+implemented as an ordinary NativePayload. Its state is a shared foundation cursor,
+a traced generation-pinned StoredCallable and a recursive-next guard. Every next
+runs synchronously. NativeCursor reads an item without allocating an intermediate
+script Option; the public result allocates one Option object. Mapper failure keeps
+completed input consumption and side effects. No continuation/state-machine ABI
+was restored.
+
+The proof exposed two generic HIR omissions: implementation-pattern matching did
+not recurse into generic NativeObject arguments, and erased Iterator views omitted
+identity Iterable from their method surfaces. Both use the existing ordinary
+matching/selection paths now. The compiler emits a scoped iteration guard for any
+heap-backed iterator. NativePayload::iteration_sources declares wrapped resources
+and also traces their GC edges; the runtime follows that graph once per for scope,
+with cycle detection, preserving nested guards and cleanup without a MapIterator
+branch. Source reads still validate cursor generation/revision. The existing
+foundation next path preserves allocation-before-position-commit; the native
+adapter's direct read intentionally consumes before invoking its mapper.
+
+Focused VM library coverage passes 15 cases: stable sorting and failure semantics,
+lazy calls, shared progress, heap captures, recursive-next rejection, unreachable
+capture cycles, concrete/erased early exit, structural mutation guards, resumption
+after mapper failure, one public Option allocation and old callback generations
+after reload. Tooling method completion resolves next to the generated native impl
+site; free-function docs/signatures/navigation remain covered. The 58 native
+boundary cases and the runtime test suites also pass after the generic guard change.
+
+The existing application provider is shared as tests/support/native_provider.rs
+between the source emitter and independently compiled consumer. Its non-sequence
+Handler<T> retains a script value and callback, traces both, invokes the callback
+after forced GC and records normal Rust destruction. It uses the same declared
+module, scoped inherent implementation, ordinary bind and generic storage APIs.
+Added the concrete ValueHandle + CallableHandle bind combination exercised by
+this constructor. No object-specific runtime/compiler variants or dispatch exist.
+The feature fixture now runs sort, sort_by, lazy map and this object; repeated
+execution returns 42 and collection drops each payload exactly once.
+
+Validation: library_collections + native_boundary pass 15 + 58 tests;
+native_provider_reset + artifact_features pass 12 + 9 tests in the workspace's
+default feature configuration. `uv run python scripts/check_features.py` passes
+all eight crate boundaries and the independent artifact-only/source/native/
+source,native consumer matrix (6/7/8/9 tests). The source-free checks include a
+structurally valid sort-to-sort_by binding substitution rejected during installed
+contract linking and a forged import signature rejected during artifact validation.
+The retired binding-version test now asserts the actual checked signature model.
+Generated .kbc stays under target/fixtures; no binary is tracked. Architecture and
+roadmap descriptions now use the implemented native boundary rather than the
+removed macros, stdlib crate and callback continuations.
+
+Evidence: target/native-reset-entry/phase4-map-boundary.log,
+phase4-map-runtime.log, phase4-external-artifact.log, phase4-feature-matrix.log,
+and target/architecture-features/*-tests.log. The structure check at this point
+passes 849 Rust files with zero violations/exceptions. Phase 4 remains uncommitted;
+performance samples, predecessor-consumer disposition, remaining specification
+alignment and final integration are still required. No extra checklist phase or
+compatibility implementation has been added.
+
+2026-10-02 — Phase 4 bounded sorting measurements (not a checkpoint).
+
+`cargo test -p kagari-vm --test library_measurements -- --ignored --nocapture
+--test-threads=1` passes. The manual measurement target checks every result against
+Rust's sorted buffer; its script merge-sort exists only as a test reference, not a
+second production algorithm. Inputs are compact i32 arrays of length 16 and 4096,
+with deterministic duplicate-containing values `(index * 1543 + 71) % 997`.
+The native and script callback routes run the same script comparator, including
+its shared callback counter. All sorts are stable, ascending and non-failing;
+separate behavior tests cover failure atomicity and referenced elements. The
+script reference is bottom-up O(n log n) merge sort; Rust chooses its own stable
+sorting algorithm, so comparison sequences/counts differ.
+
+Environment: Apple M1 Max, 10 logical CPUs, 32 GiB RAM, aarch64-apple-darwin;
+rustc 1.98.1 (48a229cea, LLVM 22.1.8). Workspace test/dev O1 profile, default VM
+features, Cargo default build parallelism and default target directory. Warm
+incremental build cache; execution is single-threaded with one warm run per shape
+and three reset samples. Source compilation and linking took 235.4 ms separately;
+input buffers, roots and expected-output construction are excluded from each
+sample. Samples include the real interface entry/frame/native call boundary and
+automatic GC (threshold 4096). A thread-local system allocator counter measures
+all Rust allocations on the measured thread. GC object counts use live plus
+reclaimed deltas, not merely objects still live at return. Cleanup and result
+verification run outside timing. No JIT execution or fallback is timed here.
+
+| Route | Elements | Median time | Comparisons/callbacks | GC objects allocated | Rust alloc/realloc calls | Requested Rust bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Direct Rust sort | 16 | 0.125 us | 0 script | 0 | 0 / 0 | 0 |
+| Native primitive sort | 16 | 8.291 us | 0 script | 0 | 146 / 0 | 14,082 |
+| Direct Rust counted sort_by | 16 | 0.167 us | 69 Rust | 0 | 0 / 0 | 0 |
+| Native sort_by + script comparator | 16 | 219.458 us | 69 script | 70 | 778 / 0 | 136,241 |
+| Script merge sort + script comparator | 16 | 950.458 us | 46 script | 95 | 1,505 / 4 | 136,865 |
+| Direct Rust sort | 4096 | 78.125 us | 0 script | 0 | 1 / 0 | 16,384 |
+| Native primitive sort | 4096 | 95.916 us | 0 script | 0 | 165 / 2 | 35,294 |
+| Direct Rust counted sort_by | 4096 | 220.584 us | 53,392 Rust | 0 | 1 / 0 | 16,384 |
+| Native sort_by + script comparator | 4096 | 168.739 ms | 53,392 script | 53,393 | 480,879 / 30 | 93,931,253 |
+| Script merge sort + script comparator | 4096 | 640.030 ms | 44,534 script | 89,071 | 1,055,706 / 61 | 97,192,253 |
+
+Interpretation is bounded to this interpreter workload. The large primitive route
+is close to direct Rust because both use a contiguous buffer and Rust slice sort;
+small calls are dominated by the ordinary entry/frame boundary. Native callback
+sorting is faster than this script reference but far slower than Rust comparisons:
+it still executes script frames and allocates language Ordering results. The
+native callback's GC count is one captured closure plus one Ordering per comparison.
+The script reference also materializes its comparison constant and work arrays.
+Requested bytes are cumulative allocations, not peak/resident memory. The full-call
+allocation counts above are not native-boundary-only counts; phase 3's separately
+warmed frame test proves zero additional allocations for prepared scalar/bulk
+native invocation. Do not interpret either measurement as zero-cost script reentry.
+
+Lookup accounting from the checked execution path (source audit, not an allocator
+measurement): each primitive sort reads one already-linked selected slot; each
+sort_by decodes one supplied closure descriptor before entering Rust's sorting
+loop. Neither resolves a trait or declaration per comparison. Ordinary frame,
+heap-generation and result checks still run; they are not counted as trait lookup.
+The test does not add a production profiling/permission/budget framework or broaden
+JIT support. Reproduction and raw samples: library_measurements.rs and
+ target/native-reset-entry/phase4-sort-measure-final.log. Remaining phase 4 work is
+predecessor-consumer disposition, remaining specification alignment and final
+workspace acceptance, rather than restoring deferred libraries.
+
+Focused verification after the lazy/object/measurement changes: runtime
+`cargo clippy -p kagari-runtime --all-targets -- -D warnings`, VM Clippy for
+library_collections/library_measurements/native_boundary, and embedding Clippy for
+native_provider_reset/artifact_features/regenerate_feature_artifact all pass.
+`cargo test -p kagari-hir --lib` passes 400 tests after generic nominal matching and
+interface-method surface changes. Final focused structure scan covers 850 Rust
+files with zero violations/exceptions. Existing workspace consumers still contain
+removed EngineNativeBinding/NativeCall/NativeDefaultMethod references, as recorded
+in phase 3; no temporary adapters were added. The next consumer disposition must
+preserve native cancellation, call-depth, trap/debug origin and host-reentry
+coverage from native_continuations while retiring its old Option helper/state
+machine and fixed instruction-count assumptions. Native_fixtures is the real JIT
+fixture and remains retained. Full workspace checks have not yet been claimed.
+
+2026-10-02 — Phase 4 predecessor VM test disposition (not a checkpoint).
+
+Retired 214 files containing 139 tests under the predecessor `native_*` family
+suites, excluding native_fixtures.rs (the retained executable JIT fixture).
+These suites asserted removed EngineNativeBinding/NativeCall/NativeDefaultMethod
+selectors, restored optional algorithm families, and frozen instruction/allocation
+schedules. They are not rewritten to manufacture compatibility bindings. Exact
+removed paths and test names are recoverable from Git and are also listed under
+ target/native-reset-entry/phase4-retired-vm-{paths,tests}.txt.
+
+| Retired family | Disposition of its contract |
+| --- | --- |
+| native_continuations | Six source/artifact tests in native_boundary_control now exercise ordinary synchronous choose callbacks: call depth before effects, cancellation stickiness/cleanup, trap origin/debug frames, host reentry success/failure, retained closure generation, and every currently measured budget boundary. Nested callback/capture/heap-result coverage remains in native_boundary_callbacks and native_provider_reset. Option fallback helpers and continuation structure are withdrawn. |
+| native_required_methods, basic native_keys cases | Language default operations, dynamic/generic views, custom Eq/Hash, collision/lookup mutation guards, wrong-type/foreign/stale inputs, Option allocation-before-removal, slot accounting and portable forgery rejection are covered by native_boundary/storage/resources/interfaces/artifacts/host and foundation registration tests. Ordered LinkedHash storage, callback update/factory extensions and frozen step counts are withdrawn. |
+| native_sorting, native_lazy_iterators | The accepted sort/sort_by and lazy map surface is covered by library_collections/library_mapping, including atomic failure, effects, aliases, GC cycles, source guards, recursive next, reload, generated tooling and source-free execution. sort_by_key, dedup, windows/chunks and other adapters are deferred. |
+| native_array_initialization | The application from_fn provider preserves callback/heap construction, zero-length laziness, failure cleanup and execution cuts through the same public API in native_provider_reset. No foundation factory algorithm is restored. |
+| native_array_copy/ranges, native_list_queries/equality/join, native_map_snapshots, native_retention | Optional snapshots/ranges/query composition/join/retention algorithms are withdrawn. Core array bounds, shared identity, read/write and failure publication remain covered by foundation, mutation and collection boundary suites. |
+| native_destinations/grouping/key_construction/sets and native_iterator_{aggregates,decisions,extrema,join,terminals} | Deferred construction, reduction, grouping and set-algebra families; underlying callable, generic/interface, key, generation and GC contracts remain in the retained boundary tests. |
+| native_enum_families/protocol_entries/string_iterators | Removed optional enum/string/parse/assert helper implementations and their fixed schedules are withdrawn. Core enums, numeric behavior, protocol selection, traps and iteration remain in language/conformance and ordinary native tests. |
+
+The new control fixture declares its own conditional callback in test::boundary and
+explicitly installs host.log. It does not reconstruct Option helpers or a standard
+prelude. All six migrated source/artifact control tests pass. Budget-cut evidence
+is derived from the actual successful call and host effect position; no obsolete
+instruction schedule is preserved. Four mixed standard helper tests were retired:
+full string/math/debug integration, string length and old primitive key-opcode
+shape assertions. The retained helper tests use canonical HashMap/HashSet and
+ordinary typed host imports; the JIT fallback probe now exercises basic list
+operations instead of removed string/math helpers.
+
+The first retained VM lib run now compiles and passes 101/109 tests. Its eight
+failures exposed missing explicit host native imports in the handwritten path
+fixture, an obsolete InvalidIndex assertion (the ordinary native Index binding
+returns IndexOutOfBounds), and a removed math/string probe. Those consumers are
+being corrected against the actual checked contracts; no production validation is
+weakened. This replaces the phase 3 E0432/removed-selector compile failures with a
+bounded retained-consumer run. Final acceptance remains pending.
+
+The corrected VM consumer run passes all 109 retained lib tests. The six new
+native_boundary_control tests also pass in source and encoded artifact routes.
+No compatibility entrypoints or replacement state machines were introduced.
+
+2026-10-02 — Phase 4 compiler consumer disposition (not a checkpoint).
+
+Retired 18 predecessor compiler `tests/bytecode/native_*.rs` files (22 tests),
+plus five old-family checks in validation.rs and the removed math/parse/wrapping
+lowering fixture. These asserted EngineNativeBinding selectors and callback
+schemas for the deferred copying, snapshots, enum combinators, numeric helpers,
+key construction, retention, sets, sorting families, grouping, string adapters,
+destinations, joining and iterator terminals. Their disposition follows the VM
+family table above. New native_boundary_artifacts and artifact_features retain
+portable signatures, selected-call proofs, parameter/result mismatches, binding
+identity forgery and source-free loading checks for the accepted model. Core
+bytecode validation, root/type/flow, range, repeat, aggregate, host and interface
+checks remain retained.
+
+Migrated retained tests to typed MakeArray/RepeatArray element records, canonical
+core::language identities, direct prepared native imports and ordinary Index
+bindings. Pre-link MIR calls retain source declaration contracts; whole-program
+MIR linking resolves them to native imports. Generic interface table tests now
+explicitly erase their inputs, checking two concrete specialization tables rather
+than expecting unused static slots on the generic template. Their forged method
+argument rejection remains checked. Host manifest disagreement is rejected at the
+complete host/import consistency check before operand validation. Never lowering
+uses a recursive diverging function and still checks that following effects are
+not emitted, without restoring an optional panic helper.
+
+Verification: `cargo test -p kagari-compiler --lib` passes 163 tests;
+`cargo test -p kagari-bytecode --lib` passes 27 tests. The earlier 340 compiler
+compile errors are resolved. Full workspace compilation is being attempted to
+identify remaining embedding/example consumers; final acceptance remains pending.
+
+2026-10-02 — Phase 4 embedding compilation and specification alignment (in progress).
+
+Retired ten exclusively optional algorithm integration files (40 tests): enum
+combinators, extended lazy adapters/terminals, bulk list mutations, list queries,
+windows, map callback updates, prepared sort/retain/dedup, set queries, string
+extensions and parsing. Removed ten optional snapshot/join/positional-default
+checks from collection_interfaces; the storage-independent interface tests remain.
+The removed standalone standard-declaration macro/default/doc tests are replaced
+by native_provider_reset and library tooling coverage. Additional withdrawn mixed
+cases cover list query algorithms, old key opcode/witness shape assertions,
+array copy/factory algorithms and full-library factories; the independent
+application from_fn proof remains. Inventory of the ten retired files' test names
+is under target/native-reset-entry/phase4-retired-embed-tests.txt and Git preserves
+all predecessor sources.
+
+Retained consumers now use typed array allocation with a validated LoadedModule
+and explicit element ABI. Host fixtures either allocate from the current execution
+root or retain a rooted array after module linking. The offline composite host
+fixture constructs its heterogeneous payload through synchronous script reentry,
+then exercises host return/argument validation and GC on the same composite values.
+It no longer bypasses selected key contracts through raw heap map/set allocation.
+Handwritten host-path artifacts now carry ordinary NativeImport::from_host records.
+Core array/range/interface fixtures use language construction and observable return
+checks instead of restoring optional assert/query/factory methods. Negative cases
+for removed factories are removed or changed to real readonly mutation checks, so
+unknown-name diagnostics do not falsely stand in for access validation.
+
+Replaced predecessor macro/continuation/scratch documentation in
+standard-declarations.md with current explicit builders, selected calls, compact
+storage, tracing, sorting, lazy state and tooling. Aligned builtins.md and
+collection-access.md to the 31 language protocols and bounded optional module;
+removed claims that withdrawn algorithm families are installed interface defaults.
+
+`cargo test --workspace --no-run` now succeeds for all retained test targets.
+The structure scan passes 609 Rust files with zero exceptions; fmt and diff checks
+pass at this consumer checkpoint. `cargo test --workspace --no-fail-fast` is the
+first behavioral integration run and is not yet accepted. Representative failures
+are old std namespaces, removed debug/Option/numeric helpers, implicit factory
+calls and predecessor exact diagnostics/layout assumptions in embedding fixtures.
+CLI Err-origin coverage has been changed from removed map_err to ordinary `?`
+propagation; the compiler facade fixture now checks the kagari-core package.
+Focused embedding array/access/interface/conformance and lib checks are running
+against the current edits. Logs: phase4-workspace-tests.log and
+phase4-embed-core.log under target/native-reset-entry. Remaining tests, examples,
+Clippy and final acceptance stay owned by phase 4; no production compatibility
+layer has been introduced to unblock compilation.
+
+The first complete workspace behavioral run finished with 21 failing targets,
+all in CLI/compiler facade/embedding predecessor consumers. ABI, bytecode,
+codegen/Cranelift, HIR (400 + 6), MIR, runtime, syntax, VM lib (109), library
+proof (15), native boundary (64), allocation and prepared-execution suites passed.
+This is a discovery result, not final acceptance. Subsequent focused runs have
+resolved 13 of those targets without a production workaround:
+
+- CLI: 5; compiler source_programs: 10.
+- Embedding language contract matrix: 1 comprehensive test, all four routes
+  (68.37 seconds; this successful matrix need not be repeated at every edit).
+- Embedding array_operations: 5; collection_access: 5; collection_interfaces: 5
+  (four in the suite run, the corrected custom-key test in a focused rerun).
+- Embedding conformance: 5; never: 6; callable_traits: 8; iteration_traits: 12;
+  source_modules: 29; standard_traits: 20; operator_traits: 17.
+
+Callable-object tests now pass coerced Fn values into the actual optional map and
+sort_by entries, including traps, retained receivers, argument order and GC.
+Never tests use actual diverging/trapping script bodies instead of a removed panic
+helper, retaining trap/resource cleanup assertions. The iteration suite withdraws
+only Sum/Product/FromIterator algorithm cases and preserves static/dynamic source
+conversion, one-time evaluation, cursor aliasing, early exit, generation/GC and
+forged native contract checks. Core CollectionCursor spelling replaces the removed
+Iter alias. Native module re-export/glob coverage now calls std::collections::sort.
+Hash fixtures use canonical unordered storage; the nested guarded-read probe
+constructs a genuinely absent key instead of assuming whether equality receives
+query or stored key as self. Operator lowering checks one native Index call while
+requiring arithmetic to remain direct.
+
+Remaining first-run failures, owned by the same bounded phase-4 consumer cleanup:
+embedding conversion_traits, error_traces, instantiation, numeric_operations,
+result_option, string_interpolation, syntax_examples and type_inference. Preserve
+language coverage; withdraw only deferred algorithms, replace assertions dependent
+on removed debug helpers with observable checks, and update examples to the actual
+installed surface. Full final Clippy/test and the final feature/behavior matrix
+still remain. No additional implementation phase or library family is authorized.
+Latest detailed logs use phase4-embed-{core,core2,custom-keys,callables,iteration,
+modules,standard-traits,operators}, phase4-cli and phase4-compiler-programs under
+ target/native-reset-entry. Structure check again passes 609 Rust files with zero
+violations/exceptions; documentation anchors referenced by other specs remain valid.
+
+Removed the remaining repeat-array diagnostic's recommendation to call the
+withdrawn ArrayList::from_fn method. It now explains that distinct objects require
+separate element initialization; the focused negative test checks that actionable
+message without advertising a nonexistent foundation API.
+Focused verification of that diagnostic passes (one embedding repeat-array test).
+Formatting and git diff whitespace checks pass after these edits. Phase 4 remains
+uncommitted until its remaining consumer checks and final integration pass.
+
+2026-10-02 — Phase 4 retained language consumers and final integration.
+
+Migrated the remaining embedding consumers to the installed surface. Focused
+checks pass conversion_traits (6), error_traces (13), result_option (12),
+string_interpolation (6), numeric_operations (10), and instantiation (50).
+Type inference passes seven cases in its suite run and the remaining expected
+native return/callback context case in a focused rerun. That case uses the concrete
+MapIterator result, matching the original structural return-type inference scope;
+inferring generic arguments backwards through an erased interface is not added.
+
+One actual compiler regression was exposed: Result propagation checked concrete
+From implementations without the function's declared generic assumptions. It now
+uses the same checked protocol selection as other language operations. Generic,
+aliased, source-owned, identity, imported, trap and original-error-origin tests
+pass; missing/non-infallible/chained conversion bounds remain rejected. Static
+conversion convenience calls, Into/TryFrom/TryInto, numeric helper families,
+Option/Result combinators, collection and transpose/flatten algorithms remain
+withdrawn rather than being restored to make old consumers build.
+
+Retained tests express assertions through observable results or actual arithmetic
+traps. String interpolation keeps formatting order, generic protocols, early exit,
+trap origin and root cleanup coverage without join/parsing helpers. Native-call
+termination cases exercise installed sort/map entries; generic-instance limit
+locations are validated against their owning checked program revision, including
+engine-generated declarations, rather than assuming every location is a user
+source database entry.
+
+Examples now demonstrate the same bounded surface: canonical unordered defaults,
+core iteration and error conversion, explicit casts, optional Rust sorting and
+lazy map. The source/artifact example harness collects compilation diagnostics
+for all examples before failing, instead of hiding later stale consumers behind
+the first failure. Its first migrated run compiled 43/45 examples; the remaining
+removed string concat/iteration usages have been replaced by interpolation and
+collection iteration. Final workspace execution will verify all 45 examples.
+README and language specs no longer advertise the removed standard module catalog,
+indexmap defaults, numeric/conversion helpers or built-in bulk copy factories.
+
+The first final workspace Clippy run passes with `-D warnings`. Structure checking
+passes 609 Rust files with zero violations/exceptions; formatting and diff checks
+pass. `cargo test --workspace --no-fail-fast` is running against this integration
+state (phase4-workspace-final.log). Final feature checks and acceptance are still
+pending. No phase-4 commit or completion claim has been made.
+
+
+2026-10-02 — Phase 4 accepted.
+
+All carried compilation and behavioral failures are resolved. The final workspace
+run passes 85 suites with 1519 passing tests, zero failures and one intentionally
+ignored manual measurement (already run and recorded above). This includes all
+45 examples through source and encoded artifacts, the 15 library behavior cases,
+64 native boundary cases, the warmed zero-allocation native-call test, embedding,
+HIR, compiler/verifiers, runtime/GC/reload, interpreter, Cranelift and doc tests.
+
+Final checks passed:
+
+- `cargo test --workspace --no-fail-fast`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo fmt --all -- --check`
+- `uv run --locked scripts/check_structure.py`: 609 files, zero violations/exceptions.
+- `uv run python scripts/check_features.py`: eight production boundaries, independent
+  ABI build graph, and artifact-only/source/native/source-native consumers (6/7/8/9).
+- `git diff --check`; changed-document local links; locked/offline Cargo metadata.
+
+Evidence logs are phase4-workspace-final.log, phase4-clippy-final.log,
+phase4-structure-final.log and phase4-features-final.log under target/native-reset-entry,
+plus the independent consumer logs under target/architecture-features. The unused
+workspace indexmap dependency declaration was removed; the language's HashMap and
+HashSet use Rust std storage. No .kbc is tracked and no ABI/format identifier changed.
+
+The accepted optional surface is sort, sort_by and lazy map over ArrayList,
+plus the independent application's traced Handler object proof. Other library
+families, generalized erased-interface reverse inference, asynchronous execution,
+policy redesign and broader JIT optimization remain outside this completed scope.
+Primitive sort and callback-sort measurements above retain their stated execution
+routes and costs; they do not establish a universal JIT speedup. No further phase
+or compatibility layer was introduced. This checkpoint carries Native-Reset-Phase: 4.

@@ -232,27 +232,25 @@ fn standalone_language_examples_execute_from_source_and_artifact() {
         (
             "examples/standard-library.kgr",
             include_str!("../../../examples/standard-library.kgr"),
-            Value::Tuple(vec![
-                Value::U64(3),
-                Value::Bool(true),
-                Value::U64(2),
-                Value::Bool(true),
-                Value::U64(2),
-                Value::Bool(true),
-                Value::I32(12),
-            ]),
+            Value::I32(42),
         ),
     ];
 
+    let mut failures = Vec::new();
     for (path, source, expected) in cases {
         let engine = KagariEngine::default();
-        let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new(path, source),
-                Default::default(),
-                Default::default(),
-            )
-            .unwrap_or_else(|error| panic!("{path} should compile: {error:?}"));
+        let artifact = engine.compile_to_artifact(
+            SourceFile::new(path, source),
+            Default::default(),
+            Default::default(),
+        );
+        let artifact = match artifact {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                failures.push(format!("{path} should compile: {error:?}"));
+                continue;
+            }
+        };
         for encoded in [false, true] {
             let artifact = if encoded {
                 BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -279,6 +277,7 @@ fn standalone_language_examples_execute_from_source_and_artifact() {
             assert_eq!(actual, expected, "{path}, encoded={encoded}");
         }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
@@ -326,7 +325,7 @@ fn grouped_standard_globs_execute() {
         .compile_to_artifact(
             SourceFile::new(
                 "standard-glob.kgr",
-                "use std::{math::*}; fn main() -> i32 { min(42, 99) }",
+                "use std::{collections::*}; fn main() -> i32 { val values=[22,20];sort(values);values[0]+values[1] }",
             ),
             Default::default(),
             Default::default(),

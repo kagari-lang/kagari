@@ -187,6 +187,7 @@ impl NativeRegistry {
                         [
                             (Protocol::PartialEq, "eq", RuntimePrimitive::ValueEq),
                             (Protocol::Hash, "hash", RuntimePrimitive::ValueHash),
+                            (Protocol::Ord, "cmp", RuntimePrimitive::ValueCmp),
                         ]
                         .into_iter()
                         .find(|(protocol, name, _)| {

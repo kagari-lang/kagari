@@ -1,5 +1,4 @@
 use kagari_bytecode::{
-    self as bytecode,
     artifact::ArtifactFingerprint,
     instruction::{BytecodeInstruction, ConstantOperand},
     verifier::BytecodeVerificationError,
@@ -18,8 +17,7 @@ use kagari_hir::types::abi::lower_type;
 
 use crate::{source::lower::lower_to_mir, tests::common};
 use kagari_abi::{
-    callable::NativeCall, contracts::ContractError, effects::EffectSet, operations::BinaryOp,
-    representation::ValueType,
+    contracts::ContractError, effects::EffectSet, operations::BinaryOp, representation::ValueType,
 };
 
 use kagari_mir::{
@@ -279,11 +277,11 @@ fn conflicting_host_contracts_cannot_be_hidden_by_import_interning() {
         .flat_map(|b| &mut b.instructions)
         .filter_map(|i| {
             if let Instruction::Call {
-                callee: CallTarget::Native(NativeCall::Host(declaration)),
+                callee: CallTarget::Native(import),
                 ..
             } = i
             {
-                Some(declaration)
+                import.host.as_mut()
             } else {
                 None
             }
@@ -666,8 +664,8 @@ fn ir_and_bytecode_share_numeric_operation_contracts() {
 }
 
 #[test]
-fn standard_intrinsic_contracts_apply_before_bytecode_emission() {
-    let mut module = raw("fn main() -> usize { \"text\".len_bytes() }");
+fn native_contracts_apply_before_bytecode_emission() {
+    let mut module = raw("fn main(value: ArrayList<i32>) { value.push(1); }");
     for instruction in &mut module.functions[0].blocks[0].instructions {
         if let Instruction::Call { args, .. } = instruction {
             args.clear();

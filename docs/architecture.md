@@ -4,205 +4,96 @@ This document defines the production architecture for Kagari.
 It describes the intended system shape that implementation work must converge on.
 When existing code conflicts with the specifications, the specifications are authoritative.
 
-The [native collections reset plan](native-provider-refactor.md) defines the
-2026-10-02 target: compiler-owned language protocols, explicit module declarations
-through ModuleBuilder with scoped implement/trait_impl blocks. Ordinary bind and
-explicit bind_with produce the same checked NativeBinding against existing Kagari
-signatures. The target includes synchronous calls, typed contiguous collection
-storage and one representative optional library.
-Rust functions supply bodies;
-Rust traits/signatures and #[native_module] do not define Kagari contracts.
-The native-specific descriptions below record predecessor mechanisms awaiting
-replacement; they do not require preserving library-owned language declarations,
-mandatory callback state machines or full-library restoration. The reset plan
-supersedes those implementation details while preserving language semantics.
+The [native collections reset plan](native-provider-refactor.md) owns the active
+implementation and acceptance ledger. Phases 1-3 replace the predecessor library
+and native ABI; phase 4 verifies the bounded optional library and consumers.
+The [MIR and crate architecture refactor](mir-architecture-refactor.md) records the
+preceding foundation checkpoints. Language behavior follows the specifications.
 
-Foundational List/MutableList, Map/MutableMap, Set/MutableSet and iteration traits
-are compiler-owned complete contracts. ArrayList/HashMap/HashSet are their
-canonical defaults, with compiler-owned signatures and always-present Rust runtime
-implementations for basic operations. [T] denotes List and array literals create
-ArrayList. Concrete hash types require Eq + Hash and promise no insertion/sorted
-order. Optional native modules add algorithms and additional concrete types.
-Generic storage registration owns allocation, GC tracing, destruction and scoped object access;
-new collection types do not add concrete dispatch variants to generic layers.
+## Language contracts and native implementations
 
-The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
-implementation checkpoints and final acceptance. Language/runtime behavior follows
-the semantic specifications.
+The compiler owns language protocols, including operators, equality/hash/ordering,
+indexing, iteration, callable and formatting contracts, and the complete
+List/MutableList, Map/MutableMap and Set/MutableSet surfaces. ArrayList, HashMap and
+HashSet are canonical defaults with always-present Rust runtime implementations.
+[T] denotes List; array literals create ArrayList. Concrete hash types require
+Eq + Hash and use Rust std::collections::HashMap/HashSet without an ordering
+promise. Foundation behavior is independent of optional library installation.
 
-The [native registration plan](native-provider-refactor.md)
-replaces the predecessor declaration/execution direction described here. Native
-API definitions authored in Rust own signatures, generic parameters, trait contracts, documentation and binding IDs.
-`#[native_module]` generates records and checked invocation adapters from actual
-Rust functions, checked representation aliases/wrappers, traits and impls. `NativeValue` supplies
-metadata and conversions, so aliases use their resolved Rust types. Rust checks
-function bodies and trait method signatures; shared support supplies identities
-and generic binders. Open script generics use rooted checked value proxies.
-The bundled ops, array, cmp, debug, hash, fmt, math, numeric, Option, Result and String modules compose the default, optional library using
-the same NativeApi installation path as application packages. Generic compilation and execution do
-not distinguish standard functions from application native functions.
+Application and library modules use the same explicit ModuleBuilder API. Kagari
+types, functions and scoped implement/trait_impl blocks define their own
+signatures and generic parameters. Ordinary bind checks Rust scalar and borrowed
+view converters against those declarations; bind_with supplies explicit codecs.
+Rust function signatures do not define Kagari traits or infer exported contracts.
+There is no native declaration macro crate or separate standard-library crate.
 
-The registered hash/fmt protocols own their actual scalar implementations. Shared
-checked scalar helpers preserve script hashes and bounded rendering, charge native
-work and retain converted values through the pinned call view. Implicit object
-identity and member-composition bridges remain language primitives. Checked implicit
-PartialEq, Hash, Debug and Display selections materialize ordinary executable
-protocol functions. Their applied contracts and distinct origin are carried in
-MIR/bytecode; offline verification checks eligibility, absence of an explicit
-override, function identity, signature and matching function metadata. Explicit
-implementations retain their ordinary implementation records and take precedence.
-Other implicit protocol selections remain migration work.
+ModuleBuilder::finish produces a validated NativeModule. Installation checks its
+binding/storage closure atomically. The engine installs the optional collections
+module by default; default_modules(false) keeps the foundation while omitting the
+algorithms. This bounded module exports sort, sort_by and lazy map. Additional
+containers and algorithms remain optional future modules.
 
-Closed numeric Rust adapters own their signature predicates. NativeNumber<T>
-and NativeSignedNumber<T> emit OrderedNumber and SignedNumber respectively;
-registration resolves and deduplicates these predicates under the actual generic
-binder, including nested argument/result and selected-callback types. Direct HIR
-import and generated tooling views consume the same checked bound records.
-Portable native applications retain those predicates for verification and linking.
-Numeric operations validate finite operands without user method dispatch, preserve
-their applied scalar width, and leave algorithm trap ordering with the provider.
-The eleven math helpers use this ordinary route; application functions reuse it.
+HIR consumes native ModuleDecl records directly for static checking, generic
+bounds, ordinary trait selection and tooling. Generated .kgr files provide
+signatures, documentation and declaration-to-span navigation; they are not parsed
+to recover executable semantics. Portable MIR/bytecode retain native imports,
+concrete signatures, declaration contracts and selected callable witnesses. ABI
+verification has no syntax or HIR dependency. Loading compares those records with
+the installed declarations before preparing entries and selected targets.
 
-NativeNever is an uninhabited Rust result adapter whose actual native signature
-returns the existing script ! type. NativeResult<NativeNever> always fails without
-constructing a return value; static checking and portable contracts retain Never.
-It is distinct from the declared Infallible enum used by conversion protocols.
-Direct debug functions are ordinary registrations. Print enters a charged native
-frame before invoking host.log through NativeContext::invoke_host. Application
-continuations use the same host bridge; exposure, capabilities, session budgets,
-scoped borrows/roots, candidate restrictions and result validation remain owned by
-the existing Runtime host boundary. The host supplies the sink, and completed
-effects survive later cancellation or traps. Source tooling views grant no authority.
+Implicit language protocols materialize ordinary checked executable adapters.
+Their origin, exact receiver types and signatures remain explicit portable facts;
+explicit script implementations take precedence. Runtime consumes checked targets
+rather than resolving traits or recognizing library algorithm names. Native and
+script interface slots retain their implementation module and generation. Dynamic
+associated iterator results use checked interface views and result boxing; erasure
+does not change the concrete implementation's signature.
 
-Cross-package Rust authoring uses explicit NativeCatalog declaration views and
-fully qualified script identities. Consumers retain exact expected trait contracts,
-declared parents, referenced bounds and private default-template declarations.
-They also retain applicable actual NativeImplementation records and their method
-declarations. Shared ProofCatalog matching accepts validated registration facts or
-verified executable interface tables; registration does not fabricate a table.
-The complete expected closure is collected before default proof validation.
-NativeApi composition and staged installation require actual owning providers,
-check foreign implementation signatures and publish atomically.
-Rust trait paths remain actual Rust paths; an explicit contract mapping names the
-script declaration without guessing aliases. Parent mappings preserve imported
-Rust paths and copy their actual generic arguments. Portable linking compares retained
-trait, template and implementation contracts with the verified dependency closure.
-Registration derives module dependency edges from that closure, including concrete
-implementations in providers whose functions need no source import. Typed selected
-receivers may be concrete; their generated predicates still require actual proof.
-Selected markers may name an ordinary qualified associated projection and its
-explicit output binding. Registration checks the actual associated declaration,
-derives its base trait obligation and compares the real typed callback signature.
-HIR can normalize these predicates for static checking; executable declarations
-and application requirements retain the original registered template together.
-Catalog views do not install
-handlers or replace ordinary generic applicability and parent-witness proofs.
+## Synchronous calls and registered storage
 
-Returned native iterators use a shared GC state cell with the existing Iter value
-representation. Its idle captures are checked constructor arguments stored as GC
-edges; a retained program pins their selected applications and callable versions.
-Idle Rust data is sealed to owned scalars/tuples/fixed arrays, and the step factory
-is a function pointer without captured roots. The cell never retains an execution
-frame or scoped borrow. Each native next invocation creates fresh rooted conversion
-views and a checked access epoch, obtains scoped guards from declared collection
-dependencies, and drives the actual Rust step on the common continuation driver.
-The driver checks the retained result ABI and closes the epoch on every exit.
-Aliases share progress, completed source writes survive later callback failures,
-and escaped older accesses cannot mutate a subsequent invocation. Nested traversal
-guards preserve independently held guards. This capability supports application
-Cursor/Source/map registrations without adapter names in HIR, verifier, linker or
-VM dispatch. Full library state adapters and broader capture schemas remain open.
+NativeEntry returns NativeResult<Value> synchronously. CallContext borrows the
+existing argument/frame roots. Typed scalar arguments use stack packs; sequence
+views expose scoped contiguous buffers. Prepared selected calls and supplied
+CallableHandle arguments invoke script bodies synchronously on the existing
+execution stack. Ordinary callbacks require no continuation protocol or scratch
+slots. Trap, reentry and result validation use the same runtime boundary as script
+calls. Host-owned state still uses its declared schemas and scoped borrow checks.
 
-HIR imports registered declaration records directly, using ordinary declaration
-checking and selected implementations. Generated `.kgr` files are tooling views
-with syntax, documentation and navigation coordinates; they are never lowered to
-establish registered semantics. Registered packages do not consume binary
-source-derived declaration payloads. Remaining library declarations temporarily
-use `kagari-stdlib` source preparation until their NR04 restoration.
+StoredCallable retains a checked closure and its defining generation. When stored
+inside a GC payload, its captures are trace edges; independently retained host
+callbacks use explicit RootedCallable ownership. Generation checks prevent stale
+handles and reload preserves pinned callback implementations. Native payloads
+retain layout ownership without unnecessarily pinning an entire execution program.
 
-Registered modules may declare an installed package alias separately from their
-canonical identity. Composition rejects conflicts with another package's alias
-or canonical identity before publication. Source imports use this metadata with
-default installation disabled as well. Internal registered references retain
-canonical identities; native representation references resolve from actual
-installed declarations, preserving their own public names and ordinary import
-dependencies. Generated text supplies no type-provider authority. Comparison
-protocols and scalar implementation facts now come from the actual Rust cmp
-package. Numeric methods, primitive FromStr/ParseError and rooted Option/Result
-queries also derive from actual Rust implementations. Script pointer-sized integers
-use fixed 64-bit carriers independent of the host. Parsers charge input work before
-running Rust parsing and return business Result errors, distinct from native traps.
-Explicit native enum variant exports are validated for owners and collisions, then
-projected into ordinary HIR exports and generated views. All 27 direct String
-helpers derive from an owned Rust wrapper's actual methods. NativeTextBuffer is a
-shared fallible capacity builder: it prepays output-byte work before reservation,
-rejects appends beyond that capacity and checks cancellation/deadlines between
-appends. It owns Rust text rather than a mutable script-heap reference. Strings
-retain the existing inline value representation and allocation-unit semantics;
-this builder does not introduce GC objects or a new memory-accounting model.
-Unicode lowercase preserves Rust's context-sensitive mapping, charging input work
-before mapping and actual output-byte work afterward. Application text providers
-can use the same builder with the default library disabled. String traversal/parse,
-enum composition and remaining namespace/prelude migration remain NR04 work.
+Generic NativeStorage registration attaches a Rust payload to a declared native
+type. NativePayload supplies tracing, logical size and normal Rust destruction;
+scoped access validates its registered Rust type and cannot span script reentry or
+collection. New payload types require no concrete Value/HeapObject variants or
+compiler, verifier or VM branches. NativeObject is the common nominal ABI form.
 
-Required, Script and Native implementations share checked callable facts.
-NativeDefault is symbolic declaration metadata: an explicit application of an
-ordinary registered native function template, including the mapping of Self,
-trait arguments and associated outputs to that template's generic parameters.
-Portable proof checks the actual template signature and obligations, applies the
-implementation substitution and resolves a concrete ordinary Native target.
-Dynamic slots may retain a template from another module with different generic
-arguments from the implementing table. Final methods must preserve the declared
-application; distinct methods can share a checked native target. Runtime execution
-uses the existing native driver and retained dependency generation. Registration
-validates default templates before publication. HIR imports their records directly;
-source lowering applies checked substitutions and materializes ordinary native
-calls, selected callbacks and interface slots. No implementation-owned script body
-is synthesized. Native-module authoring adds owned default members from actual Rust
-function templates with explicit binder correspondences. Templates retain private
-registered identities; only the generated trait members are public. External
-default/template closure and ordinary projected requirements are exercised;
-method-generic selected authoring remains open under NR02. ArrayList sort_by/sort
-now use common typed supplied/selected callbacks and rooted prepared replacement.
-Portable Native implementations carry a binding DefinitionId; registered Rust
-factories supply execution. Source-free runtimes receive the same checked native
-records directly from installed packages. Host adapters retain passing styles,
-capabilities and scoped borrow checks while sharing imports and invocation.
-Compiler lowering consumes checked substitutions, associated outputs and witnesses.
-Portable MIR and bytecode carry complete dependency closures and executable
-contracts. Executable interface slots distinguish script function references and
-native import references within their implementation module. Both enter retained
-callable frames and share callback return validation, budgets and cleanup. Native
-interface methods require no synthetic script body; diagnostic frames identify
-the actual native target without inventing a source location. ABI validation has
-no syntax, HIR or source catalog dependencies. Native declarations may own ordered
-trait-member requirements. Checked applications carry concrete selected targets
-and signatures. MIR also carries body-free native target contracts for interface
-slots and selected native dependencies; backend lowering consumes those records.
-Offline verification proves the selection and runtime callbacks
-use the owner's retained dependency generation without resolving trait syntax.
+SequenceStorage selects a compact Vec of the declared scalar type even when empty;
+GC-bearing elements use Vec<Value>. One shared scalar table generates the storage
+and converter cases. SequenceHandle and SequenceMutHandle allow borrowed slices
+without per-element dynamic conversion. Default hash storage caches checked hashes
+and stable key tokens; script Eq/Hash calls run outside table borrows.
 
-`NativeArray::prepare_reorder` owns GC working buffers, target roots and mutation
-guards. Application algorithms use that storage capability without selecting a
-standard method identity. Stable sorting performs bounded merge steps and calls
-the supplied or selected comparator through the common native driver. Commit
-validates independent structural guards, budgets and allocation before replacing
-slots once. Callback failure preserves original ordering and completed payload
-effects; a budget cut after commit preserves the completed replacement. Per-call
-conversion scopes release temporary roots after callback handoff, retaining the
-original checked target and dependency generations.
+sort uses Rust's stable slice sort. Infallible primitive ordering sorts a compact
+buffer directly. Script ordering and supplied comparators use a SequenceEdit
+working buffer and a validated permutation: successful completion publishes the
+order once, while failure preserves original slots and completed effects on
+referenced payloads. Mutation guards reject alias writes during the edit. A first
+comparator error suppresses all further user comparisons. No sorting state machine
+or second Kagari implementation serves production execution.
 
-Trait method signatures carry declaration override policy independently of their
-default implementation. Portable callable declarations retain that policy so
-source analysis and artifact interface validation enforce the same restriction.
-
-Runtime owns native standard behavior. Direct entries reuse Rust storage, numeric
-and parsing helpers; callback algorithms and lazy adapters use rooted native
-continuations on the caller's session/frame stack. GC-owned captures pin imports,
-modules and dependency versions. Checked iterator and range entries share generic
-runtime primitives. Core language arithmetic, indexing, enum operations and closure
-calls retain their normal MIR instructions. Final integration acceptance is recorded
-in the plan; there is no alternate compiler implementation of public native algorithms.
+The library-owned MapIterator payload stores a NativeCursor and StoredCallable.
+Aliases share progress, and each next invokes its mapper synchronously. Cursor
+consumption precedes the callback; failure retains that consumption and completed
+side effects. The native source read allocates no intermediate script Option.
+NativePayload::iteration_sources declares wrapped iteration resources and traces
+them as GC edges. A for scope follows those edges once, retaining guards until
+normal exit, break, return or failure; generic execution never names MapIterator.
+Recursive next on the same adapter is rejected. Only lazy state persists between
+calls; genuine asynchronous suspension remains separate future work.
 
 ## Foundation Contracts
 
@@ -243,7 +134,6 @@ The repository is a Rust workspace with structural separation between language p
 crates/
   kagari-common             source identities, diagnostics, limits and shared primitives
   kagari-syntax             lexer, parser, concrete syntax tree and AST views
-  kagari-stdlib             installed source manifest, parsing and structural declaration index
   kagari-hir                recoverable analysis, resolution, typing and tool queries
   kagari-abi                executable types/layouts, helper ABI and native contracts
   kagari-mir                concrete CFGs, verification, analyses, passes and portable codec
@@ -251,7 +141,6 @@ crates/
   kagari-bytecode           interpreter model, validation, codec and artifact envelope
   kagari-codegen            compilation-only verified MIR interface and diagnostics
   kagari-codegen-cranelift  MIR-to-CLIF emission and executable code ownership
-  kagari-native-macros      compile-time native declaration authoring (Rust tokens only)
   kagari-runtime            values, GC, host state, authority, sessions, native calls and reload
   kagari-vm                 interpreter/frame driver, debugger and prepared native selection
   kagari-embed              host SDK, features, preparation/cache and execution orchestration
@@ -263,12 +152,11 @@ codegen. MIR depends on ABI/common rather than HIR. Compiler core works without 
 `source` feature. Native backends depend on codegen/MIR/ABI and their backend libraries,
 not on runtime, bytecode, compiler or SDK. Source-based tests may use dev-dependencies;
 they do not define the production graph. ABI has no source generator or syntax
-build dependency. HIR depends on stdlib for source ownership; stdlib depends only
-on syntax/common and error support. The feature audit checks ABI's build graph as
-well as its production dependencies. The native authoring macro uses syn/quote at
-Rust build time; neither it nor runtime declaration construction consumes Kagari
-source or calls its parser/compiler. LLVM is deferred; no placeholder
-crate exists.
+build dependency. HIR reads compiler-owned language contracts and installed
+native declaration records from ABI types. Runtime declaration construction does
+not consume Kagari source or call its parser/compiler. The feature audit checks
+ABI's build graph as well as normal production dependencies. LLVM is deferred;
+no placeholder crate exists.
 
 ## Compilation Pipeline
 
@@ -347,10 +235,9 @@ views project the same checked declarations. The [active plan](native-provider-r
 owns migration order and the bounded algorithm/extension proof. There is no second
 copy of collection algorithms in Kagari source.
 
-The predecessor ordered map/set implementations use deterministic insertion
-order; foundational Map/Set traits do not prescribe that policy.
-In the target, `indexmap` is backing for optional standard-library LinkedHashMap/
-LinkedHashSet only, not the default HashMap/HashSet or the Map/Set interfaces.
+Foundational Map/Set traits do not prescribe traversal order. `indexmap` belongs
+to future optional LinkedHashMap/LinkedHashSet implementations; it is not backing
+for the default HashMap/HashSet.
 Hash-key eligibility and custom equality/hash protocols follow the checked contracts in [builtins](spec/builtins.md). Runtime callbacks execute on the same explicit frame stack with ordinary resource and reentry rules.
 
 Standard library calls flow through one structural path:
@@ -480,7 +367,7 @@ Convenience CLI behavior must remain a thin layer over the same embedding pipeli
 The SDK exposes `KagariEngine`, `KagariRuntime`, `PreparedProgram`, load/reload
 options and `ExecutionContext`. The default `source,native` feature set enables source
 compilation and native preparation. No features gives artifact-only interpretation;
-`source` adds stdlib/HIR/syntax/compiler source, and `native` adds frontend-free MIR/compiler
+`source` adds HIR/syntax/compiler source, and `native` adds frontend-free MIR/compiler
 core/codegen. The host supplies any concrete backend. Source-only builds can emit
 portable MIR for native-only consumers.
 

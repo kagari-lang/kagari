@@ -163,7 +163,7 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
 }
 
 #[test]
-fn embedding_conformance_executes_standard_intrinsic_artifacts() {
+fn embedding_conformance_executes_foundation_native_artifacts() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
     let artifact = engine
@@ -174,11 +174,11 @@ fn embedding_conformance_executes_standard_intrinsic_artifacts() {
 fn main() -> (usize, usize, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
-    val map: LinkedHashMap<String, i32> = LinkedHashMap::new();
+    val map: HashMap<String, i32> = HashMap::new();
     map.insert("ok", 7);
-    val set: LinkedHashSet<String> = LinkedHashSet::new();
+    val set: HashSet<String> = HashSet::new();
     set.insert("ready");
-    (values.len(), "ok".len_chars(), map.len(), set.contains("ready"), std::math::max(4, 7))
+    (values.len(), values.len() - 1usize, map.len(), set.contains("ready"), match map.get("ok") { Some(x) => x, None => 0 })
 }
 "#,
             ),

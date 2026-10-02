@@ -169,6 +169,19 @@ impl NativePayload for StoredCallable {
     }
 }
 impl StoredCallable {
+    /// Invoke a descriptor retained by a currently rooted native payload. The
+    /// closure is validated before entering the prepared frame; callers retaining
+    /// it independently should use root(). Returned values need a root before GC.
+    pub fn call_values(
+        &self,
+        cx: &mut CallContext<'_>,
+        arguments: &[Value],
+    ) -> NativeResult<Value> {
+        self.0.target.validate(cx.runtime)?;
+        self.0
+            .target
+            .call_values(cx, &self.0.params, &self.0.result, arguments)
+    }
     /// Root the closure while using a stored descriptor outside its payload borrow.
     /// Reuse this handle for the whole loop, then drop it. Store StoredCallable,
     /// rather than this owning root, in a GC payload.

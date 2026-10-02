@@ -58,7 +58,7 @@ impl ModuleBuilder {
             .merge(&DeclarationCatalog::from_modules(modules)?)?;
         Ok(self)
     }
-    pub fn define_function(&mut self, declaration: FunctionDecl) -> NativeResult<FunctionRef> {
+    pub fn define_function(&mut self, mut declaration: FunctionDecl) -> NativeResult<FunctionRef> {
         if self
             .declaration
             .functions
@@ -72,6 +72,11 @@ impl ModuleBuilder {
         let id = self
             .declaration
             .definition(DefinitionKind::Function, &declaration.name);
+        if let Some(documentation) = declaration.documentation.take() {
+            self.declaration
+                .documentation
+                .insert(id.clone(), documentation);
+        }
         let function = declaration.lower(CallableImplementation::Native(id.clone()));
         self.declaration.functions.push(function);
         Ok(FunctionRef { id })

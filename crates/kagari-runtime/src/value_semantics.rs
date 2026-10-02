@@ -268,6 +268,7 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
         (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
         (Value::I32(a), Value::I32(b)) => a.partial_cmp(b),
         (Value::I64(a), Value::I64(b)) => a.partial_cmp(b),
+        (Value::U64(a), Value::U64(b)) => a.partial_cmp(b),
         (Value::F32(a), Value::F32(b)) => a.partial_cmp(b),
         (Value::F64(a), Value::F64(b)) => a.partial_cmp(b),
         (Value::Str(a), Value::Str(b)) => a.partial_cmp(b),

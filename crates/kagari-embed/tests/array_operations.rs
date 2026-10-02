@@ -1,11 +1,5 @@
 use kagari_common::source::SourceFile;
-use {
-    kagari_embed::{
-        context::JitPolicy,
-        engine::{EngineConfig, source::CompileOptions},
-    },
-    kagari_runtime::security::LanguageProfile,
-};
+use kagari_embed::{context::JitPolicy, engine::EngineConfig};
 
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
@@ -75,43 +69,14 @@ fn repeats_evaluate_value_elements_once() {
     fn main() -> i32 {
         val log = [];
         val values = [item(log); count(log)];
-        std::debug::assert(log.len() == 2usize && log[0] == 1 && log[1] == 2, "order");
+        if !(log.len() == 2usize && log[0] == 1 && log[1] == 2) { return 0; }
         values[0] = 42;
-        std::debug::assert(values[2] == 7, "independent slots");
+        if values[2] != 7 { return 0; }
         val empty = [item(log); 0];
-        std::debug::assert(empty.is_empty() && log.len() == 3usize, "zero still evaluates");
+        if !(empty.is_empty() && log.len() == 3usize) { return 0; }
         val inferred: ArrayList<u8> = [1; 4];
-        std::debug::assert(inferred[3] == 1u8, "context");
+        if inferred[3] != 1u8 { return 0; }
         42
-    }
-    "#,
-    );
-}
-
-#[test]
-fn bulk_operations_preserve_aliases_and_allow_replacement_during_iteration() {
-    execute(
-        r#"
-    struct Cell { var value: i32 }
-    fn main() -> i32 {
-        val array = [0; 3];
-        val view: List<i32> = array;
-        array.fill(7);
-        std::debug::assert(view[2] == 7, "alias");
-        array.copy_from([10, 20, 30]);
-        array.copy_from(view);
-        std::debug::assert(array[0] == 10 && array[2] == 30, "self copy");
-        for value in array { array.fill(42); }
-        val cell = Cell { value: 1 };
-        val cells = ArrayList::from_fn(2, |i| cell);
-        val copied = ArrayList::from_fn(2, |i| Cell { value: 0 });
-        copied.copy_from(cells);
-        copied[0].value = 42;
-        std::debug::assert(cells[1].value == 42, "shallow copy");
-        val empty: ArrayList<i32> = [];
-        empty.fill(0);
-        empty.copy_from([]);
-        array[0]
     }
     "#,
     );
@@ -121,20 +86,12 @@ fn bulk_operations_preserve_aliases_and_allow_replacement_during_iteration() {
 fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
     let engine = KagariEngine::default();
     for source in [
-        "fn main() { val a = ArrayList::from_fn(-1, |i| i); }",
-        "fn main() { val a = ArrayList::from_fn(1i32, |i| i); }",
-        "fn main() { val a = ArrayList::from_fn(1, |a, b| a); }",
-        "fn main() { val a: ArrayList<u8> = ArrayList::from_fn(1, |i| 1i32); }",
         "fn main() { val a = [0; -1]; }",
         "fn main() { val a = [0; true]; }",
         "fn main() { val a = [0; 1i32]; }",
         "fn main() { val a = [1, 2; 3]; }",
-        "fn main() { val a: List<i32> = [0; 2]; a.fill(1); }",
-        "fn main() { val a: List<i32> = [0; 2]; a.copy_from([1, 2]); }",
-        "fn main() { val a = [0; 2]; a.copy_from([true, false]); }",
-        "fn main() { val a: List<i32> = [0; 2]; a.copy_within(.., 0); }",
-        "fn main() { val a = [0; 2]; a.copy_within(0i32..1i32, 0); }",
-        "fn main() { val a = [0; 2]; a.copy_within(0..1, 0i32); }",
+        "fn main() { val a: List<i32> = [0; 2]; a.push(1); }",
+        "fn main() { val a: List<i32> = [0; 2]; a[0] = 1; }",
         "fn main() { val r = true..false; }",
         "fn main() { val r = 1.0..2.0; }",
         "fn wrong(r: Range<bool>) {} fn main() {}",
@@ -157,214 +114,39 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
 }
 
 #[test]
-fn array_operation_example() {
-    execute(include_str!(
-        "../../../examples/syntax/array-operations.kgr"
-    ));
-}
-
-#[test]
 fn range_values_iterate_lazily_and_preserve_integer_width() {
     execute(
         r#"
+    use core::language as foundation;
     fn identity<T>(range: Range<T>) -> Range<T> { range }
     fn upper<R: RangeBounds<usize>>(range: R) -> Bound<usize> { range.end_bound() }
     fn main() -> i32 {
-        val qualified: std::ops::Range<u8> = identity(1u8..4u8);
-        val bound: std::ops::Bound<u8> = qualified.start_bound();
-        std::debug::assert(bound == std::ops::Bound::Included(1u8), "qualified");
+        val qualified: foundation::Range<u8> = identity(1u8..4u8);
+        val bound: foundation::Bound<u8> = qualified.start_bound();
+        if bound != foundation::Bound::Included(1u8) { return 0; }
+        var last = 0i8;
+        for n in -128i8..=-126i8 { last = n; }
+        if last != -126i8 { return 0; }
+        if upper(..) != Bound::Unbounded { return 0; }
         val range: Range<u8> = 1u8..4u8;
-        val negative = (-128i8..=-126i8).iter().collect::<ArrayList<i8>>();
-        std::debug::assert(negative[2] == -126i8, "signed endpoints");
-        val upper: Bound<usize> = upper(..);
-        std::debug::assert(upper == Bound::Unbounded, "qualified full bound");
         var total = 0u8;
         for n in range { total += n; }
         for n in range { total += n; }
-        std::debug::assert(total == 12u8, "fresh cursors");
-        val high = (254u8..=255u8).iter().collect::<ArrayList<u8>>();
-        std::debug::assert(high.len() == 2usize && high[1] == 255u8, "inclusive max");
-        val wide = (0u64..18446744073709551615u64).iter().take(3usize).collect::<ArrayList<u64>>();
-        std::debug::assert(wide[2] == 2u64, "lazy wide range");
-        val unbounded = (10i16..).iter().take(2usize).collect::<ArrayList<i16>>();
-        std::debug::assert(unbounded[1] == 11i16, "open range");
+        if total != 12u8 { return 0; }
+        var count = 0usize;
+        var maximum = 0u8;
+        for n in 254u8..=255u8 { count += 1; maximum = n; }
+        if count != 2usize || maximum != 255u8 { return 0; }
+        var wide = 0u64;
+        for n in 0u64..18446744073709551615u64 { wide = n; if n == 2u64 { break; } }
+        if wide != 2u64 { return 0; }
+        var open = 0i16;
+        for n in 10i16.. { open = n; if n == 11i16 { break; } }
+        if open != 11i16 { return 0; }
         42
     }
     "#,
     );
-}
-
-#[test]
-fn copy_within_accepts_all_range_forms_and_custom_bounds() {
-    execute(
-        r#"
-    struct Region { val log: ArrayList<i32> }
-    impl RangeBounds<usize> for Region {
-        fn start_bound(self) -> Bound<usize> { self.log.push(1); Bound::Excluded(0) }
-        fn end_bound(self) -> Bound<usize> { self.log.push(2); Bound::Included(2) }
-    }
-    fn copy<R: RangeBounds<usize>>(array: ArrayList<i32>, range: R, destination: usize) {
-        array.copy_within(range, destination);
-    }
-    fn main() -> i32 {
-        val a = [1, 2, 3, 4];
-        a.copy_within(0..3, 1);
-        std::debug::assert(a[1] == 1 && a[3] == 3, "forward overlap");
-        a.copy_within(1..=3, 0);
-        std::debug::assert(a[0] == 1 && a[2] == 3, "backward overlap");
-        a.copy_within(..2, 2);
-        a.copy_within(..=0, 1);
-        a.copy_within(3.., 0);
-        a.copy_within(.., 0);
-        a.copy_within(4..4, 4);
-        val log = [];
-        a.copy_from([1, 2, 3, 4]);
-        copy(a, Region { log }, 0);
-        std::debug::assert(a[0] == 2 && a[1] == 3, "custom bounds");
-        std::debug::assert(log.len() == 2usize && log[0] == 1 && log[1] == 2, "bound calls once");
-        copy(a, 0..2, 2);
-        std::debug::assert(a[2] == 2 && a[3] == 3, "generic inference");
-        val range = 1u8..=3u8;
-        std::debug::assert(range.start_bound() == Bound::Included(1u8), "start");
-        std::debug::assert(range.end_bound() == Bound::Included(3u8), "end");
-        42
-    }
-    "#,
-    );
-}
-
-#[test]
-fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
-    use kagari_common::{
-        collection::CollectionAccess,
-        host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
-    };
-    use kagari_runtime::host::HostFunction;
-    let declaration = HostFunctionDeclaration::new(
-        "demo.memory",
-        vec![],
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
-    );
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(HostInterface {
-            functions: vec![declaration.clone()],
-            ..Default::default()
-        })
-        .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
-    for (body, expected) in [
-        ("a.copy_within(3..1, 0);", vec![1, 2, 3]),
-        (
-            "a.copy_within(..=18446744073709551615usize, 0);",
-            vec![1, 2, 3],
-        ),
-        ("a.copy_within(3..3, 4);", vec![1, 2, 3]),
-        ("a.copy_from([1, 2]);", vec![1, 2, 3]),
-        ("a.swap(0usize, 9usize);", vec![1, 2, 3]),
-        ("a.remove_range(2usize..1usize);", vec![1, 2, 3]),
-        (
-            "a.remove_range(..=18446744073709551615usize);",
-            vec![1, 2, 3],
-        ),
-        ("a.remove_range(1usize..4usize);", vec![1, 2, 3]),
-        ("for x in a { a.remove_range(..); }", vec![1, 2, 3]),
-        ("val iter = a.windows(0usize);", vec![1, 2, 3]),
-        ("val iter = a.chunks(0usize);", vec![1, 2, 3]),
-        ("val iter = a.windows(2usize); a.push(4);", vec![1, 2, 3]),
-        (
-            "val iter = a.windows(2usize); val prefix: ArrayList<List<i32>> = iter.take(1usize).collect(); iter.next(); a.push(4);",
-            vec![1, 2, 3],
-        ),
-        (
-            "val iter = a.windows(2usize); val prefix: ArrayList<List<i32>> = iter.take(1usize).collect(); a.push(4); iter.next();",
-            vec![1, 2, 3, 4],
-        ),
-        ("a.retain(|n| { a[0usize] = 9; true });", vec![1, 2, 3]),
-        ("a.retain(|n| { a.fill(9); true });", vec![1, 2, 3]),
-        ("a.sort_by(|x, y| { a.push(9); x.cmp(y) });", vec![1, 2, 3]),
-        (
-            "a.sort_by_key(|n| { std::debug::assert(n < 2, \"key failure\"); n });",
-            vec![1, 2, 3],
-        ),
-        (
-            "a.retain(|n| { std::debug::assert(n < 2, \"predicate failure\"); false });",
-            vec![1, 2, 3],
-        ),
-        ("a.reserve(18446744073709551615usize);", vec![1, 2, 3]),
-        ("for x in a { a.reverse(); }", vec![1, 2, 3]),
-        ("for x in a { a.swap_remove(0usize); }", vec![1, 2, 3]),
-        ("a.copy_within(Region { a }, 0);", vec![9, 2]),
-        (
-            r#"val result = ArrayList::from_fn(3, |i| { a.push(i as i32); std::debug::assert(i < 1usize, "callback failed"); Region { a } });"#,
-            vec![1, 2, 3, 0, 1],
-        ),
-    ] {
-        let source = format!(
-            r#"
-        struct Region {{ val a: ArrayList<i32> }}
-        impl RangeBounds<usize> for Region {{
-            fn start_bound(self) -> Bound<usize> {{ self.a[0] = 9; Bound::Included(0) }}
-            fn end_bound(self) -> Bound<usize> {{ self.a.pop(); Bound::Excluded(3) }}
-        }}
-        fn main() {{ val a = demo::memory(); {body} }}
-        "#
-        );
-        let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("failure.kgr", source),
-                CompileOptions {
-                    language_profile: profile,
-                },
-                Default::default(),
-            )
-            .unwrap();
-        for encoded in [false, true] {
-            let artifact = if encoded {
-                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
-            } else {
-                artifact.clone()
-            };
-            let mut context = ExecutionContext {
-                language_profile: profile,
-                ..Default::default()
-            };
-            context.capabilities.host_calls = true;
-            context.host_policy.allowed_host_functions = vec!["demo.memory".into()];
-            let mut runtime = engine.runtime(context.clone());
-            let memory = runtime
-                .runtime()
-                .alloc_array(vec![Value::I32(1), Value::I32(2), Value::I32(3)])
-                .unwrap();
-            let root = runtime
-                .runtime()
-                .gc()
-                .root_value(Value::Array(memory))
-                .unwrap();
-            runtime
-                .register_host_function(HostFunction::new(declaration.clone(), move |_, _| {
-                    Ok(Value::Array(memory))
-                }))
-                .unwrap();
-            let loaded_program =
-                PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                    .unwrap();
-            let loaded = runtime
-                .load_program(&loaded_program, Default::default())
-                .unwrap();
-            let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
-            assert_eq!(
-                runtime.runtime().gc().array_snapshot(memory).unwrap(),
-                expected.iter().copied().map(Value::I32).collect::<Vec<_>>(),
-                "{body}: {error:?}"
-            );
-            drop(root);
-            assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        }
-    }
 }
 
 #[test]
@@ -391,99 +173,23 @@ fn repeated_arrays_reject_mutable_identity_even_when_nested_or_empty() {
             )
             .unwrap_err();
         assert!(
-            format!("{error:?}").contains("ArrayList::from_fn"),
+            format!("{error:?}").contains("initialize each element separately"),
             "{body}: {error:?}"
         );
     }
 }
 
 #[test]
-fn repeated_value_aggregates_and_per_element_initializers() {
+fn repeated_value_aggregates_keep_value_semantics() {
     execute(
         r#"
     enum Wrapped<T> { Empty, Data(T) }
-    struct Cell { var value: usize }
-    fn build<T>(value: T) -> ArrayList<T> { ArrayList::from_fn(2, |i| value) }
     fn main() -> i32 {
         val enums = [Wrapped::Data((1, "hello")); 2];
-        std::debug::assert(enums[0] == enums[1], "value enum");
         val options: ArrayList<Option<i32>> = [None; 2];
         val strings = ["hello"; 2];
-        val cells = ArrayList::from_fn(3, |i| Cell { value: i });
-        cells[0].value = 42usize;
-        std::debug::assert(cells[1].value == 1usize && cells[2].value == 2usize, "independent");
-        var calls = 0;
-        val empty: ArrayList<Cell> = ArrayList::from_fn(0, |i| { calls += 1; Cell { value: i } });
-        std::debug::assert(calls == 0 && empty.is_empty(), "zero callbacks");
-        val log = [];
-        val ordered = ArrayList::from_fn({ log.push(9); 2usize }, { log.push(10); |i| { log.push(i as i32); i } });
-        std::debug::assert(log.len() == 4usize && log[0] == 9 && log[1] == 10 && log[2] == 0 && log[3] == 1, "argument and callback order");
-        val indices = ArrayList::from_fn(4, |i| { calls += 1; i });
-        std::debug::assert(calls == 4 && indices[3] == 3usize, "indices and call count");
-        val shared = build(cells[0]);
-        shared[0].value = 7usize;
-        std::debug::assert(shared[1].value == 7usize, "explicit sharing");
-        42
+        if enums[0] == enums[1] && options[0] == options[1] && strings[0] == strings[1] { 42 } else { 0 }
     }
     "#,
     );
-}
-
-#[test]
-fn array_initialization_termination_releases_execution_roots() {
-    let engine = KagariEngine::default();
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "initialization-limit.kgr",
-                r#"
-        struct Cell { var value: usize }
-        fn main() { val cells = ArrayList::from_fn(1000, |i| Cell { value: i }); }
-        fn healthy() -> i32 { 42 }
-    "#,
-            ),
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap();
-    for case in 0..3 {
-        let mut context = ExecutionContext::default();
-        if case == 0 {
-            context.resources.max_instruction_steps = Some(40);
-        }
-        if case == 1 {
-            context.resources.max_heap_units = Some(8);
-        }
-        if case == 2 {
-            context.cancellation.cancel();
-        }
-        let mut runtime = engine.runtime(Default::default());
-        let loaded_program = PreparedProgram::from_artifact(
-            artifact.clone(),
-            &Default::default(),
-            &Default::default(),
-        )
-        .unwrap();
-        let loaded = runtime
-            .load_program(&loaded_program, Default::default())
-            .unwrap();
-        let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
-        assert_eq!(
-            error.code(),
-            if case == 2 {
-                "KG_RUNTIME_CANCELLED"
-            } else {
-                "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED"
-            }
-        );
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert!(runtime.runtime().execution_root().is_none());
-        assert_eq!(
-            runtime
-                .execute(&loaded, "healthy", &[], &Default::default())
-                .unwrap()
-                .return_value,
-            Value::I32(42)
-        );
-    }
 }
