@@ -148,6 +148,18 @@ pub(super) fn collect_interface_tables(
                 if instance.arguments.is_empty() && !abi.generic_params.is_empty() {
                     continue;
                 }
+                let conditional =
+                    matches!(method.implementation, CallableImplementation::Native(_))
+                        && method.bounds.iter().any(|bound| {
+                            bound.constraints.iter().any(|constraint| {
+                                !abi.bounds.iter().any(|assumed| {
+                                    assumed.ty == bound.ty
+                                        && assumed.constraints.contains(constraint)
+                                })
+                            })
+                        });
+                let shared_receiver =
+                    shared_receiver || (conditional && !abi.generic_params.is_empty());
                 let segment = DefinitionPathSegment {
                     kind: DefinitionKind::Method,
                     name: method.name.clone(),
@@ -212,7 +224,7 @@ pub(super) fn collect_interface_tables(
                             .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
                             .instance;
-                        if instance.arguments.iter().any(|ty| !ty.is_concrete()) {
+                        if !instance.arguments.is_empty() {
                             entry_arguments = instance.arguments.clone();
                             instance.arguments = (0..instance.arguments.len())
                                 .map(|position| {

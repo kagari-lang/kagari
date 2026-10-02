@@ -1,6 +1,5 @@
 // Measurement reference only: stable O(n log n) sorting over the same compact
 // ArrayList<i32>. Production algorithms remain Rust implementations.
-use std::collections::{sort, sort_by};
 trait Run {
     fn primitive(self, values: ArrayList<i32>, calls: ArrayList<usize>);
     fn callback(self, values: ArrayList<i32>, calls: ArrayList<usize>);
@@ -8,9 +7,9 @@ trait Run {
 }
 struct Runner {}
 impl Run for Runner {
-    fn primitive(self, values: ArrayList<i32>, calls: ArrayList<usize>) { sort(values); }
+    fn primitive(self, values: ArrayList<i32>, calls: ArrayList<usize>) { values.sort(); }
     fn callback(self, values: ArrayList<i32>, calls: ArrayList<usize>) {
-        sort_by(values, |a,b| { calls[0] += 1usize; a.cmp(b) });
+        values.sort_by(|a,b| { calls[0] += 1usize; a.cmp(b) });
     }
     fn script(self, values: ArrayList<i32>, calls: ArrayList<usize>) {
         merge_sort(values, |a,b| { calls[0] += 1usize; a.cmp(b) });

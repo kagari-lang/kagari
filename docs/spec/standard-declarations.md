@@ -27,22 +27,27 @@ Duplicate/conflicting foundation bindings are rejected. A finished module contai
 both portable declarations and runtime-local Rust entries/storage descriptors.
 Compiler-only consumers can read the same declarations without a runtime.
 
-Currently the bundled `std::collections` module provides these ordinary functions:
+List/MutableList declare common algorithms directly. The bundled
+`std::collections` module supplies lazy map as an ordinary function:
 
 ```kagari
 use std::collections;
 fn main() -> i32 {
     val values = [22, 20];
-    collections::sort(values);
+    values.sort();
     val mapped = collections::map(values, |value| value + 1);
     match mapped.next() { Some(value) => value + values[1], None => 0 }
 }
 ```
 
-`sort<T: Ord>` and `sort_by<T>` stably reorder an ArrayList in place. `sort_by`
-accepts `fn(T, T) -> Ordering`. `map<T, U>` accepts an ArrayList and `fn(T) -> U`,
-returning the library-owned `MapIterator<T, U>`. These are free functions; optional
-algorithms are not methods silently added to language collection traits.
+List provides sorted, sorted_by, sorted_by_key, reversed and distinct. MutableList
+provides sort, sort_by, sort_by_key, reverse, retain and dedup. Natural sorting
+requires T: Ord, while key methods accept a method-local K: Ord. Eq-only distinct
+preserves first occurrences without adding a Hash bound. These are declared trait
+methods with native defaults and optimized ArrayList overrides. Custom containers
+reuse the defaults through their selected iterator and set/remove operations.
+`map<T, U>` accepts an ArrayList and `fn(T) -> U`, returning the library-owned
+`MapIterator<T, U>`. It remains an ordinary free function.
 
 The predecessor string, parse, enum-combinator, iterator-terminal, snapshot,
 window, grouping and set-algebra APIs are withdrawn. They are not compatibility
@@ -134,11 +139,13 @@ the declared element type. Heap-reference elements use traced Values. Bulk slice
 access does not copy the entire array or allocate a per-call scratch buffer.
 Mutable access respects alias/iteration guards and storage revisions.
 
-`SequenceEdit` provides an isolated working copy when a fallible operation needs
-atomic publication. Traced values may be reordered only by a validated bijection;
-primitive working slices may be mutated. Commit validates the original object's
-identity and revision. Failure leaves original slots unchanged while preserving
-completed effects on objects referenced by those slots.
+`SequenceEdit` leases the actual sequence buffer for synchronous mutation. The
+lease excludes receiver-slot access through other aliases and restores storage on
+success, failure or unwind. Primitive edits do not clone the buffer. Traced values
+keep explicit roots while sorting may move elements into Rust scratch space.
+Sort, reverse, retain and dedup preserve completed effects; no rollback guarantee
+or atomic bulk replacement is required. Receiver identity, generation, iteration
+protection and storage revisions remain checked.
 
 `NativePayload` supplies tracing, logical units and ordinary Rust destruction.
 Every retained script Value and stored callable must be traced. `NativeStorage`
@@ -148,11 +155,13 @@ they do not require new compiler, ABI, verifier or VM type variants.
 
 ## Sorting and lazy iteration
 
-Primitive infallible ordering sorts the borrowed Rust slice directly. Script Ord
-and supplied comparators run synchronously over an isolated permutation and
-publish once on success. A failed comparison prevents further user comparisons.
-Rust's infallible sort may finish internal bookkeeping, but no partial order is
-committed. Comparisons have Rust stable-sort ordering, not a fixed call schedule.
+Primitive infallible ordering sorts the compact Rust slice directly. Script Ord,
+supplied comparators and key selectors run synchronously while editing the actual
+buffer. Sorting is stable; key selectors run during comparisons without a caching
+prepass. A failed comparison prevents further user comparisons. Rust may finish
+internal bookkeeping; all original elements survive, but their order can change.
+Length-changing algorithms preserve completed removals. Custom set/remove failures
+can leave earlier writes or removals. Comparison counts are unspecified.
 
 Only genuinely retained computations need state. MapIterator retains a
 `NativeCursor`, a stored mapper and a reentry guard. Construction performs no map

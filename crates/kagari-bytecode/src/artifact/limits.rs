@@ -42,6 +42,10 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 .is_none_or(|host| add(host.params.len()))
             || !add(import.requirements.len())
             || !add_abi_bounds(&import.requirements, &mut add)
+            || !import
+                .result_adapter
+                .as_ref()
+                .is_none_or(|adapter| add(adapter.implementation.arguments.len()))
             || !add_operations(&import.callables, &mut add)
         {
             return false;
@@ -368,6 +372,7 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 && function_abi_identity_limit(function)
                 && function.params.iter().all(|param| valid(&param.ty))
                 && valid(&function.return_type)
+                && declaration.concrete_result.as_ref().is_none_or(&valid)
                 && declaration.callable_requirements.iter().all(|required| {
                     required.member.within_path_limit()
                         && valid(&required.receiver)

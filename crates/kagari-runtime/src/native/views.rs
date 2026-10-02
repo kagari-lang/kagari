@@ -123,8 +123,9 @@ impl<'call> SequenceMutHandle<'call> {
     pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
         SequenceHandle::from_argument(cx, index).map(Self)
     }
-    /// Work on isolated storage and publish once on success. Aliases can read the
-    /// source during callbacks, but cannot change its slots until the edit ends.
+    /// Edit the actual storage under an exclusive slot lease. Callbacks may use
+    /// unrelated values, but cannot access this receiver's slots until the edit
+    /// ends. Completed edits survive errors; traced elements remain rooted.
     pub fn edit<R>(
         &mut self,
         edit: impl for<'buffer> FnOnce(SequenceEdit<'buffer>) -> NativeResult<R>,

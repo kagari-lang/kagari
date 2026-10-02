@@ -1,12 +1,17 @@
-//! An isolated sequence edit. Reference slots can only be permuted, so the
-//! unchanged, guarded source roots every value throughout synchronous callbacks.
+//! Exclusive direct edits. A lease roots traced elements across synchronous callbacks
+//! and restores the edited storage even when a callback fails or unwinds.
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     native::{
         binding::NativeResult,
+        scalar::NativeScalar,
         sequence::{NativeElement, SequenceStorage},
     },
     value::Value,
+};
+use std::{
+    cmp::Ordering,
+    panic::{AssertUnwindSafe, catch_unwind},
 };
 
 pub struct SequenceEdit<'buffer> {
@@ -19,7 +24,6 @@ impl SequenceEdit<'_> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// The source argument protects this value for the duration of the edit.
     pub fn get(&self, index: usize) -> NativeResult<Value> {
         self.values
             .get(index)
@@ -33,38 +37,106 @@ impl SequenceEdit<'_> {
             .ok_or_else(|| RuntimeError::module_validation("sequence edit scalar layout"))?;
         access(values)
     }
-    /// `order[destination]` names the original source slot. Validate the entire
-    /// permutation before changing the working buffer, then apply disjoint cycles.
-    pub fn reorder(&mut self, mut order: Vec<usize>) -> NativeResult<()> {
-        let invalid =
-            || RuntimeError::module_validation("sequence edit requires a complete permutation");
-        if order.len() != self.len() {
-            return Err(invalid());
-        }
-        let mut seen = Vec::new();
-        seen.try_reserve_exact(order.len())
-            .map_err(|_| RuntimeError::resource_limit("sequence permutation"))?;
-        seen.resize(order.len(), false);
-        for &source in &order {
-            let visited = seen.get_mut(source).ok_or_else(invalid)?;
-            if *visited {
-                return Err(invalid());
-            }
-            *visited = true;
-        }
-        drop(seen);
-        for start in 0..order.len() {
-            let mut current = start;
-            loop {
-                let next = order[current];
-                order[current] = current;
-                if next == start {
-                    break;
-                }
-                self.values.swap(current, next)?;
-                current = next;
-            }
-        }
-        Ok(())
+    pub fn reverse(&mut self) {
+        self.values.reverse();
     }
+}
+
+macro_rules! edits {
+    ($($variant:ident),+) => {
+        impl SequenceEdit<'_> {
+            /// Stable Rust sorting preserves elements on failure. Stop invoking
+            /// user code after the first error while Rust finishes its bookkeeping.
+            pub fn sort_by(&mut self, mut compare: impl FnMut(Value, Value) -> NativeResult<Ordering>) -> NativeResult<()> {
+                match self.values {
+                    $(SequenceStorage::$variant(values) => sort(values, |a, b| compare(a.encode(), b.encode())),)+
+                    SequenceStorage::Traced(values) => sort(values, compare),
+                }
+            }
+            /// Successful removals remain visible when a later predicate fails.
+            pub fn retain(&mut self, mut keep: impl FnMut(Value) -> NativeResult<bool>) -> NativeResult<()> {
+                match self.values {
+                    $(SequenceStorage::$variant(values) => retain(values, |value| keep(value.encode())),)+
+                    SequenceStorage::Traced(values) => retain(values, keep),
+                }
+            }
+            pub fn dedup_by(&mut self, mut equal: impl FnMut(Value, Value) -> NativeResult<bool>) -> NativeResult<()> {
+                match self.values {
+                    $(SequenceStorage::$variant(values) => dedup(values, |a, b| equal(a.encode(), b.encode())),)+
+                    SequenceStorage::Traced(values) => dedup(values, equal),
+                }
+            }
+        }
+    };
+}
+edits!(
+    Unit, Bool, I8, I16, I32, I64, ISize, U8, U16, U32, U64, USize, F32, F64
+);
+
+fn sort<T: Clone>(
+    values: &mut [T],
+    mut compare: impl FnMut(T, T) -> NativeResult<Ordering>,
+) -> NativeResult<()> {
+    let mut failure = None;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        values.sort_by(|left, right| {
+            if failure.is_some() {
+                return Ordering::Equal;
+            }
+            match compare(left.clone(), right.clone()) {
+                Ok(order) => order,
+                Err(error) => {
+                    failure = Some(error);
+                    Ordering::Equal
+                }
+            }
+        })
+    }));
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    result.map_err(|_| {
+        RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "sort comparator does not define a consistent order",
+        )
+    })
+}
+fn retain<T: Clone>(
+    values: &mut Vec<T>,
+    mut keep: impl FnMut(T) -> NativeResult<bool>,
+) -> NativeResult<()> {
+    let mut failure = None;
+    values.retain(|value| {
+        if failure.is_some() {
+            return true;
+        }
+        match keep(value.clone()) {
+            Ok(keep) => keep,
+            Err(error) => {
+                failure = Some(error);
+                true
+            }
+        }
+    });
+    failure.map_or(Ok(()), Err)
+}
+fn dedup<T: Clone>(
+    values: &mut Vec<T>,
+    mut equal: impl FnMut(T, T) -> NativeResult<bool>,
+) -> NativeResult<()> {
+    let mut failure = None;
+    values.dedup_by(|next, previous| {
+        if failure.is_some() {
+            return false;
+        }
+        match equal(previous.clone(), next.clone()) {
+            Ok(equal) => equal,
+            Err(error) => {
+                failure = Some(error);
+                false
+            }
+        }
+    });
+    failure.map_or(Ok(()), Err)
 }

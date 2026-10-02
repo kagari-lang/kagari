@@ -253,7 +253,7 @@ fn wildcard_import_follows_a_public_native_module_alias() {
     let root = insert(
         &engine,
         "root",
-        "use pkg::facade::collections::*; fn main() -> i32 { val values = [22, 20]; sort(values); values[0] + values[1] }",
+        "use pkg::facade::collections::*; fn main() -> i32 { var total = 0; for value in map([22, 20], |value| value) { total += value; } total }",
     );
     let artifact = compile(&engine, root);
     let context = ExecutionContext::default();

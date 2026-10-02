@@ -98,6 +98,7 @@ impl ModuleBuilder {
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown function declaration"))?;
         let result = configure(&mut FunctionBuilder {
             id: function.id.clone(),
+            concrete_results: &mut self.declaration.concrete_results,
             signature,
             requirements: self
                 .declaration
@@ -135,7 +136,10 @@ impl ModuleBuilder {
                 .iter()
                 .map(|parameter| parameter.ty.clone())
                 .collect(),
-            result: declaration.function.return_type.clone(),
+            result: declaration
+                .concrete_result
+                .clone()
+                .unwrap_or_else(|| declaration.function.return_type.clone()),
         };
         binding.check(&signature, &self.providers)?;
         if self.bindings.contains_key(&function.id) {

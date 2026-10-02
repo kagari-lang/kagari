@@ -1,8 +1,8 @@
-// Default containers belong to the language; optional algorithms are ordinary natives.
+// Default containers and algorithms are always available as ordinary native bindings.
 use std::collections;
 fn main()->i32 {
     val values=[22,20];
-    collections::sort(values);
+    values.sort();
     val mapped=collections::map(values,|value|value);
     var sum=0;for value in mapped{sum+=value;}
     val map=HashMap::new();map.insert("answer",sum);

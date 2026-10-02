@@ -29,6 +29,7 @@ pub struct TraitBuilder<'module> {
     method_parameters: BTreeMap<DefinitionId, Vec<String>>,
     requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
     defaults: BTreeMap<DefinitionId, NativeBinding>,
+    concrete_results: BTreeMap<DefinitionId, AbiType>,
 }
 impl<'module> TraitBuilder<'module> {
     pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> Self {
@@ -49,6 +50,7 @@ impl<'module> TraitBuilder<'module> {
             method_parameters: BTreeMap::new(),
             requirements: BTreeMap::new(),
             defaults: BTreeMap::new(),
+            concrete_results: BTreeMap::new(),
         }
     }
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
@@ -175,6 +177,7 @@ impl<'module> TraitBuilder<'module> {
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown trait method declaration"))?;
         let result = configure(&mut FunctionBuilder {
             id: method.id.clone(),
+            concrete_results: &mut self.concrete_results,
             signature,
             requirements: self.requirements.entry(method.id.clone()).or_default(),
             names: self.method_parameters.entry(method.id.clone()).or_default(),

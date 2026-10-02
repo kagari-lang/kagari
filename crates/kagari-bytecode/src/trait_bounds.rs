@@ -351,7 +351,9 @@ fn linked_bounds_match(
         else {
             return Ok(false);
         };
-        if !import.matches_declaration(declaration, &catalog, &cancel)? {
+        if !import.matches_declaration(declaration, &catalog, &cancel)?
+            || !views::native_result_valid(import, closure)
+        {
             return Ok(false);
         }
         if import

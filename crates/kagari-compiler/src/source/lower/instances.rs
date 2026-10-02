@@ -3,6 +3,7 @@ mod callables;
 mod calls;
 mod defaults;
 mod native;
+mod results;
 mod shared;
 mod views;
 use kagari_hir::{

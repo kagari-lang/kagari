@@ -2,7 +2,7 @@
 
 Status: active, 2026-10-02. The user authorized implementation of this plan,
 including the bounded API inventory and approved generic-interface/mutation rules.
-FA01 and FA02 are accepted; FA03 is next. This plan fills the gaps left by the completed native collections
+FA01–FA03 are accepted; FA04 is next. This plan fills the gaps left by the completed native collections
 reset and execution-policy simplification. It does not resume the historical full
 standard-library restoration checklist.
 
@@ -212,6 +212,7 @@ hierarchy. Extend/reuse current identities, substitutions and witness records:
 | Generic call environment | Method type arguments and validated witnesses for required trait operations, including inherited requirements |
 | Checked call application | Interface/method identity, substituted argument/result contract and correspondence to the call environment |
 | Shared script body | Explicit generic parameter representations and constraint-operation calls, independently verifiable without source analysis |
+| Native result construction | Declared concrete body result plus compiler-selected interface implementation/arguments; the exported signature remains the interface |
 
 The callback is an ordinary typed argument, not a second dispatch registry. A
 sorted_by_key<i32> call supplies its key callback and checked i32: Ord operations
@@ -407,7 +408,7 @@ binary regeneration or compatibility reader belongs here.
 
 - [x] FA01 Generic interface calls and foundation contracts.
 - [x] FA02 Always-present foundation assembly.
-- [ ] FA03 List algorithms and scoped mutation.
+- [x] FA03 List algorithms and scoped mutation.
 - [ ] FA04 String foundation methods.
 - [ ] FA05 Integration and acceptance.
 
@@ -535,3 +536,115 @@ and conflicting foundation binding rejection. `cargo check -p kagari-embed
 --no-default-features` passes. Embed/runtime/VM all-target Clippy with `-D warnings`,
 formatting, structure (634 files, no exceptions) and diff checks pass. No carried
 build/test error remains. The checkpoint uses `Roadmap-Step: FA02`.
+
+### FA03 execution record
+
+2026-10-03: Started with the existing storage/sorting path. SequenceEdit now leases
+and moves the actual compact/traced buffer out of the payload while callbacks run,
+then restores the edited buffer on success, error or unwind. It does not clone
+scalar storage or build a permutation. Reference-bearing storage keeps an explicit
+root snapshot because Rust sorting can temporarily move values into scratch space.
+This snapshot is solely for GC visibility; it is never used for rollback. The
+payload retains its charged occupancy until lease restoration, then releases any
+completed removals. Receiver slot access is exclusive for the lease; unrelated
+callbacks, GC and referenced-object mutation remain possible. Iteration and alias
+mutation checks run before editing. Primitive natural ordering retains its direct
+slice path.
+
+Added fallible stable sort, retain, dedup and reverse operations to the existing
+scoped edit surface. First callback failure stops further callbacks, while Rust
+completes safe internal cleanup. Removed the old index-permutation implementation.
+The old free sort entrypoints currently consume this new storage path and will be
+removed when trait method consumers are migrated later in FA03; no alias was added.
+Tests now require element preservation rather than rollback after comparator error.
+
+Focused evidence: the direct scalar buffer identity/error test and removal/unwind
+accounting test pass; the 15 existing collection/lazy-map tests pass, including a
+comparator that forces GC and fails after observable object mutations. An initial
+traced-sort failure came from registering roots inside a native payload borrow;
+root registration now happens after that borrow ends. No validation was relaxed.
+Structure passes for 634 files without exceptions; runtime/VM all-target Clippy
+with `-D warnings`, formatting and diff checks pass for this unit. FA03 has no phase commit yet.
+
+Remaining work stays within the accepted FA03 surface: declare and implement the
+List/MutableList native defaults and ArrayList overrides, reuse selected receiver
+operations for custom containers, and construct the declared List result through
+a checked concrete-to-interface adapter. A raw ArrayList value must not bypass the
+List result contract, and runtime trait search is not an acceptable replacement.
+Then migrate the free-function consumers and verify the bounded algorithm matrix.
+
+2026-10-03: Completed the checked native concrete-result conversion needed by
+List's new-result methods. `FunctionBuilder::produces` records the Rust body result
+separately from the exported interface return; trait defaults lower the same fact
+onto their private native templates. Registration checks the result codec and
+trait conformance. Compiler selection records the implementation and arguments on
+NativeImport, demands its parent tables, and includes native shared binders in
+layout collection. Portable validation checks the substituted receiver, interface,
+bounds, table presence and executable interface surface. Runtime links the exact
+table once, validates the raw result, roots it during boxing, and retains scoped
+generic arguments. No runtime trait search or collection-specific compiler rule
+was added.
+
+Evidence: four new result-boundary tests pass, covering artifact round trips,
+ordinary generic functions and interface generic defaults, nested arrays and
+script objects under forced GC, multiple type applications through one interface,
+invalid Rust values, invalid registration, and five artifact corruptions (including
+a missing executable table). The provider regression run passed 16 cases; its
+remaining new case initially had a malformed script field declaration. After
+correcting the fixture, that case passes separately, accounting for all 17 cases.
+All 32 existing default-method tests pass. Clippy for ABI, bytecode, compiler,
+runtime and embed with all targets and `-D warnings` passes. Structure checks pass
+for 638 files with no exceptions; formatting and diff checks pass. Initial missing
+parent-table and shared-layout-scope failures were fixed through the existing
+interface-demand/type-scope paths. No known build/test failure is carried by this
+unit. FA03 remains open and uncommitted until its complete method inventory,
+custom-container defaults and migrated consumers pass.
+
+
+2026-10-03: FA03 accepted. The full eleven-method List/MutableList inventory is
+implemented as ordinary native defaults, with ArrayList overrides that edit its
+actual compact/traced storage. Custom defaults select iter/next and set/remove
+once, traverse through the iterator, and reuse the same Rust algorithms. A hidden
+template type argument carries the selected associated iterator. Runtime obtains
+its operations from the preselected result table, without resolving a trait.
+New-result methods use the checked native result adapter described above.
+
+Interface tables now retain shared native entries for methods with additional
+call-time bounds. Constructing List<Item> does not require Item: Ord; calling
+sorted still does. Inherited default ABI methods subtract only enclosing trait
+bounds, preserving method-specific constraints. Native default slots consistently
+map all template arguments into a shared entry, while static calls retain concrete
+specialization. MIR checks substituted shared signatures and obligations; linked
+ABI validation resolves associated default arguments before checking equality.
+Local validation defers only unresolved dependency projections, with positive and
+forged-output tests proving that linked validation rejects a wrong hidden argument.
+
+Removed the old std::collections sort/sort_by entrypoints and their Rust module.
+Migrated VM, embedding, feature-fixture, measurement and syntax consumers directly
+to trait methods; native module import/navigation tests now exercise lazy map.
+Updated current architecture, collection/native specifications, README and examples.
+Language-owned method docs/navigation are tested without any application module.
+No format version bump, compatibility alias or binary fixture was introduced.
+
+Evidence: eight list tests cover concrete/interface/shared calls, distinct i32,
+String and newly allocated script key types, stable object order under forced GC,
+comparison-time key evaluation, method-bound rejection, generic custom containers
+with script-owned iterators, and cancellation during sort/retain. All four original
+list cases pass; the expanded seven-case run and final generic-container case pass.
+The VM's fifteen existing sorting/lazy-map tests pass after migration, and three
+new failure tests prove retained removals, partial custom set/remove progress,
+iteration guards and root/lease cleanup. ABI default proof tests (13), language
+contracts/navigation (7), default methods (32), collection interfaces (5), callable
+traits (11), instantiation (50), source modules (29) and syntax examples (9, including
+45 source/artifact examples) pass. The native-provider regression accounts for all
+17 cases: its missing-table corruption test was corrected to select the intended
+singleton import after foundation methods added other result adapters; that focused
+rerun passes. The source-module alias fixture initially used the nonexistent
+Option.unwrap method; the corrected loop-based fixture passes its focused rerun.
+
+Affected ABI/bytecode/MIR/HIR/compiler/runtime/VM/embed all-target Clippy with
+-D warnings passes; the added list test target also passes Clippy. Structure
+checks pass for 643 Rust files with no exceptions; formatting and diff checks pass.
+No carried build/test error or structural debt remains. Final workspace, feature,
+JIT and measurement acceptance stays in FA05. This checkpoint uses
+Roadmap-Step: FA03. FA04 owns only the accepted String method inventory.

@@ -289,7 +289,7 @@ fn native_slots_valid(
                 name: method.name.clone(),
                 occurrence: 0,
             });
-            let mut signature = NativeSignature {
+            let signature = NativeSignature {
                 params: method
                     .params
                     .iter()
@@ -297,46 +297,23 @@ fn native_slots_valid(
                     .collect::<Result<_, _>>()?,
                 result: catalog.normalize(&method.return_type, cancel)?,
             };
+            let mut assumptions = table.bounds.clone();
+            assumptions.extend(method.bounds.clone());
             let (target_instance, binding) = match &method.implementation {
-                CallableImplementation::Native(binding) => {
-                    let arguments = if instance.arguments.iter().any(|ty| !ty.is_concrete()) {
-                        let arguments: Vec<_> = template
-                            .generic_params
-                            .iter()
-                            .enumerate()
-                            .map(|(position, _)| {
-                                GenericParameterAbi {
-                                    owner: declaration.clone(),
-                                    position,
-                                }
-                                .as_type()
-                            })
-                            .collect();
-                        let mut substitution = TypeSubstitution::default();
-                        for (parameter, argument) in template.generic_params.iter().zip(&arguments)
-                        {
-                            substitution.bind(&parameter.owner, parameter.position, argument);
-                        }
-                        signature.params = signature
-                            .params
-                            .iter()
-                            .map(|ty| substitution.apply(ty, cancel))
-                            .collect::<Result<_, _>>()?;
-                        signature.result = substitution.apply(&signature.result, cancel)?;
-                        arguments
-                    } else {
-                        instance.arguments.clone()
-                    };
-                    (
-                        ConcreteFunctionIdentity {
-                            declaration,
-                            arguments,
-                        },
-                        binding.clone(),
-                    )
-                }
+                CallableImplementation::Native(binding) => (
+                    ConcreteFunctionIdentity {
+                        declaration,
+                        arguments: instance.arguments.clone(),
+                    },
+                    binding.clone(),
+                ),
                 CallableImplementation::NativeDefault(application) => {
-                    let Some(resolved) = catalog.resolve_native_default(application, cancel)?
+                    let Some(resolved) = catalog.resolve_native_default_in(
+                        application,
+                        &template.generic_params,
+                        &assumptions,
+                        cancel,
+                    )?
                     else {
                         return Ok(false);
                     };
@@ -350,12 +327,60 @@ fn native_slots_valid(
                 }
                 _ => continue,
             };
-            if !module.native_targets.iter().any(|target| {
-                target.instance == target_instance
-                    && target.binding == binding
-                    && target.signature == signature
-                    && target.host.is_none()
-            }) {
+            let mut found = false;
+            for target in &module.native_targets {
+                if target.instance.declaration != target_instance.declaration
+                    || target.binding != binding
+                    || target.host.is_some()
+                {
+                    continue;
+                }
+                let Some(body) = &target.generic else {
+                    found |= target.instance == target_instance && target.signature == signature;
+                    continue;
+                };
+                if body.parameters.len() != target_instance.arguments.len()
+                    || target.instance.arguments
+                        != body
+                            .parameters
+                            .iter()
+                            .map(GenericParameterAbi::as_type)
+                            .collect::<Vec<_>>()
+                {
+                    continue;
+                }
+                let mut substitution = TypeSubstitution::default();
+                for (parameter, argument) in body.parameters.iter().zip(&target_instance.arguments)
+                {
+                    substitution.bind(&parameter.owner, parameter.position, argument);
+                }
+                let actual = NativeSignature {
+                    params: target
+                        .signature
+                        .params
+                        .iter()
+                        .map(|ty| catalog.normalize(&substitution.apply(ty, cancel)?, cancel))
+                        .collect::<Result<_, _>>()?,
+                    result: catalog.normalize(
+                        &substitution.apply(&target.signature.result, cancel)?,
+                        cancel,
+                    )?,
+                };
+                if actual != signature {
+                    continue;
+                }
+                let mut valid = true;
+                for bound in substitution.apply_bounds(&body.bounds, cancel)? {
+                    valid &= catalog.constraints_hold(
+                        &bound.ty,
+                        &bound.constraints,
+                        &assumptions,
+                        cancel,
+                    )?;
+                }
+                found |= valid;
+            }
+            if !found {
                 return Ok(false);
             }
         }

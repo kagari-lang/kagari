@@ -46,6 +46,18 @@ pub(super) fn matches_declaration(
     if bounds != import.requirements {
         return Ok(false);
     }
+    match (&declaration.concrete_result, &import.result_adapter) {
+        (None, None) => {}
+        (Some(receiver), Some(adapter))
+            if normalize(receiver)? == adapter.receiver
+                && catalog.native_result_matches(
+                    adapter,
+                    &import.signature.result,
+                    &bounds,
+                    cancel,
+                )? => {}
+        _ => return Ok(false),
+    }
     for bound in &bounds {
         if !catalog.constraints_hold(
             &bound.ty,

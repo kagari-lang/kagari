@@ -118,6 +118,7 @@ impl Fixture {
                 methods: vec![method],
             },
             template: NativeDeclaration {
+                concrete_result: None,
                 declaration,
                 function: body,
                 callable_requirements: vec![],
@@ -686,5 +687,182 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
             .select_callable(&requirement, &cancel)
             .unwrap()
             .is_none()
+    );
+}
+
+#[test]
+fn hidden_associated_arguments_are_rechecked_against_linked_contracts() {
+    let mut fixture = Fixture::new();
+    let output_owner = identity(DefinitionKind::Trait, "Source");
+    let output = associated_type_id(&output_owner, "Output");
+    let mut output_contract = fixture.contract.clone();
+    output_contract.name = "Source".into();
+    output_contract.methods.clear();
+    output_contract.associated_types.push(AssociatedTypeAbi {
+        declaration: output.clone(),
+        generic_params: vec![],
+        parameter_bounds: vec![],
+        bounds: vec![],
+    });
+    let mut output_table = fixture.table.clone();
+    output_table.declaration = identity(DefinitionKind::Impl, "source");
+    output_table.methods.clear();
+    let mut output_interface = interface(&output_owner, vec![]);
+    output_interface
+        .associated_types
+        .insert(output.clone(), scalar());
+    output_table.trait_type = AbiType::Trait(output_interface);
+    let CallableImplementation::NativeDefault(application) =
+        &mut fixture.contract.methods[0].implementation
+    else {
+        unreachable!()
+    };
+    application.arguments.push(AbiType::Projection {
+        receiver: Box::new(AbiType::SelfType(fixture.owner.clone())),
+        interface: Box::new(interface(&output_owner, vec![])),
+        member: output,
+        arguments: vec![],
+    });
+    fixture
+        .template
+        .function
+        .generic_params
+        .push(GenericParameterAbi {
+            owner: fixture.template.declaration.clone(),
+            position: 1,
+        });
+    let CallableImplementation::NativeDefault(application) =
+        &mut fixture.table.methods[0].implementation
+    else {
+        unreachable!()
+    };
+    application.arguments.push(scalar());
+    let cancel = CancellationToken::default();
+    for correct in [true, false] {
+        if !correct {
+            let CallableImplementation::NativeDefault(application) =
+                &mut fixture.table.methods[0].implementation
+            else {
+                unreachable!()
+            };
+            application.arguments[1] = AbiType::Builtin(BuiltinType::Bool);
+        }
+        // The local check cannot resolve the Source implementation. The linked
+        // check must accept the selected output and reject a forged argument.
+        assert!(verify::interface_contract_matches(
+            &fixture.table,
+            &fixture.contract,
+            &cancel
+        ));
+        let catalog = ProofCatalog::new(
+            vec![(&fixture.table).into(), (&output_table).into()],
+            vec![],
+            [],
+            [
+                (fixture.owner.clone(), &fixture.contract),
+                (output_owner.clone(), &output_contract),
+            ],
+            [&fixture.template],
+            &cancel,
+        )
+        .unwrap();
+        assert_eq!(
+            verify::interface_methods_match(
+                &fixture.table,
+                &fixture.contract,
+                &|ty| catalog.normalize(ty, &cancel),
+                &cancel,
+            ),
+            correct
+        );
+    }
+}
+
+#[test]
+fn unspecified_associated_output_proves_only_its_own_projection() {
+    let fixture = Fixture::new();
+    let mut contract = fixture.contract.clone();
+    contract.methods.clear();
+    let output = associated_type_id(&fixture.owner, "Output");
+    contract.associated_types.push(AssociatedTypeAbi {
+        declaration: output.clone(),
+        generic_params: vec![],
+        parameter_bounds: vec![],
+        bounds: vec![],
+    });
+    let cancel = CancellationToken::default();
+    let catalog = ProofCatalog::new(
+        vec![],
+        vec![],
+        [],
+        [(fixture.owner.clone(), &contract)],
+        [],
+        &cancel,
+    )
+    .unwrap();
+    let receiver = GenericParameterAbi {
+        owner: identity(DefinitionKind::Function, "caller"),
+        position: 0,
+    }
+    .as_type();
+    let available = interface(&fixture.owner, vec![]);
+    let assumptions = [GenericBoundAbi {
+        ty: receiver.clone(),
+        constraints: vec![ConstraintAbi::Trait(available.clone())],
+    }];
+    let projection = AbiType::Projection {
+        receiver: Box::new(receiver.clone()),
+        interface: Box::new(available.clone()),
+        member: output.clone(),
+        arguments: vec![],
+    };
+    let proves = |value| {
+        let mut required = available.clone();
+        required.associated_types.insert(output.clone(), value);
+        catalog
+            .holds(&required, &receiver, &assumptions, &cancel)
+            .unwrap()
+    };
+    assert!(proves(projection.clone()));
+    assert!(!proves(scalar()));
+    for variant in 0..4 {
+        let mut forged = projection.clone();
+        let AbiType::Projection {
+            receiver,
+            interface,
+            member,
+            arguments,
+        } = &mut forged
+        else {
+            unreachable!()
+        };
+        match variant {
+            0 => **receiver = scalar(),
+            1 => *member = associated_type_id(&fixture.owner, "Missing"),
+            2 => interface.declaration = identity(DefinitionKind::Trait, "Other"),
+            _ => arguments.push(scalar()),
+        }
+        assert!(!proves(forged));
+    }
+    let mut constrained = available.clone();
+    constrained
+        .associated_types
+        .insert(output.clone(), scalar());
+    let concrete_assumption = [GenericBoundAbi {
+        ty: receiver.clone(),
+        constraints: vec![ConstraintAbi::Trait(constrained.clone())],
+    }];
+    assert!(
+        catalog
+            .holds(&constrained, &receiver, &concrete_assumption, &cancel)
+            .unwrap()
+    );
+    constrained
+        .associated_types
+        .insert(output, AbiType::Builtin(BuiltinType::Bool));
+    assert!(
+        !catalog
+            .holds(&constrained, &receiver, &concrete_assumption, &cancel)
+            .unwrap()
     );
 }

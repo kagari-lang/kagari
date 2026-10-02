@@ -101,6 +101,7 @@ impl FunctionLowerer<'_, '_> {
             span,
         )?;
         let mut import = NativeImport {
+            result_adapter: None,
             generic: None,
             callables: vec![],
             instance: ConcreteFunctionIdentity {
@@ -115,7 +116,7 @@ impl FunctionLowerer<'_, '_> {
             },
             requirements,
         };
-        import.callables = self.planner.native_callables(&import, span)?;
+        import.callables = self.planner.native_callables(&mut import, span)?;
         if !import.structurally_valid() {
             return Err(invalid());
         }
@@ -145,7 +146,7 @@ impl FunctionLowerer<'_, '_> {
         } else {
             import.callables = self
                 .planner
-                .native_callables(&import, self.function.debug.source_span)?;
+                .native_callables(&mut import, self.function.debug.source_span)?;
             if !import.structurally_valid() {
                 return Err(MirLoweringError::MissingBinding(
                     "concrete native entry application",
@@ -226,6 +227,7 @@ impl FunctionLowerer<'_, '_> {
             .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
         self.emit_native_application(
             NativeImport {
+                result_adapter: None,
                 generic: None,
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {
@@ -310,6 +312,7 @@ impl FunctionLowerer<'_, '_> {
         let result = instantiate(&signature.return_type);
         self.emit_native_application(
             NativeImport {
+                result_adapter: None,
                 generic: None,
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {

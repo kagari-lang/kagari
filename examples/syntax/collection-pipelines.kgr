@@ -1,7 +1,7 @@
-// Optional Rust functions provide algorithms; lazy map owns the saved cursor.
+// List methods provide sorting; lazy map owns the saved cursor.
 use std::collections;
 fn main()->i32 {
-    val values=[22,20]; collections::sort(values);
+    val values=[22,20]; values.sort();
     var calls=0;
     val mapped=collections::map(values,|value|{calls+=1;value});
     if calls!=0 {return 0;}

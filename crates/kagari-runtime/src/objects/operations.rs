@@ -183,6 +183,17 @@ impl Runtime {
                     retention: retention.clone(),
                 });
             }
+            // An associated result adapter already selects the output's table.
+            // Native defaults can use its operations without resolving a trait.
+            if let Some(view) = &table.view {
+                for result in &view.results {
+                    pending.push(calls::interface_binding(
+                        owner,
+                        &result.implementation,
+                        Some(environment.clone()),
+                    )?);
+                }
+            }
             for parent in &table.parents {
                 pending.push(calls::interface_binding(
                     owner,

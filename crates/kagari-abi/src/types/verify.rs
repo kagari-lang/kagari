@@ -259,6 +259,10 @@ pub fn validate_native_declarations(
             .is_some_and(|part| part.kind == DefinitionKind::Trait)
             .then_some(&receiver);
         if !bounds_valid_in(&function.bounds, &params, self_owner, cancel)
+            || declaration.concrete_result.as_ref().is_some_and(|ty| {
+                !matches!(function.return_type, AbiType::Trait(_))
+                    || !type_valid(ty, &params, self_owner, cancel)
+            })
             || !signature_valid(function, &params, self_owner, cancel)
             || declaration.callable_requirements.len() > 4096
         {
@@ -708,7 +712,12 @@ fn method_contract_matches(
                 && declared.arguments.iter().zip(&implemented.arguments).all(
                     |(declared, implemented)| {
                         expected(declared).is_ok_and(|declared| {
-                            actual(implemented).is_ok_and(|implemented| declared == implemented)
+                            actual(implemented).is_ok_and(|implemented| {
+                                declared == implemented
+                                    || defer_projection
+                                        && (declared.contains_projection()
+                                            || implemented.contains_projection())
+                            })
                         })
                     },
                 )

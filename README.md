@@ -117,9 +117,9 @@ are declared by the compiler. Hash storage uses Rust's standard collections and
 has no insertion-order guarantee; custom keys implement Kagari `Eq` and `Hash`.
 Container storage participates in GC tracing, checked calls and hot reload.
 
-Optional libraries and application native functions use the same explicit Rust
-registration API. The default optional `std::collections` module provides
-`sort`, `sort_by` and lazy `map`; an engine can omit this module. Generated `.kgr`
+Libraries and application native functions use the same explicit Rust
+registration API. List and MutableList provide sorting, reversal and filtering
+methods; `std::collections` provides lazy `map`. These are always available. Generated `.kgr`
 views support completion and navigation without becoming executable dependencies.
 Other container implementations and algorithm families remain deferred.
 

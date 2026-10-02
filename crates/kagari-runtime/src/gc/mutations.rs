@@ -70,6 +70,7 @@ impl GcHeap {
                 return Err(invalid());
             }
             HeapObject::Native(original.replaced_payload(SequencePayload {
+                leased_units: None,
                 element: payload.element.clone(),
                 contract: payload.contract.clone(),
                 values: input.copy_range(0, input.len())?,
@@ -98,6 +99,7 @@ impl GcHeap {
                         }
                     }
                     HeapObject::Native(original.replaced_payload(SequencePayload {
+                        leased_units: None,
                         element: payload.element.clone(),
                         contract: payload.contract.clone(),
                         values: copy,

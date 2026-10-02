@@ -9,7 +9,9 @@ use crate::{
 use kagari_abi::{
     callable::{CallableImplementation, MethodPolicy},
     native_import::callables::NativeCallableRequirement,
-    types::{ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, ParameterAbi},
+    types::{
+        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, ParameterAbi,
+    },
 };
 use kagari_common::identity::DefinitionId;
 use std::collections::{BTreeMap, BTreeSet};
@@ -164,6 +166,7 @@ pub struct SelectedCall {
 
 pub struct FunctionBuilder<'a> {
     pub(crate) id: DefinitionId,
+    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionId, AbiType>,
     pub(crate) signature: &'a mut FunctionAbi,
     pub(crate) requirements: &'a mut Vec<NativeCallableRequirement>,
     pub(crate) names: &'a mut Vec<String>,
@@ -193,6 +196,11 @@ impl FunctionBuilder<'_> {
     }
     pub fn returns(&mut self, ty: Type) {
         self.signature.return_type = ty.0;
+    }
+    /// The Rust body produces this concrete type; the exported return remains an interface.
+    /// Compilation selects and verifies the interface construction table.
+    pub fn produces(&mut self, ty: Type) {
+        self.concrete_results.insert(self.id.clone(), ty.0);
     }
     pub fn bound(&mut self, ty: Type, contract: AppliedTrait) {
         self.signature.bounds.push(GenericBoundAbi {

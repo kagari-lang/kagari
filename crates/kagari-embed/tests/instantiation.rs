@@ -537,7 +537,7 @@ fn terminating_function_arguments_skip_calls_and_generic_instances() {
 fn terminating_trait_and_standard_arguments_preserve_only_operand_effects() {
     for body in [
         "value.take(if tick(count) { return 40; } else { return 0; })",
-        "collections::sort(if tick(count) { return 40; } else { return 0; }); 0",
+        "(if tick(count) { return 40; } else { return 0; }).sort(); 0",
     ] {
         execute_contextual_source(
             &format!(
@@ -551,8 +551,8 @@ fn terminating_trait_and_standard_arguments_preserve_only_operand_effects() {
 #[test]
 fn terminating_native_arguments_skip_calls() {
     for body in [
-        "collections::sort(ARG); 0",
-        "collections::sort_by([1], ARG); 0",
+        "(ARG).sort(); 0",
+        "[1].sort_by(ARG); 0",
         "collections::map(ARG, |n:i32|n); 0",
     ] {
         let body = body.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
@@ -713,8 +713,8 @@ fn terminating_index_receivers_skip_index_effects_and_reads() {
 #[test]
 fn terminating_native_arguments_skip_remaining_operands() {
     for call in [
-        "collections::sort(ARG)",
-        "collections::sort_by(ARG, |a:i32,b:i32|a.cmp(b))",
+        "(ARG).sort()",
+        "(ARG).sort_by(|a:i32,b:i32|a.cmp(b))",
         "collections::map(ARG, |n:i32|{tick(count);n})",
     ] {
         let expression = call.replace("ARG", "if tick(count) { return 40; } else { return 0; }");

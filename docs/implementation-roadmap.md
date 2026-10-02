@@ -10,7 +10,7 @@ methods. No extension syntax, Deref or separate standard-library crate is added.
 
 FA01-FA05 cover generic interface calls/default dispatch, foundation assembly, a
 bounded list API, String methods and integration. The API inventory is accepted
-and FA01–FA02 are accepted; FA03 is next. Both semantic decisions are approved: method-level generics work
+and FA01–FA03 are accepted; FA04 String methods are next. Both semantic decisions are approved: method-level generics work
 through interfaces using checked type/constraint argument passing and shared
 entries, including script/native defaults and overrides; static calls retain
 specialization. FA01 includes the required shared script-body compilation and

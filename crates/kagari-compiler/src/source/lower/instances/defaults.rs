@@ -108,7 +108,9 @@ impl InstancePlanner<'_> {
         )?;
         let owner = implementation.id.clone();
         self.record_interface(&owner, &arguments[..count], span)?;
-        let shared = import.instance.arguments.iter().any(|ty| !ty.is_concrete());
+        // Interface slots share the default template; direct native calls can
+        // independently request a concrete specialization of that template.
+        let shared = !import.instance.arguments.is_empty();
         let arguments = import
             .instance
             .arguments

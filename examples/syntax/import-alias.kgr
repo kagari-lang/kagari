@@ -1,2 +1,7 @@
 use std::collections as algorithms;
-fn main()->i32{val values=[22,20];algorithms::sort(values);values[0]+values[1]}
+fn main()->i32 {
+    val values=[22,20];
+    var total=0;
+    for value in algorithms::map(values,|value|value) { total+=value; }
+    total
+}

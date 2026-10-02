@@ -320,7 +320,7 @@ fn grouped_standard_globs_execute() {
         .compile_to_artifact(
             SourceFile::new(
                 "standard-glob.kgr",
-                "use std::{collections::*}; fn main() -> i32 { val values=[22,20];sort(values);values[0]+values[1] }",
+                "use std::{collections::*}; fn main() -> i32 { var total=0;for value in map([22,20],|value|value){total+=value;}total }",
             ),
 
             Default::default(),

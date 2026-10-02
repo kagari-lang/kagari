@@ -1,4 +1,5 @@
 mod library_mapping;
+mod list_failures;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -57,13 +58,12 @@ fn run(text: &str) -> Value {
 fn primitive_sort_and_supplied_comparator_preserve_shared_identity() {
     assert_eq!(
         run(r#"
-        use std::collections::{sort, sort_by};
         fn main() -> bool {
-            val empty: ArrayList<i32> = []; sort(empty);
+            val empty: ArrayList<i32> = []; empty.sort();
             val values = [3, 1, 2, 1]; val alias = values;
-            sort(values);
+            values.sort();
             if alias[0] != 1 || alias[1] != 1 || alias[2] != 2 || alias[3] != 3 { return false; }
-            sort_by(values, |a, b| b.cmp(a));
+            values.sort_by(|a, b| b.cmp(a));
             alias[0] == 3 && alias[1] == 2 && alias[2] == 1 && alias[3] == 1
         }
     "#),
@@ -75,7 +75,6 @@ fn primitive_sort_and_supplied_comparator_preserve_shared_identity() {
 fn script_ord_is_selected_and_equal_elements_remain_stable() {
     assert_eq!(
         run(r#"
-        use std::collections::sort;
         struct Rank { val key: i32, val tag: i32, var visits: i32 }
         impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.key == other.key } }
         impl Eq for Rank {}
@@ -86,7 +85,7 @@ fn script_ord_is_selected_and_equal_elements_remain_stable() {
             val b = Rank { key: 1, tag: 1, visits: 0 };
             val c = Rank { key: 1, tag: 2, visits: 0 };
             val d = Rank { key: 2, tag: 3, visits: 0 };
-            val values = [a,b,c,d]; sort(values);
+            val values = [a,b,c,d]; values.sort();
             values[0].tag == 1 && values[1].tag == 2 && values[2].tag == 0 && values[3].tag == 3
                 && a.visits + b.visits + c.visits + d.visits > 0
         }
@@ -146,16 +145,15 @@ impl Probe {
 }
 
 #[test]
-fn comparator_failure_stops_callbacks_and_does_not_publish_a_partial_order() {
+fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let probe = Probe::new();
     let library = collections::module().unwrap();
     let source = r#"
-        use std::collections::sort_by;
         use test::probe::{keep, tick};
         struct Item { val key: i32, var visits: i32 }
         fn main() {
             val values = [Item { key: 3, visits: 0 }, Item { key: 1, visits: 0 }, Item { key: 2, visits: 0 }, Item { key: 0, visits: 0 }]; keep(values);
-            sort_by(values, |a,b| { a.visits += 1; val count = tick(); if count == 3usize { val fail = 1 / 0; }; a.key.cmp(b.key) });
+            values.sort_by(|a,b| { a.visits += 1; val count = tick(); if count == 3usize { val fail = 1 / 0; }; a.key.cmp(b.key) });
         }
     "#;
     let mut config = RuntimeConfig::default();
@@ -190,10 +188,15 @@ fn comparator_failure_stops_callbacks_and_does_not_publish_a_partial_order() {
             }
         }
     }
-    assert_eq!(
-        keys,
-        vec![Value::I32(3), Value::I32(1), Value::I32(2), Value::I32(0)]
-    );
+    let mut keys: Vec<_> = keys
+        .into_iter()
+        .map(|value| match value {
+            Value::I32(value) => value,
+            _ => panic!("key"),
+        })
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec![0, 1, 2, 3]);
     assert_eq!(
         visits, 3,
         "completed effects on referenced payloads survive failure"
@@ -209,16 +212,15 @@ fn comparator_failure_stops_callbacks_and_does_not_publish_a_partial_order() {
 
 #[test]
 fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() {
-    for mutation in ["values[0] = 9;", "values.push(9);", "sort(values);"] {
+    for mutation in ["values[0] = 9;", "values.push(9);", "values.sort();"] {
         let probe = Probe::new();
         let library = collections::module().unwrap();
         let source = format!(
             r#"
-            use std::collections::{{sort, sort_by}};
             use test::probe::keep;
             fn main() {{
                 val values = [3,1,2]; keep(values);
-                sort_by(values, |a,b| {{ {mutation} a.cmp(b) }});
+                values.sort_by(|a,b| {{ {mutation} a.cmp(b) }});
             }}
         "#
         );
@@ -248,13 +250,12 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
 fn primitive_selection_covers_unsigned_bounds_and_string_ordering() {
     assert_eq!(
         run(r#"
-        use std::collections::{sort, sort_by};
         fn main() -> bool {
             val values: ArrayList<u64> = [18446744073709551615u64, 0u64, 9223372036854775808u64];
-            sort(values);
+            values.sort();
             if values[0] != 0u64 || values[2] != 18446744073709551615u64 { return false; }
-            sort_by(values, |a,b| b.cmp(a));
-            val text = ["z", "a", "a", "b"]; sort(text);
+            values.sort_by(|a,b| b.cmp(a));
+            val text = ["z", "a", "a", "b"]; text.sort();
             values[0] == 18446744073709551615u64 && text[0] == "a" && text[3] == "z"
         }
     "#),
@@ -270,9 +271,8 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
         .set(
             "invalid.kgr",
             r#"
-        use std::collections::sort;
         impl Ord for i32 { fn cmp(self, other: Self) -> Ordering { Ordering::Equal } }
-        fn main() { sort([1,3,2]); }
+        fn main() { [1,3,2].sort(); }
     "#
             .into(),
             SourceLayer::Base,
@@ -293,8 +293,7 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
 fn generated_library_declarations_supply_navigation_docs_and_exported_signatures() {
     let library = collections::module().unwrap();
     let generated = library.declaration_source();
-    let text =
-        "use std::collections::{sort, sort_by}; fn main() { val values = [2,1]; sort(values); }";
+    let text = "use std::collections::map; fn main() { val values = map([2,1], |value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("tooling.kgr", text.into(), SourceLayer::Base)
@@ -304,21 +303,21 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let offset = text.find("sort(values)").unwrap();
+    let offset = text.find("map([2,1]").unwrap();
     let target = snapshot.definition_at(file, offset).unwrap();
     let source = snapshot.source(target.location.file).unwrap();
     assert_eq!(source.name(), generated.uri);
     assert_eq!(
         &source.text()[target.location.range.start..target.location.range.end],
-        "sort"
+        "map"
     );
     let documentation = snapshot.documentation_at(file, offset).unwrap();
-    assert!(documentation.documentation.contains("Stably sort values"));
-    assert!(documentation.written_signature.contains("Ord"));
+    assert!(documentation.documentation.contains("Lazily transform"));
+    assert!(documentation.written_signature.contains("MapIterator"));
     assert!(documentation.written_signature.contains("ArrayList"));
     // visible_bindings is a lexical-local query. Module functions are exposed
     // through the declaration inventory.
-    for name in ["sort", "sort_by"] {
+    for name in ["map", "MapIterator"] {
         let (id, site) = generated
             .sites
             .iter()

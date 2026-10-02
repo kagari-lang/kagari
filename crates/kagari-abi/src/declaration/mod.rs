@@ -69,6 +69,7 @@ pub struct ModuleDecl {
     /// Ordered callback slots owned by each native declaration. The compiler
     /// specializes these requirements; generated source does not select targets.
     pub callable_requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
+    pub concrete_results: BTreeMap<DefinitionId, AbiType>,
 }
 
 impl ModuleDecl {
@@ -85,6 +86,7 @@ impl ModuleDecl {
             private_functions: BTreeSet::new(),
             documentation: BTreeMap::new(),
             callable_requirements: BTreeMap::new(),
+            concrete_results: BTreeMap::new(),
         }
     }
 
@@ -295,6 +297,10 @@ impl ModuleDecl {
             .functions
             .iter()
             .map(|function| NativeDeclaration {
+                concrete_result: self
+                    .concrete_results
+                    .get(&self.definition(DefinitionKind::Function, &function.name))
+                    .cloned(),
                 callable_requirements: self
                     .callable_requirements
                     .get(&self.definition(DefinitionKind::Function, &function.name))
@@ -323,6 +329,10 @@ impl ModuleDecl {
                     })
                     .collect();
                 NativeDeclaration {
+                    concrete_result: self
+                        .concrete_results
+                        .get(&Self::method_id(&owner, &function.name))
+                        .cloned(),
                     callable_requirements: self
                         .callable_requirements
                         .get(&Self::method_id(&owner, &function.name))
@@ -499,6 +509,11 @@ impl ModuleDecl {
             }
         }
         if self.callable_requirements.len() > 4096
+            || self.concrete_results.len() > 4096
+            || self
+                .concrete_results
+                .keys()
+                .any(|id| !declarations.iter().any(|decl| &decl.declaration == id))
             || self
                 .callable_requirements
                 .keys()

@@ -12,8 +12,7 @@ fn foundation_algorithms_are_available_from_normal_engine_construction() {
             SourceFile::new(
                 "memory://sort.kgr",
                 r#"
-        use std::collections::sort;
-        fn main() -> i32 { val values = [3,1,2]; sort(values); values[0] }
+        fn main() -> i32 { val values = [3,1,2]; values.sort(); values[0] }
     "#,
             ),
             Default::default(),
@@ -42,7 +41,7 @@ fn explicit_empty_application_modules_keep_the_foundation() {
             .compile_to_artifact(
                 SourceFile::new(
                     "memory://foundation-sort.kgr",
-                    "use std::collections::sort; fn main() { sort([2,1]); }"
+                    "fn main() { [2,1].sort(); }"
                 ),
                 Default::default()
             )

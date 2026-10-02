@@ -63,9 +63,10 @@ impl TraitBuilder<'_> {
                     .requirements
                     .get(&method_id)
                     .is_some_and(|requirements| !requirements.is_empty())
+                    || self.concrete_results.contains_key(&method_id)
                 {
                     return Err(RuntimeError::metadata_conflict(
-                        "required method has native default operations but no body",
+                        "required method has native default metadata but no body",
                     ));
                 }
                 continue;
@@ -151,6 +152,12 @@ impl TraitBuilder<'_> {
                 .map(|requirement| requirement.apply(&substitution, &cancel))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(invalid)?;
+            let concrete_result = self
+                .concrete_results
+                .get(&method_id)
+                .map(|ty| substitution.apply(ty, &cancel))
+                .transpose()
+                .map_err(invalid)?;
             binding.check(
                 &NativeSignature {
                     params: template
@@ -158,7 +165,9 @@ impl TraitBuilder<'_> {
                         .iter()
                         .map(|parameter| parameter.ty.clone())
                         .collect(),
-                    result: template.return_type.clone(),
+                    result: concrete_result
+                        .clone()
+                        .unwrap_or_else(|| template.return_type.clone()),
                 },
                 &self.module.providers,
             )?;
@@ -168,10 +177,17 @@ impl TraitBuilder<'_> {
                 arguments,
                 template,
                 requirements,
+                concrete_result,
                 binding.clone(),
             ));
         }
-        for (index, id, arguments, template, requirements, binding) in lowered {
+        for (index, id, arguments, template, requirements, concrete_result, binding) in lowered {
+            if let Some(ty) = concrete_result {
+                self.module
+                    .declaration
+                    .concrete_results
+                    .insert(id.clone(), ty);
+            }
             self.declaration.methods[index].implementation =
                 CallableImplementation::NativeDefault(NativeDefaultApplication {
                     declaration: id.clone(),

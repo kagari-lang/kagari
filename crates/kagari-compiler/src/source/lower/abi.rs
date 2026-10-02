@@ -454,6 +454,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 })
                 .collect();
             Some(NativeDeclaration {
+                concrete_result: None,
                 callable_requirements: vec![],
                 declaration: declaration.clone(),
                 function: abi,
@@ -535,16 +536,16 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<Funct
         let bounds = method
             .bounds
             .iter()
-            .filter(|(ty, _)| {
-                !contract
-                    .generic_params
-                    .iter()
-                    .any(|param| **ty == TypeId::Generic(param.clone()))
-            })
             .map(|(ty, constraints)| GenericBoundAbi {
                 ty: normalize(ty),
                 constraints: constraints
                     .iter()
+                    .filter(|constraint| {
+                        !contract
+                            .bounds
+                            .get(ty)
+                            .is_some_and(|inherited| inherited.contains(constraint))
+                    })
                     .map(|constraint| match constraint {
                         ConstraintTarget::Standard(value) => ConstraintAbi::Standard(*value),
                         ConstraintTarget::Trait(ty) => {

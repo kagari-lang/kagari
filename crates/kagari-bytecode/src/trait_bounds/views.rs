@@ -4,11 +4,13 @@ use crate::{
         BytecodeModule, InterfaceParentRecord, InterfaceResultAdapter, InterfaceTableRecord,
         InterfaceViewRecord,
     },
-    trait_bounds::contract,
+    program::ModuleRef,
+    trait_bounds::{contract, executable_interface},
 };
 use kagari_abi::{
     callable::interface::InterfaceCallContract,
     language::Protocol,
+    native_import::{NativeImport, result::NativeResultAdapter},
     types::{
         AbiType, ConcreteFunctionIdentity, GenericParameterAbi, InterfaceTableAbi, NominalAbiType,
         PublicAbiItem,
@@ -226,4 +228,54 @@ fn template<'a>(
         }
         _ => None,
     })
+}
+
+/// Locate the exact preselected table; symbolic applications use its canonical body.
+pub fn native_result_target(
+    adapter: &NativeResultAdapter,
+    closure: &[&BytecodeModule],
+) -> Option<(ModuleRef, usize)> {
+    let (owner_index, owner) = closure
+        .iter()
+        .enumerate()
+        .find(|(_, owner)| owner.identity == adapter.implementation.declaration.module)?;
+    let table_index = owner.interface_tables.iter().position(|linked| {
+        if linked.declaration != adapter.implementation.declaration {
+            return false;
+        }
+        let Some(template) = template(owner, linked) else {
+            return false;
+        };
+        let arguments = if adapter
+            .implementation
+            .arguments
+            .iter()
+            .all(AbiType::is_concrete)
+        {
+            adapter.implementation.arguments.clone()
+        } else {
+            template
+                .generic_params
+                .iter()
+                .map(GenericParameterAbi::as_type)
+                .collect()
+        };
+        linked.arguments == arguments
+    })?;
+    Some((ModuleRef::new(owner_index), table_index))
+}
+
+pub(super) fn native_result_valid(import: &NativeImport, closure: &[&BytecodeModule]) -> bool {
+    let Some(adapter) = &import.result_adapter else {
+        return true;
+    };
+    let AbiType::Trait(interface) = &import.signature.result else {
+        return false;
+    };
+    let scope = import
+        .generic
+        .as_ref()
+        .map_or(&[][..], |body| body.parameters.as_slice());
+    native_result_target(adapter, closure).is_some()
+        && executable_interface(scope, interface, &adapter.receiver, closure)
 }

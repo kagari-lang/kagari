@@ -84,6 +84,14 @@ impl GcHeap {
             ));
         };
         let payload = object.payload::<S>()?;
+        if object
+            .payload::<SequencePayload>()
+            .is_ok_and(|sequence| sequence.leased_units.is_some())
+        {
+            return Err(RuntimeError::module_validation(
+                "sequence storage is exclusively borrowed",
+            ));
+        }
         self.native_borrows.set(self.native_borrows.get() + 1);
         let _borrow = NativeBorrow(&self.native_borrows);
         access(payload)

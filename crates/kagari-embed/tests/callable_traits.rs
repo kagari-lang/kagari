@@ -254,7 +254,7 @@ impl Fn<(i32,)> for Increment {
 }
 fn main() -> i32 {
     val xs = [3, 1, 2];
-    collections::sort_by(xs, Compare {});
+    xs.sort_by(Compare {});
     if xs[0] != 1 || xs[2] != 3 { return 0; }
     val mapped = collections::map(xs, Increment {});
     if mapped.next() != Some(2) { return 0; }

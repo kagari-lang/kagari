@@ -78,7 +78,8 @@ fn portable_language_catalog_has_complete_contracts() {
     assert!(generated.text.contains("type Iter: Iterator<Item ="));
     assert!(generated.text.contains("trait FromIterator<T0>"));
     assert!(generated.text.contains("fn from_iter<M0>(source: M0)"));
-    assert!(!generated.text.contains("fn sort"));
+    assert!(generated.text.contains("fn sorted_by_key<M0>"));
+    assert!(generated.text.contains("fn retain("));
 }
 
 #[test]
@@ -279,4 +280,32 @@ fn iterable_requires_a_real_iterator_with_the_same_item() {
                 && error.contains("declared bound")),
         "{errors:#?}"
     );
+}
+
+#[test]
+fn list_method_navigation_uses_language_owned_declarations() {
+    let module = language::declarations();
+    let generated = module.declaration_source().unwrap();
+    let source =
+        "fn main() { val values: List<i32> = [2,1]; values.sorted_by_key(|value| value); }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("list-navigation.kgr", source.into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![]);
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let offset = source.find("sorted_by_key").unwrap();
+    let target = snapshot.definition_at(file, offset).unwrap();
+    let declaration = snapshot.source(target.location.file).unwrap();
+    assert_eq!(declaration.name(), generated.uri);
+    assert_eq!(
+        &declaration.text()[target.location.range.start..target.location.range.end],
+        "sorted_by_key"
+    );
+    let docs = snapshot.documentation_at(file, offset).unwrap();
+    assert!(docs.documentation.contains("during comparisons"));
+    assert!(docs.written_signature.contains("Ord"));
 }

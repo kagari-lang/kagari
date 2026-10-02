@@ -245,9 +245,46 @@ pub fn lower_program_to_mir(
                     // Static generic methods do not occupy an interface receiver slot.
                     continue;
                 }
+                // A table can expose methods whose additional bounds are proved
+                // only at a call site. Keep their receiver binders in a shared
+                // native entry rather than demanding an uncallable specialization.
+                let conditional = owner
+                    .declarations
+                    .definition_target(&method)
+                    .and_then(|target| match target {
+                        ResolvedName::Function(id) => {
+                            owner.typed.functions.iter().find(|f| f.id == id)
+                        }
+                        _ => None,
+                    })
+                    .is_some_and(|function| {
+                        matches!(function.implementation, FunctionImplementation::Native(_))
+                            && function.bounds.iter().any(|(ty, constraints)| {
+                                constraints.iter().any(|constraint| {
+                                    !signature
+                                        .bounds
+                                        .get(ty)
+                                        .is_some_and(|assumed| assumed.contains(constraint))
+                                })
+                            })
+                    });
                 let instance = ConcreteFunctionIdentity {
                     declaration: method.clone(),
-                    arguments: arguments.clone(),
+                    arguments: if conditional {
+                        arguments
+                            .iter()
+                            .enumerate()
+                            .map(|(position, _)| {
+                                GenericParameterAbi {
+                                    owner: method.clone(),
+                                    position,
+                                }
+                                .as_type()
+                            })
+                            .collect()
+                    } else {
+                        arguments.clone()
+                    },
                 };
                 if seen.insert(instance.clone()) {
                     requests

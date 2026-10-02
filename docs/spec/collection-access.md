@@ -118,7 +118,7 @@ methods continue returning their concrete receiver.
 
 ## Foundation algorithms
 
-The accepted [foundation completion plan](../foundation-api-completion.md) adds
+The [foundation completion plan](../foundation-api-completion.md) defines
 sorted, sorted_by, sorted_by_key, reversed and distinct to List; sort, sort_by,
 sort_by_key, reverse, retain and dedup belong to MutableList. Method-specific Ord
 and Eq bounds do not restrict construction of the interface itself. Key methods
@@ -134,10 +134,16 @@ leave partial progress. Completed callback effects remain visible. New-result
 methods copy the collection structure without cloning referenced elements.
 Comparator consistency is the caller's obligation; comparison counts are unspecified.
 
-Implementation migration is in progress: FA03 replaces the existing optional
-sort/sort_by free functions and transactional permutation path with these methods.
-The old failure behavior is not the target contract and must not be preserved
-through rollback-only buffers.
+Native direct sequence edits hold an exclusive lease on receiver slots. Callback
+access to those slots is rejected until the lease ends; unrelated values and
+referenced element objects remain usable. Storage is restored on every exit path,
+including errors and unwinds, with completed edits preserved.
+
+The former sort/sort_by free functions are replaced by these trait methods.
+ArrayList operates on its actual compact buffer. Custom defaults traverse the
+selected iterator into typed working storage; sorting and reversal write through
+set, while retain and dedup remove rejected elements as they proceed. No atomic
+bulk commit or rollback-only storage buffer is required.
 
 MapIterator retains its source cursor and mapper. Constructing it does not call
 the mapper. Aliases share progress, and next consumes its input before invoking

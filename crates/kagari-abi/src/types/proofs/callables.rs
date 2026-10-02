@@ -5,9 +5,10 @@ use crate::{
     native_import::{
         NativeSignature,
         callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
+        result::NativeResultAdapter,
     },
     types::{
-        ConcreteFunctionIdentity, GenericBoundAbi, GenericParameterAbi, matching,
+        AbiType, ConcreteFunctionIdentity, GenericBoundAbi, GenericParameterAbi, matching,
         proofs::ProofCatalog,
         substitution::{TypeSubstitution, TypeTransformError},
     },
@@ -18,6 +19,50 @@ use kagari_common::{
 };
 
 impl ProofCatalog<'_> {
+    pub fn native_result_matches(
+        &self,
+        selected: &NativeResultAdapter,
+        result: &AbiType,
+        assumptions: &[GenericBoundAbi],
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        let Some(table) = self
+            .implementations
+            .iter()
+            .find(|table| table.declaration() == &selected.implementation.declaration)
+        else {
+            return Ok(false);
+        };
+        let Some(interface) = table.interface() else {
+            return Ok(false);
+        };
+        if table.parameters().len() != selected.implementation.arguments.len() {
+            return Ok(false);
+        }
+        let mut substitution = TypeSubstitution::default();
+        for (parameter, argument) in table
+            .parameters()
+            .iter()
+            .zip(&selected.implementation.arguments)
+        {
+            substitution.bind(&parameter.owner, parameter.position, argument);
+        }
+        if self.normalize(&substitution.apply(table.receiver(), cancel)?, cancel)?
+            != selected.receiver
+            || self.normalize(
+                &AbiType::Trait(substitution.apply_nominal(interface, cancel)?),
+                cancel,
+            )? != *result
+        {
+            return Ok(false);
+        }
+        for bound in substitution.apply_bounds(table.bounds(), cancel)? {
+            if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
     pub fn shared_method_matches(
         &self,
         selected: &SharedMethodWitness,

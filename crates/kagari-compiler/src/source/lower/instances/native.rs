@@ -48,7 +48,7 @@ impl InstancePlanner<'_> {
         if !arguments.is_empty() {
             self.charge_layout_instance(span)?;
         }
-        import.callables = self.native_callables(&import, span)?;
+        import.callables = self.native_callables(&mut import, span)?;
         if !import.structurally_valid() {
             return Err(invalid());
         }
@@ -110,6 +110,7 @@ impl InstancePlanner<'_> {
             .apply_bounds(&declared.function.bounds, &self.options.cancel)
             .map_err(|_| invalid())?;
         let import = NativeImport {
+            result_adapter: None,
             generic: (!parameters.is_empty()).then(|| GenericBody {
                 parameters,
                 bounds: requirements.clone(),

@@ -8,6 +8,7 @@ use crate::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         context::{CallableOwner, LinkedCallable, LinkedOperation},
+        result::LinkedResultAdapter,
         storage::NativeStorage,
     },
 };
@@ -55,6 +56,7 @@ pub(crate) fn link_host(
         signature,
         scoped_signature: None,
         selected: Box::new([]),
+        result_adapter: None,
     })
 }
 
@@ -96,7 +98,10 @@ impl NativeRegistry {
                         .iter()
                         .map(|p| p.ty.clone())
                         .collect(),
-                    result: declaration.function.return_type.clone(),
+                    result: declaration
+                        .concrete_result
+                        .clone()
+                        .unwrap_or_else(|| declaration.function.return_type.clone()),
                 },
                 &registration.required_catalog,
             )?;
@@ -139,9 +144,11 @@ impl NativeRegistry {
                 "native binding differs from its registered contract",
             ));
         }
-        entry
-            .binding
-            .check(&import.signature, &entry.required_catalog)?;
+        let mut signature = import.signature.clone();
+        if let Some(adapter) = &import.result_adapter {
+            signature.result = adapter.receiver.clone();
+        }
+        entry.binding.check(&signature, &entry.required_catalog)?;
         let selected = import
             .callables
             .iter()
@@ -188,7 +195,8 @@ impl NativeRegistry {
             .collect::<NativeResult<Vec<_>>>()?;
         Ok(Rc::new(LinkedNativeFunction {
             binding: entry.binding.clone(),
-            signature: import.signature.clone(),
+            signature,
+            result_adapter: LinkedResultAdapter::link(import, program)?,
             scoped_signature: None,
             selected: selected.into_boxed_slice(),
         }))

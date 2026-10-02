@@ -10,8 +10,8 @@ methods and built-in String inherent methods. The approved follow-up includes
 generic interface methods with checked type/constraint argument passing for both
 script and native implementations, and nontransactional in-place collection
 operations without rollback-only buffering. The bounded API scope is accepted;
-foundation assembly is now mandatory. Atomic sorting descriptions below still
-describe the storage baseline until FA03 is integrated.
+foundation assembly is now mandatory. FA03 is migrating trait methods on top of
+the direct scoped sequence-edit path described below.
 
 The completed [native collections reset plan](native-provider-refactor.md) records
 the baseline implementation and acceptance ledger. Phases 1-3 replaced the
@@ -42,8 +42,9 @@ binding/storage closure atomically. Runtime construction installs the foundation
 and bundled collection algorithms unconditionally, including source-free execution.
 Engine construction supplies their declarations to source analysis and installs
 only explicit application modules afterward. There is no foundation opt-out.
-The current bounded module exports sort, sort_by and lazy map; FA03 replaces the
-sort free functions with List/MutableList methods and retains lazy map. Additional
+List/MutableList declare sorting, reversal and filtering as native default methods;
+ArrayList supplies compact storage overrides. The bundled collection module keeps
+lazy map as an ordinary native function. Additional
 containers and algorithms remain application-installable future modules.
 
 HIR consumes native ModuleDecl records directly for static checking, generic
@@ -53,6 +54,15 @@ to recover executable semantics. Portable MIR/bytecode retain native imports,
 concrete signatures, declaration contracts and selected callable witnesses. ABI
 verification has no syntax or HIR dependency. Loading compares those records with
 the installed declarations before preparing entries and selected targets.
+
+A native body can declare `produces(concrete_type)` while its exported signature
+returns an interface. Registration checks the concrete result's trait conformance
+and the Rust result codec. Compilation selects the exact interface implementation
+and arguments, retaining them on the native import. Portable validation rechecks
+that proof and its executable table. Invocation validates the concrete value and
+boxes it through that table, preserving generic argument scopes and generation
+ownership. It does not search for a trait implementation at runtime. The same
+path serves application functions, native defaults and foundation methods.
 
 Implicit language protocols materialize ordinary checked executable adapters.
 Their origin, exact receiver types and signatures remain explicit portable facts;
@@ -92,11 +102,13 @@ and stable key tokens; script Eq/Hash calls run outside table borrows.
 
 sort uses Rust's stable slice sort. Infallible primitive ordering sorts a compact
 buffer directly. Script ordering and supplied comparators use a SequenceEdit
-working buffer and a validated permutation: successful completion publishes the
-order once, while failure preserves original slots and completed effects on
-referenced payloads. Mutation guards reject alias writes during the edit. A first
-comparator error suppresses all further user comparisons. No sorting state machine
-or second Kagari implementation serves production execution.
+lease of the actual buffer, with no storage clone or index permutation. An explicit
+root snapshot protects reference-bearing values while Rust uses sorting scratch
+space; scalar buffers need no such snapshot. Receiver slots are exclusively
+borrowed during the lease, which restores completed edits on every exit path.
+Failure preserves original elements but may change their order; completed effects
+on referenced payloads remain. A first comparator error suppresses further user
+comparisons. No sorting state machine or Kagari algorithm implementation is used.
 
 The library-owned MapIterator payload stores a NativeCursor and StoredCallable.
 Aliases share progress, and each next invokes its mapper synchronously. Cursor

@@ -140,6 +140,13 @@ impl References {
     }
     fn declaration(&mut self, declaration: &NativeDeclaration) -> Result<(), RuntimeError> {
         self.function(&declaration.function)?;
+        if let Some(receiver) = &declaration.concrete_result {
+            self.ty(receiver)?;
+            if let AbiType::Trait(interface) = &declaration.function.return_type {
+                self.pending
+                    .push(Reference::Obligation(receiver.clone(), interface.clone()));
+            }
+        }
         for requirement in &declaration.callable_requirements {
             self.ty(&requirement.receiver)?;
             self.nominal(&requirement.interface)?;
@@ -277,7 +284,7 @@ impl DeclarationCatalog {
     }
 
     pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {
-        ProofCatalog::new(
+        let catalog = ProofCatalog::new(
             self.implementations
                 .iter()
                 .map(|(declaration, implementation)| Implementation::Native {
@@ -298,6 +305,28 @@ impl DeclarationCatalog {
                 "native template defaults or selected calls differ from their declared contracts",
             )
         })?;
+        for declaration in self.declarations.values() {
+            if let Some(receiver) = &declaration.concrete_result {
+                let AbiType::Trait(interface) = &declaration.function.return_type else {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native concrete result requires an interface return",
+                    ));
+                };
+                if !catalog
+                    .constraints_hold(
+                        receiver,
+                        &[ConstraintAbi::Trait(interface.clone())],
+                        &declaration.function.bounds,
+                        &CancellationToken::default(),
+                    )
+                    .map_err(|_| RuntimeError::metadata_conflict("invalid native result proof"))?
+                {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native concrete result does not implement its return interface",
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 }

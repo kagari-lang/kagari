@@ -42,6 +42,7 @@ impl GcHeap {
             self,
             &ty,
             SequencePayload {
+                leased_units: None,
                 element,
                 contract,
                 values,
@@ -94,6 +95,7 @@ impl GcHeap {
             self,
             &ty,
             SequencePayload {
+                leased_units: None,
                 element,
                 contract,
                 values,
@@ -120,12 +122,19 @@ impl GcHeap {
                 return Err(invalid());
             };
             object.replaced_payload(SequencePayload {
+                leased_units: None,
                 element: contract.ty.clone(),
                 contract,
                 values,
             })?
         };
         self.alloc_native(object)
+    }
+    pub(crate) fn clone_array(&self, source: HeapObjectId) -> Result<HeapObjectId, RuntimeError> {
+        let values = self
+            .with_array(source, |values| values.copy_range(0, values.len()))
+            .ok_or_else(invalid)??;
+        self.alloc_array_from(source, values)
     }
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
         self.with_array(id, SequenceStorage::len)
@@ -360,7 +369,11 @@ impl GcHeap {
         if !matches!(object.ty, AbiType::Array(..)) {
             return None;
         }
-        Some(f(&object.payload::<SequencePayload>().ok()?.values))
+        let sequence = object.payload::<SequencePayload>().ok()?;
+        if sequence.leased_units.is_some() {
+            return None;
+        }
+        Some(f(&sequence.values))
     }
     pub(super) fn with_array_mut<R>(
         &self,

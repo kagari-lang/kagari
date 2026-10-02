@@ -1,6 +1,5 @@
-//! Always-installed algorithms over the language-owned ArrayList storage.
+//! Always-installed lazy adapters over language-owned collection storage.
 mod mapping;
-mod sorting;
 use crate::native::{
     binding::NativeResult, builder::ModuleBuilder, language::LanguageContracts,
     module::NativeModule,
@@ -9,7 +8,6 @@ use crate::native::{
 pub fn module() -> NativeResult<NativeModule> {
     let language = LanguageContracts::default();
     let mut module = ModuleBuilder::new("std::collections", &language);
-    sorting::register(&mut module, &language)?;
     mapping::register(&mut module, &language)?;
     module.finish()
 }

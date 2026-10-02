@@ -20,12 +20,12 @@ fn change<C: MutableList<i32>>(values: C) {
 }
 
 
-use std::collections::{sort, sort_by, map};
+use std::collections::map;
 use external::fixture::hold;
 
 fn library_and_object() -> i32 {
-    val values = [20, 1, 19]; sort(values);
-    sort_by(values, |a, b| b.cmp(a));
+    val values = [20, 1, 19]; values.sort();
+    values.sort_by(|a, b| b.cmp(a));
     val offset = [2];
     val handler = hold(values, |items| { items[0] += offset[0]; items });
     val shared = handler.apply();

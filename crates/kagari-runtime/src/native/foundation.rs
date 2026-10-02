@@ -2,6 +2,7 @@
 //! The declaration catalog is the single authority for every signature and bound.
 mod construction;
 mod hash;
+mod lists;
 use crate::gc::HeapObjectId;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
@@ -95,11 +96,9 @@ pub fn module() -> NativeResult<NativeModule> {
             | "$foundation_RangeTo_end_bound"
             | "$foundation_RangeToInclusive_end_bound"
             | "$foundation_RangeFull_end_bound" => end_bound,
-            _ => {
-                return Err(RuntimeError::metadata_conflict(format!(
-                    "missing foundation implementation {name}"
-                )));
-            }
+            _ => lists::entry(name).ok_or_else(|| {
+                RuntimeError::metadata_conflict(format!("missing foundation implementation {name}"))
+            })?,
         };
         bindings.insert(
             id.clone(),

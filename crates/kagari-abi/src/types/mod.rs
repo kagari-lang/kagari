@@ -108,6 +108,8 @@ pub struct FunctionAbi {
 /// methods absent from the public ABI. The function uses the same checked model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeDeclaration {
+    /// Concrete value produced by Rust before a checked interface-result adapter.
+    pub concrete_result: Option<AbiType>,
     pub declaration: DefinitionId,
     pub function: FunctionAbi,
     #[serde(deserialize_with = "crate::decode_limits::nested")]

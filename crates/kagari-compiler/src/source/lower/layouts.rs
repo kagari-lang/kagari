@@ -78,6 +78,12 @@ pub(super) fn collect(
     let mut scope = functions
         .iter()
         .filter_map(|function| function.semantic.generic.as_ref())
+        .chain(
+            planner
+                .native_targets
+                .iter()
+                .filter_map(|import| import.generic.as_ref()),
+        )
         .flat_map(|body| body.parameters.iter().cloned())
         .collect::<Vec<_>>();
     while let Some((mut ty, span)) = pending.pop_front() {

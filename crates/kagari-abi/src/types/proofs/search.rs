@@ -127,6 +127,50 @@ impl ProofCatalog<'_> {
         Ok(())
     }
 
+    // An unspecified associated output is still equal to its own projection.
+    // This lets a default pass that output as a hidden type argument without
+    // asserting any particular concrete implementation for it.
+    fn assumption_satisfies(
+        &self,
+        available: &NominalAbiType,
+        required: &NominalAbiType,
+        receiver: &AbiType,
+    ) -> bool {
+        available.declaration == required.declaration
+            && available.arguments == required.arguments
+            && required.associated_types.iter().all(|(member, value)| {
+                if let Some(actual) = available.associated_types.get(member) {
+                    return actual == value;
+                }
+                let AbiType::Projection {
+                    receiver: projected,
+                    interface,
+                    member: output,
+                    arguments,
+                } = value
+                else {
+                    return false;
+                };
+                projected.as_ref() == receiver
+                    && output == member
+                    && arguments.is_empty()
+                    && interface.declaration == available.declaration
+                    && interface.arguments == available.arguments
+                    && interface
+                        .associated_types
+                        .iter()
+                        .all(|(key, ty)| available.associated_types.get(key) == Some(ty))
+                    && self
+                        .contracts
+                        .get(&available.declaration)
+                        .is_some_and(|contract| {
+                            contract.associated_types.iter().any(|output| {
+                                output.declaration == *member && output.generic_params.is_empty()
+                            })
+                        })
+            })
+    }
+
     pub(super) fn prove(
         &self,
         interface: &NominalAbiType,
@@ -147,7 +191,7 @@ impl ProofCatalog<'_> {
                 if self
                     .ancestry(available, receiver, budget.cancel)?
                     .iter()
-                    .any(|parent| satisfies(parent, interface))
+                    .any(|parent| self.assumption_satisfies(parent, interface, receiver))
                 {
                     return Ok(true);
                 }

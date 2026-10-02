@@ -1,6 +1,7 @@
 #![cfg(feature = "source")]
 mod contracts;
 mod external;
+mod results;
 mod support;
 // The source emitter and standalone artifact consumer share the reviewed provider.
 mod library;

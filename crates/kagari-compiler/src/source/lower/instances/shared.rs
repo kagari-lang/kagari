@@ -122,7 +122,23 @@ impl InstancePlanner<'_> {
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), MirLoweringError> {
-        let shared_receiver = arguments.iter().any(|argument| !argument.is_concrete());
+        let mut owner = declaration.clone();
+        owner.path.pop();
+        let conditional = self
+            .registered_native_declaration(declaration)
+            .zip(self.catalog.implementation_signature(&owner))
+            .is_some_and(|(native, implementation)| {
+                let outer = checked_bounds(&implementation.bounds);
+                native.function.bounds.iter().any(|bound| {
+                    bound.constraints.iter().any(|constraint| {
+                        !outer.iter().any(|assumed| {
+                            assumed.ty == bound.ty && assumed.constraints.contains(constraint)
+                        })
+                    })
+                })
+            });
+        let shared_receiver = arguments.iter().any(|argument| !argument.is_concrete())
+            || (conditional && !arguments.is_empty());
         let canonical = arguments
             .iter()
             .enumerate()

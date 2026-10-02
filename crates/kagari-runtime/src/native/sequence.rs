@@ -164,6 +164,7 @@ pub(crate) struct SequencePayload {
     pub(crate) element: AbiType,
     pub(crate) contract: Rc<StorageType>,
     pub(crate) values: SequenceStorage,
+    pub(crate) leased_units: Option<usize>,
 }
 impl NativePayload for SequencePayload {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
@@ -172,7 +173,7 @@ impl NativePayload for SequencePayload {
         }
     }
     fn units(&self) -> usize {
-        self.values.len()
+        self.leased_units.unwrap_or_else(|| self.values.len())
     }
 }
 impl NativeStorage {
@@ -185,6 +186,7 @@ impl NativeStorage {
             }
             .ok_or_else(|| RuntimeError::module_validation("sequence element type"))?;
             Ok(SequencePayload {
+                leased_units: None,
                 element: item.clone(),
                 contract: context.element_contract(element)?,
                 values: SequenceStorage::empty(item),

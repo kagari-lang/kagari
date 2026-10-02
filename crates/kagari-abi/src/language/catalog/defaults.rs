@@ -408,7 +408,12 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
         let mut substitution = TypeSubstitution::for_owner(&contract_owner, &items);
         substitution.bind_receiver(&contract_owner, &receiver);
         for mut method in contract.methods {
-            if method.return_type != unit() {
+            if method.return_type != unit()
+                || matches!(
+                    method.implementation,
+                    CallableImplementation::NativeDefault(_)
+                )
+            {
                 continue;
             }
             for param in &mut method.params {

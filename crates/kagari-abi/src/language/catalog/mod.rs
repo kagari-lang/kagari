@@ -5,6 +5,7 @@ mod construction;
 mod construction_defaults;
 mod contracts;
 mod defaults;
+mod list_methods;
 use crate::{declaration::ModuleDecl, language};
 use std::sync::{Arc, OnceLock};
 
@@ -14,8 +15,10 @@ pub fn declarations() -> ModuleDecl {
     contracts::declare(&mut module);
     construction::declare(&mut module);
     collections::declare(&mut module);
+    list_methods::declare(&mut module);
     defaults::declare(&mut module);
     construction_defaults::declare(&mut module);
+    list_methods::configure_overrides(&mut module);
     module
 }
 

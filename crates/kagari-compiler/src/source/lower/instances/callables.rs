@@ -45,9 +45,10 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn native_callables(
         &mut self,
-        import: &NativeImport,
+        import: &mut NativeImport,
         span: Span,
     ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+        import.result_adapter = self.native_result_adapter(import, span)?;
         let Some(declaration) = self
             .registered_native_declaration(&import.instance.declaration)
             .cloned()

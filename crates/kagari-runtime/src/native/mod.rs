@@ -14,6 +14,7 @@ pub(crate) mod hashed;
 pub mod language;
 pub mod module;
 pub(crate) mod registry;
+mod result;
 pub mod returns;
 pub mod scalar;
 mod selected;

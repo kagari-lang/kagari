@@ -10,6 +10,7 @@ use crate::{
     native::{
         catalog::DeclarationCatalog,
         context::{CallContext, LinkedCallable, LinkedOperation},
+        result::LinkedResultAdapter,
     },
     value::Value,
 };
@@ -151,6 +152,7 @@ pub struct LinkedNativeFunction {
     pub(crate) signature: NativeSignature,
     pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
     pub(crate) selected: Box<[LinkedOperation]>,
+    pub(crate) result_adapter: Option<LinkedResultAdapter>,
 }
 impl LinkedNativeFunction {
     pub(crate) fn apply(
@@ -182,6 +184,11 @@ impl LinkedNativeFunction {
             binding: self.binding.clone(),
             signature,
             scoped_signature,
+            result_adapter: self
+                .result_adapter
+                .as_ref()
+                .map(|adapter| adapter.apply(runtime, owner, environment.clone()))
+                .transpose()?,
             selected: self
                 .selected
                 .iter()
@@ -219,7 +226,7 @@ impl LinkedNativeFunction {
         let result = (self.binding.entry)(context);
         context.poll()?;
         let value = result?;
-        if !self.binding.converted_result
+        if (!self.binding.converted_result || self.result_adapter.is_some())
             && !match &self.scoped_signature {
                 Some(signature) => signature
                     .result
@@ -235,6 +242,9 @@ impl LinkedNativeFunction {
                 "native result differs from its Kagari declaration",
             ));
         }
-        Ok(value)
+        match &self.result_adapter {
+            Some(adapter) => adapter.convert(context.runtime, context.owner, value),
+            None => Ok(value),
+        }
     }
 }

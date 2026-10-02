@@ -1,7 +1,7 @@
 //! Checked native applications. Declarations own signatures; IDs select installed entries.
 use crate::{
     callable::{generic::GenericBody, witness::OperationWitness},
-    native_import::linked::matches_declaration,
+    native_import::{linked::matches_declaration, result::NativeResultAdapter},
     types::{
         AbiType, ConcreteFunctionIdentity, GenericBoundAbi, NativeDeclaration,
         proofs::ProofCatalog,
@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 pub mod callables;
 mod linked;
 pub mod protocol;
+pub mod result;
 
 /// An installed declaration names an entry within its module's binding namespace.
 /// The name does not select compiler/verifier policy or grant registration authority.
@@ -41,6 +42,8 @@ pub struct NativeSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeImport {
+    /// Convert a validated Rust body result using this preselected interface table.
+    pub result_adapter: Option<NativeResultAdapter>,
     /// A shared native entry retains method binders in its template application.
     pub generic: Option<GenericBody>,
     pub instance: ConcreteFunctionIdentity,
@@ -57,6 +60,7 @@ pub struct NativeImport {
 impl NativeImport {
     pub fn from_host(declaration: &HostFunctionDeclaration) -> Self {
         Self {
+            result_adapter: None,
             generic: None,
             instance: ConcreteFunctionIdentity {
                 declaration: declaration.id.clone(),
@@ -109,6 +113,10 @@ impl NativeImport {
             && self.signature.params.len() <= 4096
             && self.requirements.len() <= 4096
             && self.callables.len() <= 4096
+            && self
+                .result_adapter
+                .as_ref()
+                .is_none_or(|adapter| adapter.structurally_valid(parameters))
             && self
                 .callables
                 .iter()
