@@ -1,6 +1,4 @@
-use kagari_abi::{
-    budget::LogicalBudgetCharge, ids::FunctionRef, scalar::BuiltinType, types::AbiType,
-};
+use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostParameter, HostPassingStyle,
     type_declaration::HostTypeDeclaration, value_type::HostValueType,
@@ -153,14 +151,9 @@ fn host_scopes_keep_the_root_budget_until_all_resources_are_released() {
     assert!(runtime.gc().validate_value(&a));
     assert!(runtime.gc().validate_value(&b));
     drop(session);
-    runtime
-        .consume_logical_charge(LogicalBudgetCharge::Step)
-        .unwrap();
+    runtime.resources().poll_execution().unwrap();
     assert_eq!(
-        runtime
-            .consume_logical_charge(LogicalBudgetCharge::Step)
-            .unwrap_err()
-            .kind(),
+        runtime.resources().poll_execution().unwrap_err().kind(),
         RuntimeErrorKind::ResourceLimitExceeded
     );
     assert!(runtime.host_scope(&[]).is_err());

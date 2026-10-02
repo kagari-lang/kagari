@@ -1,5 +1,5 @@
 use crate::{source::lower::lower_to_mir, tests::common};
-use kagari_abi::budget::LogicalBudgetCharge;
+
 use kagari_bytecode::{
     artifact::KbcArtifact, instruction::BytecodeInstruction, program::verify_program,
     verifier::BytecodeVerificationError,
@@ -44,7 +44,7 @@ fn removed_pure_operations_keep_charge_points_and_origins() {
         .unwrap();
     assert_eq!(point.budget(), LogicalBudgetCharge::Step);
     assert_eq!(point.budget().instruction_steps(), 1);
-    assert_eq!(point.safepoint(), SafepointKind::Budget);
+    assert_eq!(point.safepoint(), SafepointKind::Poll);
     let after = common::bytecode_with_edited_root(&checked, &verified);
     assert!(matches!(
         after.modules[after.root.index()].functions[0].instructions[index],

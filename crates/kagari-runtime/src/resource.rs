@@ -4,29 +4,25 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ResourcePolicy {
-    pub max_dirty_records: Option<usize>,
-    pub max_instruction_steps: Option<u64>,
+/// Runtime-wide protection against accidental recursion. No execution metering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeLimits {
     pub max_call_depth: Option<u32>,
-    pub max_heap_units: Option<usize>,
-    pub max_allocation_units: Option<usize>,
-    pub max_host_calls: Option<u64>,
-    pub max_reflection_operations: Option<u64>,
-    pub max_modules: Option<usize>,
-    pub max_wall_time_ms: Option<u64>,
+}
+impl Default for RuntimeLimits {
+    fn default() -> Self {
+        Self {
+            max_call_depth: Some(256),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ResourceCounters {
-    pub instruction_steps: u64,
     pub current_call_depth: u32,
     pub peak_call_depth: u32,
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
-    pub allocation_units: usize,
-    pub host_calls: u64,
-    pub reflection_operations: u64,
     pub loaded_modules: usize,
 }
 
@@ -34,7 +30,7 @@ pub struct ResourceCounters {
 pub struct ResourceState {
     active_session: RefCell<Option<Rc<SessionState>>>,
     execution: ExecutionState,
-    policy: ResourcePolicy,
+    limits: RuntimeLimits,
     counters: RefCell<ResourceCounters>,
 }
 
@@ -43,7 +39,6 @@ pub(crate) struct HeapGrowth<'a> {
     session: Option<Rc<SessionState>>,
     counters: RefMut<'a, ResourceCounters>,
     live: usize,
-    allocated: usize,
 }
 
 /// Account temporary native storage until preparation commits or fails.
@@ -60,7 +55,6 @@ impl HeapGrowth<'_> {
     pub(crate) fn commit(mut self) {
         self.counters.current_heap_units = self.live;
         self.counters.peak_heap_units = self.counters.peak_heap_units.max(self.live);
-        self.counters.allocation_units = self.allocated;
         if let Some(session) = self.session {
             session
                 .peak_heap_units
@@ -70,20 +64,13 @@ impl HeapGrowth<'_> {
 }
 
 impl ResourceState {
-    pub fn new(policy: ResourcePolicy) -> Self {
+    pub fn new(limits: RuntimeLimits) -> Self {
         Self {
             active_session: RefCell::new(None),
             execution: Default::default(),
-            policy,
+            limits,
             counters: RefCell::new(ResourceCounters::default()),
         }
-    }
-
-    pub fn policy(&self) -> ResourcePolicy {
-        self.active_session
-            .borrow()
-            .as_ref()
-            .map_or(self.policy, |session| session.options.resources)
     }
 
     pub(crate) fn active_session(&self) -> Option<Rc<SessionState>> {
@@ -126,13 +113,6 @@ impl ResourceState {
         Ok(())
     }
 
-    fn baseline(&self) -> ResourceCounters {
-        self.active_session
-            .borrow()
-            .as_ref()
-            .map_or(ResourceCounters::default(), |session| session.baseline)
-    }
-
     pub(crate) fn limit(&self, name: &'static str) -> RuntimeError {
         let error = RuntimeError::resource_limit(name);
         self.active_session
@@ -163,41 +143,14 @@ impl ResourceState {
 
     pub(crate) fn prepare_dirty_record(&self, current: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
-        let next = current
+        let _next = current
             .checked_add(1)
             .ok_or_else(|| self.limit("dirty records"))?;
-        if self
-            .policy()
-            .max_dirty_records
-            .is_some_and(|limit| next > limit)
-        {
-            return Err(self.limit("dirty records"));
-        }
         Ok(())
     }
 
     pub fn counters(&self) -> ResourceCounters {
         *self.counters.borrow()
-    }
-
-    pub fn consume_instruction_step(&self) -> Result<(), RuntimeError> {
-        self.consume_instruction_steps(1)
-    }
-
-    pub fn consume_instruction_steps(&self, steps: u64) -> Result<(), RuntimeError> {
-        self.poll_execution()?;
-        let mut counters = self.counters.borrow_mut();
-        let next = counters
-            .instruction_steps
-            .checked_add(steps)
-            .ok_or_else(|| self.limit("instruction steps"))?;
-        if let Some(max) = self.policy().max_instruction_steps
-            && next - self.baseline().instruction_steps > max
-        {
-            return Err(self.limit("instruction steps"));
-        }
-        counters.instruction_steps = next;
-        Ok(())
     }
 
     pub(crate) fn enter_call(&self) -> Result<(), RuntimeError> {
@@ -207,7 +160,7 @@ impl ResourceState {
             .current_call_depth
             .checked_add(1)
             .ok_or_else(|| self.limit("call depth"))?;
-        if let Some(max) = self.policy().max_call_depth
+        if let Some(max) = self.limits.max_call_depth
             && next > max
         {
             return Err(self.limit("call depth"));
@@ -238,25 +191,10 @@ impl ResourceState {
             .current_heap_units
             .checked_add(units)
             .ok_or_else(|| self.limit("heap units"))?;
-        let allocated = counters
-            .allocation_units
-            .checked_add(units)
-            .ok_or_else(|| self.limit("allocation units"))?;
-        if self.policy().max_heap_units.is_some_and(|max| live > max) {
-            return Err(self.limit("heap units"));
-        }
-        if self
-            .policy()
-            .max_allocation_units
-            .is_some_and(|max| allocated - self.baseline().allocation_units > max)
-        {
-            return Err(self.limit("allocation units"));
-        }
         Ok(HeapGrowth {
             session: self.active_session(),
             counters,
             live,
-            allocated,
         })
     }
 
@@ -279,38 +217,6 @@ impl ResourceState {
             .expect("heap accounting cannot underflow");
     }
 
-    pub fn consume_host_call(&self) -> Result<(), RuntimeError> {
-        self.poll_execution()?;
-        let mut counters = self.counters.borrow_mut();
-        let next = counters
-            .host_calls
-            .checked_add(1)
-            .ok_or_else(|| self.limit("host calls"))?;
-        if let Some(max) = self.policy().max_host_calls
-            && next - self.baseline().host_calls > max
-        {
-            return Err(self.limit("host calls"));
-        }
-        counters.host_calls = next;
-        Ok(())
-    }
-
-    pub fn consume_reflection_operation(&self) -> Result<(), RuntimeError> {
-        self.poll_execution()?;
-        let mut counters = self.counters.borrow_mut();
-        let next = counters
-            .reflection_operations
-            .checked_add(1)
-            .ok_or_else(|| self.limit("reflection operations"))?;
-        if let Some(max) = self.policy().max_reflection_operations
-            && next - self.baseline().reflection_operations > max
-        {
-            return Err(self.limit("reflection operations"));
-        }
-        counters.reflection_operations = next;
-        Ok(())
-    }
-
     pub(crate) fn admit_modules(&self, additional: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         let mut counters = self.counters.borrow_mut();
@@ -318,11 +224,6 @@ impl ResourceState {
             .loaded_modules
             .checked_add(additional)
             .ok_or_else(|| self.limit("loaded modules"))?;
-        if let Some(max) = self.policy().max_modules
-            && next > max
-        {
-            return Err(self.limit("loaded modules"));
-        }
         counters.loaded_modules = next;
         Ok(())
     }
@@ -341,7 +242,7 @@ impl ResourceState {
 
 impl Default for ResourceState {
     fn default() -> Self {
-        Self::new(ResourcePolicy::default())
+        Self::new(RuntimeLimits::default())
     }
 }
 
@@ -352,26 +253,26 @@ mod tests {
 
     #[test]
     fn enforces_instruction_step_limits() {
-        let resources = ResourceState::new(ResourcePolicy {
+        let resources = ResourceState::new(RuntimeLimits {
             max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         });
 
-        assert!(resources.consume_instruction_step().is_ok());
-        let error = resources.consume_instruction_step().unwrap_err();
+        assert!(resources.poll_execution().is_ok());
+        let error = resources.poll_execution().unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
         assert_eq!(resources.counters().instruction_steps, 1);
     }
 
     #[test]
     fn enforces_bulk_instruction_step_limits() {
-        let resources = ResourceState::new(ResourcePolicy {
+        let resources = ResourceState::new(RuntimeLimits {
             max_instruction_steps: Some(3),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         });
 
-        resources.consume_instruction_steps(2).unwrap();
-        let error = resources.consume_instruction_steps(2).unwrap_err();
+        resources.poll_execution();
+        let error = resources.poll_execution();
 
         assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
         assert_eq!(resources.counters().instruction_steps, 2);
@@ -379,9 +280,9 @@ mod tests {
 
     #[test]
     fn tracks_call_depth_peaks() {
-        let resources = ResourceState::new(ResourcePolicy {
+        let resources = ResourceState::new(RuntimeLimits {
             max_call_depth: Some(2),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         });
 
         resources.enter_call().unwrap();
@@ -394,11 +295,11 @@ mod tests {
 
     #[test]
     fn enforces_allocation_host_and_reflection_limits() {
-        let resources = ResourceState::new(ResourcePolicy {
+        let resources = ResourceState::new(RuntimeLimits {
             max_allocation_units: Some(2),
             max_host_calls: Some(1),
             max_reflection_operations: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         });
 
         resources.prepare_heap_growth(2).unwrap().commit();
@@ -408,16 +309,16 @@ mod tests {
         );
         assert_eq!(resources.counters().allocation_units, 2);
 
-        resources.consume_host_call().unwrap();
+        resources.poll_execution().unwrap();
         assert_eq!(
-            resources.consume_host_call().unwrap_err().kind(),
+            resources.poll_execution().unwrap_err().kind(),
             RuntimeErrorKind::ResourceLimitExceeded
         );
         assert_eq!(resources.counters().host_calls, 1);
 
-        resources.consume_reflection_operation().unwrap();
+        resources.poll_execution().unwrap();
         assert_eq!(
-            resources.consume_reflection_operation().unwrap_err().kind(),
+            resources.poll_execution().unwrap_err().kind(),
             RuntimeErrorKind::ResourceLimitExceeded
         );
         assert_eq!(resources.counters().reflection_operations, 1);

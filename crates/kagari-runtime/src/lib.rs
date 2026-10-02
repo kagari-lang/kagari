@@ -3,7 +3,6 @@ mod loading;
 mod objects;
 use host::HostCallContext;
 use kagari_abi::{
-    budget::LogicalBudgetCharge,
     ids::FunctionRef,
     standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
@@ -69,7 +68,7 @@ use crate::{
     native::callable::PreparedClosure,
     native::{foundation, registry::NativeRegistry},
     reload::ModuleEpochAllocator,
-    resource::{ResourcePolicy, ResourceState},
+    resource::{ResourceState, RuntimeLimits},
     session::{
         ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionPhase, ExecutionSession,
     },
@@ -109,7 +108,7 @@ impl StagedReload {
 pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
 
-    pub resources: ResourcePolicy,
+    pub limits: RuntimeLimits,
 }
 
 #[derive(Debug)]
@@ -166,7 +165,7 @@ impl RootedInterfaceMethod {
 
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
-        let resources = Rc::new(ResourceState::new(config.resources));
+        let resources = Rc::new(ResourceState::new(config.limits));
         let mut runtime = Self {
             gc: Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
@@ -290,7 +289,6 @@ impl Runtime {
         ExecutionOptions {
             phase: ExecutionPhase::Ordinary,
 
-            resources: self.resources.policy(),
             cancellation: Default::default(),
             inputs: Default::default(),
             record_host_calls: false,
@@ -715,11 +713,6 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn consume_logical_charge(&self, charge: LogicalBudgetCharge) -> Result<(), RuntimeError> {
-        self.resources
-            .consume_instruction_steps(charge.instruction_steps())
-    }
-
     pub fn invoke_host(
         &self,
         symbol: &str,
@@ -760,7 +753,7 @@ impl Runtime {
         let result = (|| {
             let context = HostCallContext::new(self, args)?;
             let result = function.invoke(&context, args);
-            self.resources.ensure_execution_allowed()?;
+            self.resources.poll_execution()?;
             let value = result?;
             HostBorrowTable::validate_no_escape(&value)?;
             if !self.gc.validate_value(&value) {
@@ -778,7 +771,7 @@ impl Runtime {
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
         self.resources().ensure_execution_allowed()?;
-        self.resources.consume_reflection_operation()?;
+        self.resources.poll_execution()?;
         Ok(reflection::type_of(&self.gc, value))
     }
 
@@ -788,7 +781,7 @@ impl Runtime {
         field_name: &str,
     ) -> Result<value::Value, RuntimeError> {
         self.resources().ensure_execution_allowed()?;
-        self.resources.consume_reflection_operation()?;
+        self.resources.poll_execution()?;
         reflection::get_field(&self.gc, value, field_name)
             .map_err(|error| RuntimeError::invalid_reflective_read(error.message()))
     }
@@ -800,7 +793,7 @@ impl Runtime {
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
         self.resources().ensure_execution_allowed()?;
-        self.resources.consume_reflection_operation()?;
+        self.resources.poll_execution()?;
         reflection::set_field(&self.gc, value, field_name, next_value)
             .map_err(ReflectionError::into_write_error)
     }
@@ -812,7 +805,7 @@ impl Runtime {
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
         self.resources().ensure_execution_allowed()?;
-        self.resources.consume_reflection_operation()?;
+        self.resources.poll_execution()?;
         reflection::set_index(&self.gc, value, index, next_value)
             .map_err(ReflectionError::into_write_error)
     }

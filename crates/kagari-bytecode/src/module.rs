@@ -6,7 +6,6 @@ use crate::{
     program::ModuleRef,
 };
 use kagari_abi::{
-    budget::LogicalBudgetCharge,
     effects::EffectSet,
     ids::{DebugPointId, FunctionRef},
     layout::{EnumLayout, StructLayout},
@@ -93,8 +92,6 @@ pub struct BytecodeFunction {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionMetadata {
     /// Explicit logical charges in emission order; one entry per executable point.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
-    pub instruction_budgets: Vec<LogicalBudgetCharge>,
     pub semantic: SemanticSlots,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub params: TypeLayoutBuffer,

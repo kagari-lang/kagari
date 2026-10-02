@@ -1,6 +1,5 @@
 //! Shared executable identities and contracts, independent of source analysis.
 
-pub mod budget;
 pub mod callable;
 pub mod contracts;
 pub mod declaration;

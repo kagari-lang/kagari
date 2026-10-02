@@ -15,7 +15,7 @@ use kagari_common::{
     source::SourceFile,
 };
 
-use kagari_runtime::{resource::ResourcePolicy, value::Value};
+use kagari_runtime::{resource::RuntimeLimits, value::Value};
 
 fn exact_compatibility(
     artifact: &kagari_embed::BytecodeArtifact,
@@ -300,9 +300,9 @@ fn main() -> usize {
         )
         .expect("standard resource source should compile");
     let context = ExecutionContext {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..ExecutionContext::default()
     };

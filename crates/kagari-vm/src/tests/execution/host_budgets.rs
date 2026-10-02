@@ -67,9 +67,9 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     let mut metadata = HostFunctionDeclaration::new("host.costly", vec![], HostValueType::I32);
 
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(2),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
 
         ..RuntimeConfig::default()
@@ -127,9 +127,9 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     let calls_for_host = Arc::clone(&calls);
 
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_host_calls: Some(0),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
 
         ..RuntimeConfig::default()

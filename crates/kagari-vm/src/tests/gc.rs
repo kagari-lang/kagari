@@ -10,7 +10,7 @@ use {
 
 use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
 use kagari_runtime::{
-    Runtime, RuntimeConfig, gc::GcHeapConfig, resource::ResourcePolicy, value::Value,
+    Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
 };
 
 fn runtime(max_steps: Option<u64>) -> Runtime {
@@ -18,7 +18,7 @@ fn runtime(max_steps: Option<u64>) -> Runtime {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
         },
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: max_steps,
             ..Default::default()
         },

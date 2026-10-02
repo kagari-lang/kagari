@@ -10,7 +10,7 @@ use kagari_abi::{
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, ConstantOperand, Register};
 use kagari_runtime::{
-    Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_consume_instruction_step,
+    Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_poll_execution,
     module::LoadedModule,
 };
 
@@ -32,7 +32,7 @@ unsafe extern "C" fn constant_i32<const VALUE: i32>(
     result: *mut JitValue,
 ) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_consume_instruction_step(runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }

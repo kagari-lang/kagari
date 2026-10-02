@@ -18,14 +18,14 @@ use {
             HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
             PreparedHostPathWrite,
         },
-        resource::ResourcePolicy,
+        resource::RuntimeLimits,
         value::Value,
     },
 };
 
 fn main() {
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_dirty_records: Some(1),
             ..Default::default()
         },

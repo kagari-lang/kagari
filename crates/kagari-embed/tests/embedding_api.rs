@@ -1,7 +1,4 @@
-use kagari_abi::{
-    budget::LogicalBudgetCharge, ids::FunctionRef, native_import::NativeImport,
-    representation::ValueType,
-};
+use kagari_abi::{ids::FunctionRef, native_import::NativeImport, representation::ValueType};
 use {
     kagari_bytecode::{
         module::RootSlotLayout,
@@ -41,7 +38,7 @@ use {
             HostTypeRegistration,
         },
         metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-        resource::ResourcePolicy,
+        resource::RuntimeLimits,
         value::Value,
     },
 };
@@ -151,7 +148,6 @@ fn host_path_artifact(
         })
         .collect();
     let metadata = FunctionMetadata {
-        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         roots: RootSlotLayout::from_types(&[], &registers),
         registers,
@@ -345,9 +341,9 @@ fn analysis_failures_return_structured_diagnostics() {
 fn execution_context_resource_limits_surface_as_runtime_failures() {
     let engine = KagariEngine::default();
     let context = ExecutionContext {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..ExecutionContext::default()
     };

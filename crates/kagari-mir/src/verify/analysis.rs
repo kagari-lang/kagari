@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, mem};
 
-use kagari_abi::{budget::LogicalBudgetCharge, representation::ValueType};
+use kagari_abi::representation::ValueType;
 
 use crate::{
     analysis::{BlockAnalysis, FunctionAnalysis, PointAnalysis, SafepointKind, SlotSet},
@@ -134,12 +134,12 @@ fn debug_points(
                         if effects.calls || effects.allocates || effects.touches_runtime {
                             SafepointKind::Runtime
                         } else {
-                            SafepointKind::Budget
+                            SafepointKind::Poll
                         }
                     });
             points.push(PointAnalysis {
                 logical_offset: 0,
-                budget: LogicalBudgetCharge::Step,
+
                 live: empty.clone(),
                 roots: empty.clone(),
                 debug_available,

@@ -1,5 +1,4 @@
 use kagari_abi::{
-    budget::LogicalBudgetCharge,
     ids::{DebugPointId, FunctionRef},
     representation::ValueType,
 };
@@ -25,7 +24,7 @@ use {
         error::RuntimeErrorKind,
         host::HostFunction,
         module::ModuleEpochRetention,
-        resource::ResourcePolicy,
+        resource::RuntimeLimits,
         value::{StructValueField, Value},
     },
 };
@@ -45,7 +44,6 @@ fn test_function(
     registers: Vec<ValueType>,
 ) -> BytecodeFunction {
     let metadata = FunctionMetadata {
-        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         roots: RootSlotLayout::from_types(&[], &registers),
         registers,

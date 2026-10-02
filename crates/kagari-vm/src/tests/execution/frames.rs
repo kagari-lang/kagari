@@ -43,9 +43,9 @@ fn executes_simple_arithmetic_function() {
 fn reports_runtime_instruction_step_limit() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { 1 }");
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });
@@ -69,9 +69,9 @@ fn reports_runtime_instruction_step_limit() {
 fn reports_runtime_allocation_unit_limit() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { val values = [1, 2]; 0 }");
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_allocation_units: Some(2),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });
@@ -110,9 +110,9 @@ fn rejects_unverified_bytecode_before_publication() {
     )]);
     bytecode.function_table.clear();
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(0),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });
@@ -273,9 +273,9 @@ fn main() -> i32 { middle() }
 "#,
     );
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_call_depth: Some(2),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });

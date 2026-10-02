@@ -182,7 +182,7 @@ mod native {
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
     };
     use kagari_mir::instruction::{Constant, Instruction, Terminator};
-    use kagari_runtime::jit_abi::jit_consume_instruction_step;
+    use kagari_runtime::jit_abi::jit_poll_execution;
     use kagari_vm::vm::JitExecutionStatus;
     use std::{ffi::c_void, rc::Rc};
 
@@ -192,7 +192,7 @@ mod native {
     struct Backend;
     unsafe extern "C" fn forty_two(runtime: *const c_void, result: *mut JitValue) -> i32 {
         for offset in 0..2 {
-            let status = unsafe { jit_consume_instruction_step(runtime.cast(), offset) };
+            let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
             if status != JIT_STATUS_OK {
                 return status;
             }

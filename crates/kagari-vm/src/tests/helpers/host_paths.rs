@@ -191,7 +191,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             assert!(matches!(vm.runtime().invoke_native_function(&native),
                 Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(ref error), .. }) if error.kind() == RuntimeErrorKind::EngineFault));
             assert_eq!(
-                unsafe { kagari_runtime::jit_abi::jit_consume_instruction_step(vm.runtime(), 0) },
+                unsafe { kagari_runtime::jit_abi::jit_poll_execution(vm.runtime(), 0) },
                 kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT
             );
             assert_eq!(vm.runtime().resources().counters(), before);

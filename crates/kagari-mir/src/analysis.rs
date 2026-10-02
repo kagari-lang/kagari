@@ -1,6 +1,5 @@
 //! Revision-bound execution facts, computed before a verified module is sealed.
 use crate::ids::{BlockId, LocalId, TempId};
-use kagari_abi::budget::LogicalBudgetCharge;
 
 /// A dense set of logical slots. Temporaries and locals have distinct namespaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,12 +35,12 @@ impl SlotSet {
     }
 }
 
-/// Every logical point has a budget/GC/cancellation boundary before its operation.
+/// Every logical point has a GC/cancellation boundary before its operation.
 /// Runtime operations additionally keep operand roots published during their calls;
 /// a newly allocated result must be published before the next boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SafepointKind {
-    Budget,
+    Poll,
     Runtime,
     ControlFlow,
 }
@@ -52,7 +51,7 @@ pub enum SafepointKind {
 #[derive(Debug, Clone)]
 pub struct PointAnalysis {
     pub(crate) logical_offset: usize,
-    pub(crate) budget: LogicalBudgetCharge,
+
     pub(crate) live: SlotSet,
     pub(crate) roots: SlotSet,
     pub(crate) debug_available: SlotSet,
@@ -60,14 +59,11 @@ pub struct PointAnalysis {
 }
 
 impl PointAnalysis {
-    /// Canonical logical offset used for budget failures and runtime error traces.
+    /// Canonical logical offset used for cancellation and runtime error traces.
     pub fn logical_offset(&self) -> usize {
         self.logical_offset
     }
-    /// Charge before this logical operation, independent of native instruction count.
-    pub fn budget(&self) -> LogicalBudgetCharge {
-        self.budget
-    }
+
     pub fn live(&self) -> &SlotSet {
         &self.live
     }

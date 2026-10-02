@@ -3,7 +3,7 @@ mod dispatch;
 mod native;
 mod value_ops;
 
-use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
+use kagari_abi::ids::FunctionRef;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Register},
     program::ModuleRef,
@@ -74,8 +74,6 @@ impl<'a> Executor<'a> {
                 self.runtime.gc_safepoint()?;
                 self.runtime
                     .observe_execution(ExecutionEvent::BeforeInstruction)?;
-                self.runtime
-                    .consume_logical_charge(LogicalBudgetCharge::Step)?;
                 let result = self
                     .stack
                     .start_native_entry(self.runtime, native::invoke_script)
@@ -93,16 +91,12 @@ impl<'a> Executor<'a> {
                 frame.next_instruction()
             };
 
-            let Some((instruction, charge)) = instruction else {
+            let Some(instruction) = instruction else {
                 return Err(VmError::RuntimeError(
                     self.runtime
                         .quarantine_execution_invariant("verified function fell through"),
                 ));
             };
-
-            self.runtime
-                .consume_logical_charge(charge)
-                .map_err(VmError::RuntimeError)?;
 
             match instruction {
                 BytecodeInstruction::Return(value) => {

@@ -2,8 +2,6 @@ use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
 use kagari_common::host_interface::value_type::HostValueType;
 
-use kagari_abi::budget::LogicalBudgetCharge;
-
 #[test]
 fn host_imports_are_interned_and_checked_before_execution() {
     let module = common::bytecode_ok(r#"fn main() { print("one"); print("two"); }"#);

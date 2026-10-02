@@ -36,7 +36,7 @@ impl GcHeap {
         if start > end || end > length {
             return Err(invalid());
         }
-        self.resources.consume_instruction_steps(length as u64)?;
+        self.resources.poll_execution()?;
         let _removed_storage = self.resources.reserve_temporary_heap(end - start)?;
         let _remaining_storage = self
             .resources
@@ -85,7 +85,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let count = self.array_len(id).ok_or_else(invalid)?;
-        self.resources.consume_instruction_steps(count as u64)?;
+        self.resources.poll_execution()?;
         let mut objects = self.objects.borrow_mut();
         let revision = objects
             .get(id.slot)
@@ -110,7 +110,7 @@ impl GcHeap {
         self.ensure_structure_mutable(id)?;
         let count = self.array_len(id).ok_or_else(invalid)?;
         let removed = count.saturating_sub(length);
-        self.resources.consume_instruction_steps(removed as u64)?;
+        self.resources.poll_execution()?;
         self.with_array_mut(id, |values| values.truncate(length))
             .ok_or_else(invalid)?;
         self.release_heap_units(removed);
@@ -144,7 +144,7 @@ impl GcHeap {
         if !source_contract.matches(&target_contract.ty, &target_contract.owner) {
             return Err(invalid());
         }
-        self.resources.consume_instruction_steps(length as u64)?;
+        self.resources.poll_execution()?;
         let _temporary = self.resources.reserve_temporary_heap(length)?;
         let prepared = self
             .with_array(source, |values| values.copy_range(0, length))

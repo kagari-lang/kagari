@@ -30,7 +30,7 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError, native::NativePreparationError},
 };
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
-use kagari_runtime::jit_abi::jit_consume_instruction_step;
+use kagari_runtime::jit_abi::jit_poll_execution;
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl Drop for Owner {
 }
 unsafe extern "C" fn unit(runtime: *const c_void, result: *mut JitValue) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_consume_instruction_step(runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -110,7 +110,7 @@ unsafe impl CodegenBackend for Backend {
         assert_eq!(input.links().helpers.len(), 1);
         assert_eq!(
             input.links().helpers[0].address,
-            jit_consume_instruction_step as *const () as usize
+            jit_poll_execution as *const () as usize
         );
         let configuration = self.configuration();
         let mut artifact = ExecutableFunctionArtifact::new(

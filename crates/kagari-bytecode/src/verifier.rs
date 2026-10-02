@@ -588,11 +588,6 @@ fn verify_metadata_types(
 fn verify_metadata_counts(function: &BytecodeFunction) -> Result<(), BytecodeVerificationError> {
     let checks = [
         (
-            "instruction budgets",
-            function.instructions.len(),
-            function.metadata.instruction_budgets.len(),
-        ),
-        (
             "params",
             usize::from(function.parameter_count),
             function.metadata.params.len(),

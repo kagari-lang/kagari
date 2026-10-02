@@ -5,12 +5,12 @@ use kagari_bytecode::{
 };
 use kagari_runtime::module::LoadedModule;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, error::RuntimeErrorKind, resource::ResourcePolicy, value::Value,
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, resource::RuntimeLimits, value::Value,
 };
 
 fn limited(heap: Option<usize>, allocation: Option<usize>) -> (Runtime, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_heap_units: heap,
             max_allocation_units: allocation,
             ..Default::default()

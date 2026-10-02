@@ -48,7 +48,7 @@ impl GcHeap {
         let input = &input_payload.values;
         let before = source.units();
         let _temporary = self.resources.reserve_temporary_heap(before)?;
-        self.resources.consume_instruction_steps(before as u64)?;
+        self.resources.poll_execution()?;
         let revision = objects[id.slot]
             .revision
             .checked_add(1)

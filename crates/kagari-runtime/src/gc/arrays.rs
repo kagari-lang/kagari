@@ -52,7 +52,7 @@ impl GcHeap {
         if !self.valid_payload(&value) || !self.matches_abi(&value, &element, owner) {
             return Err(invalid());
         }
-        self.resources.consume_instruction_steps(count as u64)?;
+        self.resources.poll_execution()?;
         let units = count
             .checked_add(1)
             .ok_or_else(|| self.resource_limit("array length"))?;
@@ -232,7 +232,7 @@ impl GcHeap {
         self.ensure_callback_mutable(id)?;
         self.validate_array_value(id, &value)?;
         let length = self.array_len(id).ok_or_else(invalid)?;
-        self.resources.consume_instruction_steps(length as u64)?;
+        self.resources.poll_execution()?;
         let _temporary = self.resources.reserve_temporary_heap(length)?;
         let contract = self.array_contract(id).ok_or_else(invalid)?;
         let mut prepared = SequenceStorage::empty(&contract.ty);
@@ -266,7 +266,7 @@ impl GcHeap {
         if !source_contract.matches(&target_contract.ty, &target_contract.owner) {
             return Err(invalid());
         }
-        self.resources.consume_instruction_steps(length as u64)?;
+        self.resources.poll_execution()?;
         let _temporary = self.resources.reserve_temporary_heap(length)?;
         let prepared = self
             .with_array(source, |values| values.copy_range(0, length))
@@ -305,8 +305,7 @@ impl GcHeap {
         {
             return Err(bounds());
         }
-        self.resources
-            .consume_instruction_steps((end - start) as u64)?;
+        self.resources.poll_execution()?;
         let _temporary = self.resources.reserve_temporary_heap(end - start)?;
         let prepared = self
             .with_array(target, |values| values.copy_range(start, end))

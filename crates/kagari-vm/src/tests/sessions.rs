@@ -16,13 +16,13 @@ use kagari_runtime::{
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     error::RuntimeErrorKind,
     host::HostFunction,
-    resource::ResourcePolicy,
+    resource::RuntimeLimits,
     value::Value,
 };
 
 fn runtime(limit: Option<u64>) -> Runtime {
     Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: limit,
             ..Default::default()
         },

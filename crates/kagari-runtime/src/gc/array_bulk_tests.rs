@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Runtime, RuntimeConfig, layout_fixtures::allocation_owner, resource::ResourcePolicy};
+use crate::{Runtime, RuntimeConfig, layout_fixtures::allocation_owner, resource::RuntimeLimits};
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
 
 #[test]
@@ -39,7 +39,7 @@ fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
     assert_eq!(heap.stats().current_heap_units, before);
     assert!(heap.stats().allocation_units > before);
     let mut limited_runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_heap_units: Some(3),
             ..Default::default()
         },
@@ -99,11 +99,11 @@ fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
     assert_eq!(heap.stats().current_heap_units, before);
     drop(guard);
     for policy in [
-        ResourcePolicy {
+        RuntimeLimits {
             max_heap_units: Some(5),
             ..Default::default()
         },
-        ResourcePolicy {
+        RuntimeLimits {
             max_instruction_steps: Some(0),
             ..Default::default()
         },

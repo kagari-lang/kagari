@@ -10,7 +10,7 @@ use crate::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    resource::ResourcePolicy,
+    resource::RuntimeLimits,
     value::{StructValueField, Value},
 };
 
@@ -143,9 +143,9 @@ fn interpreter_conformance_classifies_failure_paths() {
 
     let bytecode = compile_test_bytecode("fn main() -> i32 { 1 + 2 }");
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });

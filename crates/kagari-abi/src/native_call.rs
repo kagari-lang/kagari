@@ -1,6 +1,6 @@
 use crate::native::NativeType;
 use std::ffi::c_void;
-pub const JIT_CONSUME_INSTRUCTION_STEP_SYMBOL: &str = "kagari_runtime.consume_instruction_step";
+pub const JIT_POLL_EXECUTION_SYMBOL: &str = "kagari_runtime.poll_execution";
 
 #[derive(Debug, Clone, Copy)]
 pub struct NativeHelperSignature {
@@ -10,7 +10,7 @@ pub struct NativeHelperSignature {
 }
 
 pub const NATIVE_HELPER_SIGNATURES: &[NativeHelperSignature] = &[NativeHelperSignature {
-    symbol: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL,
+    symbol: JIT_POLL_EXECUTION_SYMBOL,
     parameters: &[NativeType::Pointer, NativeType::I64],
     results: &[NativeType::I32],
 }];

@@ -1,9 +1,9 @@
 //! Bounded scalar simplification and dead pure-operation cleanup.
 //!
-//! These passes preserve blocks, point order, spans, scopes and logical charges.
-//! Removed operations become budget checkpoints. They do not speculate across
-//! blocks, reuse object/path reads, fold floating-point arithmetic, or batch
-//! resource checks. Every edited module is verified and analyzed again.
+//! These passes preserve effect order and source provenance. Dead operations and
+//! their parallel span/scope entries are deleted; fresh verification rebuilds
+//! logical offsets, roots, safepoints and debug facts. No charge-only operations
+//! survive. Pass work limits bound compilation, not script execution.
 use kagari_common::cancellation::CancellationToken;
 
 use crate::{
@@ -65,10 +65,15 @@ pub fn optimize(
         module
     } else {
         let mut raw = module.into_unverified();
+        // Remove backwards within each block so original indices remain valid.
+        let mut removals = removals;
+        removals.sort_unstable_by(|left, right| right.cmp(left));
         for (function, block, instruction) in removals {
             work.charge(1)?;
-            raw.functions[function].blocks[block].instructions[instruction] =
-                Instruction::BudgetCheckpoint;
+            let block = &mut raw.functions[function].blocks[block];
+            block.instructions.remove(instruction);
+            block.instruction_spans.remove(instruction);
+            block.instruction_scopes.remove(instruction);
         }
         verify_mir(raw, cancel)?
     };

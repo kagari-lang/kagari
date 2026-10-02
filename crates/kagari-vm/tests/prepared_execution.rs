@@ -16,8 +16,8 @@ use kagari_compiler::{
 };
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, error::RuntimeErrorKind, jit_abi::jit_consume_instruction_step,
-    module::LoadedModule, resource::ResourcePolicy, value::Value,
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, jit_abi::jit_poll_execution,
+    module::LoadedModule, resource::RuntimeLimits, value::Value,
 };
 use kagari_vm::{
     error::VmError,
@@ -45,7 +45,7 @@ fn compile(source: &str, optimize: bool) -> BytecodeProgram {
 }
 fn setup(bytecode: BytecodeProgram, limit: Option<u64>) -> (Vm, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: limit,
             ..Default::default()
         },
@@ -59,7 +59,7 @@ struct StaticCode;
 impl NativeCodeOwner for StaticCode {}
 unsafe extern "C" fn native_unit(runtime: *const c_void, result: *mut JitValue) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_consume_instruction_step(runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -70,7 +70,7 @@ unsafe extern "C" fn native_unit(runtime: *const c_void, result: *mut JitValue) 
     JIT_STATUS_OK
 }
 unsafe extern "C" fn native_trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
-    let status = unsafe { jit_consume_instruction_step(runtime.cast(), 0) };
+    let status = unsafe { jit_poll_execution(runtime.cast(), 0) };
     if status == JIT_STATUS_OK {
         JIT_STATUS_INTEGER_OVERFLOW
     } else {

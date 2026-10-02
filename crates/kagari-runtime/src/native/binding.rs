@@ -152,7 +152,10 @@ impl LinkedNativeFunction {
                 "native invocation argument count",
             ));
         }
-        let value = (self.binding.entry)(context)?;
+        context.poll()?;
+        let result = (self.binding.entry)(context);
+        context.poll()?;
+        let value = result?;
         if !self.binding.converted_result
             && !context.runtime.matches_interface_method_abi(
                 &value,

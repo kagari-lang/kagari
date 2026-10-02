@@ -22,9 +22,7 @@ use kagari_abi::{
         ExecutableSafepointKind, ExecutableStackMap, ExecutableTrap, NativeCodeOwner,
         NativeCompilationProduct, NativeType,
     },
-    native_call::{
-        JIT_CONSUME_INSTRUCTION_STEP_SYMBOL, JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK,
-    },
+    native_call::{JIT_POLL_EXECUTION_SYMBOL, JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK},
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
 };
@@ -65,16 +63,18 @@ pub(super) fn compile(
     let helpers = &input.links().helpers;
     let mut matching = helpers
         .iter()
-        .filter(|helper| helper.symbol == JIT_CONSUME_INSTRUCTION_STEP_SYMBOL);
+        .filter(|helper| helper.symbol == JIT_POLL_EXECUTION_SYMBOL);
     let helper = matching
         .next()
-        .ok_or_else(|| internal_error("missing logical budget helper"))?;
+        .ok_or_else(|| internal_error("missing execution polling helper"))?;
     if matching.next().is_some()
         || helper.address == 0
         || helper.parameters != [NativeType::Pointer, NativeType::I64]
         || helper.results != [NativeType::I32]
     {
-        return Err(internal_error("invalid logical budget helper declaration"));
+        return Err(internal_error(
+            "invalid execution polling helper declaration",
+        ));
     }
     let mut jit = JITBuilder::with_isa(isa, default_libcall_names());
     jit.symbol(&helper.symbol, helper.address as *const u8);
@@ -132,7 +132,6 @@ pub(super) fn compile(
             );
             safepoints.push(safepoint(point.logical_offset()));
             match instruction {
-                Instruction::BudgetCheckpoint => {}
                 Instruction::LoadConst { dst, constant } => {
                     let value = emit_constant(&mut builder, constant)?;
                     write_register(&mut temps, dst.temp, value)?;
@@ -234,7 +233,7 @@ fn safepoint(instruction_offset: usize) -> ExecutableSafepoint {
     ExecutableSafepoint {
         instruction_offset,
         kind: ExecutableSafepointKind::RuntimeHelperCall {
-            helper: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.into(),
+            helper: JIT_POLL_EXECUTION_SYMBOL.into(),
         },
         stack_map: ExecutableStackMap::empty(),
     }
@@ -268,8 +267,7 @@ fn check_subset(function: &MirFunction) -> Result<(), BackendCompileError> {
     for instruction in &function.blocks[function.entry.index()].instructions {
         if !matches!(
             instruction,
-            Instruction::BudgetCheckpoint
-                | Instruction::LoadConst { .. }
+            Instruction::LoadConst { .. }
                 | Instruction::Move { .. }
                 | Instruction::Unary { .. }
                 | Instruction::Binary { .. }

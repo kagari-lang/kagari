@@ -85,7 +85,6 @@ impl KagariEngine {
 
     pub fn runtime(&self, context: ExecutionContext) -> KagariRuntime {
         let mut config = self.config.default_runtime.clone();
-        config.resources = context.resources;
         let mut runtime = Runtime::new(config);
         for module in &self.native_modules {
             module

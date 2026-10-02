@@ -10,7 +10,7 @@ use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,
 };
 use kagari_runtime::{
-    Runtime, RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, resource::ResourcePolicy,
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, resource::RuntimeLimits,
     value::Value,
 };
 
@@ -203,9 +203,9 @@ fn security_reflection_and_debugger_gates_remain_separate() {
 #[test]
 fn security_resource_limit_failures_are_classified_in_interpreter() {
     let mut instruction_limited = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });
@@ -224,9 +224,9 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     );
 
     let mut allocation_limited = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_allocation_units: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });
@@ -245,9 +245,9 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     );
 
     let mut host_call_limited = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_host_calls: Some(0),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });
@@ -298,9 +298,9 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     );
 
     let mut reflection_limited = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_reflection_operations: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });

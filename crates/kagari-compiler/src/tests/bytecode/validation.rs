@@ -6,7 +6,7 @@ use kagari_bytecode::{
     program::verify_program,
 };
 
-use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet, standard::RuntimePrimitive};
+use kagari_abi::{effects::EffectSet, standard::RuntimePrimitive};
 
 #[test]
 fn rejects_function_fallthrough_before_loading() {

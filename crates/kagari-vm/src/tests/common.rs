@@ -1,5 +1,5 @@
 use kagari_abi::native_import::NativeImport;
-use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use kagari_abi::{ids::FunctionRef, representation::ValueType};
 use kagari_bytecode::{module::RootSlotLayout, program::ModuleRef};
 
 use kagari_bytecode::{
@@ -85,7 +85,6 @@ pub fn test_function_module(
     registers: Vec<ValueType>,
 ) -> BytecodeModule {
     let metadata = FunctionMetadata {
-        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         roots: RootSlotLayout::from_types(&[], &registers),
         registers,

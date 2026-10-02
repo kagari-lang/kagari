@@ -1,7 +1,7 @@
 use super::*;
 use kagari_abi::{
     native::{ExecutableEntryPoint, ExecutableSafepointKind},
-    native_call::JIT_CONSUME_INSTRUCTION_STEP_SYMBOL,
+    native_call::JIT_POLL_EXECUTION_SYMBOL,
 };
 use kagari_common::source::SourceFile;
 use kagari_compiler::{
@@ -12,7 +12,7 @@ use kagari_embed::engine::KagariEngine;
 use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
 use kagari_runtime::{
     Runtime, RuntimeConfig, backend::BackendInvocationError, error::RuntimeErrorKind,
-    jit_abi::native_helper_symbols, resource::ResourcePolicy, value::Value,
+    jit_abi::native_helper_symbols, resource::RuntimeLimits, value::Value,
 };
 use std::rc::Rc;
 
@@ -31,7 +31,7 @@ fn root(program: &VerifiedMirProgram) -> &VerifiedMirModule {
 }
 fn runtime(limit: Option<u64>) -> Runtime {
     Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: limit,
             ..Default::default()
         },
@@ -91,7 +91,7 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
             assert_eq!(
                 point.kind,
                 ExecutableSafepointKind::RuntimeHelperCall {
-                    helper: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.into()
+                    helper: JIT_POLL_EXECUTION_SYMBOL.into()
                 }
             );
             assert!(point.stack_map.live_slots.is_empty());

@@ -1,6 +1,5 @@
 use kagari_abi::{
-    budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType, scalar::BuiltinType,
-    types::AbiType,
+    ids::FunctionRef, representation::ValueType, scalar::BuiltinType, types::AbiType,
 };
 use {
     kagari_bytecode::module::RootSlotLayout,
@@ -47,7 +46,6 @@ fn loaded_with_instructions(
         name: "main".into(),
         register_count: 1,
         metadata: FunctionMetadata {
-            instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
             registers: vec![ValueType::HeapObject],
             roots: RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
             ..Default::default()
@@ -339,11 +337,9 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
 #[test]
 fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
     use kagari_abi::native_call::{JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT};
-    use kagari_runtime::{
-        RuntimeConfig, jit_abi::jit_consume_instruction_step, resource::ResourcePolicy,
-    };
+    use kagari_runtime::{RuntimeConfig, jit_abi::jit_poll_execution, resource::RuntimeLimits};
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(2),
             ..Default::default()
         },
@@ -363,13 +359,13 @@ fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
         .unwrap();
     for offset in 0..2 {
         assert_eq!(
-            unsafe { jit_consume_instruction_step(&runtime, offset) },
+            unsafe { jit_poll_execution(&runtime, offset) },
             JIT_STATUS_OK
         );
         assert_eq!(runtime.resources().counters().instruction_steps, offset + 1);
     }
     assert_eq!(
-        unsafe { jit_consume_instruction_step(&runtime, 2) },
+        unsafe { jit_poll_execution(&runtime, 2) },
         JIT_STATUS_RESOURCE_LIMIT
     );
     assert_eq!(runtime.resources().counters().instruction_steps, 2);
@@ -385,10 +381,10 @@ fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
 #[test]
 fn native_budget_checks_require_an_active_validated_program_point() {
     use kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT;
-    use kagari_runtime::jit_abi::jit_consume_instruction_step;
+    use kagari_runtime::jit_abi::jit_poll_execution;
     let runtime = Runtime::default();
     assert_eq!(
-        unsafe { jit_consume_instruction_step(&runtime, 0) },
+        unsafe { jit_poll_execution(&runtime, 0) },
         JIT_STATUS_ENGINE_FAULT
     );
     assert_eq!(runtime.resources().counters().instruction_steps, 0);
@@ -399,7 +395,7 @@ fn native_budget_checks_require_an_active_validated_program_point() {
         .push(module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     assert_eq!(
-        unsafe { jit_consume_instruction_step(&runtime, 1) },
+        unsafe { jit_poll_execution(&runtime, 1) },
         JIT_STATUS_ENGINE_FAULT
     );
     assert_eq!(runtime.resources().counters().instruction_steps, 0);
@@ -427,7 +423,7 @@ fn interpreter_frame_fetch_exposes_the_checked_charge_for_each_point() {
             matches!(instruction, BytecodeInstruction::BudgetCheckpoint),
             index == 0
         );
-        runtime.consume_logical_charge(charge).unwrap();
+        runtime.resources().poll_execution().unwrap();
     }
     assert_eq!(runtime.resources().counters().instruction_steps, 2);
     assert!(stack.current_mut().unwrap().next_instruction().is_none());

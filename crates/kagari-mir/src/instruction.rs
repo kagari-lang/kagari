@@ -38,8 +38,6 @@ pub struct PathRef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instruction {
-    /// Preserve a logical charge and its origin after removing a pure operation.
-    BudgetCheckpoint,
     Convert {
         dst: MirValue,
         src: MirValue,
@@ -300,9 +298,7 @@ impl Instruction {
     }
     pub fn effects(&self) -> EffectSet {
         match self {
-            Self::BudgetCheckpoint | Self::LoadConst { .. } | Self::Move { .. } => {
-                EffectSet::default()
-            }
+            Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),
             Self::Convert { conversion, .. } => {
                 if conversion.checked {
                     EffectSet::allocation()

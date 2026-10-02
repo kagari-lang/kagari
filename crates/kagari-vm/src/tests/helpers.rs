@@ -1,7 +1,4 @@
-use kagari_abi::{
-    budget::LogicalBudgetCharge, ids::FunctionRef, native_import::NativeImport,
-    representation::ValueType,
-};
+use kagari_abi::{ids::FunctionRef, native_import::NativeImport, representation::ValueType};
 use {
     kagari_bytecode::module::FunctionMetadata,
     kagari_common::host_interface::{
@@ -33,7 +30,7 @@ use {
             PreparedHostPathWrite,
         },
         metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-        resource::ResourcePolicy,
+        resource::RuntimeLimits,
         value::Value,
     },
 };
@@ -157,7 +154,6 @@ fn path_module(
         })
         .collect();
     let metadata = FunctionMetadata {
-        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         registers: vec![
             ValueType::HostHandle,

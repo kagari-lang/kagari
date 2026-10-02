@@ -15,7 +15,6 @@ use kagari_bytecode::{
 };
 
 use kagari_abi::{
-    budget::LogicalBudgetCharge,
     callable::CallableImplementation,
     ids::FunctionRef,
     representation::ValueType,
@@ -96,7 +95,6 @@ fn module_with_public_function_and_constant(
 
 fn module_with_executable_function() -> BytecodeModule {
     let metadata = FunctionMetadata {
-        instruction_budgets: vec![LogicalBudgetCharge::Step; 1],
         return_type: ValueType::Unit,
         ..FunctionMetadata::default()
     };
@@ -169,9 +167,9 @@ fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
 #[test]
 fn load_module_reports_module_resource_limit() {
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_modules: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });
@@ -326,9 +324,9 @@ fn reload_rejects_stale_active_epoch_before_publication() {
 #[test]
 fn reload_resource_failure_preserves_active_epoch() {
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_modules: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });

@@ -1,5 +1,4 @@
 use super::*;
-use kagari_abi::budget::LogicalBudgetCharge;
 
 #[test]
 fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
@@ -398,9 +397,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                             let runtime = access.borrow().as_ref().unwrap().upgrade().unwrap();
                             let error = match fault {
                                 "panic" => panic!("broken host commit invariant"),
-                                "execute" => runtime
-                                    .consume_logical_charge(LogicalBudgetCharge::Step)
-                                    .unwrap_err(),
+                                "execute" => runtime.resources().poll_execution().unwrap_err(),
                                 "allocate" => runtime
                                     .alloc_array(
                                         &allocation,

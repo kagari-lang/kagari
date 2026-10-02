@@ -6,7 +6,7 @@ use crate::{
 
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
-    resource::ResourcePolicy,
+    resource::RuntimeLimits,
     session::{DeterministicInputs, ExecutionOptions, ExecutionPhase},
 };
 
@@ -31,8 +31,6 @@ pub enum PanicPolicy {
 pub struct ExecutionContext {
     pub cancellation: CancellationToken,
 
-    pub resources: ResourcePolicy,
-
     pub jit_policy: JitPolicy,
     pub tracing_enabled: bool,
     pub inputs: DeterministicInputs,
@@ -44,7 +42,6 @@ impl ExecutionContext {
         ExecutionOptions {
             phase: ExecutionPhase::Ordinary,
 
-            resources: self.resources,
             cancellation: self.cancellation.clone(),
             inputs: self.inputs,
             record_host_calls: self.tracing_enabled,

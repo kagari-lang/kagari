@@ -58,9 +58,9 @@ reload pinning, candidate isolation and invariant-failure quarantine.
 
 ### EP02 Cancellation and execution state
 
-- [ ] Replace resource policy with runtime call-depth limits and root cancellation.
-- [ ] Delete quota-only counters/paths; preserve real allocation and lifecycle checks.
-- [ ] Remove logical charges and charge-only operations across MIR, bytecode,
+- [x] Replace resource policy with runtime call-depth limits and root cancellation.
+- [x] Delete quota-only counters/paths; preserve real allocation and lifecycle checks.
+- [x] Remove logical charges and charge-only operations across MIR, bytecode,
   optimization, interpreter and JIT; preserve cooperative polling and observation.
 - [ ] Cover cancellation through loops, callbacks/reentry, native work and cleanup.
 
@@ -114,3 +114,26 @@ machine/toolchain/profile/features/workload and separating build from execution.
   still reports old test-only capability fields and debugger helper references
   (runtime_substrate, host_nominal, VM debugger tests). EP03 owns their migration
   and the old permission-denial assertions. No production compatibility shim.
+
+- EP02 implementation: RuntimeLimits owns max_call_depth (default Some(256), None
+  disables this protection); execution contexts retain cancellation and observation
+  instead of resource policies. Removed instruction/allocation/host/reflection
+  counters and quota fields; live occupancy and module/depth counts still serve
+  GC and ownership diagnostics. Deleted LogicalBudgetCharge, instruction_budgets
+  and BudgetCheckpoint. Dead operations now disappear with parallel span/scope
+  entries and analysis is rebuilt. JIT publishes checked offsets through
+  kagari_runtime.poll_execution; interpreter/JIT GC safepoints retain cancellation.
+  Native CallContext::poll now reads cancellation, and handler return boundaries
+  poll even when the handler returns success after requesting cancellation.
+  Legacy quota tests are intentionally broken until EP03 migration.
+- Cancellation is cooperative at valid interruption boundaries. Atomic primitive
+  bulk operations (including the Rust primitive slice sort) finish before the
+  next poll; do not add per-comparison bookkeeping or copy buffers solely to
+  interrupt an indivisible mutation. Callback traversals and existing chunked
+  native reductions poll; there is no universal wall-time response guarantee.
+- EP02 checkpoint validation: production workspace check passed before the final
+  comment/sequence-publication cleanup; two focused installation/cancellation
+  tests pass. Structure check: 610 files, zero violations; diff check passes.
+  Full test-target compilation remains pending EP03 because removed quota fields,
+  logical-charge metadata and old debugger permission assertions still occur in
+  legacy tests. Final acceptance is not claimed.

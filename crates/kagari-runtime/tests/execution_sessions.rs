@@ -1,4 +1,4 @@
-use kagari_abi::{budget::LogicalBudgetCharge, scalar::BuiltinType, types::AbiType};
+use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -73,29 +73,19 @@ fn nested_scopes_inherit_permissions_budget_and_lifetime_even_if_outer_drops_fir
     let mut options = runtime.execution_options();
     options.resources.max_instruction_steps = Some(2);
     let outer = runtime.begin_execution(&module, options.clone()).unwrap();
-    runtime
-        .consume_logical_charge(LogicalBudgetCharge::Step)
-        .unwrap();
+    runtime.resources().poll_execution().unwrap();
     let mut escalation = options.clone();
     escalation.resources.max_instruction_steps = None;
     escalation.security.profile.allow_host_calls = true;
     escalation.security.capabilities.host_calls = true;
     let nested = runtime.begin_execution(&module, escalation).unwrap();
     assert!(!runtime.security().allows_host_calls());
-    runtime
-        .consume_logical_charge(LogicalBudgetCharge::Step)
-        .unwrap();
-    let error = runtime
-        .consume_logical_charge(LogicalBudgetCharge::Step)
-        .unwrap_err();
+    runtime.resources().poll_execution().unwrap();
+    let error = runtime.resources().poll_execution().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
     assert_eq!(nested.counters().instruction_steps, 2);
     drop(outer);
-    assert!(
-        runtime
-            .consume_logical_charge(LogicalBudgetCharge::Step)
-            .is_err()
-    );
+    assert!(runtime.resources().poll_execution().is_err());
     assert_eq!(
         runtime
             .modules()
@@ -113,12 +103,8 @@ fn nested_scopes_inherit_permissions_budget_and_lifetime_even_if_outer_drops_fir
     );
     assert!(runtime.resources().termination().is_none());
     let next = runtime.begin_execution(&module, options).unwrap();
-    runtime
-        .consume_logical_charge(LogicalBudgetCharge::Step)
-        .unwrap();
-    runtime
-        .consume_logical_charge(LogicalBudgetCharge::Step)
-        .unwrap();
+    runtime.resources().poll_execution().unwrap();
+    runtime.resources().poll_execution().unwrap();
     assert_eq!(next.counters().instruction_steps, 2);
     assert_eq!(runtime.resources().counters().instruction_steps, 4);
 }
@@ -219,9 +205,7 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
         .unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().array_len(object).is_none());
-    runtime
-        .consume_logical_charge(LogicalBudgetCharge::Step)
-        .unwrap();
+    runtime.resources().poll_execution().unwrap();
     assert_eq!(next.counters().instruction_steps, 1);
 }
 
@@ -707,11 +691,7 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
             if mode == 1 {
                 token.cancel();
             } else {
-                assert!(
-                    runtime
-                        .consume_logical_charge(LogicalBudgetCharge::Step)
-                        .is_err()
-                );
+                assert!(runtime.resources().poll_execution().is_err());
             }
             drop(session);
         }

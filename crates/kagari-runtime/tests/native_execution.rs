@@ -8,7 +8,6 @@ use std::{
 };
 
 use kagari_abi::{
-    budget::LogicalBudgetCharge,
     ids::FunctionRef,
     native::{
         BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
@@ -28,10 +27,10 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeErrorKind,
-    jit_abi::jit_consume_instruction_step,
+    jit_abi::jit_poll_execution,
     module::VerifiedProgram,
     reload::ReloadValidationError,
-    resource::ResourcePolicy,
+    resource::RuntimeLimits,
     value::Value,
 };
 
@@ -46,7 +45,7 @@ impl Drop for Owner {
 
 fn runtime(limit: Option<u64>) -> Runtime {
     Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: limit,
             ..Default::default()
         },
@@ -57,7 +56,6 @@ fn program() -> BytecodeProgram {
     let function = BytecodeFunction {
         name: "main".into(),
         metadata: FunctionMetadata {
-            instruction_budgets: vec![LogicalBudgetCharge::Step; 2],
             ..Default::default()
         },
         instructions: vec![
@@ -85,7 +83,7 @@ fn program() -> BytecodeProgram {
 }
 unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_consume_instruction_step(runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -96,7 +94,7 @@ unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i
     JIT_STATUS_OK
 }
 unsafe extern "C" fn trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
-    let status = unsafe { jit_consume_instruction_step(runtime.cast(), 0) };
+    let status = unsafe { jit_poll_execution(runtime.cast(), 0) };
     if status == JIT_STATUS_OK {
         JIT_STATUS_INTEGER_OVERFLOW
     } else {
@@ -277,7 +275,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
         .push(ExecutableSafepoint {
             instruction_offset: 0,
             kind: ExecutableSafepointKind::RuntimeHelperCall {
-                helper: kagari_abi::native_call::JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.into(),
+                helper: kagari_abi::native_call::JIT_POLL_EXECUTION_SYMBOL.into(),
             },
             stack_map: ExecutableStackMap::empty(),
         });

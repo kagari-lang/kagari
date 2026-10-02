@@ -9,7 +9,7 @@ use kagari_runtime::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
         declarations::FunctionDecl, language::LanguageContracts, views::ValueHandle,
     },
-    resource::ResourcePolicy,
+    resource::RuntimeLimits,
     value::Value,
 };
 use kagari_vm::{error::VmError, vm::Vm};
@@ -21,7 +21,7 @@ struct MutationFixture {
     retained: Rc<RefCell<Option<RootedValue>>>,
 }
 impl MutationFixture {
-    fn new(source: &str, policy: ResourcePolicy) -> Self {
+    fn new(source: &str, policy: RuntimeLimits) -> Self {
         let retained: Rc<RefCell<Option<RootedValue>>> = Rc::default();
         let keep = retained.clone();
         let mut module = ModuleBuilder::new("test::roots", &LanguageContracts::default());
@@ -83,11 +83,11 @@ impl MutationFixture {
 #[test]
 fn option_allocation_failure_does_not_remove_an_array_or_map_entry() {
     for policy in [
-        ResourcePolicy {
+        RuntimeLimits {
             max_heap_units: Some(2),
             ..Default::default()
         },
-        ResourcePolicy {
+        RuntimeLimits {
             max_allocation_units: Some(2),
             ..Default::default()
         },
@@ -148,11 +148,11 @@ fn option_allocation_failure_does_not_remove_an_array_or_map_entry() {
 #[test]
 fn native_growth_obeys_shared_limits_without_charging_failed_writes() {
     for policy in [
-        ResourcePolicy {
+        RuntimeLimits {
             max_heap_units: Some(2),
             ..Default::default()
         },
-        ResourcePolicy {
+        RuntimeLimits {
             max_allocation_units: Some(2),
             ..Default::default()
         },
@@ -209,7 +209,7 @@ fn native_growth_obeys_shared_limits_without_charging_failed_writes() {
 fn successful_removal_accounts_prepared_result_and_never_refunds_allocation_budget() {
     let mut fixture = MutationFixture::new(
         "use test::roots::retain; fn main() -> Option<i32> { val array = [42]; retain(array); array.pop() }",
-        ResourcePolicy {
+        RuntimeLimits {
             max_allocation_units: Some(4),
             ..Default::default()
         },
@@ -254,7 +254,7 @@ fn duplicate_native_insertions_only_charge_final_container_size() {
             val set: HashSet<i32> = HashSet::new(); set.insert(1); set.insert(1); (map, set)
         }
     "#,
-        ResourcePolicy {
+        RuntimeLimits {
             max_heap_units: Some(4),
             max_allocation_units: Some(4),
             ..Default::default()
@@ -286,11 +286,11 @@ fn duplicate_native_insertions_only_charge_final_container_size() {
 #[test]
 fn custom_map_removal_prepares_the_result_without_repeating_hash_callbacks() {
     for policy in [
-        ResourcePolicy {
+        RuntimeLimits {
             max_heap_units: Some(7),
             ..Default::default()
         },
-        ResourcePolicy {
+        RuntimeLimits {
             max_allocation_units: Some(7),
             ..Default::default()
         },

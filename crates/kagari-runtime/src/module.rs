@@ -652,7 +652,7 @@ mod tests {
     use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind};
     use kagari_bytecode::module::BytecodeModuleSlot;
     use {
-        crate::resource::{ResourcePolicy, ResourceState},
+        crate::resource::{ResourceState, RuntimeLimits},
         kagari_bytecode::program::ModuleRef,
     };
 
@@ -818,7 +818,7 @@ mod tests {
 
     #[test]
     fn abandoning_candidates_releases_admission_even_after_quarantine() {
-        let resources = std::rc::Rc::new(ResourceState::new(ResourcePolicy {
+        let resources = std::rc::Rc::new(ResourceState::new(RuntimeLimits {
             max_modules: Some(1),
             ..Default::default()
         }));

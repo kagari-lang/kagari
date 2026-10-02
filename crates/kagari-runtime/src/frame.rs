@@ -10,7 +10,7 @@ use crate::{
     session::ExecutionSession,
     value::Value,
 };
-use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use kagari_abi::{ids::FunctionRef, representation::ValueType};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, LocalSlot, Register},
     module::{BytecodeFunction, CallableTarget},
@@ -448,14 +448,8 @@ impl ExecutionFrame {
         Ok(())
     }
 
-    pub fn next_instruction(&mut self) -> Option<(BytecodeInstruction, LogicalBudgetCharge)> {
-        let instruction = self.function()?.instructions.get(self.ip).cloned().zip(
-            self.function()?
-                .metadata
-                .instruction_budgets
-                .get(self.ip)
-                .copied(),
-        );
+    pub fn next_instruction(&mut self) -> Option<BytecodeInstruction> {
+        let instruction = self.function()?.instructions.get(self.ip).cloned();
         if instruction.is_some() {
             self.executing = Some(self.ip);
             self.ip += 1;
@@ -567,11 +561,8 @@ impl ExecutionFrame {
 }
 
 impl Runtime {
-    /// Native backends publish their logical program point before a budget check.
-    pub(crate) fn record_native_instruction(
-        &self,
-        offset: usize,
-    ) -> Result<LogicalBudgetCharge, RuntimeError> {
+    /// Native backends publish their logical program point before a cancellation/GC safepoint.
+    pub(crate) fn record_native_instruction(&self, offset: usize) -> Result<(), RuntimeError> {
         let session = self.resources.active_session().ok_or_else(|| {
             self.resources
                 .quarantine("native program point without an execution session")
@@ -584,17 +575,6 @@ impl Runtime {
             self.resources
                 .quarantine("native program point without an execution frame")
         })?;
-        frame.set_native_instruction(offset)?;
-        frame
-            .function()
-            .ok_or_else(|| {
-                self.resources
-                    .quarantine("native frame has no script instruction charge")
-            })?
-            .metadata
-            .instruction_budgets
-            .get(offset)
-            .copied()
-            .ok_or_else(|| self.resources.quarantine("missing native logical charge"))
+        frame.set_native_instruction(offset)
     }
 }

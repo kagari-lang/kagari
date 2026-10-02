@@ -48,7 +48,7 @@ impl GcHeap {
             values: &mut values,
         })?;
         drop(guard);
-        self.ensure_execution_allowed()?;
+        self.resources.poll_execution()?;
         self.ensure_structure_mutable(id)?;
         let mut objects = self
             .objects

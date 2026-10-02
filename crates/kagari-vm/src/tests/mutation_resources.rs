@@ -4,7 +4,7 @@ use crate::{
     vm::Vm,
 };
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeErrorKind, resource::ResourcePolicy};
+use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeErrorKind, resource::RuntimeLimits};
 
 #[test]
 fn standard_mutation_resource_failures_match_across_execution_routes() {
@@ -20,7 +20,7 @@ fn standard_mutation_resource_failures_match_across_execution_routes() {
             for jit in [false, true] {
                 for heap_limit in [false, true] {
                     let mut runtime = Runtime::new(RuntimeConfig {
-                        resources: ResourcePolicy {
+                        limits: RuntimeLimits {
                             max_heap_units: heap_limit.then_some(limit),
                             max_allocation_units: (!heap_limit).then_some(limit),
                             ..Default::default()

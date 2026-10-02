@@ -83,9 +83,9 @@ fn main() -> usize {
 "#,
     );
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });

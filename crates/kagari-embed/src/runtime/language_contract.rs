@@ -4,7 +4,7 @@ use kagari_common::collection::CollectionAccess;
 use kagari_runtime::reload::ReloadValidationError;
 use {
     kagari_common::host_interface::value_type::HostValueType,
-    kagari_runtime::{error::RuntimeErrorKind, module::LoadedModule, resource::ResourcePolicy},
+    kagari_runtime::{error::RuntimeErrorKind, module::LoadedModule, resource::RuntimeLimits},
 };
 
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
@@ -345,7 +345,7 @@ fn run(
         HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
     );
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_instruction_steps: case.max_steps,
             ..Default::default()
         },

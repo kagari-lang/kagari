@@ -316,6 +316,6 @@ impl<'call> CallContext<'call> {
         })
     }
     pub fn poll(&self) -> NativeResult<()> {
-        self.runtime.resources().ensure_execution_allowed()
+        self.runtime.resources().poll_execution()
     }
 }

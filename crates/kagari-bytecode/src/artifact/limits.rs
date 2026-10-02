@@ -542,7 +542,6 @@ pub(super) fn program_count_limit(program: &BytecodeProgram) -> Option<&'static 
                 metadata.semantic.params.len(),
                 metadata.semantic.locals.len(),
                 metadata.semantic.registers.len(),
-                metadata.instruction_budgets.len(),
                 metadata.params.len(),
                 metadata.locals.len(),
                 metadata.registers.len(),

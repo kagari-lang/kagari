@@ -21,7 +21,6 @@ pub(super) fn verify_instruction(
     program: Option<&BytecodeProgram>,
 ) -> Result<(), BytecodeVerificationError> {
     match instruction {
-        BytecodeInstruction::BudgetCheckpoint => {}
         BytecodeInstruction::LoadConst { dst, constant } => {
             if !module.constants.contains(constant) {
                 return Err(BytecodeVerificationError::MissingConstant {

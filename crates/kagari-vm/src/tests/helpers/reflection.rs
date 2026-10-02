@@ -174,9 +174,9 @@ fn reflection_read_and_write_gates_are_separate() {
 #[test]
 fn reflection_helpers_enforce_reflection_operation_resource_limit() {
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
+        limits: RuntimeLimits {
             max_reflection_operations: Some(1),
-            ..ResourcePolicy::default()
+            ..RuntimeLimits::default()
         },
         ..RuntimeConfig::default()
     });

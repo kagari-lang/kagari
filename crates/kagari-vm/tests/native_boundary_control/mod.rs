@@ -21,7 +21,7 @@ use kagari_runtime::{
         context::CallContext, declarations::FunctionDecl, language::LanguageContracts,
         module::NativeModule, types::Type,
     },
-    resource::ResourcePolicy,
+    resource::RuntimeLimits,
     value::Value,
 };
 use kagari_vm::{
@@ -80,7 +80,7 @@ fn compile_test_bytecode(text: &str) -> BytecodeProgram {
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     lower_program_to_bytecode(&mir).unwrap()
 }
-fn runtime(resources: ResourcePolicy) -> Runtime {
+fn runtime(limits: RuntimeLimits) -> Runtime {
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
@@ -120,7 +120,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             "fn main() -> i32 {{ boundary::choose({input}, || {{ host::log(\"effect\"); 42 }}) }}"
         ));
         for encoded in [false, true] {
-            let mut runtime = runtime(ResourcePolicy {
+            let mut runtime = runtime(RuntimeLimits {
                 max_call_depth: Some(1),
                 ..Default::default()
             });

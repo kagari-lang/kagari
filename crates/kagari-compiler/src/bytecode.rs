@@ -284,19 +284,7 @@ fn lower_function(
             .sum(),
     );
     let mut instruction_spans = Vec::with_capacity(instructions.capacity());
-    let mut instruction_budgets = Vec::with_capacity(instructions.capacity());
-
-    for (index, block) in function.emission_order() {
-        let facts = analysis
-            .block(BlockId::new(index))
-            .expect("sealed block facts");
-        instruction_budgets.extend((0..block.instructions.len()).map(|index| {
-            facts
-                .instruction(index)
-                .expect("sealed instruction facts")
-                .budget()
-        }));
-        instruction_budgets.push(facts.terminator().budget());
+    for (_, block) in function.emission_order() {
         lower_block(
             block,
             &block_offsets,
@@ -308,7 +296,6 @@ fn lower_function(
 
     let (root_locals, root_temps) = function.root_slots();
     let metadata = FunctionMetadata {
-        instruction_budgets,
         semantic: function.semantic.clone(),
         params: function.params.iter().map(|param| param.ty).collect(),
         return_type: function.return_type,
@@ -499,7 +486,6 @@ fn lower_instruction(
     context: &mut BytecodeLoweringContext,
 ) -> BytecodeInstruction {
     match instruction {
-        Instruction::BudgetCheckpoint => BytecodeInstruction::BudgetCheckpoint,
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
             dst: lower_value(*dst),
             constant: lower_constant(constant),

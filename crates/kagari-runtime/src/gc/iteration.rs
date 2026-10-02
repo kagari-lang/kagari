@@ -30,7 +30,7 @@ impl GcHeap {
             let mut visited = HashSet::new();
             while let Some(value) = pending.pop() {
                 self.ensure_execution_allowed()?;
-                self.resources.consume_instruction_steps(1)?;
+                self.resources.poll_execution()?;
                 match value {
                     Value::GcHandle(id) => {
                         if !visited.insert(id) {

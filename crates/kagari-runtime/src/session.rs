@@ -7,7 +7,7 @@ use crate::{
     host::HostFrameId,
     host_scope::HostScopeState,
     module::{LoadedModule, ModuleEpochRetention, ModuleStore},
-    resource::{ResourceCounters, ResourcePolicy, ResourceState},
+    resource::{ResourceCounters, ResourceState, RuntimeLimits},
     value::Value,
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
@@ -48,7 +48,6 @@ pub struct DeterministicInputs {
 pub struct ExecutionOptions {
     pub phase: ExecutionPhase,
 
-    pub resources: ResourcePolicy,
     pub cancellation: CancellationToken,
     pub inputs: DeterministicInputs,
     pub record_host_calls: bool,
@@ -167,7 +166,6 @@ pub(crate) struct SessionState {
     pub peak_heap_units: Cell<usize>,
     pub root: LoadedModule,
     pub options: ExecutionOptions,
-    pub baseline: ResourceCounters,
     pub termination: RefCell<Option<RuntimeError>>,
     random_counter: Cell<u64>,
     host_calls: RefCell<Vec<HostCallTrace>>,
@@ -193,7 +191,6 @@ impl SessionState {
             peak_heap_units: Cell::new(baseline.current_heap_units),
             root,
             options,
-            baseline,
             termination: RefCell::new(None),
             random_counter: Cell::new(0),
             host_calls: RefCell::new(Vec::new()),
@@ -266,14 +263,6 @@ impl SessionState {
                 "execution cancelled",
             )));
         }
-        if self
-            .options
-            .resources
-            .max_wall_time_ms
-            .is_some_and(|limit| self.started.elapsed().as_millis() >= u128::from(limit))
-        {
-            return Err(self.terminate(RuntimeError::resource_limit("wall time")));
-        }
         Ok(())
     }
 }
@@ -290,10 +279,6 @@ pub struct ExecutionSession {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutionCounters {
-    pub instruction_steps: u64,
-    pub allocation_units: usize,
-    pub host_calls: u64,
-    pub reflection_operations: u64,
     pub current_call_depth: u32,
     pub peak_call_depth: u32,
     pub current_heap_units: usize,
@@ -322,12 +307,7 @@ impl ExecutionSession {
     }
     pub fn counters(&self) -> ExecutionCounters {
         let counters = self.resources.counters();
-        let baseline = self.state.baseline;
         ExecutionCounters {
-            instruction_steps: counters.instruction_steps - baseline.instruction_steps,
-            allocation_units: counters.allocation_units - baseline.allocation_units,
-            host_calls: counters.host_calls - baseline.host_calls,
-            reflection_operations: counters.reflection_operations - baseline.reflection_operations,
             current_call_depth: counters.current_call_depth,
             peak_call_depth: self.state.peak_call_depth.get(),
             current_heap_units: counters.current_heap_units,

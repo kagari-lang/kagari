@@ -104,7 +104,7 @@ impl GcHeap {
     pub fn resume_iter(&self, value: &Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         let session = self.resources.active_session().ok_or_else(invalid)?;
-        self.resources.consume_instruction_steps(1)?;
+        self.resources.poll_execution()?;
         let Value::GcHandle(id) = value else {
             return Err(invalid());
         };

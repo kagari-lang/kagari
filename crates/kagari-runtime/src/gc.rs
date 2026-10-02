@@ -64,7 +64,6 @@ impl Default for GcHeapConfig {
 pub struct GcHeapStats {
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
-    pub allocation_units: usize,
     pub allocated_objects: usize,
     pub collections: u64,
     pub reclaimed_objects: usize,
@@ -349,7 +348,6 @@ impl GcHeap {
         GcHeapStats {
             current_heap_units: counters.current_heap_units,
             peak_heap_units: counters.peak_heap_units,
-            allocation_units: counters.allocation_units,
             allocated_objects: stats.allocated_objects,
             collections: stats.collections,
             reclaimed_objects: stats.reclaimed_objects,
