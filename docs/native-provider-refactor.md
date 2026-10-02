@@ -27,6 +27,9 @@ its replacement; do not keep both architectures while migrating algorithms.
   `.kgr` files provide tooling navigation, completion and documentation, not
   executable compiler input or a separate signature authority. Installation
   needs no declaration binary.
+- Define Kagari declarations through an explicit API. Rust functions implement
+  them; Rust signatures/traits/impls do not define Kagari contracts. Retire the
+  #[native_module] declaration derivation model.
 - Ordinary native functions and native-to-script calls execute synchronously.
   Callbacks alone do not require continuation state machines. Persistent state
   belongs to lazy iteration or actual asynchronous suspension.
@@ -42,6 +45,315 @@ script-struct layouts, a complete async executor, JIT/LLVM feature expansion,
 new syntax, LSP transport, broad Rust interoperability and a separate execution-
 policy migration. Necessary consumer changes belong to their owning phase.
 
+## Proposed data structures and explicit API
+
+This is a design proposal, not an implemented API. The Rust-style snippets show
+contracts and ownership; exact names can change during implementation. They do
+not add execution phases or restore more algorithm families.
+
+### Declaration, binding and execution models
+
+| Model | Responsibility |
+| --- | --- |
+| LanguageContracts | Complete compiler-defined language declarations; an immutable portable view is available to registration/tooling without HIR or library installation |
+| ApiSchema | Kagari types, traits, functions, impls, documentation and dependencies; no Rust pointers or execution state |
+| TypeExpr | Primitive, nominal application, owner-scoped parameter, Self, associated projection or function type; represents Kagari types |
+| TypeDecl | Nominal identity, binders, value/reference semantics and an optional storage contract |
+| TraitDecl / MethodDecl | Parents, bounds, associated types and full Kagari method signatures, including receivers and method binders |
+| ImplDecl | Its own binders/bounds, receiver, applied trait, associated bindings and concrete member implementations; inherent impls have no trait |
+| NativePackage | Checked ApiSchema plus local Rust binding entries and storage factories |
+| SyncBinding | Explicit argument/result conversion views plus a Rust function, checked against a declaration before installation |
+| PreparedNativeCall | Closed layouts, linked entry, selected callable slots and retained generations; prepared before execution |
+| NativeContext | Scoped view over existing rooted arguments and prepared targets; no owned copy of the API/signature graph |
+| SequenceStorage | Shared object containing a concrete contiguous primitive buffer or traced values |
+| NativeCursor | Persistent cursor, traced captures and pinned callable handles; no expired context or Rust buffer borrow |
+
+The declaration graph is conceptually:
+
+```rust
+struct ApiSchema {
+    types: Vec<TypeDecl>,
+    traits: Vec<TraitDecl>,
+    functions: Vec<FunctionDecl>,
+    implementations: Vec<ImplDecl>,
+}
+
+struct ImplDecl {
+    parameters: Vec<TypeParameter>,
+    bounds: Vec<TraitConstraint>,
+    receiver: TypeExpr,
+    interface: Option<TraitApplication>,
+    associated_types: Vec<AssociatedBinding>,
+    methods: Vec<ImplementedMethod>,
+}
+
+struct ImplementedMethod {
+    member: MethodId,
+    function: FunctionId,
+}
+```
+
+An impl method obtains its Kagari signature by substituting Self, trait/impl
+parameters and associated bindings into the actual MethodDecl. Its Rust binding
+does not declare a second language signature. Free functions and inherent methods
+supply explicit FunctionDecl records.
+
+TypeRef, TraitRef, MethodRef and parameter refs retain their owning catalog and
+declaration identity. Impl parameters have their own binder: two parameters named
+T are not interchangeable. Name resolution happens during authoring, followed by
+checked ID references. A library defines Kagari traits without declaring matching
+Rust traits; Rust receiver syntax and inheritance do not define Kagari semantics.
+
+The execution view is conceptually separate:
+
+```rust
+struct PreparedNativeCall {
+    entry: LinkedNativeEntry,
+    signature: SignatureRef,
+    argument_layouts: Box<[ValueLayout]>,
+    result_layout: ValueLayout,
+    selected: Box<[PreparedCallable]>,
+    owner: RetainedModule,
+}
+
+struct PreparedCallable {
+    target: ResolvedTarget,
+    signature: SignatureRef,
+    owner: RetainedModule,
+}
+
+struct NativeContext<'call> {
+    prepared: &'call PreparedNativeCall,
+    arguments: ArgumentView<'call>,
+    runtime: RuntimeAccess<'call>,
+}
+```
+
+Owned tables allocate during preparation, not each call. ResolvedTarget identifies
+a linked script/native slot or checked intrinsic operation, not a method name.
+ArgumentView addresses stable rooted slots during reentry; it cannot borrow a
+relocatable VM stack buffer across callback frame growth. Returning a result
+transfers it into the caller's rooted destination before the native scope ends.
+
+### Explicit Kagari declarations
+
+List/MutableList illustrate library-owned declarations over the proof operations;
+Index comes from the compiler-owned catalog. These views do not add new algorithms.
+
+```rust
+let mut api = NativePackageBuilder::new("example::collections", &language);
+
+let mut list = api.trait_decl("List");
+let t = list.type_param("T");
+list.parent(
+    language.index().apply([Ty::usize()]).associated("Output", t.ty()),
+)?;
+let len = list.method(MethodDecl::instance("len").returns(Ty::usize()))?;
+let get = list.method(
+    MethodDecl::instance("get")
+        .param("index", Ty::usize())
+        .returns(language.option(t.ty())),
+)?;
+let list = list.finish()?;
+
+let mut mutable = api.trait_decl("MutableList");
+let t = mutable.type_param("T");
+mutable.parent(list.apply([t.ty()]))?;
+let set = mutable.method(
+    MethodDecl::instance("set")
+        .param("index", Ty::usize())
+        .param("value", t.ty())
+        .returns(Ty::unit()),
+)?;
+let mutable = mutable.finish()?;
+
+let mut array = api.type_decl("ArrayList");
+let t = array.type_param("T");
+array.reference_semantics();
+array.sequence_storage(t.ty());
+let array = array.finish()?;
+```
+
+This declares List<T>: Index<usize, Output = T>, MutableList<T>: List<T> and a
+nominal shared ArrayList<T>. No corresponding Rust trait or generic Rust struct
+is required. Read/write behavior follows Kagari contracts, not a Rust &mut self.
+
+The sequence storage capability includes an element layout contract and its
+runtime factory. It can serve arbitrary native type identities; the compiler
+never recognizes an ArrayList name to select an algorithm. Compiled access uses
+the checked runtime buffer contract, not the memory layout of Rust's Vec struct.
+
+### Bind concrete implementations
+
+Impl builders explicitly define Kagari impls. Binding a member creates its actual
+concrete implementation function; it does not install a universal trait body.
+
+```rust
+let mut imp = api.impl_decl();
+let t = imp.type_param("T");
+imp.for_type(array.apply([t.ty()]));
+imp.trait_(list.apply([t.ty()]));
+imp.bind(len, SyncBinding::new(
+    Args::receiver(Codec::sequence(t.ty())),
+    Codec::usize(),
+    entries::len,
+))?;
+imp.bind(get, SyncBinding::new(
+    Args::receiver(Codec::sequence(t.ty())).arg(Codec::usize()),
+    Codec::option(Codec::value(t.ty())),
+    entries::get,
+))?;
+imp.finish()?;
+
+let mut imp = api.impl_decl();
+let t = imp.type_param("T");
+imp.for_type(array.apply([t.ty()]));
+imp.trait_(mutable.apply([t.ty()]));
+imp.bind(set, SyncBinding::new(
+    Args::receiver(Codec::sequence(t.ty()))
+        .arg(Codec::usize()).arg(Codec::value(t.ty())),
+    Codec::unit(),
+    entries::set,
+))?;
+imp.finish()?;
+
+let mut imp = api.impl_decl();
+let t = imp.type_param("T");
+imp.for_type(array.apply([t.ty()]));
+imp.trait_(language.index().apply([Ty::usize()]));
+imp.associated_type("Output", t.ty());
+imp.bind(language.index().method("index")?, SyncBinding::new(
+    Args::receiver(Codec::sequence(t.ty())).arg(Codec::usize()),
+    Codec::value(t.ty()),
+    entries::index,
+))?;
+imp.finish()?;
+
+let package = api.finish()?;
+engine.install(package)?;
+```
+
+Index satisfies List's parent; List satisfies MutableList's parent. Package
+finalization checks the whole graph independent of authoring order. Inherent
+new/push/sort methods use the same impl builder without trait_, declare their
+FunctionDecl explicitly and attach SyncBinding entries.
+
+Free functions follow the same separation:
+
+```rust
+let add = api.function_decl(
+    FunctionDecl::new("add")
+        .param("left", Ty::i32())
+        .param("right", Ty::i32())
+        .returns(Ty::i32()),
+)?;
+api.bind(add, SyncBinding::new(
+    Args::empty().arg(Codec::i32()).arg(Codec::i32()),
+    Codec::i32(),
+    entries::checked_add,
+))?;
+```
+
+This independent excerpt runs before package finalization. Its Rust body receives
+the context and two i32 values and returns NativeResult<i32>. Binding codecs do
+not create or overwrite the declared function's Kagari signature.
+
+Codecs describe the bridge into Rust, not the authoritative Kagari signature.
+Sharing a Rust integer representation does not make Kagari usize and u64 the
+same type. Check exact semantic type/layout compatibility, receiver shape, arity,
+results and selected dependencies. Rust checks that the function accepts codec
+outputs; no macro reads the function signature to invent a language declaration.
+
+For example, the len body is an ordinary Rust function:
+
+```rust
+fn len(_cx: &mut NativeContext<'_>, values: SequenceHandle<'_>)
+    -> NativeResult<usize>
+{
+    Ok(values.len())
+}
+```
+
+The context is injected and absent from the Kagari signature. Binding/conversion
+views are prepared once. Scalars use stack values; generic views borrow already-
+rooted slots. Escaping values require explicit owned handles. Ordinary native
+implementations neither assign scratch slots nor allocate invocation state.
+Closure environments can be allocated at registration, not per invocation.
+
+Generic views must be backed by a rooted slot or protected storage access. A value
+read from mutable storage that must survive mutation/reentry needs call-scoped
+retention or rooted working storage before callbacks. The zero per-element root
+requirement applies to primitive buffers, not to unprotected GC references.
+
+Finalization rejects duplicate identities, unknown/missing members, incorrect
+associated bindings, unsatisfied parents/bounds, stronger impl requirements,
+missing entries and incompatible codecs. It cannot prove an arbitrary Rust body
+obeys behavioral laws or computes its promised result. Required boundary/result
+checks and behavioral tests remain; metadata validation is not body verification.
+
+### Selected calls, storage and lazy state
+
+An explicit sort declaration adds T: Ord and a callable dependency on Ord::cmp.
+An explicit sort_by declaration instead declares a function-typed argument.
+Neither is guessed from a Rust generic bound or annotation.
+
+```rust
+sort.bound(t.ty(), language.ord().apply([]))?;
+let compare = sort.requires(
+    CallableRequirement::method(t.ty(), language.ord().method("cmp")?),
+)?;
+
+// Inside its registered synchronous closure:
+let target = cx.selected(compare)?;
+let ordering = cx.call(target, (left, right))?;
+```
+
+This is an excerpt: sort is the explicitly declared method, t its in-scope
+parameter, and compare a dependency key that its registration closure may retain.
+Execution uses prepared slots and stack argument packs/scoped views. There is no
+request/receive handshake, target scan or signature cloning. A retained lazy
+callback instead uses an owned traced/pinned handle; it cannot retain NativeContext.
+
+```rust
+enum SequenceStorage {
+    I32(Vec<i32>),
+    F64(Vec<f64>),
+    Traced(Vec<Value>),
+    // Other supported primitive layouts.
+}
+```
+
+Choose storage from the declared element type, including empty collections.
+Primitive operations use scoped slices; reference-bearing fallback values are
+traced through the collection object. Selected intrinsic comparison can work
+straight on a primitive buffer. Callback sorting releases buffer borrows before
+reentry and uses rooted working storage. A fallible comparator propagates its
+first error, never a fake ordering supplied to make a Rust sorting API succeed.
+
+NativeCursor retains position/state, traced captures and pinned callable handles.
+A map adapter retains its source and mapper, not a program counter for synchronous
+callback returns. Captures are GC edges, not independently permanent roots. Normal
+next returns synchronously; actual future async suspension uses a separate entry
+and state interface. No async executor is introduced by this proposal.
+
+### Data flow and tooling
+
+```text
+explicit Kagari declaration builders + explicit Rust bindings
+    -> checked NativePackage
+       -> schema -> HIR/static checking -> portable executable contracts
+       -> schema -> generated .kgr + declaration-to-span navigation map
+       -> binding entries/storage factories -> engine installation
+portable contracts + installed entries
+    -> prepared entry, layouts and callable slots
+    -> scoped context -> direct Rust result or synchronous script call
+```
+
+Tooling projects the same schema consumed by compilation, without parsing generated
+text back to recover signatures. Compiler-owned declarations use the same projection
+machinery. Artifacts retain complete validation/linking contracts, never Rust pointers
+or a requirement to regenerate source at execution time.
+
 ## Phase 1 — Remove the previous library implementation
 
 Task: establish a clean boundary without executable dependencies on the old
@@ -50,6 +362,9 @@ standard-library package or its restored native algorithms.
 - Remove `kagari-stdlib`, its workspace/dependency/build integration, legacy source
   preparation and library declaration catalogs. Remove the retired handwritten
   and generated `stdlib/*.kgr` products.
+- Remove kagari-native-macros, #[native_module] exports and Rust-to-Kagari
+  declaration derivation helpers with obsolete consumers. Preserve useful behavior
+  cases without retaining their macro authoring mechanism.
 - Remove the restored array/sorting, math/numeric, string, option/result, debug,
   cmp/hash/fmt/ops library registrations and business algorithms, their default
   installation wiring and per-standard-method selectors across all consumers.
@@ -105,6 +420,8 @@ not make them compiler features or require their restoration in phase 4.
 - HIR receives complete compiler-owned declarations, bounds and associated outputs.
   Native and script impls use ordinary trait checking and nominal identities;
   user traits named Eq or Iterator do not acquire language hooks.
+- Construct Kagari contracts explicitly and publish their portable catalog view;
+  do not reconstruct them from Rust traits or optional library macros.
 - Specialization selects implementations once. Portable contracts retain checked
   signatures, layouts and concrete targets. Offline verification/runtime loading
   do not depend on HIR or source analysis, and generic ABI records do not recreate
@@ -123,6 +440,8 @@ covered and phase 1 language-contract build gaps are resolved.
 Task: put a small prepared boundary around ordinary Rust functions, including
 synchronous calls back into script code.
 
+- Implement the explicit declaration/impl/binding API above. Kagari signatures
+  are authoritative; checked codecs adapt Rust implementations.
 - Direct calls return results without allocating Box<Completed> or entering an
   advance/receive handshake. Separate them from genuinely suspended invocations.
 - Use scoped contexts over already-rooted arguments. Do not rebuild argument
@@ -242,3 +561,9 @@ or explicit disposition of obsolete targets; phase 2 owns retained language gaps
 final acceptance permits no carried failure in retained consumers. Historical
 records remain in Git. The pre-reset worktree documents were copied to ignored
 target/native-plan-reset/ for review, not as a second execution/progress ledger.
+
+2026-10-02 — Explicit API proposal added at the user's request. Kagari declaration
+ownership is separate from Rust implementation bindings; macro derivation is
+rejected. The proposal covers declaration graphs, impl substitution, codecs,
+prepared calls, contiguous primitive storage and traced lazy state. The same four
+phases remain unstarted; no Rust implementation or resumed goal is claimed.

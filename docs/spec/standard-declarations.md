@@ -2,11 +2,13 @@
 
 Implementation transition (2026-10-02): the
 [native collections reset plan](../native-provider-refactor.md) supersedes the
-registration ownership of language protocols and mandatory continuation examples
-below. Those examples describe the predecessor implementation awaiting removal.
-The target keeps complete language contracts in the compiler and derives native
-API/tooling declarations from Rust registrations, with synchronous calls by
-default. The former NR restoration obligations are historical, not acceptance
+registration ownership of language protocols, Rust-derived declaration macros
+and mandatory continuation examples below. Those examples describe the
+predecessor implementation awaiting removal.
+The target keeps complete language contracts in the compiler. An explicit API
+defines Kagari declarations and impls, then binds Rust functions through checked
+conversion views. Tooling projects the same declarations; calls are synchronous
+by default. The former NR restoration obligations are historical, not acceptance
 requirements. Corresponding phase implementation updates the detailed contracts.
 
 Native registration definitions own API declarations and Rust implementation
