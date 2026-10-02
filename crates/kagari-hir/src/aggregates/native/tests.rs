@@ -7,7 +7,11 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_abi::{language::Protocol, scalar::BuiltinType, standard::surface::StandardEnum};
+use kagari_abi::{
+    language::{self, Protocol},
+    scalar::BuiltinType,
+    standard::surface::StandardEnum,
+};
 use kagari_common::{
     collection::CollectionAccess,
     identity::FileId,
@@ -150,11 +154,14 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
             .unwrap()
             .is_none()
     );
-    assert!(
-        Protocol::ALL
-            .into_iter()
-            .all(|kind| !matches!(kind.name(), "Sum" | "Product" | "FromIterator"))
-    );
+    for kind in [Protocol::Sum, Protocol::Product, Protocol::FromIterator] {
+        let contract = facts
+            .aggregates
+            .trait_(&language::identity(kind))
+            .expect("foundation construction contract");
+        assert_eq!(contract.methods.len(), 1);
+        assert_eq!(contract.methods[0].generic_params.len(), 2);
+    }
 }
 
 #[test]

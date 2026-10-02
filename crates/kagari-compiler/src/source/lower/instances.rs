@@ -224,12 +224,15 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         self.enqueue_protocol_body(
-            parent.origin.clone(),
-            parent.function,
-            parent.substitution.clone(),
+            (
+                parent.origin.clone(),
+                parent.function,
+                parent.substitution.clone(),
+            ),
             protocol,
             ty,
             span,
+            None,
         )
     }
 
@@ -237,31 +240,35 @@ impl<'a> InstancePlanner<'a> {
         &mut self,
         protocol: Protocol,
         ty: &TypeId,
+        interface: &NominalType,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         let parent = self.module.lowered.module.functions.first().ok_or(
             MirLoweringError::MissingBinding("protocol adapter source context"),
         )?;
         self.enqueue_protocol_body(
-            self.module.lowered.source.module_identity().clone(),
-            parent.id,
-            TypeSubstitution::default(),
+            (
+                self.module.lowered.source.module_identity().clone(),
+                parent.id,
+                TypeSubstitution::default(),
+            ),
             protocol,
             ty,
             span,
+            protocol.iteration().then_some(interface),
         )
     }
 
     fn enqueue_protocol_body(
         &mut self,
-        origin: ModuleIdentity,
-        function: FunctionId,
-        substitution: TypeSubstitution,
+        context: (ModuleIdentity, FunctionId, TypeSubstitution),
         protocol: Protocol,
         ty: &TypeId,
         span: Span,
+        interface: Option<&NominalType>,
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
+        let (origin, function, substitution) = context;
         let declaration = DefinitionId {
             module: self.module.lowered.source.module_identity().clone(),
             path: vec![DefinitionPathSegment {
@@ -272,7 +279,10 @@ impl<'a> InstancePlanner<'a> {
         };
         let key = InstanceKey {
             declaration,
-            arguments: vec![ty.clone()],
+            arguments: [Some(ty.clone()), interface.cloned().map(TypeId::Trait)]
+                .into_iter()
+                .flatten()
+                .collect(),
         };
         if let Some(id) = self.keys.get(&key) {
             return Ok(*id);

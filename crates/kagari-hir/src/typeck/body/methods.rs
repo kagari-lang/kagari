@@ -15,7 +15,10 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::language::{self as standard_traits, Protocol};
+use kagari_abi::{
+    language::{self as standard_traits, Protocol},
+    standard::surface::StandardEnum,
+};
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity,
@@ -402,12 +405,63 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> Option<TypeId> {
-        let expr = self.lowered.module.expr(callee);
-        let ExprKind::Field { receiver, name } = &expr.kind else {
-            return None;
-        };
-        let receiver_ty = self.infer_expr_type(*receiver, env);
+        let site = self.trait_call_site(callee, env)?;
+        let receiver = site.receiver;
+        let receiver_ty = site.receiver_type;
+        let name = &site.name;
         let mut trait_types = self.trait_bounds_for(&receiver_ty, env);
+        if let Some(requested) = &site.interface {
+            if let Some((applied, _)) = self.select_operator(&receiver_ty, requested.clone(), env)
+                && applied.satisfies(requested)
+            {
+                trait_types = vec![applied];
+            } else {
+                trait_types.clear();
+            }
+        } else if receiver.is_none()
+            && matches!(name.as_str(), "from" | "try_from")
+            && args.len() == 1
+        {
+            let mut requested = if name == "from" {
+                Protocol::From
+            } else {
+                Protocol::TryFrom
+            }
+            .nominal();
+            requested.arguments.push(self.infer_expr_type(args[0], env));
+            if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
+                trait_types = vec![applied];
+            }
+        }
+        if receiver.is_some()
+            && let Some(expected) = expected
+        {
+            for (kind, method) in [(Protocol::Into, "into"), (Protocol::TryInto, "try_into")] {
+                if name != method {
+                    continue;
+                }
+                let target = if kind == Protocol::TryInto {
+                    match expected {
+                        TypeId::StandardEnum {
+                            kind: StandardEnum::Result,
+                            args,
+                        } => args.first(),
+                        _ => None,
+                    }
+                } else {
+                    Some(expected)
+                };
+                if let Some(target) = target {
+                    let mut requested = kind.nominal();
+                    requested.arguments.push(target.clone());
+                    if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
+                        trait_types
+                            .retain(|available| available.declaration != applied.declaration);
+                        trait_types.push(applied);
+                    }
+                }
+            }
+        }
         // Arrays support every builtin integer index type. Method selection must
         // apply Index to the actual argument, just like bracket expressions.
         if matches!(receiver_ty, TypeId::Array(_, _)) && name == "index" && args.len() == 1 {
@@ -429,6 +483,7 @@ impl<'a> BodyChecker<'a> {
                             .params
                             .first()
                             .is_some_and(|parameter| parameter.name == "self")
+                            == receiver.is_some()
                         && !candidates.contains(&(method.id.clone(), interface.clone()))
                     {
                         candidates.push((method.id.clone(), interface.clone()));
@@ -517,8 +572,15 @@ impl<'a> BodyChecker<'a> {
                 method: method.id.clone(),
                 interface: interface.clone(),
             },
-            Some(*receiver),
+            receiver,
         );
+        if receiver.is_none()
+            || Protocol::from_id(&interface.declaration)
+                .is_some_and(|kind| kind.conversion_origin().is_some())
+        {
+            self.type_table
+                .insert_protocol_receiver(call_expr, self_ty.clone());
+        }
         let params = method
             .params
             .iter()

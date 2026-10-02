@@ -2,7 +2,7 @@
 
 Status: the original four phases are accepted. A subsequent approved boundary
 correction includes all 38 predecessor foundational traits in compiler-owned core.
-The seven additional contracts are planned below; their implementation is pending.
+The seven additional contracts are implemented and validated.
 The goal follows this replacement plan, not the retired restoration sequence.
 
 This completed native-library plan replaces NR00-NR05, the full-library
@@ -53,8 +53,8 @@ policy migration. Necessary consumer changes belong to their owning phase.
 
 After the four-phase reset was accepted, the user clarified that every previously
 implemented foundational trait belongs to compiler-owned core. The earlier
-syntax-required-only selection was too narrow. The current implementation has 31
-contracts; the target is the original 38, with these seven additions:
+syntax-required-only selection was too narrow. The implementation now has the
+original 38 contracts, including these seven additions:
 
 | Contract | Existing responsibility to preserve |
 | --- | --- |
@@ -86,7 +86,7 @@ Scope is exactly the previously implemented trait set. Do not add Try,
 FromResidual or other new traits. Existing Option/Result propagation semantics
 remain unchanged. This correction supersedes the seven-trait exclusions in the
 historical phase scope and progress ledger; it does not reopen the accepted four
-checkpoints or imply that the pending implementation has passed their checks.
+checkpoints. Its implementation and validation are recorded separately below.
 
 ## Collection ownership boundary
 
@@ -1932,3 +1932,68 @@ FromStr, FromIterator, Sum and Product to compiler-owned core. Try and
 FromResidual are not added. Current code still exposes 31 contracts; this entry
 records the approved boundary and pending implementation, not a new acceptance
 result. The completed four-phase checks above remain evidence for that code state.
+
+
+2026-10-02 — Foundation ownership correction implementation.
+
+All 38 contracts are now declared in the compiler-owned catalog. Added Into,
+TryFrom, TryInto, FromStr, FromIterator, Sum and Product, with their complete
+associated outputs and method-level Iterable bounds. Static and qualified calls
+share ordinary trait method checking; native method binders remain distinct from
+trait/impl binders in declarations, generated tooling and carried ABI records.
+Into/TryInto derive from the destination's From/TryFrom implementation and lower
+directly to that call, without an additional runtime forwarding callback.
+
+The runtime foundation supplies primitive FromStr, numeric Sum/Product and
+ArrayList FromIterator through ordinary native impls. Scalar TryFrom reuses the
+existing checked numeric conversion instruction and its verified contract, without
+per-conversion native declarations or a new opcode.
+Parsing retains ParseError, checked integer conversions retain TryFromIntError
+or Infallible, and integer aggregation checks the declared scalar width.
+Scalar array aggregation borrows contiguous scalar storage once and reduces it
+in Rust with cancellation polling. Custom iterable/iterator input uses prepared
+synchronous calls and scoped roots. Iterator's identity Iterable rule and erased
+iteration views have checked callable adapters when selected by a native function.
+The applied interface participates in adapter identity so associated outputs cannot
+be mixed. Readonly List views use ordinary checked interface dispatch.
+Additional destination containers, Option/Result collection combinators and
+convenience iterator methods remain library work; no predecessor helper catalog
+or new trait is introduced.
+
+Native callback obligations are now proved against registered contracts and bounds,
+including bounds inherited by associated outputs. Structural binder validation
+remains at declaration validation, and executable selection is rechecked from
+carried facts. Invalid implementations, method bounds and unproved selected calls
+are covered by negative tests. No format/ABI identifier was incremented.
+
+Final conversion/construction coverage passes all 15 tests, including interpreted
+and Cranelift execution, encoded artifact reload, forced GC, readonly interfaces,
+custom iterables, overflow cleanup and disabled optional modules. Explicit
+associated-error constraints have both positive and negative coverage.
+
+The full `cargo test --workspace --no-fail-fast` sweep completed with 1,526 passing
+tests, four failing cases and one existing ignored manual performance test. All
+four failures were corrected and rechecked:
+
+- Preserve ordinary callable output inference when selecting an operator contract;
+  check explicit associated equalities at qualified trait calls. All eight
+  `callable_traits` tests and all 15 `conversion_traits` tests pass after the fix.
+- Keep the native ABI forgery fixture focused on `len` and its caller, without
+  also corrupting new Self-returning aggregation contracts. The test still creates
+  a portable artifact and proves installation rejects its forged native signature.
+- Update the old core-enum count and FromIterator-exclusion assertions. The final
+  `cargo test -p kagari-hir` passes 400 unit and six integration tests. The compiler
+  recheck passes 163 unit and 14 integration tests.
+
+The sweep's embed doctest encountered a crate-resolution error after overlapping
+rebuilds; its isolated `cargo test -p kagari-embed --doc` rerun passes. The resolved
+workspace coverage is 1,530 passing tests, with the same one ignored measurement
+test. Unchanged successful suites were retained rather than repeating the sweep.
+No known build or test failure remains.
+
+`cargo clippy --workspace --all-targets -- -D warnings`, formatting and diff checks
+pass. Structure validation checks 613 Rust files with zero violations and zero
+exceptions. `uv run python scripts/check_features.py` passes all eight production
+dependency boundaries and the artifact-only, source, native and source-native
+standalone consumers. Logs are under `target/native-traits-*.log`; generated
+artifacts remain disposable and untracked.

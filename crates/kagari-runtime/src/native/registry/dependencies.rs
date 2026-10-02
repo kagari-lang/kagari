@@ -22,9 +22,10 @@ pub(super) fn validate(
                     |item| matches!(item, PublicAbiItem::Trait(contract) if contract == expected),
                 )
         }) {
-            return Err(RuntimeError::module_validation(
-                "native dependency differs from its registered trait contract",
-            ));
+            return Err(RuntimeError::module_validation(format!(
+                "native dependency {} differs from its registered trait contract",
+                expected.name
+            )));
         }
     }
     for (id, expected) in required.declarations.iter() {

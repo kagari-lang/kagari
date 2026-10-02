@@ -165,7 +165,9 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
 #[test]
 fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     fn change_result(function: &mut FunctionAbi) {
-        if function.return_type == AbiType::Builtin(BuiltinType::USize) {
+        if matches!(function.name.as_str(), "len" | "main")
+            && function.return_type == AbiType::Builtin(BuiltinType::USize)
+        {
             function.return_type = AbiType::Builtin(BuiltinType::U64);
         }
     }
@@ -212,8 +214,9 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
             }
         }
     }
-    // usize and u64 have the same physical representation: portable checks can
-    // accept this consistent forgery, but installation must check the source ABI.
+    // Alter the len contract and its caller, leaving unrelated Self-returning
+    // constructors and aggregators intact. usize and u64 share a representation:
+    // portable checks accept the forgery, but installation must check the source ABI.
     let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
     let program =
         PreparedProgram::from_artifact(forged, &Default::default(), &Default::default()).unwrap();

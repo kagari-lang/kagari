@@ -1,7 +1,7 @@
 use crate::{
     language::{Protocol, primitive as intrinsic},
     types::{
-        AbiType, matching,
+        AbiType, inheritance, matching,
         proofs::{Budget, ProofCatalog, host_application, satisfies, search::Search},
         substitution::{TypeTransformError, normalize_projections},
     },
@@ -58,11 +58,15 @@ impl ProofCatalog<'_> {
                         }
                     }
                     if let AbiType::Trait(view) = receiver {
-                        return Ok(self
-                            .ancestry(view, receiver, budget.cancel)?
-                            .into_iter()
-                            .find(|parent| satisfies(parent, interface))
-                            .and_then(|parent| parent.associated_types.get(member).cloned()));
+                        return Ok(inheritance::interface_views(
+                            view,
+                            receiver,
+                            budget.cancel,
+                            &|id| self.contracts.get(id).copied(),
+                        )?
+                        .into_iter()
+                        .find(|parent| satisfies(parent, interface))
+                        .and_then(|parent| parent.associated_types.get(member).cloned()));
                     }
                 }
                 let mut selected = None;

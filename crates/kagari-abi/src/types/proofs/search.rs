@@ -1,9 +1,11 @@
 use crate::{
     language::{Protocol, primitive as intrinsic},
     types::{
-        AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType, matching,
+        AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType, inheritance, matching,
         proofs::{Budget, ProofCatalog, host_application, satisfies},
-        substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
+        substitution::{
+            MAX_TYPE_NODES, TypeSubstitution, TypeTransformError, resolve_associated_outputs,
+        },
     },
 };
 use kagari_common::cancellation::CancellationToken;
@@ -151,11 +153,51 @@ impl ProofCatalog<'_> {
                 }
             }
         }
-        if let AbiType::Trait(view) = receiver
-            && self
-                .ancestry(view, receiver, budget.cancel)?
+        if let AbiType::Projection {
+            receiver: owner,
+            interface: contract,
+            member,
+            arguments,
+        } = receiver
+            && let Some(declaration) = self.contracts.get(&contract.declaration)
+            && let Some(output) = declaration
+                .associated_types
                 .iter()
-                .any(|parent| satisfies(parent, interface))
+                .find(|output| output.declaration == *member)
+            && output.generic_params.len() == arguments.len()
+            && self.prove(contract, owner, assumptions, search, budget, depth + 1)?
+        {
+            let mut substitution =
+                TypeSubstitution::for_owner(&contract.declaration, &contract.arguments);
+            substitution.bind_receiver(&contract.declaration, owner);
+            for (parameter, argument) in output.generic_params.iter().zip(arguments) {
+                substitution.bind(&parameter.owner, parameter.position, argument);
+            }
+            for constraint in &output.bounds {
+                let ConstraintAbi::Trait(bound) = constraint else {
+                    continue;
+                };
+                let bound = substitution.apply(&AbiType::Trait(bound.clone()), budget.cancel)?;
+                let AbiType::Trait(bound) =
+                    resolve_associated_outputs(&bound, contract, budget.cancel)?
+                else {
+                    unreachable!("associated trait bound");
+                };
+                if self
+                    .ancestry(&bound, receiver, budget.cancel)?
+                    .iter()
+                    .any(|bound| satisfies(bound, interface))
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        if let AbiType::Trait(view) = receiver
+            && inheritance::interface_views(view, receiver, budget.cancel, &|id| {
+                self.contracts.get(id).copied()
+            })?
+            .iter()
+            .any(|parent| satisfies(parent, interface))
         {
             return Ok(true);
         }

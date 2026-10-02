@@ -127,6 +127,29 @@ pub(crate) fn lower_protocol<'a>(
 ) -> Result<MirFunction, MirLoweringError> {
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
     let binary = matches!(protocol, Protocol::PartialEq | Protocol::Ord);
+    let interface = match instance.key.arguments.get(1) {
+        Some(TypeId::Trait(interface)) => interface.clone(),
+        _ => protocol.nominal(),
+    };
+    let iteration_result = if protocol.iteration() {
+        let method = planner
+            .catalog
+            .trait_(&interface.declaration)
+            .and_then(|contract| contract.methods.first())
+            .ok_or(MirLoweringError::MissingBinding(
+                "iteration adapter contract",
+            ))?;
+        Some(
+            planner.catalog.normalize_type(
+                &method
+                    .return_type
+                    .with_self(&method.owner, &receiver)
+                    .with_associated_types(&interface),
+            ),
+        )
+    } else {
+        None
+    };
     let typed = TypedFunction {
         implementation: FunctionImplementation::Script,
         generic_params: Vec::new(),
@@ -135,6 +158,7 @@ pub(crate) fn lower_protocol<'a>(
         name: String::new(),
         params: Default::default(),
         return_type: match protocol {
+            Protocol::Iterable | Protocol::Iterator => iteration_result.expect("iteration result"),
             Protocol::Ord => TypeId::StandardEnum {
                 kind: StandardEnum::Ordering,
                 args: vec![],
@@ -147,12 +171,14 @@ pub(crate) fn lower_protocol<'a>(
             }),
         },
     };
+
     let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
-    let interface = protocol.nominal();
     let mut member = identity(protocol);
     member.path.push(DefinitionPathSegment {
         kind: DefinitionKind::Method,
         name: match protocol {
+            Protocol::Iterable => "iter",
+            Protocol::Iterator => "next",
             Protocol::PartialEq => "eq",
             Protocol::Ord => "cmp",
             Protocol::Hash => "hash",
@@ -183,7 +209,7 @@ pub(crate) fn lower_protocol<'a>(
         .map_err(|_| MirLoweringError::MissingBinding("checked protocol adapter"))?
         .is_some()
     {
-        lowerer.function.semantic.protocol_adapter = Some(required);
+        lowerer.function.semantic.protocol_adapter = Some(required.clone());
     }
     lowerer.function.name = format!(
         "$derived_{}_{}",
@@ -223,6 +249,18 @@ pub(crate) fn lower_protocol<'a>(
         args.push(value);
     }
     let value = match protocol {
+        Protocol::Iterable | Protocol::Iterator => {
+            if protocol == Protocol::Iterable && typed.return_type == receiver {
+                args[0]
+            } else {
+                lowerer.lower_applied_operator(
+                    interface,
+                    receiver.clone(),
+                    &required.member,
+                    &args,
+                )?
+            }
+        }
         Protocol::Ord => {
             lowerer.emit_intrinsic(RuntimePrimitive::ValueCmp, &args, ValueType::HeapObject)
         }

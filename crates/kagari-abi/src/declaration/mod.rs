@@ -47,7 +47,7 @@ pub struct ImplDecl {
 /// Free functions retain ordinary checked trait bounds and associated projections.
 /// Impl and inherent-method bounds use the same checked declaration model.
 /// Registered default applications retain their explicit native template mappings.
-/// Associated type families and method generics remain later steps.
+/// Method binders retain their own identities; associated type families remain deferred.
 #[derive(Debug, Clone)]
 pub struct ModuleDecl {
     pub identity: ModuleIdentity,
@@ -159,17 +159,7 @@ impl ModuleDecl {
         {
             return Err(DeclarationError("unknown trait method binding".into()));
         }
-        let mut substitution =
-            TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
-        substitution.bind_receiver(&trait_type.declaration, &for_type);
         let cancel = CancellationToken::default();
-        let resolve = |ty: &AbiType| {
-            let ty = substitution
-                .apply(ty, &cancel)
-                .map_err(|error| DeclarationError(format!("invalid substitution: {error:?}")))?;
-            resolve_associated_outputs(&ty, &trait_type, &cancel)
-                .map_err(|error| DeclarationError(format!("invalid associated output: {error:?}")))
-        };
         let mut methods = vec![];
         for method in &contract.methods {
             let binding = bindings.iter().find(|(name, _)| *name == method.name);
@@ -188,9 +178,65 @@ impl ModuleDecl {
                     method.name
                 )));
             }
+            let method_owner = Self::method_id(
+                &self.implementation_id(self.implementations.len()),
+                &method.name,
+            );
+            let own_parameters = method
+                .generic_params
+                .iter()
+                .enumerate()
+                .map(|(position, _)| GenericParameterAbi {
+                    owner: method_owner.clone(),
+                    position,
+                })
+                .collect::<Vec<_>>();
+            let mut substitution =
+                TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
+            substitution.bind_receiver(&trait_type.declaration, &for_type);
+            let own_types = own_parameters
+                .iter()
+                .map(GenericParameterAbi::as_type)
+                .collect::<Vec<_>>();
+            for (declared, implemented) in method.generic_params.iter().zip(&own_types) {
+                substitution.bind(&declared.owner, declared.position, implemented);
+            }
+            let resolve = |ty: &AbiType| {
+                let ty = substitution.apply(ty, &cancel).map_err(|error| {
+                    DeclarationError(format!("invalid substitution: {error:?}"))
+                })?;
+                resolve_associated_outputs(&ty, &trait_type, &cancel).map_err(|error| {
+                    DeclarationError(format!("invalid associated output: {error:?}"))
+                })
+            };
             let mut method = method.clone();
             method.implementation = CallableImplementation::Native(binding.1.clone());
             method.generic_params = generic_params.clone();
+            method.generic_params.extend(own_parameters);
+            method.bounds = method
+                .bounds
+                .iter()
+                .map(|bound| {
+                    Ok(GenericBoundAbi {
+                        ty: resolve(&bound.ty)?,
+                        constraints: bound
+                            .constraints
+                            .iter()
+                            .map(|constraint| match constraint {
+                                ConstraintAbi::Standard(kind) => Ok(ConstraintAbi::Standard(*kind)),
+                                ConstraintAbi::Trait(interface) => {
+                                    let AbiType::Trait(interface) =
+                                        resolve(&AbiType::Trait(interface.clone()))?
+                                    else {
+                                        unreachable!("trait substitution");
+                                    };
+                                    Ok(ConstraintAbi::Trait(interface))
+                                }
+                            })
+                            .collect::<Result<_, DeclarationError>>()?,
+                    })
+                })
+                .collect::<Result<_, DeclarationError>>()?;
             method.params = method
                 .params
                 .into_iter()
@@ -325,8 +371,6 @@ impl ModuleDecl {
                 || !item.associated_consts.is_empty()
                 || item.methods.iter().any(|method| {
                     !identifier(&method.name)
-                        || !method.bounds.is_empty()
-                        || !method.generic_params.is_empty()
                         || !matches!(
                             method.implementation,
                             CallableImplementation::Required
@@ -389,8 +433,16 @@ impl ModuleDecl {
             for method in &implementation.methods {
                 if !identifier(&method.name)
                     || !method_names.insert(&method.name)
-                    || method.generic_params != implementation.generic_params
-                    || (implementation.trait_type.is_some() && !method.bounds.is_empty())
+                    || !method
+                        .generic_params
+                        .starts_with(&implementation.generic_params)
+                    || method.generic_params[implementation.generic_params.len()..]
+                        .iter()
+                        .enumerate()
+                        .any(|(position, parameter)| {
+                            parameter.owner != Self::method_id(&owner, &method.name)
+                                || parameter.position != position
+                        })
                     || !native_bounds_valid(
                         &method.bounds,
                         &method.generic_params,

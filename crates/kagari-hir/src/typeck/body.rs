@@ -25,6 +25,7 @@ mod methods;
 mod patterns;
 mod places;
 mod statements;
+mod trait_calls;
 
 use kagari_abi::{language::Protocol, scalar::BuiltinType};
 use kagari_common::{
@@ -431,7 +432,15 @@ impl<'a> BodyChecker<'a> {
                 self.infer_binary_operator(expr_id, lhs, op, rhs, env, expected)
             }
             ExprKind::Call { callee, args, .. } => {
-                if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env, expected)
+                if matches!(
+                    self.lowered.module.expr(*callee).kind,
+                    ExprKind::Name { .. }
+                ) && let Some(ty) =
+                    self.infer_trait_method_call_type(expr_id, *callee, args, env, expected)
+                {
+                    ty
+                } else if let Some(ty) =
+                    self.infer_enum_constructor(expr_id, *callee, args, env, expected)
                 {
                     ty
                 } else if let Some(ty) =

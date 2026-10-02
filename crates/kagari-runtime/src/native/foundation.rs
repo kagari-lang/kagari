@@ -1,5 +1,6 @@
 //! Mandatory Rust implementations of the compiler-owned language foundation.
 //! The declaration catalog is the single authority for every signature and bound.
+mod construction;
 mod hash;
 use crate::gc::HeapObjectId;
 use crate::{
@@ -37,6 +38,10 @@ pub fn module() -> NativeResult<NativeModule> {
             .name
             .as_str();
         let entry: Entry = match name {
+            "$foundation_from_str" => construction::from_str,
+            "$foundation_sum" => construction::sum,
+            "$foundation_product" => construction::product,
+            "$foundation_list_from_iter" => construction::list_from_iter,
             "$foundation_list_new" => list_new,
             "$foundation_list_len" => list_len,
             "$foundation_list_is_empty" => list_is_empty,

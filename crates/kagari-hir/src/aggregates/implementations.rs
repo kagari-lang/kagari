@@ -78,6 +78,9 @@ impl AggregateCatalog {
         implementation: &ImplementationSignature,
     ) -> Option<&'static str> {
         let protocol = Protocol::from_id(&implementation.trait_type.declaration)?;
+        if protocol.conversion_origin().is_some() {
+            return Some("Into and TryInto are derived from From and TryFrom");
+        }
         if protocol.iteration() {
             let other = if protocol == Protocol::Iterator {
                 Protocol::Iterable
@@ -111,7 +114,7 @@ impl AggregateCatalog {
         {
             return Some("identity From<T> for T is supplied by the language");
         }
-        if protocol == Protocol::From {
+        if matches!(protocol, Protocol::From | Protocol::TryFrom) {
             if matches!(implementation.for_type, TypeId::Host(_))
                 || implementation
                     .trait_type
@@ -328,6 +331,27 @@ impl AggregateCatalog {
     }
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
+            if arguments.is_empty()
+                && *member == identity::associated_type_id(&interface.declaration, "Error")
+                && let Some(error) = traits::conversion_error(interface, receiver)
+            {
+                return Some(error);
+            }
+
+            if arguments.is_empty()
+                && !matches!(receiver, TypeId::SelfType(_))
+                && *member == identity::associated_type_id(&interface.declaration, "Error")
+                && let Some((required, target)) =
+                    traits::conversion_requirement(interface, receiver)
+            {
+                return Some(TypeId::Projection {
+                    receiver: Box::new(target),
+                    member: identity::associated_type_id(&required.declaration, "Error"),
+                    interface: Box::new(required),
+                    arguments: vec![],
+                });
+            }
+
             if arguments.is_empty()
                 && let Some(kind) = Protocol::from_id(&interface.declaration)
                 && kind.iteration()

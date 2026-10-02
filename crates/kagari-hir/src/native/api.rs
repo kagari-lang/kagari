@@ -23,7 +23,7 @@ use kagari_abi::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{
         DeclarationError, ModuleDecl,
-        render::{DeclarationSource, NativeBoundSite},
+        render::{DeclarationSource, NativeBoundSite, parameter_spelling},
     },
     scalar::BuiltinType,
     standard::surface::builtin_type_spec,
@@ -323,11 +323,13 @@ impl Importer<'_> {
             let mut methods = vec![];
             for method in &item.methods {
                 let method_owner = ModuleDecl::method_id(&owner, &method.name);
+                let mut method_generics = generic_params.clone();
+                method_generics.extend(self.generics(&method_owner, &method.generic_params));
                 let function = self.function(
                     &method_owner,
                     method,
                     FunctionKind::TraitMethod,
-                    generic_params.clone(),
+                    method_generics,
                     None,
                 )?;
                 let method_id = self
@@ -411,11 +413,14 @@ impl Importer<'_> {
             let mut methods = vec![];
             for method in &implementation.methods {
                 let method_owner = ModuleDecl::method_id(&owner, &method.name);
+                let own = &method.generic_params[implementation.generic_params.len()..];
+                let mut method_generics = generic_params.clone();
+                method_generics.extend(self.generics(&method_owner, own));
                 let function = self.function(
                     &method_owner,
                     method,
                     FunctionKind::ImplMethod,
-                    generic_params.clone(),
+                    method_generics,
                     Some(for_type),
                 )?;
                 methods.push(ImplMethod {
@@ -467,7 +472,7 @@ impl Importer<'_> {
                 let span = self.generated.sites[owner].generics[index];
                 GenericParam {
                     id: self.lowerer.source_map.push_generic_param(span),
-                    name: format!("T{}", param.position),
+                    name: parameter_spelling(&param.owner, param.position),
                     bounds: vec![],
                 }
             })
@@ -559,7 +564,7 @@ impl Importer<'_> {
                 .collect::<Result<_, _>>()?;
             result.push(TraitBound {
                 target: match &bound.ty {
-                    AbiType::Parameter { position, .. } => format!("T{position}"),
+                    AbiType::Parameter { owner, position } => parameter_spelling(owner, *position),
                     _ => String::new(),
                 },
                 target_ref,
@@ -678,7 +683,9 @@ impl Importer<'_> {
                     .name
                     .into(),
             ),
-            AbiType::Parameter { position, .. } => TypeKind::Named(format!("T{position}")),
+            AbiType::Parameter { owner, position } => {
+                TypeKind::Named(parameter_spelling(owner, *position))
+            }
             AbiType::SelfType(_) => TypeKind::Named("Self".into()),
             AbiType::Trait(ty) | AbiType::NativeObject(ty) => return self.nominal_type(ty, span),
             AbiType::Projection {

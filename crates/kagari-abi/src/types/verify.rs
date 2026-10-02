@@ -286,13 +286,6 @@ pub fn validate_native_declarations(
                     .arguments
                     .iter()
                     .any(|ty| !type_valid(ty, &params, self_owner, cancel))
-                || (!required.receiver.is_concrete()
-                    && !function.bounds.iter().any(|bound| {
-                        bound.ty == required.receiver
-                            && bound
-                                .constraints
-                                .contains(&ConstraintAbi::Trait(required.interface.clone()))
-                    }))
             {
                 return Err(LayoutValidationError::Invalid);
             }

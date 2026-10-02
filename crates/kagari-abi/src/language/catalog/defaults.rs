@@ -43,12 +43,15 @@ fn define_type(
     let variants = if let NativeTypeConstructor::Enum(kind) = layout {
         kind.variants()
             .iter()
-            .map(|variant| VariantAbi {
-                name: format!("{variant:?}"),
-                payload: variant
-                    .payload()
-                    .map(|position| vec![generic_params[position].as_type()])
-                    .unwrap_or_default(),
+            .map(|variant| {
+                let name = format!("{variant:?}");
+                VariantAbi {
+                    name: name.strip_prefix("Parse").unwrap_or(&name).to_owned(),
+                    payload: variant
+                        .payload()
+                        .map(|position| vec![generic_params[position].as_type()])
+                        .unwrap_or_default(),
+                }
             })
             .collect()
     } else {
@@ -174,6 +177,9 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         ("Result", StandardEnum::Result, &["T", "E"][..]),
         ("Ordering", StandardEnum::Ordering, &[][..]),
         ("Bound", StandardEnum::Bound, &["T"][..]),
+        ("ParseError", StandardEnum::ParseError, &[][..]),
+        ("TryFromIntError", StandardEnum::TryFromIntError, &[][..]),
+        ("Infallible", StandardEnum::Infallible, &[][..]),
     ] {
         define_type(
             module,
@@ -182,7 +188,15 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             parameters,
             false,
         );
-        module.variant_exports.insert(name.into());
+        if matches!(
+            kind,
+            StandardEnum::Option
+                | StandardEnum::Result
+                | StandardEnum::Ordering
+                | StandardEnum::Bound
+        ) {
+            module.variant_exports.insert(name.into());
+        }
     }
     for kind in [
         RangeKind::Exclusive,

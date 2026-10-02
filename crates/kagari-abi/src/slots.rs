@@ -1,5 +1,8 @@
 use crate::{
-    native_import::{callables::NativeCallableRequirement, protocol::adapter_contract},
+    native_import::{
+        callables::NativeCallableRequirement,
+        protocol::{adapter_arguments, adapter_contract},
+    },
     types::{AbiType, ConcreteFunctionIdentity, verify::concrete_type_valid},
 };
 use kagari_common::identity::DefinitionKind;
@@ -33,7 +36,7 @@ impl SemanticSlots {
         required.member.within_path_limit()
             && required.receiver.within_wire_limits()
             && concrete_type_valid(&required.receiver, &Default::default())
-            && identity.arguments == [required.receiver.clone()]
+            && identity.arguments == adapter_arguments(required)
             && identity.declaration.path.len() == 1
             && identity.declaration.path[0].kind == DefinitionKind::Function
             && identity.declaration.path[0].name == format!("$derived_{}", kind.name())

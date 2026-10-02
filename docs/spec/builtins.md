@@ -14,10 +14,9 @@ classes are withdrawn, rather than implicitly restored by language protocols.
 
 ## Foundation trait scope
 
-The approved foundation consists of all 38 traits implemented before the reset.
-Current code provides 31. The remaining Into, TryFrom, TryInto, FromStr,
-FromIterator, Sum and Product belong to compiler-owned core and are pending
-implementation under the [approved correction](../native-provider-refactor.md#approved-foundation-boundary-correction).
+The foundation contains all 38 traits implemented before the reset. Into,
+TryFrom, TryInto, FromStr, FromIterator, Sum and Product are compiler-owned core
+contracts under the [approved correction](../native-provider-refactor.md#approved-foundation-boundary-correction).
 Their ownership does not depend on optional library installation or direct syntax
 support. Algorithms and additional container implementations remain separate.
 Try and FromResidual are not added; Option/Result `?` keeps its current semantics.
@@ -212,17 +211,27 @@ and Result error propagation. Identity conversion preserves the same value or ob
 identity. Distinct error conversion runs once on Err, never on Ok, and cannot search
 a chain of intermediate conversions. Conversion traps retain completed effects.
 
-Into, TryFrom, TryInto and FromStr are approved compiler-owned foundation
-contracts, pending implementation. Preserve their predecessor conversion/associated
-error semantics through checked trait implementations. Numeric convenience methods
-and parsing algorithms are separate from ownership of these contracts. Numeric
+Into<T> is derived from T: From<Self>; TryInto<T> is derived from T: TryFrom<Self>,
+including the same associated Error. Direct implementations of the reverse
+contracts are rejected. TryFrom<S> declares `type Error` and
+`fn try_from(value: S) -> Result<Self, Self::Error>`. FromStr declares `type Err`
+and `fn from_str(text: String) -> Result<Self, Self::Err>`. Static and qualified
+calls use ordinary checked trait selection, including generic receivers.
+
+The runtime foundation implements FromStr for numeric scalars and bool, without
+trimming input; errors use ParseError. Scalar TryFrom uses the existing checked
+numeric conversion rules with Infallible for lossless cases and TryFromIntError
+for narrowing integer cases. Optional helper methods are not required. Numeric
 `as` conversions retain their language rules.
 
 ## Iteration protocols
 
-FromIterator<T>, Sum<T> and Product<T> are also approved core contracts, pending
-implementation. Their generic source parameter uses Iterable<Item = T>. This
-does not automatically install collection, reduction or pipeline algorithms.
+FromIterator<T>, Sum<T> and Product<T> are core contracts. Their static methods
+`from_iter`, `sum` and `product` each take `I: Iterable<Item = T>` and return Self.
+The foundation supplies ArrayList construction and same-scalar numeric aggregation.
+Empty sums return zero and empty products return one; integer overflow traps at
+the declared scalar width. Other destinations and convenience pipeline methods
+remain optional library implementations.
 
 `core::language::{Iterator, Iterable}` are prelude traits:
 

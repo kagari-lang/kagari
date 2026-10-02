@@ -69,7 +69,7 @@ impl NativeModule {
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
         checked.check_implementations([&declaration])?;
-        checked.validate_defaults()?;
+        checked.validate_callable_contracts()?;
         let mut registrations = Vec::new();
         let mut registry = NativeRegistry::default();
         for (id, binding) in bindings {
@@ -160,7 +160,7 @@ impl NativeModule {
         for registration in &self.bindings {
             staged.install(registration.clone())?;
         }
-        staged.catalog.validate_defaults()?;
+        staged.catalog.validate_callable_contracts()?;
         *registry = staged;
         Ok(())
     }

@@ -132,6 +132,12 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
 
+        if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
+            let origin = Protocol::from_id(&required.declaration).expect("conversion origin");
+            let method = self.protocol_method(origin, 0)?;
+            return self.lower_applied_method(required, target, &method, &method_arguments, args);
+        }
+
         if Protocol::from_id(&interface.declaration) == Some(Protocol::Fn)
             && let TypeId::Function { params, result } = &ty
         {
@@ -276,7 +282,11 @@ impl FunctionLowerer<'_, '_> {
         {
             return Ok(args[0]);
         }
-        if let (Some(Protocol::From), TypeId::Builtin(target), [TypeId::Builtin(source)]) = (
+        if let (
+            Some(kind @ (Protocol::From | Protocol::TryFrom)),
+            TypeId::Builtin(target),
+            [TypeId::Builtin(source)],
+        ) = (
             Protocol::from_id(&interface.declaration),
             &ty,
             interface.arguments.as_slice(),
@@ -289,7 +299,7 @@ impl FunctionLowerer<'_, '_> {
             let conversion = NumericConversion {
                 source: *source,
                 target: *target,
-                checked: false,
+                checked: kind == Protocol::TryFrom,
             };
             let (_, output) = conversion
                 .contract()

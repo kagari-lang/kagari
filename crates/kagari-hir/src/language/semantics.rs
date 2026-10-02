@@ -184,6 +184,16 @@ pub fn intrinsic_applies(
                     .all(|(member, ty)| outputs.get(member) == Some(ty))
         });
     }
+    if let Some((required, target)) = conversion_requirement(interface, receiver) {
+        return intrinsic_applies(&required, &target, catalog, bounds)
+            || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
+            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(&required, &target, bounds, 100_000, 64, &Default::default()).is_ok_and(|found| found.is_some()));
+    }
+    if let Some(error) = conversion_error(interface, receiver) {
+        return interface.associated_types.iter().all(|(member, ty)| {
+            *member == associated_type_id(&interface.declaration, "Error") && *ty == error
+        });
+    }
     if kind == Protocol::From {
         return interface.arguments.as_slice() == [receiver.clone()]
             && interface.associated_types.is_empty()
@@ -232,7 +242,12 @@ pub fn intrinsic_holds(
     if protocol.iteration() {
         return iteration_outputs(protocol, ty, catalog, bounds).is_some();
     }
-    if protocol == Protocol::From {
+    if protocol.conversion()
+        || matches!(
+            protocol,
+            Protocol::FromStr | Protocol::FromIterator | Protocol::Sum | Protocol::Product
+        )
+    {
         return false;
     }
     if protocol.operator() {
@@ -346,10 +361,30 @@ pub fn iteration_outputs(
         let inherited = catalog?
             .interface_closure(interface, receiver, &Default::default())
             .ok()?;
-        return inherited
-            .into_iter()
+        if let Some(parent) = inherited
+            .iter()
             .find(|parent| parent.declaration == identity(kind))
-            .map(|parent| parent.associated_types);
+        {
+            return Some(parent.associated_types.clone());
+        }
+        if kind == Protocol::Iterable
+            && let Some(iterator) = inherited
+                .iter()
+                .find(|parent| parent.declaration == identity(Protocol::Iterator))
+        {
+            let item = iterator
+                .associated_types
+                .get(&associated_type_id(&iterator.declaration, "Item"))?
+                .clone();
+            return Some(BTreeMap::from([
+                (associated_type_id(&identity(kind), "Item"), item),
+                (
+                    associated_type_id(&identity(kind), "Iter"),
+                    receiver.clone(),
+                ),
+            ]));
+        }
+        return None;
     }
     if let Some((implementation, arguments)) = catalog.and_then(|catalog| {
         catalog
@@ -456,4 +491,45 @@ pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Optio
         }
     }
     Some(required)
+}
+
+/// Reverse conversions retain the forward impl identity and associated error.
+pub fn conversion_requirement(
+    interface: &NominalType,
+    receiver: &TypeId,
+) -> Option<(NominalType, TypeId)> {
+    let kind = Protocol::from_id(&interface.declaration)?;
+    let origin = kind.conversion_origin()?;
+    let [target] = interface.arguments.as_slice() else {
+        return None;
+    };
+    let mut required = origin.nominal();
+    required.arguments.push(receiver.clone());
+    for (member, ty) in &interface.associated_types {
+        if kind != Protocol::TryInto
+            || *member != associated_type_id(&interface.declaration, "Error")
+        {
+            return None;
+        }
+        required.associated_types.insert(
+            associated_type_id(&required.declaration, "Error"),
+            ty.clone(),
+        );
+    }
+    Some((required, target.clone()))
+}
+
+pub fn conversion_error(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
+    if Protocol::from_id(&interface.declaration) != Some(Protocol::TryFrom) {
+        return None;
+    }
+    let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
+        (receiver, interface.arguments.as_slice())
+    else {
+        return None;
+    };
+    Some(TypeId::StandardEnum {
+        kind: scalar_numeric::conversion_error(*source, *target)?,
+        args: vec![],
+    })
 }

@@ -185,6 +185,20 @@ impl<'a> ProofCatalog<'a> {
             contracts: declarations,
             native_declarations: templates,
         };
+        for template in result.native_declarations.values() {
+            for required in &template.callable_requirements {
+                if !result.callable_requirement_valid(required)
+                    || !result.holds(
+                        &required.interface,
+                        &required.receiver,
+                        &template.function.bounds,
+                        cancel,
+                    )?
+                {
+                    return Err(TypeTransformError::InvalidContract);
+                }
+            }
+        }
         if !result.native_defaults_valid(cancel)? {
             return Err(TypeTransformError::InvalidContract);
         }

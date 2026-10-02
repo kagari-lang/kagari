@@ -76,7 +76,8 @@ fn portable_language_catalog_has_complete_contracts() {
     }
     let generated = module.declaration_source().unwrap();
     assert!(generated.text.contains("type Iter: Iterator<Item ="));
-    assert!(!generated.text.contains("FromIterator"));
+    assert!(generated.text.contains("trait FromIterator<T0>"));
+    assert!(generated.text.contains("fn from_iter<M0>(source: M0)"));
     assert!(!generated.text.contains("fn sort"));
 }
 

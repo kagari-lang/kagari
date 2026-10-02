@@ -209,7 +209,7 @@ pub(super) fn validate_trait_surface(
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
                 || !lowered.registered_native_api
-                    && kind != Protocol::From
+                    && !kind.conversion()
                     && !matches!(
                         for_ty,
                         TypeId::NativeObject(_)

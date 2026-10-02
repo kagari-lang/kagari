@@ -31,12 +31,27 @@ pub fn requirements(
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
+    if let Some((interface, target)) = conversion_requirement(interface, receiver) {
+        return Ok(Some(vec![GenericBoundAbi {
+            ty: target,
+            constraints: vec![ConstraintAbi::Trait(interface)],
+        }]));
+    }
     if Protocol::from_id(&interface.declaration) == Some(Protocol::From)
         && interface.associated_types.is_empty()
         && (interface.arguments.as_slice() == [receiver.clone()]
             || matches!((receiver, interface.arguments.as_slice()), (AbiType::Builtin(target), [AbiType::Builtin(source)]) if numeric::lossless_from(*source, *target)))
     {
         return Ok(Some(vec![]));
+    }
+    if let Some(error) = conversion_error(interface, receiver) {
+        return Ok(interface
+            .associated_types
+            .iter()
+            .all(|(member, ty)| {
+                *member == associated_type_id(&interface.declaration, "Error") && *ty == error
+            })
+            .then(Vec::new));
     }
     if let Some(output) = operator_output(interface, receiver) {
         return Ok(interface
@@ -64,6 +79,22 @@ pub fn associated_output(
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
+    if *member == associated_type_id(&interface.declaration, "Error")
+        && let Some(error) = conversion_error(interface, receiver)
+    {
+        return Ok(Some(error));
+    }
+    if !matches!(receiver, AbiType::SelfType(_))
+        && *member == associated_type_id(&interface.declaration, "Error")
+        && let Some((required, target)) = conversion_requirement(interface, receiver)
+    {
+        return Ok(Some(AbiType::Projection {
+            receiver: Box::new(target),
+            member: associated_type_id(&required.declaration, "Error"),
+            interface: Box::new(required),
+            arguments: vec![],
+        }));
+    }
     Ok(
         if *member == associated_type_id(&interface.declaration, "Output") {
             operator_output(interface, receiver)
@@ -137,4 +168,44 @@ pub fn identity_iterator(interface: &NominalAbiType, receiver: &AbiType) -> Opti
         }
     }
     Some(required)
+}
+
+/// Into and TryInto reuse the destination conversion, including its error output.
+pub fn conversion_requirement(
+    interface: &NominalAbiType,
+    receiver: &AbiType,
+) -> Option<(NominalAbiType, AbiType)> {
+    let kind = Protocol::from_id(&interface.declaration)?;
+    let origin = kind.conversion_origin()?;
+    let [target] = interface.arguments.as_slice() else {
+        return None;
+    };
+    let mut required = applied(origin, vec![receiver.clone()]);
+    for (member, ty) in &interface.associated_types {
+        if kind != Protocol::TryInto
+            || *member != associated_type_id(&interface.declaration, "Error")
+        {
+            return None;
+        }
+        required.associated_types.insert(
+            associated_type_id(&required.declaration, "Error"),
+            ty.clone(),
+        );
+    }
+    Some((required, target.clone()))
+}
+
+fn conversion_error(interface: &NominalAbiType, receiver: &AbiType) -> Option<AbiType> {
+    if Protocol::from_id(&interface.declaration) != Some(Protocol::TryFrom) {
+        return None;
+    }
+    let (AbiType::Builtin(target), [AbiType::Builtin(source)]) =
+        (receiver, interface.arguments.as_slice())
+    else {
+        return None;
+    };
+    Some(AbiType::StandardEnum {
+        kind: numeric::conversion_error(*source, *target)?,
+        args: vec![],
+    })
 }

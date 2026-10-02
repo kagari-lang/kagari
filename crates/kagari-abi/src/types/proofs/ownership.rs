@@ -85,6 +85,9 @@ impl ProofCatalog<'_> {
         let Some(kind) = Protocol::from_id(&interface.declaration) else {
             return Ok(true);
         };
+        if kind.conversion_origin().is_some() {
+            return Ok(false);
+        }
         if kind.iteration() && self.iteration_conflict(kind, table.receiver(), budget)? {
             return Ok(false);
         }
@@ -104,14 +107,14 @@ impl ProofCatalog<'_> {
         {
             return Ok(false);
         }
-        if kind == Protocol::From {
+        if matches!(kind, Protocol::From | Protocol::TryFrom) {
             if iter::once(table.receiver())
                 .chain(&interface.arguments)
                 .any(|ty| matches!(ty, AbiType::Host(_)))
             {
                 return Ok(false);
             }
-            return Ok(iter::once(table.receiver()).chain(&interface.arguments).any(|ty| matches!(ty, AbiType::Struct(n) | AbiType::NativeObject(n) | AbiType::Enum(n) if n.declaration.module == table.declaration().module)));
+            return Ok(interface.declaration.module == table.declaration().module || iter::once(table.receiver()).chain(&interface.arguments).any(|ty| matches!(ty, AbiType::Struct(n) | AbiType::NativeObject(n) | AbiType::Enum(n) if n.declaration.module == table.declaration().module)));
         }
         if kind.host_implementable() {
             return Ok(true);

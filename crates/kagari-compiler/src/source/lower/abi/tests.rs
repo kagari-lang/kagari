@@ -80,7 +80,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             count += 1;
         }
     }
-    assert_eq!(count, 15);
+    assert_eq!(count, 18);
     assert!(seen_map && seen_result);
 }
 

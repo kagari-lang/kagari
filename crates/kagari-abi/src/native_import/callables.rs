@@ -2,6 +2,7 @@
 use crate::{
     callable::CallableImplementation,
     effects::EffectSet,
+    language::Protocol,
     native_import::NativeSignature,
     types::{
         AbiType, ConcreteFunctionIdentity, NominalAbiType,
@@ -9,7 +10,10 @@ use crate::{
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionId, associated_type_id},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,13 +30,38 @@ impl NativeCallableRequirement {
         catalog: &ProofCatalog<'_>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
-        let AbiType::Trait(interface) =
+        let AbiType::Trait(mut interface) =
             catalog.normalize(&AbiType::Trait(self.interface.clone()), cancel)?
         else {
             return Err(TypeTransformError::InvalidContract);
         };
+        let receiver = catalog.normalize(&self.receiver, cancel)?;
+        if matches!(receiver, AbiType::Trait(_))
+            && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
+        {
+            for name in ["Item", "Iter"] {
+                if name == "Iter"
+                    && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+                {
+                    continue;
+                }
+                let member = associated_type_id(&interface.declaration, name);
+                if !interface.associated_types.contains_key(&member) {
+                    let output = catalog.normalize(
+                        &AbiType::Projection {
+                            receiver: Box::new(receiver.clone()),
+                            interface: Box::new(interface.clone()),
+                            member: member.clone(),
+                            arguments: vec![],
+                        },
+                        cancel,
+                    )?;
+                    interface.associated_types.insert(member, output);
+                }
+            }
+        }
         Ok(Self {
-            receiver: catalog.normalize(&self.receiver, cancel)?,
+            receiver,
             interface,
             member: self.member.clone(),
             arguments: self

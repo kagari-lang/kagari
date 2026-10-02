@@ -6,13 +6,17 @@ use crate::source::{
 use kagari_abi::{
     callable::CallableImplementation,
     effects::EffectSet,
+    language::Protocol,
     native_import::{
         NativeImport, NativeSignature,
         callables::{NativeCallableApplication, NativeCallableOrigin},
     },
     types::{ConcreteFunctionIdentity, NativeDeclaration, substitution::TypeSubstitution},
 };
-use kagari_common::{identity::DefinitionId, span::Span};
+use kagari_common::{
+    identity::{DefinitionId, associated_type_id},
+    span::Span,
+};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     native::NativeBinding,
@@ -69,12 +73,33 @@ impl InstancePlanner<'_> {
         let mut selected = vec![];
         for mut required in requirements {
             let receiver = self.catalog.normalize_type(&raise_type(&required.receiver));
-            let TypeId::Trait(interface) = self
+            let TypeId::Trait(mut interface) = self
                 .catalog
                 .normalize_type(&TypeId::Trait(raise_nominal_type(&required.interface)))
             else {
                 return Err(invalid());
             };
+            if matches!(receiver, TypeId::Trait(_))
+                && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
+            {
+                for name in ["Item", "Iter"] {
+                    if name == "Iter"
+                        && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+                    {
+                        continue;
+                    }
+                    let member = associated_type_id(&interface.declaration, name);
+                    if !interface.associated_types.contains_key(&member) {
+                        let output = self.catalog.normalize_type(&TypeId::Projection {
+                            receiver: Box::new(receiver.clone()),
+                            interface: Box::new(interface.clone()),
+                            member: member.clone(),
+                            arguments: vec![],
+                        });
+                        interface.associated_types.insert(member, output);
+                    }
+                }
+            }
             required.receiver = lower_type(&receiver);
             required.interface = lower_nominal_type(&interface);
             required.arguments = required
@@ -104,7 +129,8 @@ impl InstancePlanner<'_> {
                     )
                     .map_err(|_| invalid())?
                     .ok_or_else(invalid)?;
-                let id = self.enqueue_selected_protocol(application.kind, &receiver, span)?;
+                let id =
+                    self.enqueue_selected_protocol(application.kind, &receiver, &interface, span)?;
                 let instance = self.instances[id.index()].key.lower(self.options, span)?;
                 selected.push(NativeCallableApplication {
                     origin: NativeCallableOrigin::ProtocolAdapter,

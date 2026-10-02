@@ -2,7 +2,7 @@ use kagari_runtime::native::{
     binding::{Codec, NativeBinding, NativeResult},
     builder::ModuleBuilder,
     context::CallContext,
-    declarations::{FunctionDecl, MethodDecl},
+    declarations::{CallableRequirement, FunctionDecl, MethodDecl},
     language::LanguageContracts,
     storage::{NativePayload, NativeStorage},
     types::Type,
@@ -277,4 +277,36 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
         second.generic_params[0].as_type()
     );
     module.install(&mut Runtime::default()).unwrap();
+}
+
+#[test]
+fn selected_callbacks_require_proven_declared_bounds() {
+    let language = LanguageContracts::default();
+    for declare_bound in [false, true] {
+        let mut module = ModuleBuilder::new("example::selected_bounds", &language);
+        let function = module
+            .define_function(FunctionDecl::new("inspect"))
+            .unwrap();
+        module
+            .function(&function, |function| {
+                let item = function.type_parameter("T")?.ty();
+                function.parameter("value", item.clone());
+                if declare_bound {
+                    function.bound(item.clone(), language.hash().apply([]));
+                }
+                function.requires(CallableRequirement::method(
+                    item,
+                    language.hash().method("hash")?,
+                ));
+                Ok(())
+            })
+            .unwrap();
+        module
+            .bind_with(
+                function,
+                NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
+            )
+            .unwrap();
+        assert_eq!(module.finish().is_ok(), declare_bound);
+    }
 }

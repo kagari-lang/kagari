@@ -52,6 +52,13 @@ pub enum Protocol {
     Display,
     /// Error conversion used by Result propagation.
     From,
+    Into,
+    TryFrom,
+    TryInto,
+    FromStr,
+    FromIterator,
+    Sum,
+    Product,
 }
 
 pub fn identity(protocol: Protocol) -> DefinitionId {
@@ -66,7 +73,7 @@ pub fn identity(protocol: Protocol) -> DefinitionId {
 }
 
 impl Protocol {
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 38] = [
         Self::List,
         Self::MutableList,
         Self::Map,
@@ -98,6 +105,13 @@ impl Protocol {
         Self::Debug,
         Self::Display,
         Self::From,
+        Self::Into,
+        Self::TryFrom,
+        Self::TryInto,
+        Self::FromStr,
+        Self::FromIterator,
+        Self::Sum,
+        Self::Product,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -132,6 +146,13 @@ impl Protocol {
             Self::Debug => "Debug",
             Self::Display => "Display",
             Self::From => "From",
+            Self::Into => "Into",
+            Self::TryFrom => "TryFrom",
+            Self::TryInto => "TryInto",
+            Self::FromStr => "FromStr",
+            Self::FromIterator => "FromIterator",
+            Self::Sum => "Sum",
+            Self::Product => "Product",
         }
     }
     pub fn from_id(id: &DefinitionId) -> Option<Self> {
@@ -140,6 +161,22 @@ impl Protocol {
         }
         Self::ALL.into_iter().find(|kind| identity(*kind) == *id)
     }
+    pub fn conversion(self) -> bool {
+        matches!(
+            self,
+            Self::From | Self::Into | Self::TryFrom | Self::TryInto
+        )
+    }
+
+    /// Reverse conversion contracts are derived from the destination's impl.
+    pub fn conversion_origin(self) -> Option<Self> {
+        match self {
+            Self::Into => Some(Self::From),
+            Self::TryInto => Some(Self::TryFrom),
+            _ => None,
+        }
+    }
+
     pub fn dynamic(self) -> bool {
         self.collection() || matches!(self, Self::Index | Self::Iterable | Self::Iterator)
     }

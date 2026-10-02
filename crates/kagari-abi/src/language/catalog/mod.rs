@@ -1,6 +1,8 @@
 //! Immutable portable declarations for the compiler-owned language foundation.
 //! Registration and tooling consume the same records; no Rust bodies live here.
 mod collections;
+mod construction;
+mod construction_defaults;
 mod contracts;
 mod defaults;
 use crate::{declaration::ModuleDecl, language};
@@ -10,8 +12,10 @@ pub fn declarations() -> ModuleDecl {
     let mut module = ModuleDecl::new(language::module_identity());
     module.package_alias = Some(language::SOURCE_PACKAGE.into());
     contracts::declare(&mut module);
+    construction::declare(&mut module);
     collections::declare(&mut module);
     defaults::declare(&mut module);
+    construction_defaults::declare(&mut module);
     module
 }
 

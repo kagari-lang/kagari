@@ -266,7 +266,7 @@ impl ModuleDecl {
                 BuiltinType::String => "String",
             }
             .into(),
-            AbiType::Parameter { position, .. } => format!("T{position}"),
+            AbiType::Parameter { owner, position } => parameter_spelling(owner, *position),
             AbiType::SelfType(_) => "Self".into(),
             AbiType::Array(item, CollectionAccess::ReadOnly) => format!("[{}]", self.spell(item)?),
             AbiType::Array(item, CollectionAccess::Mutable) => {
@@ -428,7 +428,7 @@ impl Renderer<'_> {
             if index != 0 {
                 self.text.push_str(", ");
             }
-            spans.push(self.name(&format!("T{}", parameter.position)));
+            spans.push(self.name(&parameter_spelling(&parameter.owner, parameter.position)));
         }
         self.text.push('>');
         spans
@@ -471,12 +471,13 @@ impl Renderer<'_> {
                 "    pub fn "
             });
         let name_span = self.name(&function.name);
-        let own = if method {
-            &[][..]
-        } else {
-            &function.generic_params[..]
-        };
-        let generics = self.generics(own);
+        let own = function
+            .generic_params
+            .iter()
+            .filter(|parameter| !method || parameter.owner == id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let generics = self.generics(&own);
         self.text.push('(');
         let mut parameters = vec![];
         for (index, parameter) in function.params.iter().enumerate() {
@@ -551,4 +552,18 @@ impl Renderer<'_> {
         }
         Ok(spans)
     }
+}
+
+/// Separate lexical names for method binders and their enclosing declaration.
+pub fn parameter_spelling(owner: &DefinitionId, position: usize) -> String {
+    let prefix = if owner
+        .path
+        .last()
+        .is_some_and(|part| part.kind == DefinitionKind::Method)
+    {
+        "M"
+    } else {
+        "T"
+    };
+    format!("{prefix}{position}")
 }

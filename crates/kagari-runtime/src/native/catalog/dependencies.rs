@@ -276,20 +276,7 @@ impl DeclarationCatalog {
         Ok(result)
     }
 
-    pub(crate) fn validate_defaults(&self) -> Result<(), RuntimeError> {
-        if !self
-            .traits
-            .values()
-            .flat_map(|contract| &contract.methods)
-            .any(|method| {
-                matches!(
-                    method.implementation,
-                    CallableImplementation::NativeDefault(_)
-                )
-            })
-        {
-            return Ok(());
-        }
+    pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {
         ProofCatalog::new(
             self.implementations
                 .iter()
@@ -307,7 +294,9 @@ impl DeclarationCatalog {
             &CancellationToken::default(),
         )
         .map_err(|_| {
-            RuntimeError::metadata_conflict("native default differs from its registered template")
+            RuntimeError::metadata_conflict(
+                "native template defaults or selected calls differ from their declared contracts",
+            )
         })?;
         Ok(())
     }

@@ -1,6 +1,6 @@
 # SDK feature-boundary artifact
 
-`feature_artifact.kbc` is the current-format artifact emitted from the exact
+`target/fixtures/feature_artifact.kbc` is the disposable current-format artifact emitted from the exact
 `feature_artifact.kgr` text with source name `memory://feature-artifact.kgr`.
 It contains bytecode, carried declarations/dependencies and portable MIR, without
 source text. All four standalone SDK feature routes consume the same bytes:
@@ -9,8 +9,8 @@ artifact-only, `source`, `native`, and `source,native`.
 `main` remains the two-step scalar function used by both the trusted static ABI
 fixture and real Cranelift compilation. `native_library` exercises prepared sorting,
 retention, a lazy adapter, fallible collection and Option/iterator callbacks.
-`required_methods` exercises checked MutableList storage methods, RangeBounds and
-FromStr. Source-free execution forces GC and checks root/object/depth cleanup.
+`required_methods` exercises checked MutableList methods, ArrayList FromIterator,
+numeric Sum, FromStr, derived TryInto and primitive From. Source-free execution forces GC and checks root/object/depth cleanup.
 Native preparation explicitly falls back before entry for unsupported library calls;
 the scalar entry must still execute actual native code.
 

@@ -6,13 +6,37 @@ use crate::{
     standard::surface::StandardEnum,
     types::AbiType,
 };
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionKind, associated_type_id};
 
 pub fn adapter_contract(
     required: &NativeCallableRequirement,
 ) -> Option<(Protocol, NativeSignature)> {
     let kind = Protocol::from_id(&required.interface.declaration)?;
     let (member, result, count) = match kind {
+        Protocol::Iterable => (
+            "iter",
+            required
+                .interface
+                .associated_types
+                .get(&associated_type_id(&required.interface.declaration, "Iter"))
+                .cloned()
+                .unwrap_or_else(|| required.receiver.clone()),
+            1,
+        ),
+        Protocol::Iterator if matches!(required.receiver, AbiType::Trait(_)) => (
+            "next",
+            AbiType::StandardEnum {
+                kind: StandardEnum::Option,
+                args: vec![
+                    required
+                        .interface
+                        .associated_types
+                        .get(&associated_type_id(&required.interface.declaration, "Item"))?
+                        .clone(),
+                ],
+            },
+            1,
+        ),
         Protocol::PartialEq => ("eq", AbiType::Builtin(BuiltinType::Bool), 2),
         Protocol::Hash => ("hash", AbiType::Builtin(BuiltinType::I64), 1),
         Protocol::Debug => ("debug", AbiType::Builtin(BuiltinType::String), 1),
@@ -35,7 +59,20 @@ pub fn adapter_contract(
         || method.occurrence != 0
         || !required.arguments.is_empty()
         || !required.interface.arguments.is_empty()
-        || !required.interface.associated_types.is_empty()
+        || if kind.iteration() {
+            required
+                .interface
+                .associated_types
+                .iter()
+                .any(|(member, ty)| {
+                    *member != associated_type_id(&required.interface.declaration, "Item")
+                        && (*member != associated_type_id(&required.interface.declaration, "Iter")
+                            || (!matches!(required.receiver, AbiType::Trait(_))
+                                && *ty != required.receiver))
+                })
+        } else {
+            !required.interface.associated_types.is_empty()
+        }
     {
         return None;
     }
@@ -46,4 +83,13 @@ pub fn adapter_contract(
             result,
         },
     ))
+}
+
+/// Applied associated outputs are part of a generated iterator adapter's identity.
+pub fn adapter_arguments(required: &NativeCallableRequirement) -> Vec<AbiType> {
+    let mut arguments = vec![required.receiver.clone()];
+    if Protocol::from_id(&required.interface.declaration).is_some_and(Protocol::iteration) {
+        arguments.push(AbiType::Trait(required.interface.clone()));
+    }
+    arguments
 }

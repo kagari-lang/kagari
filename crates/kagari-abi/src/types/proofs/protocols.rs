@@ -5,7 +5,7 @@ use crate::{
     native_import::{
         NativeSignature,
         callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
-        protocol::adapter_contract,
+        protocol::{adapter_arguments, adapter_contract},
     },
     types::{
         proofs::ProofCatalog,
@@ -79,7 +79,7 @@ impl ProofCatalog<'_> {
         Ok(selected.requirement == *required
             && selected.implementation == CallableImplementation::Script
             && selected.effects == EffectSet::native_call()
-            && selected.instance.arguments == [required.receiver.clone()]
+            && selected.instance.arguments == adapter_arguments(required)
             && declaration.path.len() == 1
             && declaration.path[0].kind == DefinitionKind::Function
             && declaration.path[0].occurrence == 0
