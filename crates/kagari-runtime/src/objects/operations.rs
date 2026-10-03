@@ -2,7 +2,9 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{BoundGenericMethod, BoundOperation, TypeEnvironment},
+    frame::types::{
+        BoundGenericMethod, BoundOperation, TypeEnvironment, operations::ReceiverOperations,
+    },
     gc::interfaces::InterfaceResultBinding,
     module::LoadedModule,
     objects::calls,
@@ -13,7 +15,10 @@ use kagari_abi::{
     types::{self as abi, AbiType, PublicAbiItem},
 };
 use kagari_bytecode::module::CallableTarget;
-use std::rc::Rc;
+use std::{
+    cell::OnceCell,
+    rc::{Rc, Weak},
+};
 
 impl Runtime {
     pub(crate) fn bind_receiver_operations(
@@ -21,7 +26,8 @@ impl Runtime {
         owner: &LoadedModule,
         target: CallableTarget,
         binding: &InterfaceResultBinding,
-    ) -> Result<Vec<Rc<BoundOperation>>, RuntimeError> {
+        prepared: Option<Rc<ReceiverOperations>>,
+    ) -> Result<Option<Rc<ReceiverOperations>>, RuntimeError> {
         let required = match target {
             CallableTarget::Native(target) => owner
                 .bytecode
@@ -36,19 +42,22 @@ impl Runtime {
             CallableTarget::Script(_) => false,
         };
         if required {
-            self.bind_table_operations(binding)
+            Ok(Some(match prepared {
+                Some(prepared) => prepared,
+                None => self.bind_table_operations(binding)?,
+            }))
         } else {
-            Ok(vec![])
+            Ok(None)
         }
     }
 
     pub(crate) fn bind_table_operations(
         &self,
         binding: &InterfaceResultBinding,
-    ) -> Result<Vec<Rc<BoundOperation>>, RuntimeError> {
+    ) -> Result<Rc<ReceiverOperations>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("receiver operation table");
         let mut pending = vec![binding.clone()];
-        let mut operations: Vec<Rc<BoundOperation>> = vec![];
+        let mut operations: Vec<BoundOperation> = vec![];
         let mut visited = vec![];
         while let Some(binding) = pending.pop() {
             let owner = &binding.owner;
@@ -157,7 +166,9 @@ impl Runtime {
                         .generic
                         .as_ref(),
                 };
-                operations.push(Rc::new(BoundOperation {
+                operations.push(BoundOperation {
+                    receiver_operations: Weak::new(),
+                    application: OnceCell::new(),
                     generic: Some(BoundGenericMethod {
                         receiver_table: binding.clone(),
                         receiver_environment: Some(environment.clone()),
@@ -181,7 +192,7 @@ impl Runtime {
                         result: method.return_type.clone(),
                     },
                     retention: retention.clone(),
-                }));
+                });
             }
             // An associated result adapter already selects the output's table.
             // Native defaults can use its operations without resolving a trait.
@@ -202,6 +213,6 @@ impl Runtime {
                 )?);
             }
         }
-        Ok(operations)
+        Ok(ReceiverOperations::new(operations))
     }
 }

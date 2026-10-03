@@ -74,6 +74,19 @@ script interface slots retain their implementation module and generation. Dynami
 associated iterator results use checked interface views and result boxing; erasure
 does not change the concrete implementation's signature.
 
+Interface GC objects share immutable receiver descriptors. A rooted method handle
+selects a verified ordinal or a shared bound operation without copying the method
+table. Closed method signatures and receiver-operation groups are prepared lazily
+and reused within that retained view; method-local type arguments and caller
+witnesses remain call-specific. Type environments share immutable binder slices
+and parent scopes, keeping nominal origins distinct across reloads. Indexed
+receiver groups own operation descriptors; descriptors refer back through Weak
+handles, and active environments retain the needed group without ownership cycles.
+Inherited dispatch selects a cached parent descriptor while rooting the original
+value. An escaping upcast still publishes a normal GC interface value and validates
+its receiver, including host ownership/schema. Rc metadata ownership does not
+replace GC tracing, call roots or executable-generation retention.
+
 ## Synchronous calls and registered storage
 
 NativeEntry returns NativeResult<Value> synchronously. CallContext borrows the

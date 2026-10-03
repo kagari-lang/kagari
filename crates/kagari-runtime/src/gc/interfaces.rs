@@ -1,16 +1,24 @@
 //! Retained dynamic method and representation-adapter metadata.
 use crate::{
-    frame::types::{TypeEnvironment, compatibility::TypeView},
+    frame::types::{
+        TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
+        operations::ReceiverOperations,
+    },
     module::LoadedModule,
     value::Value,
 };
-use kagari_abi::types::{AbiType, GenericParameterAbi, NominalAbiType};
+use kagari_abi::{
+    native_import::NativeSignature,
+    types::{AbiType, GenericParameterAbi, NominalAbiType},
+};
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::DefinitionId;
-use std::rc::Rc;
+use std::{cell::OnceCell, rc::Rc};
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceMethodBinding {
+    pub(crate) application: OnceCell<Rc<MethodApplication>>,
+    pub(crate) receiver_operations: OnceCell<Option<Rc<ReceiverOperations>>>,
     pub(crate) parameters: Vec<GenericParameterAbi>,
     pub(crate) entry_parameters: Vec<GenericParameterAbi>,
     pub(crate) entry_arguments: Vec<AbiType>,
@@ -31,22 +39,33 @@ pub(crate) struct InterfaceResultBinding {
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceParentBinding {
+    pub(crate) prepared: OnceCell<Rc<InterfaceValueSnapshot>>,
     pub(crate) interface: NominalAbiType,
     pub(crate) binding: InterfaceResultBinding,
     pub(crate) view: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct InterfaceValueSnapshot {
+    pub(crate) receiver_operations: OnceCell<Rc<ReceiverOperations>>,
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) parents: Vec<InterfaceParentBinding>,
     pub(crate) data: Value,
     pub(crate) concrete_type: AbiType,
+    pub(crate) concrete_expression: AbiType,
     pub(crate) interface_type: NominalAbiType,
     pub(crate) interface_expression: NominalAbiType,
     pub(crate) environment: Option<Rc<TypeEnvironment>>,
     pub(crate) implementation: LoadedModule,
     pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct MethodApplication {
+    pub(crate) signature: NativeSignature,
+    pub(crate) scoped_signature: Option<ScopedSignature>,
+    pub(crate) environment: Option<Rc<TypeEnvironment>>,
+    pub(crate) result_adapter: Option<InterfaceResultBinding>,
 }
 
 impl InterfaceValueSnapshot {

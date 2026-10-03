@@ -1,10 +1,14 @@
 //! Reified type arguments retained by a shared frame or closure.
 pub mod arguments;
 pub(crate) mod compatibility;
+pub(crate) mod operations;
 use crate::{
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
-    gc::interfaces::InterfaceResultBinding,
+    frame::types::{
+        arguments::TypeArgument,
+        operations::{OperationBindings, ReceiverOperations},
+    },
+    gc::interfaces::{InterfaceResultBinding, MethodApplication},
     module::{LoadedModule, RetainedRuntimeProgram},
 };
 use kagari_abi::{
@@ -15,10 +19,15 @@ use kagari_abi::{
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::DefinitionId;
-use std::rc::Rc;
+use std::{
+    cell::OnceCell,
+    rc::{Rc, Weak},
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct BoundOperation {
+    pub(crate) receiver_operations: Weak<ReceiverOperations>,
+    pub(crate) application: OnceCell<Rc<MethodApplication>>,
     pub(crate) generic: Option<BoundGenericMethod>,
     pub(crate) requirement: NativeCallableRequirement,
     pub(crate) slot: u32,
@@ -40,9 +49,10 @@ pub(crate) struct BoundGenericMethod {
 
 #[derive(Debug, Clone)]
 pub struct TypeEnvironment {
-    parameters: Vec<GenericParameterAbi>,
-    arguments: Vec<TypeArgument>,
-    pub(crate) operations: Vec<Rc<BoundOperation>>,
+    parameters: Rc<[GenericParameterAbi]>,
+    arguments: Rc<[TypeArgument]>,
+    parent: Option<Rc<TypeEnvironment>>,
+    pub(crate) operations: OperationBindings,
 }
 
 impl TypeEnvironment {
@@ -58,9 +68,10 @@ impl TypeEnvironment {
             ));
         }
         Ok(Self {
-            parameters,
-            arguments,
-            operations: vec![],
+            parameters: parameters.into(),
+            arguments: arguments.into(),
+            parent: None,
+            operations: OperationBindings::default(),
         })
     }
 
@@ -69,23 +80,28 @@ impl TypeEnvironment {
         Self {
             parameters: self.parameters.clone(),
             arguments: self.arguments.clone(),
-            operations: vec![],
+            parent: self
+                .parent
+                .as_ref()
+                .map(|parent| Rc::new(parent.types_only())),
+            operations: OperationBindings::default(),
         }
     }
 
-    pub(crate) fn include(&mut self, parent: Option<&Self>) -> Result<(), RuntimeError> {
+    pub(crate) fn include(&mut self, parent: Option<Rc<Self>>) -> Result<(), RuntimeError> {
         if let Some(parent) = parent {
-            if parent
-                .parameters
-                .iter()
-                .any(|parameter| self.parameters.contains(parameter))
+            if self.parent.is_some()
+                || self.parameters.iter().any(|parameter| {
+                    parent
+                        .argument(&parameter.owner, parameter.position)
+                        .is_some()
+                })
             {
                 return Err(RuntimeError::module_validation(
                     "duplicate generic call binder",
                 ));
             }
-            self.parameters.extend(parent.parameters.iter().cloned());
-            self.arguments.extend(parent.arguments.iter().cloned());
+            self.parent = Some(parent);
         }
         Ok(())
     }
@@ -95,16 +111,35 @@ impl TypeEnvironment {
             .iter()
             .position(|parameter| parameter.owner == *owner && parameter.position == position)
             .and_then(|index| self.arguments.get(index))
+            .or_else(|| {
+                self.parent
+                    .as_ref()
+                    .and_then(|parent| parent.argument(owner, position))
+            })
     }
 
     pub(crate) fn matches(&self, body: &GenericBody) -> bool {
-        self.parameters == body.parameters
+        let mut offset = 0;
+        let mut environment = Some(self);
+        while let Some(current) = environment {
+            let end = offset + current.parameters.len();
+            if body.parameters.get(offset..end) != Some(current.parameters.as_ref()) {
+                return false;
+            }
+            offset = end;
+            environment = current.parent.as_deref();
+        }
+        offset == body.parameters.len()
     }
 
     pub(crate) fn resolve(&self, ty: &AbiType) -> Result<AbiType, RuntimeError> {
         let mut substitution = TypeSubstitution::default();
-        for (parameter, argument) in self.parameters.iter().zip(&self.arguments) {
-            substitution.bind(&parameter.owner, parameter.position, argument.ty());
+        let mut environment = Some(self);
+        while let Some(current) = environment {
+            for (parameter, argument) in current.parameters.iter().zip(current.arguments.iter()) {
+                substitution.bind(&parameter.owner, parameter.position, argument.ty());
+            }
+            environment = current.parent.as_deref();
         }
         let result = substitution
             .apply(ty, &Default::default())
@@ -142,23 +177,13 @@ impl TypeEnvironment {
         interface: &NominalAbiType,
         slot: u32,
     ) -> Option<&Rc<BoundOperation>> {
-        self.operations.iter().find(|operation| {
-            operation.slot == slot
-                && operation.requirement.receiver == *receiver
-                && operation.requirement.interface == *interface
-        })
+        self.operations.operation_slot(receiver, interface, slot)
     }
 
     pub(crate) fn operation(
         &self,
         required: &NativeCallableRequirement,
     ) -> Option<&Rc<BoundOperation>> {
-        self.operations.iter().find(|operation| {
-            operation.requirement == *required
-                || (operation.generic.is_some()
-                    && operation.requirement.receiver == required.receiver
-                    && operation.requirement.interface == required.interface
-                    && operation.requirement.member == required.member)
-        })
+        self.operations.operation(required)
     }
 }

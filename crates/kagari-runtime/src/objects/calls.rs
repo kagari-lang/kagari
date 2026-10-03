@@ -4,7 +4,11 @@ use crate::{
     error::RuntimeError,
     frame::{
         ExecutionFrame,
-        types::{BoundOperation, TypeEnvironment, compatibility::TypeView},
+        types::{
+            BoundOperation, TypeEnvironment,
+            compatibility::TypeView,
+            operations::{OperationBindings, ReceiverOperations},
+        },
     },
     gc::interfaces::InterfaceResultBinding,
     module::LoadedModule,
@@ -21,7 +25,10 @@ use kagari_abi::{
     types::{self as abi, AbiType, ConcreteFunctionIdentity},
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
-use std::rc::Rc;
+use std::{
+    cell::OnceCell,
+    rc::{Rc, Weak},
+};
 
 pub(super) fn interface_binding(
     implementation: &LoadedModule,
@@ -108,7 +115,9 @@ impl Runtime {
             let arguments =
                 self.type_arguments(frame.loaded(), frame.environment(), &contract.arguments)?;
             let mut method = self.apply_interface_method(method, &arguments)?;
-            if let Some(environment) = &mut method.environment {
+            if !contract.operations.is_empty()
+                && let Some(environment) = &mut method.environment
+            {
                 Rc::make_mut(environment)
                     .operations
                     .extend(self.bind_operations(frame, &contract.operations)?);
@@ -135,7 +144,9 @@ impl Runtime {
         )) {
             return Err(invalid());
         }
-        if let Some(environment) = &mut method.environment {
+        if !contract.operations.is_empty()
+            && let Some(environment) = &mut method.environment
+        {
             Rc::make_mut(environment)
                 .operations
                 .extend(self.bind_operations(frame, &contract.operations)?);
@@ -147,14 +158,17 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
         witnesses: &[OperationWitness],
-    ) -> Result<Vec<Rc<BoundOperation>>, RuntimeError> {
+    ) -> Result<OperationBindings, RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
-        let mut operations = Vec::with_capacity(witnesses.len());
+        let mut operations = OperationBindings::default();
         let mut supplying_program = None;
         for witness in witnesses {
             let operation = match witness {
                 OperationWitness::SharedMethod(selected) => {
-                    self.bind_shared_method(frame, selected)?
+                    let (operation, group) = self.bind_shared_method(frame, selected)?;
+                    operations.push(operation);
+                    drop(group);
+                    continue;
                 }
                 OperationWitness::Forward(required) => {
                     let required = resolve_requirement(frame, required)?;
@@ -229,6 +243,8 @@ impl Runtime {
                         })
                         .ok_or_else(invalid)? as u32;
                     Rc::new(BoundOperation {
+                        receiver_operations: Weak::new(),
+                        application: OnceCell::new(),
                         generic: None,
                         retention,
                         slot,
@@ -251,16 +267,20 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
         selected: &SharedMethodWitness,
-    ) -> Result<Rc<BoundOperation>, RuntimeError> {
+    ) -> Result<(Rc<BoundOperation>, Rc<ReceiverOperations>), RuntimeError> {
         let binding = interface_binding(
             frame.loaded(),
             &selected.implementation,
             frame.environment(),
         )?;
         let required = resolve_requirement(frame, &selected.requirement)?;
-        self.bind_table_operations(&binding)?
-            .into_iter()
-            .find(|operation| operation.requirement == required)
-            .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))
+        let group = self.bind_table_operations(&binding)?;
+        let operation = group
+            .operation(&required)
+            .cloned()
+            .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))?;
+        // Keep the group's weak back-reference upgradeable until bind_operations
+        // publishes the selected descriptor and its retained group together.
+        Ok((operation, group))
     }
 }

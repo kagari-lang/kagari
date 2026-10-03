@@ -701,7 +701,7 @@ impl GcHeap {
 
     pub(crate) fn alloc_interface(
         &self,
-        snapshot: InterfaceValueSnapshot,
+        snapshot: Rc<InterfaceValueSnapshot>,
         retention: RetainedRuntimeProgram,
     ) -> Result<InterfaceObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -718,7 +718,7 @@ impl GcHeap {
             ));
         }
         self.alloc_object(HeapObject::Interface {
-            snapshot: Rc::new(snapshot),
+            snapshot,
             _retention: retention,
         })
         .map(InterfaceObjectId)

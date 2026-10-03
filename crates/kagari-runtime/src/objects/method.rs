@@ -1,17 +1,20 @@
 //! Rooted selections borrow immutable interface or constraint metadata.
 use crate::{
-    RootedInterfaceMethod,
-    frame::types::{BoundOperation, TypeEnvironment},
+    RootedInterfaceMethod, Runtime,
+    error::RuntimeError,
+    frame::types::{
+        BoundOperation, TypeEnvironment, arguments::ScopedSignature, operations::ReceiverOperations,
+    },
     gc::{
         RootedValue,
-        interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
+        interfaces::{InterfaceResultBinding, InterfaceValueSnapshot, MethodApplication},
     },
     module::LoadedModule,
     value::Value,
 };
 use kagari_abi::types::{AbiType, GenericParameterAbi, NominalAbiType};
 use kagari_bytecode::module::CallableTarget;
-use std::rc::Rc;
+use std::{cell::OnceCell, rc::Rc};
 
 pub(crate) enum MethodSelection {
     Interface {
@@ -57,9 +60,7 @@ impl RootedInterfaceMethod {
             selection,
             bound_receiver: None,
             environment: None,
-            resolved_signature: None,
-            scoped_signature: None,
-            result_adapter: None,
+            application: None,
             _root: root,
         }
     }
@@ -118,8 +119,8 @@ impl RootedInterfaceMethod {
     }
 
     pub fn parameter_types(&self) -> &[AbiType] {
-        if let Some(signature) = &self.resolved_signature {
-            return &signature.params;
+        if let Some(application) = &self.application {
+            return &application.signature.params;
         }
         match &self.selection {
             MethodSelection::Interface { snapshot, slot } => {
@@ -133,8 +134,8 @@ impl RootedInterfaceMethod {
     }
 
     pub fn return_type(&self) -> &AbiType {
-        if let Some(signature) = &self.resolved_signature {
-            return &signature.result;
+        if let Some(application) = &self.application {
+            return &application.signature.result;
         }
         match &self.selection {
             MethodSelection::Interface { snapshot, slot } => {
@@ -216,8 +217,8 @@ impl RootedInterfaceMethod {
     }
 
     pub(crate) fn result_adapter(&self) -> Option<&InterfaceResultBinding> {
-        if self.result_adapter.is_some() {
-            return self.result_adapter.as_ref();
+        if let Some(application) = &self.application {
+            return application.result_adapter.as_ref();
         }
         match &self.selection {
             MethodSelection::Interface { snapshot, slot } => snapshot.methods[*slot]
@@ -227,5 +228,71 @@ impl RootedInterfaceMethod {
                 .as_ref(),
             MethodSelection::Operation(_) => None,
         }
+    }
+
+    pub(crate) fn scoped_signature(&self) -> Option<&ScopedSignature> {
+        self.application
+            .as_ref()
+            .and_then(|application| application.scoped_signature.as_ref())
+    }
+
+    pub(super) fn application_cell(&self) -> &OnceCell<Rc<MethodApplication>> {
+        match &self.selection {
+            MethodSelection::Interface { snapshot, slot } => {
+                &snapshot.methods[*slot]
+                    .as_ref()
+                    .expect("checked interface slot")
+                    .application
+            }
+            MethodSelection::Operation(operation) => &operation.application,
+        }
+    }
+
+    pub(super) fn receiver_operations(
+        &self,
+        runtime: &Runtime,
+    ) -> Result<Option<Rc<ReceiverOperations>>, RuntimeError> {
+        let Some(table) = self.receiver_table() else {
+            return Ok(None);
+        };
+        match &self.selection {
+            MethodSelection::Interface { snapshot, slot } => {
+                let cell = &snapshot.methods[*slot]
+                    .as_ref()
+                    .expect("checked interface slot")
+                    .receiver_operations;
+                if let Some(prepared) = cell.get() {
+                    return Ok(prepared.clone());
+                }
+                let prepared = runtime.bind_receiver_operations(
+                    self.implementation(),
+                    self.target(),
+                    table,
+                    snapshot.receiver_operations.get().cloned(),
+                )?;
+                if snapshot.receiver_operations.get().is_none()
+                    && let Some(group) = &prepared
+                {
+                    snapshot
+                        .receiver_operations
+                        .set(group.clone())
+                        .expect("receiver table prepared once");
+                }
+                // Only successful preparation is cached. No caller witnesses are stored here.
+                cell.set(prepared.clone())
+                    .expect("receiver operations prepared once");
+                Ok(prepared)
+            }
+            MethodSelection::Operation(operation) => runtime.bind_receiver_operations(
+                self.implementation(),
+                self.target(),
+                table,
+                operation.receiver_operations.upgrade(),
+            ),
+        }
+    }
+
+    pub(super) fn is_operation(&self) -> bool {
+        matches!(self.selection, MethodSelection::Operation(_))
     }
 }

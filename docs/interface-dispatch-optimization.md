@@ -1,6 +1,6 @@
 # Interface dispatch optimization
 
-Status: active, 2026-10-03. The user authorized the current-implementation R3
+Status: completed, 2026-10-03. The user authorized the current-implementation R3
 proposal and execution with two coherent implementation commits.
 
 ## Scope and direction
@@ -79,7 +79,7 @@ git diff --check
 ## Progress ledger
 
 - [x] ID01 Shared descriptors and method selection.
-- [ ] ID02 Receiver preparation and final acceptance.
+- [x] ID02 Receiver preparation and final acceptance.
 
 2026-10-03: Activated from clean commit 0a7c0699. Current snapshots deep-copy the
 method vector; RootedInterfaceMethod owns copied static metadata; native generic
@@ -126,3 +126,78 @@ large-enum warning was resolved by keeping bound receiver data separately from
 the small selection enum; no extra Box or lint suppression was introduced.
 No build/test error is carried. ID02 owns receiver/signature preparation reuse,
 inherited views and final integration; its scope has not expanded.
+
+2026-10-03: ID02 implementation is ready for final integration. Closed method
+applications reuse their resolved signature and type environment. Receiver
+operations are grouped and indexed once on demand, then shared across methods of
+that receiver view; caller witnesses are separate ordered segments. Bound
+descriptors use Weak group origins, and their cached applications contain only
+types, avoiding descriptor/application/group cycles. Binder slices and receiver
+parent scopes are immutable Rc records. Generic method arguments and constraints
+are still supplied per invocation; no global specialization cache was introduced.
+
+Inherited calls use cached checked parent snapshots under the original root.
+Explicit upcasts publish ordinary GC values and revalidate receiver ownership and
+schema. Receiver validation retains the original type expression and lexical
+scope, rather than replacing it with an erased concrete name. Preparation moved
+to objects/application.rs, operation grouping to frame/types/operations.rs. No
+re-export, compatibility facade, format/version change or algorithm change.
+
+Focused evidence: 23 interface, 71 native boundary, 32 default-method and one
+serialized generic-reload case passed. The allocation regression now also covers
+closed generic parent dispatch at widths 1/8/32: 1,000 warmed calls allocate
+26,000 times / 4,106,000 bytes at every width, with zero GC object publications.
+The direct non-generic widths remain 16,000 allocations each, now requesting
+3,480,000 bytes. A custom List native-default case exercises receiver and iterator
+operations repeatedly under collection, then verifies zero roots, heap objects
+and runtime-value generation retention after release. Method-local multiple-type,
+optional-bound and old-origin coverage remains in the existing suites.
+
+An initial cargo check found a mechanical closure Rc-constructor edit; it was
+corrected before focused tests. The new lifetime test initially searched a
+language-owned trait in module-local trait_contracts and failed in test setup;
+it now uses the compiled method identities in the executable tables. No runtime
+validation was bypassed or production workaround added. No failure is carried
+into final integration.
+
+ID02 reran the interpreter width probe in isolation with the ID01 environment and
+5 warmups/21 samples. Widths 1/8/32 report 41,111/41,370/42,258 allocations and
+4.781/4.888/4.891 ms medians. The few extra one-time allocations are descriptor
+cache storage; construction remains included. This non-generic probe chiefly
+shows ID01's table-copy removal; it is not a claim that receiver caching improves
+all call shapes. Existing-view regressions separate dispatch from construction.
+
+The bounded sort harness ran separately with compilation/input creation excluded,
+one warmup and three reset samples per shape; same O1/default features, machine,
+allocator and single measurement thread, warm build caches. Calls include SDK/VM
+entry, validation and result reporting. Input/view roots remain explicit. Compared
+with the recorded FA05 baseline, the combined ID01/ID02 result is:
+
+| Elements / primitive sort | FA05 concrete / interface median | ID02 concrete / interface median | ID02 concrete / interface allocations |
+| --- | --- | --- | --- |
+| 16 | 22.666 / 77.292 us | 4.750 / 27.125 us | 33 / 438 |
+| 4,096 | 105.208 / 156.000 us | 95.917 / 104.250 us | 58 / 439 |
+
+Primitive cases publish zero GC objects. Callback sorting still performs exactly
+53,392 script comparisons and 53,393 GC allocations at length 4,096; concrete /
+interface medians are 162.905 / 162.114 ms, versus FA05 159.662 / 159.655 ms. This
+is no demonstrated callback-loop speedup: interpreter callback cost remains.
+The script merge reference is 542.825 ms (44,534 script comparisons). Separate
+host-to-VM view creation medians are 60.417 / 186.605 us for 16/4,096 elements,
+with 1,273/1,293 allocations. View construction and fixed interface adaptation
+remain real costs. These bounded interpreter samples do not forecast JIT/LLVM,
+claim zero allocations or reopen the unrelated interpreter/initialization scope.
+Reproduce using the committed library_measurements harness and commands above;
+raw logs are under target/interface-dispatch/id02-sorting.log and width-id02.log.
+
+Final acceptance: cargo test --workspace --no-fail-fast exited successfully with
+1,583 passing tests and zero failures. The one ignored manual sorting measurement
+was executed separately and passed as recorded above. Workspace/all-target Clippy
+with -D warnings, structure (651 Rust files, zero violations/exceptions), format,
+diff and changed-document local links pass. Independent artifact-only, source,
+native and source+native consumers pass, as do eight production dependency
+boundaries and the ABI build graph. No error or structural exception is carried.
+ID01 and ID02 are accepted; no language/format/backend scope was added. Interface
+construction, fixed invocation checks and interpreter script-callback costs remain
+outside the eliminated whole-table-copy and receiver-preparation work. R4/R6 and
+the queued contract/common cleanup remain separate work.

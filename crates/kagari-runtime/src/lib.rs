@@ -1,9 +1,9 @@
 mod authority;
 mod loading;
 mod objects;
-use frame::types::{TypeEnvironment, arguments::ScopedSignature};
+use frame::types::TypeEnvironment;
 use host::HostCallContext;
-use kagari_abi::{ids::FunctionRef, native_import::NativeSignature, standard::RuntimePrimitive};
+use kagari_abi::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::host_interface::path::HostPathDeclaration;
 use reflection::ReflectionError;
@@ -71,7 +71,7 @@ use crate::{
     },
 };
 use crate::{
-    gc::interfaces::InterfaceResultBinding,
+    gc::interfaces::MethodApplication,
     objects::method::{BoundReceiver, MethodSelection},
 };
 
@@ -132,9 +132,7 @@ pub struct RootedInterfaceMethod {
     selection: MethodSelection,
     bound_receiver: Option<BoundReceiver>,
     environment: Option<Rc<TypeEnvironment>>,
-    resolved_signature: Option<NativeSignature>,
-    scoped_signature: Option<ScopedSignature>,
-    result_adapter: Option<InterfaceResultBinding>,
+    application: Option<Rc<MethodApplication>>,
     _root: RootedValue,
 }
 

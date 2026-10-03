@@ -31,7 +31,7 @@ impl LinkedCallable {
                 &required.arguments,
             )?;
             let mut binders = TypeEnvironment::new(generic.parameters.clone(), arguments)?;
-            binders.include(generic.receiver_environment.as_deref())?;
+            binders.include(generic.receiver_environment.clone())?;
             let binders = Rc::new(binders);
             let environment = if generic.entry_parameters.is_empty() {
                 None
@@ -44,14 +44,17 @@ impl LinkedCallable {
                         &generic.entry_arguments,
                     )?,
                 )?;
-                environment.operations = runtime.bind_receiver_operations(
+                if let Some(group) = runtime.bind_receiver_operations(
                     &operation.owner,
                     operation.target,
                     &generic.receiver_table,
-                )?;
+                    operation.receiver_operations.upgrade(),
+                )? {
+                    environment.operations.receiver(group);
+                }
                 environment
                     .operations
-                    .extend(caller_environment.operations.iter().cloned());
+                    .extend(caller_environment.operations.clone());
                 Some(Rc::new(environment))
             };
             (Some(binders), environment)
