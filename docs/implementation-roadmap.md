@@ -299,7 +299,9 @@ report are running. No carried build, verification or behavioral error remains.
 
 ID05 measurement follow-up (active): the initial paired probe found a material
 retention regression: runtime construction retained 20.6 MB versus 1.4 MB because
-each BindingRegistration froze a different prefix of the same growing context.
+per-binding adoption discarded the sharing of closed requirement catalogs.
+Removing individual binding snapshots alone did not resolve the main retention
+cost: authoring-to-scoped conversion and installation still copied shared maps.
 Binding records now retain their scope through the owning catalog, with temporary
 checked metadata only for validation/import. Native modules and executable seals
 still own immutable tables; full binding contracts and foreign-ID checks remain.
@@ -307,7 +309,14 @@ All 57 runtime unit tests, 13 native-builder and 16 native-execution tests pass,
 including the new catalog-growth/module-drop/foreign-context regression. Strict
 workspace/all-target Clippy and structure/fmt/diff checks pass. A fresh final
 integration/measurement run owns this follow-up; initial data stays under target/identity-measurements-initial.
-This measured regression is not accepted as the final result.
+The module construction and installation batches now reuse immutable Arc-map
+conversions/imports, preserving both source lifetimes and copy-on-write changes.
+Caches are local to the batch and retain no expanded authoring maps after return.
+All 58 runtime unit tests plus 13 native-builder and 16 native-execution tests pass;
+strict workspace/all-target Clippy and structure (715 files) pass. Full contract
+matching, binding-specific foreign requirements and failed-batch publication remain
+covered. The measured retention regression still requires confirmation by the
+updated paired run before final acceptance.
 
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 

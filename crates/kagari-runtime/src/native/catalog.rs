@@ -1,5 +1,6 @@
 //! Immutable native contracts used for cross-package authoring and installation.
 mod dependencies;
+pub(crate) mod import;
 mod ownership;
 use crate::error::RuntimeError;
 use kagari_abi::{

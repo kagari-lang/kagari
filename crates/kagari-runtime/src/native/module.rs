@@ -6,7 +6,10 @@ use crate::{
     error::RuntimeError,
     native::{
         binding::{NativeBinding, NativeResult},
-        catalog::DeclarationCatalog,
+        catalog::{
+            DeclarationCatalog,
+            import::{CatalogImports, CatalogScopes},
+        },
         registry::{BindingRegistration, NativeRegistry},
         storage::NativeStorage,
     },
@@ -78,24 +81,28 @@ impl NativeModule {
         // A binding extends this closed seed only with its own signature/proofs.
         let base =
             available.dependency_closure(owned.traits.keys(), iter::empty(), [&declaration])?;
-        let dependencies = available.binding_dependencies(&base, entries.values().flatten())?;
+        let mut scopes = CatalogScopes::new(base.catalog.types.context().clone());
+        let dependencies =
+            available.binding_dependencies(&base, &mut scopes, entries.values().flatten())?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
         checked.check_implementations([&declaration])?;
         checked.validate_callable_contracts()?;
         let mut registrations = Vec::new();
         let mut registry = NativeRegistry::default();
+        let mut imports = CatalogImports::new(registry.catalog.types.context().clone());
         for (id, binding) in bindings {
             let declarations = entries.remove(&id).ok_or_else(|| {
                 RuntimeError::metadata_conflict("unknown or duplicate native binding")
             })?;
-            let required_catalog = checked.binding_dependencies(&base, &declarations)?;
+            let required_catalog =
+                checked.binding_dependencies(&base, &mut scopes, &declarations)?;
             let registration = Rc::new(BindingRegistration::checked(
                 declarations,
                 binding,
                 required_catalog,
             )?);
-            registry.install(registration.clone())?;
+            registry.install(registration.clone(), &mut imports)?;
             registrations.push(registration);
         }
         if !entries.is_empty() {
@@ -201,8 +208,9 @@ impl NativeModule {
         staged
             .catalog
             .check_implementations([&self.to_declaration()?])?;
+        let mut imports = CatalogImports::new(staged.catalog.types.context().clone());
         for registration in self.bindings.iter() {
-            staged.install(registration.clone())?;
+            staged.install(registration.clone(), &mut imports)?;
         }
         staged.catalog.validate_callable_contracts()?;
         *registry = staged;

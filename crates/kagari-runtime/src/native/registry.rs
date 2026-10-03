@@ -6,7 +6,7 @@ use crate::{
     module::VerifiedProgram,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        catalog::DeclarationCatalog,
+        catalog::{DeclarationCatalog, import::CatalogImports},
         context::{CallableOwner, LinkedCallable, LinkedOperation},
         result::LinkedResultAdapter,
         storage::NativeStorage,
@@ -106,7 +106,11 @@ impl Default for NativeRegistry {
 }
 
 impl NativeRegistry {
-    pub(crate) fn install(&mut self, registration: Rc<BindingRegistration>) -> NativeResult<()> {
+    pub(crate) fn install(
+        &mut self,
+        registration: Rc<BindingRegistration>,
+        imports: &mut CatalogImports,
+    ) -> NativeResult<()> {
         let invalid = || RuntimeError::metadata_conflict("invalid or duplicate native binding");
         let declarations = registration
             .required_catalog
@@ -163,7 +167,7 @@ impl NativeRegistry {
             .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?
             .into_records(),
             binding: registration.binding.clone(),
-            required_catalog: registration.required_catalog.import_into(context)?,
+            required_catalog: imports.import(&registration.required_catalog)?,
         });
         self.catalog = catalog;
         self.entries

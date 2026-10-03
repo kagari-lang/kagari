@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     native::{
-        catalog::{DeclarationCatalog, dependencies::DependencyClosure},
+        catalog::{DeclarationCatalog, dependencies::DependencyClosure, import::CatalogScopes},
         module::NativeModule,
     },
 };
@@ -36,32 +36,6 @@ impl DeclarationCatalog {
 
     pub(crate) fn definitions(&self) -> DefinitionTable {
         self.types.context().snapshot()
-    }
-
-    pub(crate) fn import_into(&self, context: &DefinitionContext) -> Result<Self, RuntimeError> {
-        let cancel = CancellationToken::default();
-        Ok(Self {
-            types: Arc::new(
-                self.types
-                    .import_records(context, &cancel)
-                    .map_err(conflict)?,
-            ),
-            traits: Arc::new(
-                self.traits
-                    .import_records(context, &cancel)
-                    .map_err(conflict)?,
-            ),
-            declarations: Arc::new(
-                self.declarations
-                    .import_records(context, &cancel)
-                    .map_err(conflict)?,
-            ),
-            implementations: Arc::new(
-                self.implementations
-                    .import_records(context, &cancel)
-                    .map_err(conflict)?,
-            ),
-        })
     }
 
     pub(crate) fn paths<T: DefinitionRecord<DefinitionId>>(
@@ -223,11 +197,10 @@ impl DeclarationCatalog {
     pub(crate) fn binding_dependencies<'a>(
         &self,
         base: &DependencyClosure,
+        scopes: &mut CatalogScopes,
         declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
     ) -> Result<Self, RuntimeError> {
-        self.to_paths()?
-            .binding_dependencies(base, declarations)?
-            .scoped()
+        scopes.scope(&self.to_paths()?.binding_dependencies(base, declarations)?)
     }
 }
 
@@ -259,10 +232,15 @@ impl DeclarationCatalog<DefinitionPath> {
     }
 }
 
-fn scope_values<T: DefinitionRecord<DefinitionPath>>(
+pub(super) fn scope_values<T: DefinitionRecord<DefinitionPath>>(
     records: &DefinitionMap<T>,
     context: &DefinitionContext,
 ) -> Result<DefinitionMap<T::Rebind<DefinitionId>>, RuntimeError> {
+    if records.context().snapshot().id() != context.snapshot().id() {
+        return Err(conflict(
+            "catalog keys and records belong to different contexts",
+        ));
+    }
     records.map_values(|record| {
         record
             .map_identities(&mut DefinitionMapper::new(
