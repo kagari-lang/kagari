@@ -1,453 +1,48 @@
 # Kagari Architecture
 
-This document defines the production architecture for Kagari.
-It describes the intended system shape that implementation work must converge on.
-When existing code conflicts with the specifications, the specifications are authoritative.
-
-The [foundation API completion plan](foundation-api-completion.md) records the
-always-present common APIs, collection default trait methods and built-in String
-inherent methods. Generic interface methods pass checked type/constraint arguments
-to shared script or native entries; static calls retain specialization. In-place
-collection operations preserve completed mutations on failure without rollback-only
-buffering. Foundation assembly is mandatory, and ArrayList overrides use the direct
-scoped sequence-edit path described below.
-
-The completed [native collections reset plan](native-provider-refactor.md) records
-the baseline implementation and acceptance ledger. Phases 1-3 replaced the
-predecessor library and native ABI; phase 4 verified the bounded optional library
-and consumers.
-The [MIR and crate architecture refactor](mir-architecture-refactor.md) records the
-preceding foundation checkpoints. Language behavior follows the specifications.
-
-## Language contracts and native implementations
-
-The compiler owns language protocols, including operators, equality/hash/ordering,
-indexing, iteration, callable and formatting contracts, and the complete
-List/MutableList, Map/MutableMap and Set/MutableSet surfaces. ArrayList, HashMap and
-HashSet are canonical defaults with always-present Rust runtime implementations.
-[T] denotes List; array literals create ArrayList. Concrete hash types require
-Eq + Hash and use Rust std::collections::HashMap/HashSet without an ordering
-promise. Foundation behavior is independent of optional library installation.
-
-Application and library modules use the same explicit ModuleBuilder API. Kagari
-types, functions and scoped implement/trait_impl blocks define their own
-signatures and generic parameters. Ordinary bind checks Rust scalar and borrowed
-view converters against those declarations; bind_with supplies explicit codecs.
-Rust function signatures do not define Kagari traits or infer exported contracts.
-There is no native declaration macro crate or separate standard-library crate.
-
-ModuleBuilder::finish produces a validated NativeModule. Installation checks its
-binding/storage closure atomically. Runtime construction installs the foundation
-and bundled collection algorithms unconditionally, including source-free execution.
-Fixed foundation/collection modules reuse checked immutable registrations within
-the owning host thread. Native modules share declaration catalogs, binding records
-and storage descriptors; each runtime still performs atomic installation and owns
-its own heap, host registry, resources and generations. Authoring computes common
-module dependency closures once and extends them with exact per-binding facts.
-Engine construction supplies their declarations to source analysis and installs
-only explicit application modules afterward. There is no foundation opt-out.
-List/MutableList declare sorting, reversal and filtering as native default methods;
-ArrayList supplies compact storage overrides. The bundled collection module keeps
-lazy map as an ordinary native function. String inherent signatures also belong to
-the language catalog, with ordinary Rust bodies for UTF-8 byte queries, checked
-slicing, Unicode trimming, literal replacement and eager splitting. Split returns
-a List through the same checked concrete-result adapter. Additional
-containers and algorithms remain application-installable future modules.
-
-HIR consumes native ModuleDecl records directly for static checking, generic
-bounds, ordinary trait selection and tooling. Generated .kgr files provide
-signatures, documentation and declaration-to-span navigation; they are not parsed
-to recover executable semantics. Portable MIR/bytecode retain native imports,
-concrete signatures, declaration contracts and selected callable witnesses. ABI
-verification has no syntax or HIR dependency. Loading compares those records with
-the installed declarations before preparing entries and selected targets.
-
-A native body can declare `produces(concrete_type)` while its exported signature
-returns an interface. Registration checks the concrete result's trait conformance
-and the Rust result codec. Compilation selects the exact interface implementation
-and arguments, retaining them on the native import. Portable validation rechecks
-that proof and its executable table. Invocation validates the concrete value and
-boxes it through that table, preserving generic argument scopes and generation
-ownership. It does not search for a trait implementation at runtime. The same
-path serves application functions, native defaults and foundation methods.
-
-Implicit language protocols materialize ordinary checked executable adapters.
-Their origin, exact receiver types and signatures remain explicit portable facts;
-explicit script implementations take precedence. Runtime consumes checked targets
-rather than resolving traits or recognizing library algorithm names. Native and
-script interface slots retain their implementation module and generation. Dynamic
-associated iterator results use checked interface views and result boxing; erasure
-does not change the concrete implementation's signature.
-
-Interface GC objects share immutable receiver descriptors. A rooted method handle
-selects a verified ordinal or a shared bound operation without copying the method
-table. Closed method signatures and receiver-operation groups are prepared lazily
-and reused within that retained view; method-local type arguments and caller
-witnesses remain call-specific. Type environments share immutable binder slices
-and parent scopes, keeping nominal origins distinct across reloads. Indexed
-receiver groups own operation descriptors; descriptors refer back through Weak
-handles, and active environments retain the needed group without ownership cycles.
-Inherited dispatch selects a cached parent descriptor while rooting the original
-value. An escaping upcast still publishes a normal GC interface value and validates
-its receiver, including host ownership/schema. Rc metadata ownership does not
-replace GC tracing, call roots or executable-generation retention.
-
-## Synchronous calls and registered storage
-
-NativeEntry returns NativeResult<Value> synchronously. CallContext borrows the
-existing argument/frame roots. Typed scalar arguments use stack packs; sequence
-views expose scoped contiguous buffers. Prepared selected calls and supplied
-CallableHandle arguments invoke script bodies synchronously on the existing
-execution stack. Ordinary callbacks require no continuation protocol or scratch
-slots. Trap, reentry and result validation use the same runtime boundary as script
-calls. Host-owned state still uses its declared schemas and scoped borrow checks.
-
-StoredCallable retains a checked closure and its defining generation. When stored
-inside a GC payload, its captures are trace edges; independently retained host
-callbacks use explicit RootedCallable ownership. Generation checks prevent stale
-handles and reload preserves pinned callback implementations. Native payloads
-retain layout ownership without unnecessarily pinning an entire execution program.
-
-Generic NativeStorage registration attaches a Rust payload to a declared native
-type. NativePayload supplies tracing, logical size and normal Rust destruction;
-scoped access validates its registered Rust type and cannot span script reentry or
-collection. New payload types require no concrete Value/HeapObject variants or
-compiler, verifier or VM branches. NativeObject is the common nominal ABI form.
-
-SequenceStorage selects a compact Vec of the declared scalar type even when empty;
-GC-bearing elements use Vec<Value>. One shared scalar table generates the storage
-and converter cases. SequenceHandle and SequenceMutHandle allow borrowed slices
-without per-element dynamic conversion. Default hash storage caches checked hashes
-and stable key tokens; script Eq/Hash calls run outside table borrows.
-
-sort uses Rust's stable slice sort. Infallible primitive ordering sorts a compact
-buffer directly. Script ordering and supplied comparators use a SequenceEdit
-lease of the actual buffer, with no storage clone or index permutation. An explicit
-root snapshot protects reference-bearing values while Rust uses sorting scratch
-space; scalar buffers need no such snapshot. Receiver slots are exclusively
-borrowed during the lease, which restores completed edits on every exit path.
-Failure preserves original elements but may change their order; completed effects
-on referenced payloads remain. A first comparator error suppresses further user
-comparisons. No sorting state machine or Kagari algorithm implementation is used.
-
-The library-owned MapIterator payload stores a NativeCursor and StoredCallable.
-Aliases share progress, and each next invokes its mapper synchronously. Cursor
-consumption precedes the callback; failure retains that consumption and completed
-side effects. The native source read allocates no intermediate script Option.
-NativePayload::iteration_sources declares wrapped iteration resources and traces
-them as GC edges. A for scope follows those edges once, retaining guards until
-normal exit, break, return or failure; generic execution never names MapIterator.
-Recursive next on the same adapter is rejected. Only lazy state persists between
-calls; genuine asynchronous suspension remains separate future work.
-
-## Foundation Contracts
-
-The completed foundation track is [foundation-refactor.md](foundation-refactor.md).
-[Value semantics](spec/value-semantics.md), [failure semantics](spec/failure-semantics.md),
-and [module activation](spec/module-activation.md) define observable behavior and
-supersede conflicting historical descriptions. Unchecked work is not implemented.
+This document describes current ownership and execution boundaries. Language
+behavior is defined in [the specifications](README.md#language-and-execution-specifications).
+[The roadmap](implementation-roadmap.md) owns pending work; proposals below are
+explicitly marked and do not describe implemented behavior.
 
 ## Architectural Principles
 
-- Kagari is a statically typed, GC-backed scripting language for Rust-hosted applications.
-- The source language is Rust-inspired in syntax and Kotlin-like in value ergonomics.
-- Script authors do not work with Rust lifetimes, Rust borrowing, or script-level `dyn Trait`.
-- Hot reload is a core runtime property, not a later patch over module loading.
-- Host-owned state and Kagari-owned state remain explicit and separately controlled.
-- Verified MIR is the common execution contract; bytecode is its interpreter target.
-- Cranelift JIT is an optional backend layer and never the definition of language semantics.
-
-## Specification Authority
-
-The implementation must be driven by the documents under `docs/spec/`.
-The current Rust code is an implementation snapshot and may contain legacy behavior that no longer matches the specifications.
-
-Examples of implementation behavior that must not be preserved for compatibility when it conflicts with spec:
-
-- `let` / `let mut` as source binding syntax
-- script-visible `static` or `static mut` module storage
-- script-visible Rust-style `dyn Trait`
-- long-lived host mutable references represented as script values
-- ordinary field mutation lowered through reflection helpers
-- runtime string field lookup in hot field-access paths
+- Kagari is a statically typed, GC-backed language for Rust-hosted applications.
+- Recoverable syntax/HIR supports incomplete source and tooling. Only checked
+  facts enter executable lowering; backends do not resolve syntax or traits.
+- Verified MIR is the common backend handoff; bytecode is its interpreter target.
+- Executable loading and verification work without source analysis.
+- Rust host state and the script heap have separate ownership and access rules.
+- Calls retain exact dependency generations across hot reload.
+- Left-to-right once-only evaluation, checked arithmetic, trap order, completed
+  effects and cleanup are preserved across interpreter and native execution.
+- Installed interfaces determine available APIs. Cancellation and call-depth
+  protection remain; there is no generic permission matrix or execution charging.
 
 ## Workspace Shape
 
-The repository is a Rust workspace with structural separation between language phases:
-
-```text
-crates/
-  kagari-common             source identities, diagnostics, limits and shared primitives
-  kagari-syntax             lexer, parser, concrete syntax tree and AST views
-  kagari-hir                recoverable analysis, resolution, typing and tool queries
-  kagari-abi                executable types/layouts, helper ABI and native contracts
-  kagari-mir                concrete CFGs, verification, analyses, passes and portable codec
-  kagari-compiler           source monomorphization, MIR/bytecode lowering and native links
-  kagari-bytecode           interpreter model, validation, codec and artifact envelope
-  kagari-codegen            compilation-only verified MIR interface and diagnostics
-  kagari-codegen-cranelift  MIR-to-CLIF emission and executable code ownership
-  kagari-runtime            values, GC, host state, authority, sessions, native calls and reload
-  kagari-vm                 interpreter/frame driver, debugger and prepared native selection
-  kagari-embed              host SDK, features, preparation/cache and execution orchestration
-  kagari-cli                arguments, filesystem IO and presentation
-```
-
-Runtime, bytecode and VM have no production dependency on MIR, source analysis or
-codegen. MIR depends on ABI/common rather than HIR. Compiler core works without its
-`source` feature. Native backends depend on codegen/MIR/ABI and their backend libraries,
-not on runtime, bytecode, compiler or SDK. Source-based tests may use dev-dependencies;
-they do not define the production graph. ABI has no source generator or syntax
-build dependency. HIR reads compiler-owned language contracts and installed
-native declaration records from ABI types. Runtime declaration construction does
-not consume Kagari source or call its parser/compiler. The feature audit checks
-ABI's build graph as well as normal production dependencies. LLVM is deferred;
-no placeholder crate exists.
-
-## Contract and common responsibility cleanup
-
-The current proposal retains **`kagari-abi` as a narrow binary interface layer**
-and extracts **`kagari-contract` for source-independent semantic records and
-verification**. It revises the earlier decision to rename the entire ABI crate.
-The 2026-10-03 boundary clarification separates syntax-required declarations from
-native library declarations. Syntax-required traits enter ordinary source
-analysis, with language-item attributes connecting declarations to compiler roles.
-Collection and standard-library declarations remain authored through Rust native
-registration, which generates `.kgr` declarations for compiler and LSP analysis.
-This replaces the earlier proposal to make every foundation trait source-authored.
-This is a design checkpoint requested by the user, not activation of the code
-migration. The workspace list above describes the current implementation.
-
-The current ABI crate combines portable executable records and layouts, generic
-substitution and proof checking, language foundation catalogs, declaration
-construction and `.kgr` rendering. Common also combines source management and
-diagnostics, declaration identities, numeric semantics and host interface records.
-Being used by several crates is not sufficient reason to put a feature in either
-shared crate. The cleanup must assign each responsibility a clear owner without
-turning `kagari-contract` into the same collection under a new name. The existing
-compiler-owned catalog remains authoritative until its replacement passes
-integration; these documents do not claim that the proposed analysis path exists
-now. ABI cleanup and declaration authoring are distinct decisions. The main
-replacement target is library-specific identities and policies spreading through
-generic compiler and executable models, not Rust declaration authoring itself.
-
-### Names
-
-Use domain names within meaningful modules instead of an `Abi` prefix or suffix:
-
-| Current name | Target name |
+| Crate | Current responsibility |
 | --- | --- |
-| `AbiType` | `Type` |
-| `NominalAbiType` | `NominalType` |
-| `FunctionAbi` | `FunctionDecl` |
-| `TypeAbi` | `TypeDecl` |
-| `TraitAbi` | `TraitDecl` |
-| `ParameterAbi` | `Parameter` |
-| `GenericBoundAbi` | `GenericBound` |
-| `InterfaceTableAbi` | `InterfaceTable` |
+| kagari-common | Source utilities, identities, diagnostics and shared primitives |
+| kagari-syntax | Lexer, parser, CST and AST views |
+| kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
+| kagari-abi | Executable types/layouts, semantic/native contracts and physical helper ABI |
+| kagari-mir | Typed CFGs, verification, bounded analyses/passes and portable encoding |
+| kagari-compiler | Checked source lowering, specialization, bytecode emission and native links |
+| kagari-bytecode | Interpreter model, independent verification, codec and artifact envelope |
+| kagari-codegen | Compilation-only verified MIR interface |
+| kagari-codegen-cranelift | Scalar native emission and executable code ownership |
+| kagari-runtime | Values, GC, host state, sessions, native registration/calls and reload |
+| kagari-vm | Interpreter/frame driver, debugger and prepared tier selection |
+| kagari-embed | Host SDK, preparation and execution orchestration |
+| kagari-cli | Arguments, filesystem IO and presentation |
 
-Keep the existing `ModuleDecl` / `ImplDecl` vocabulary. Do not replace every `Abi`
-suffix with `Contract`. Resolve collisions through meaningful module imports,
-such as `use kagari_contract::types as contract;` and `contract::Type`. The runtime's
-existing native `FunctionDecl` authoring model must be reviewed alongside the
-portable declaration model: decide their distinct responsibilities or consolidate
-them before renaming. Do not preserve duplicate models through compatibility
-aliases or forwarding re-exports.
-
-### Ownership boundaries
-
-These are responsibility boundaries, not a requirement to create one crate per row:
-
-| Responsibility | Target ownership and constraints |
-| --- | --- |
-| Physical value representation, calling conventions, helper symbols/signatures, native entry descriptors and stack maps | Narrow `kagari-abi`; independent of semantic declaration records, foundation catalogs, source analysis and runtime implementation state. It may use minimal shared identity/debug primitives where required. |
-| Portable declarations, semantic types, logical field/variant layouts, native imports, interface tables and encoded contract validation | `kagari-contract`; depends on the narrow ABI where physical representation is needed, and remains available to compiler, artifact validation, runtime and backends without source analysis. |
-| Syntax-required trait declarations | Small language foundation source, processed through ordinary syntax, resolution and typing. Collect language roles from its declarations. Parser code owns syntax, not trait catalogs or implementation selection. |
-| Collection and standard-library trait/type/method declarations | Explicit native library ownership; Rust registration is authoritative and generates `.kgr` declarations for source analysis. Link Rust implementations through the same checked declaration identities. The baseline foundation remains mandatory, independent of optional libraries. |
-| Language-role identities and intrinsic rules | Compiler language semantics ownership. Collect attributes into role-to-declaration bindings; use generic declaration records and exact IDs afterward. Keep special language rules separate from generic proof machinery and ordinary library catalogs. |
-| Substitution, matching and implementation proof checking | Focused source-independent verification modules in `kagari-contract`; retain linked artifact validation and bounded normalization. Do not move executable checks into HIR. |
-| Native declaration authoring, Rust handlers and storage bindings | Native registration ownership; common record construction can live with contracts, but builders selecting Rust handlers/storage belong to runtime registration. Distinguish portable descriptions from implementation state. |
-| Declaration rendering, documentation and navigation spans | Source/tooling ownership consuming native declarations. Generated native `.kgr` is an analysis input and navigation view, with correspondence to its Rust authority. Handwritten language declarations use their real source. Neither source form is required for execution. |
-
-### Language items and ordinary trait records
-
-For example, the language foundation declares its addition trait using
-`#[lang = "add"]`. The attribute denotes a compiler role, not a second trait
-representation. Parse and
-lower the trait normally; collect its declaration ID into a language-item table.
-An operator consults that table and selects implementations through the ordinary
-checked trait machinery. Once lowering selects a callable, executable consumers
-use its checked identity, signature and witnesses rather than rereading an
-attribute or comparing source strings.
-
-Only actual language dependencies need roles. Review the current 38-entry
-`Protocol` catalog per consumer rather than replacing it with 38 mandatory
-attributes. Add/Index and iteration are examples to inspect for syntax use;
-List/MutableList, Map/MutableMap and Set/MutableSet are ordinary native-authored
-trait declarations. Their parent relationships, bounds, methods and defaults
-belong to the library. Ordinary algorithms use resolved declarations rather than
-a compiler-wide catalog enum. A declaration with both syntax and library users
-has one authority; a role points to that declaration without duplicating it.
-
-Parsing recognizes the attribute and ordinary trait syntax. Declaration collection,
-resolution and type checking validate the role and select implementations; they
-do not move into the parser. Native-generated and handwritten declarations must
-converge on the same HIR declaration/selection machinery. Do not keep a special
-injected collection catalog alongside parsed generated declarations.
-
-Validate unknown, duplicate and missing required roles, declaration kind, binder
-arity and the method/associated-member shape required by each compiler rule.
-Role bindings must originate from the configured mandatory foundation, including
-explicit library bridges and checked records during source-free loading. An
-application cannot gain a reserved role by copying an attribute or choosing the same source name/package
-spelling. Preserve exact identity, scope and generation checks. The checked
-foundation records must be checked against the installed foundation before
-executable adoption, as native declarations are today.
-
-### Library identities and representation boundaries
-
-The current `language::Protocol` mixes syntax roles with collection interfaces.
-HIR also names ArrayList/HashMap/HashSet in `NativeTypeKind`, and `TypeId::list_item`
-and `writable_list` recognize specific interfaces. Merely relocating their enum
-declarations would leave the same coupling. Replace consumer recognition with
-resolved nominal types, checked trait implementations and exact member/call IDs.
-Private enums or tables remain useful inside a library's registration or storage
-implementation; adding an ordinary container must not add a variant to generic
-HIR types, semantic contract types or generic execution dispatch.
-
-Existing collection syntax has real library dependencies. `[T]` denotes List<T>,
-and array literals construct the mandatory default ArrayList<T>. Give these
-dependencies a small explicit bridge from syntax to checked declaration and
-constructor identities. Lower construction to an ordinary checked call. Index
-reads/writes need checked member contracts, including a writable receiver/member
-for assignment; do not replace today's checks with an unchecked method-name
-convention. Ordinary method calls and interface conversions follow declaration
-and parent/implementation records. A bridge must not become a second catalog of
-all collection methods or types. Map/Set gain no new literal syntax.
-
-Collection mutability follows the visible interfaces and checked callable/member
-contracts. Readonly is shallow and does not make the shared object immutable.
-Separately declared host storage restrictions remain validated. An interface
-does not choose concrete storage or an allocator.
-
-Representation tags are a separate audit. `NativeStorageLayout::Sequence/Map/Set`
-currently describe checked storage shapes, and `CollectionAccess` also protects
-declared storage access. Generic execution may require layout, tracing and typed
-storage facts without knowing the source library class. Retain such facts only
-at the layer that consumes them; do not remove them solely because trait
-recognition becomes generic. Library-specific constructor tags and standard enum
-tags must be reviewed against concrete syntax/runtime consumers. This proposal
-does not authorize a blanket removal of all engine representations or intrinsic
-instructions. Any retained frontend exception needs a concrete semantic reason
-and an owner; performance benefits are not assumed.
-
-The current `standard::RuntimePrimitive` is not a trait-definition enum.
-`ValueEq`, `ValueHash` and similar entries identify execution operations and their
-effects. Changing trait declaration ownership does not by itself replace these
-operations.
-Keep an operation with an independently required runtime implementation; describe
-its logical operation/effect in the executable contract and its physical helper
-entry in ABI. Remove a primitive only when ordinary compiled code and checked
-native bindings fully replace its behavior. This migration does not require
-rewriting all primitives, arithmetic or native collection storage.
-
-### Declaration preparation and dependency direction
-
-The proposed data flow is:
-
-```text
-language trait .kgr source             Rust native library definitions
-               |                        -> validated native declarations
-               |                        -> generated .kgr declarations
-               +------------------------------+
-                                              |
-                    ordinary parser/HIR, roles and declaration checking
-                                              |
-                    checked semantic contracts and selected calls
-
-user source + analyzed foundation/library declarations
-  -> ordinary HIR analysis -> verified MIR -> bytecode or native code
-
-checked products + installed foundation/native implementations
-  -> source-independent verification/linking -> execution
-```
-
-Load declaration headers and role bindings before checking code that needs those
-roles. The language preparation entry must not inject duplicate copies of the
-declarations it is compiling. Primitive scalar syntax and intrinsic lowering
-facts remain compiler-owned. A source-owned operator trait does not imply a
-script body for every primitive operation.
-
-Generate native `.kgr` from the authoritative Rust declarations. Check parsed
-declarations against the exported native records, including identities, binder
-ownership, signatures, bounds, parent traits and associated members; source
-spans are analysis data. Link implementations to these exact declarations. A
-generated file is not independently editable semantic authority, and it cannot
-authorize a Rust binding by itself. Runtime registration and artifact loading
-retain the native contract and implementation-closure checks.
-
-Preparation may ship checked language-role records and accompanying source views
-for source-free consumers. It does not require replacing all Rust library
-definitions with a precompiled source standard library. Runtime installation uses
-checked products and ordinary native registrations without parsing generated or
-handwritten `.kgr`. Regenerate affected development views/products at coherent
-checkpoints, and do not create a recursive frontend-dependent runtime build.
-
-The mandatory dependency direction is `contract -> abi`, never `abi -> contract`.
-Neither layer depends on source preparation, syntax or HIR, including build
-dependencies. Declaration preparation uses the source frontend and contracts;
-runtime uses checked records and native registration with contract/ABI validation.
-A language-role record can be source independent without owning the parser or the
-trait catalog.
-No new crate is prescribed for the role registry or preparation tool until their
-concrete dependency/consumer map is reviewed. Do not add forwarding crates.
-
-`AbiType::representation()` currently combines semantic and physical knowledge.
-Its replacement belongs with contract type lowering, calling the narrow ABI's
-physical representation model. Likewise split logical generic field layouts from
-physical descriptors; do not move `layout.rs` wholesale just because of its name.
-
-Audit common at the same time, using its actual consumers rather than moving it
-wholesale into contract:
-
-| Current common area | Required review |
-| --- | --- |
-| `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Group source and tooling responsibilities; separate literal parsing from numeric execution semantics. Choose their final owner from actual consumers, without pulling source analysis into ABI, contracts or runtime. |
-| `identity`, `span` | Separate portable package/module/definition identity from source file revisions and locations where appropriate. Preserve debug metadata consumers; these modules are not uniformly source-only. |
-| `arithmetic`, `integer`, `numeric`, `range`, `collection` | Give shared language semantics a deliberate owner; preserve one implementation of compile-time/runtime numeric behavior. Distinguish semantic tags from execution algorithms. Audit collection access tags against ordinary interface semantics and separately declared host storage restrictions; removing a tag must not remove a validated host restriction. |
-| `host_interface` | Locate portable host schema and effect records with their contract owner; keep execution state and host state with runtime/embedding. The capability module was removed by the execution-policy simplification. |
-| `cancellation`, decode-limit helpers | Retain or relocate small shared mechanisms according to concrete dependency needs; preserve cancellation and bounded decoding. |
-
-Whether a small `common` crate remains, is renamed or disappears follows this
-consumer/ownership audit. No replacement utility crate or final crate count is
-approved merely by this naming decision. In particular, ABI currently depends on
-common: moving declarations must account for that graph rather than introduce a
-cycle, a forwarding crate or a second public path to the same model.
-
-### Scope and completion boundary
-
-The eventual cleanup delivers the narrow ABI/contract split, ordinary analysis of
-syntax-required traits and generated native declarations, removal of library
-catalog recognition from generic compiler/executable consumers, an explicit common
-module/dependency map, and migration of affected imports, documentation and checks.
-Keep existing behavior, source-free validation and backend dependency constraints.
-Replace unpublished internal interfaces directly; no routine version bump,
-old-format reader or compatibility layer is required. This work does not add
-traits, containers, library algorithms, general downcast support or new
-execution-policy obligations. Native-authored collections retain current behavior
-and mandatory availability. The new language-item attribute is scoped to actual
-language dependencies, not a general attribute-system redesign. Replacement of
-all standard enums or engine storage instructions is outside this finite scope;
-record concrete remaining representation coupling in the existing roadmap.
-
-A future external C embedding API belongs in a proposed **`kagari-ffi`** adapter
-over `kagari-embed`: C exports, opaque handles, buffer ownership, error/panic
-translation and callback adapters into the existing native registration path.
-Internal JIT/runtime calling conventions remain executable contracts. Creating
-the FFI crate or committing to a stable external ABI is outside this cleanup;
-do not add a placeholder crate now.
-
-The [roadmap](implementation-roadmap.md#contract-and-common-responsibility-cleanup-queued)
-tracks this queued work separately from the completed native collection reset.
+Runtime, bytecode and VM have no production dependency on MIR, syntax/HIR or
+codegen. MIR depends on ABI/common. Compiler core works without `source`.
+Backends depend on codegen/MIR/ABI and backend libraries, not runtime, compiler,
+bytecode or SDK. ABI has no frontend/build-time source generator dependency.
+Source-based dev-dependencies do not change those production constraints.
+LLVM remains deferred; no placeholder backend crate is required.
 
 ## Compilation Pipeline
 
@@ -487,138 +82,72 @@ handles remain local to each runtime. Mutable extraction discards the seal;
 decoded or changed inputs are bounded, validated and sealed again. See
 [artifacts](spec/artifacts.md) and [module loading](spec/module-loading.md).
 
-## Source Language Layer
+## Language contracts and native implementations
 
-The [syntax architecture](architecture/syntax.md) defines the crate's input and
-output contracts, parsing flow, ownership model and current limitations.
+The current compiler-owned `core::language` catalog defines all 38 foundation
+traits, primitive/value declarations, standard enums, range forms, String and the
+canonical ArrayList/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
+These declarations remain available independently of optional libraries.
+`[T]` means List<T>; list literals create ArrayList. There is no separate
+fixed-length array type or Rust slice promise. Readonly views are shallow.
+HashMap/HashSet require checked Eq + Hash keys and use Rust standard hash storage
+without a traversal-order guarantee. Collection and String behavior lives in
+[collection access](spec/collection-access.md) and [builtins](spec/builtins.md).
 
-The syntax layer implements the grammar in `docs/spec/syntax.md` and `docs/kagari.ebnf`.
+Application and library modules use explicit ModuleBuilder declarations and
+scoped implementation blocks. `bind` checks Rust codecs against Kagari signatures;
+`bind_with` supplies explicit codecs. Rust signatures do not infer Kagari traits.
+`finish` checks the declaration/binding/storage closure; installation validates
+dependencies and publishes atomically. Runtime construction always installs the
+foundation and bundled algorithms, reusing immutable registrations at host-thread
+lifetime while retaining independent heaps, host state and generations.
 
-Core source-language facts:
+Currently HIR consumes native declaration records directly. Generated `.kgr`
+provides documentation and navigation, not executable semantics. Artifacts carry
+declarations, native imports, signatures and selected witnesses; loading checks
+them against installed implementations without parsing source. The proposal below
+changes frontend declaration ingestion while preserving source-free execution.
+See [native declarations](spec/standard-declarations.md) for the registration API.
 
-- local bindings use `val` and `var`
-- fields use `val field: T` and `var field: T`
-- function parameters are ordinary non-rebindable bindings
-- method receivers use `self`
-- unit is written as `()`
-- `const` is a compile-time value item
-- script-visible `static` module storage is not part of the language surface
-- trait names are interface value types directly; there is no script-level `dyn Trait`
+## Synchronous calls and registered storage
 
-The syntax layer must not encode semantic shortcuts that only exist because of the current implementation.
+Native entries return synchronously. CallContext borrows existing frame roots;
+typed scalar arguments use stack packs, and sequence views borrow contiguous
+buffers. Selected trait operations and CallableHandle callbacks reenter the same
+execution stack. Ordinary callbacks require no continuation protocol.
+StoredCallable traces captures and retains its defining generation; independently
+retained host callbacks use explicit rooted ownership.
 
-## Builtins and Standard Modules
+NativeStorage attaches a Rust payload to an ordinary nominal native type.
+NativePayload supplies tracing, logical size and destruction. Scoped payload
+borrows validate the registered Rust type and cannot span collection or reentry.
+New payloads require no concrete Value/HeapObject variants. Scalar sequences use
+typed compact buffers; GC-bearing sequences use traced Values. Hash callbacks run
+outside table borrows with checked hashes and stable key tokens.
 
-Kagari has a typed standard surface defined in `docs/spec/builtins.md`.
+ArrayList stable sorting edits its actual buffer through a scoped lease. Roots
+protect reference elements during callback reentry. Cleanup restores valid storage
+on every exit; failure may change ordering but preserves the original elements.
+Completed payload mutations remain. No universal collection rollback is promised.
+Lazy native adapters trace their source/callback edges; iteration scopes retain
+guards through completion or failure. Generic execution does not name MapIterator.
 
-The language foundation owns primitive/value types, Option/Result, syntax-required
-range forms and the complete operator, collection, iteration and callable traits.
-It owns [T] typing, existing collection literal semantics and the canonical
-ArrayList/HashMap/HashSet declarations. Native/script impls use
-ordinary checked trait records; the compiler does not select storage algorithms
-from interface names.
+## Interface dispatch
 
-Runtime supplies basic construction, access, mutation and traversal for all
-three default containers through ordinary checked native bindings. Default hash
-storage uses Rust std::collections::HashMap/HashSet, never indexmap. It owns
-GC-managed object identity, generic registered native storage and scoped access.
-Contiguous primitive buffers are one layout capability. Other
-native storage supplies checked factories, tracing/destruction and access entries
-without adding a concrete type to the compiler/ABI/VM's global catalog.
+Interface GC objects share immutable receiver descriptors. Rooted calls select a
+checked ordinal or shared operation without copying the whole table. Receiver
+signatures/operations are prepared on demand and reused; method-local arguments
+and caller witnesses remain per-call. Immutable binder/parent scopes retain exact
+origins and generations. Weak back-references avoid metadata ownership cycles.
+Inherited calls retain the original root; escaping upcasts publish normal checked
+GC interface values. Metadata sharing does not replace GC roots or code ownership.
 
-The foundation includes all 38 predecessor traits, including Into, TryFrom,
-TryInto, FromStr, FromIterator, Sum and Product. Core owns their declarations and
-type contracts;
-ordinary trait checking and native binding handle their implementations. Merely
-being default-available does not require special compiler dispatch. Try and
-FromResidual are outside this correction; no new propagation protocol is added.
-
-Optional native modules own algorithms and additional collection implementations
-such as LinkedList, TreeMap/TreeSet and LinkedHashMap/LinkedHashSet. Disabling
-these modules retains the three defaults and language contracts.
-Native registrations explicitly declare their own types, functions and impls;
-compiler-owned contracts are referenced rather than redeclared. Generated tooling
-views project the same checked declarations. The [active plan](native-provider-refactor.md)
-owns migration order and the bounded algorithm/extension proof. There is no second
-copy of collection algorithms in Kagari source.
-
-Foundational Map/Set traits do not prescribe traversal order. `indexmap` belongs
-to future optional LinkedHashMap/LinkedHashSet implementations; it is not backing
-for the default HashMap/HashSet.
-Hash-key eligibility and custom equality/hash protocols follow the checked contracts in [builtins](spec/builtins.md). Runtime callbacks execute on the same explicit frame stack with ordinary resource and reentry rules.
-
-Standard library calls flow through one structural path:
-
-```text
-source call or method
-  -> ordinary checked HIR declaration and selected implementation
-  -> provider-qualified native import or ordinary script callable
-  -> portable declaration/signature/layout/bound/witness validation
-  -> shared runtime frame/session driver and selected Rust implementation
-```
-
-This keeps ordinary standard library execution out of script-visible reflection and host string dispatch.
-Reflection metadata may describe standard values for tooling through declared metadata, but reflection is not the implementation mechanism for arrays, maps, sets, strings, or standard helpers.
-Reload validation and JIT preparation use the same verified callable contracts as the interpreter. Unsupported native compilation falls back before entry.
-
-Host-sensitive APIs such as file system, networking, timers, persistence, service registries, and logging sinks are host APIs.
-They are not exposed as unrestricted core standard modules.
-
-## HIR, Resolution, and Type System
-
-HIR is the first semantic representation.
-
-Normal-completion analysis is independent of produced value types. Its evaluator
-uses an explicit work stack over expressions, blocks, statements and places;
-lazy child traversal stops after termination and after an irrefutable match arm.
-Loops consume their own break exits. Each work step checks cancellation, which
-returns cancellation rather than a fabricated completion fact. Completed node
-facts are memoized within one traversal using the full owned HIR identity;
-shared subtrees are evaluated once, and cached break exits are consumed only at
-the enclosing loop boundary. The cache never crosses query or snapshot boundaries.
-This removes
-native-stack recursion from this analysis; it does not imply that all frontend
-traversals or resource limits are complete.
-It should erase parser trivia and expose stable semantic nodes for later passes.
-
-HIR and semantic analysis own:
-
-- module item collection and visibility
-- local, parameter, field, function, const, trait, impl, and module namespaces
-- `val` / `var` writeability rules
-- field writeability and assignment validation
-- function signatures and `()` return behavior
-- generic parameter and trait-bound checking
-- interface value compatibility
-- concrete type identity for `is<T>` and `downcast<T>`
-- compile-time metadata and generated registration data
-
-Type checking must reject invalid programs before MIR lowering whenever the violation is statically knowable.
-Runtime checks remain required for host state, declared access, dynamic indexes, and hot reload epochs.
-
-## MIR, ABI and Bytecode
-
-MIR is a concrete typed, non-SSA control-flow representation. Source generics and
-trait obligations are resolved by compiler source lowering into reachable executable
-instances; MIR contains no HIR type arena or generic binder. Verification seals
-function/program links and bounded analyses: initialization, liveness, effects,
-logical roots, safepoints, source/debug origins and cooperative cancellation points. Public
-passes consume verified input, make bounded changes and reverify the result.
-
-The ABI crate owns nominal executable types, signatures, layouts, provider
-contracts, language primitives, helper/native representations and version constants.
-Structured native declaration records have no source/handler dependency. HIR carries
-installed declaration facts; MIR carries concrete native imports and bytecode
-deduplicates them. Runtime links against trusted registrations and drives erased
-state with explicit roots and checked callbacks, without standard-method selection. Compiler
-core lowers verified MIR into the register/local bytecode contract. Bytecode validates
-its own instructions, metadata, dependency graph and canonical artifact envelope.
-Native-enabled preparation also proves correspondence of optional portable MIR to
-that same bytecode program; executable contracts never depend on source analysis.
-
-Ordinary aggregate access uses checked nominal field slots. Host-backed typed path
-access is a separate operation with installed contracts and scoped borrow rules.
-Reflection remains explicit rather than implementing ordinary field mutation.
+Generic methods through interface values use checked shared script/native entries
+with explicit type arguments and operation witnesses. Static calls retain
+specialization. Native concrete-result adapters carry selected implementation
+proofs, validate the concrete return and box through the pinned interface table.
+Runtime dispatch does not infer types, search implementations or specialize code.
+See [traits](spec/traits.md) and [native declarations](spec/standard-declarations.md).
 
 ## Definition identity ownership
 
@@ -657,169 +186,159 @@ while a snapshot is retained currently copies the table's index containers.
 
 ## Runtime Model
 
-The runtime owns execution state and services shared by the interpreter and JIT.
+The runtime owns values, the script GC heap, explicit roots, host registry,
+module versions, installed native code owners and execution sessions. The VM
+drives verified bytecode against these services. GC does not scan or own Rust
+host state. Host calls use scoped borrow validation; deep host mutation uses
+checked typed paths rather than retained Rust references or reflective field lookup.
+See [runtime](spec/runtime.md), [host interop](spec/host-interop.md) and
+[typed path mutation](spec/typed-path-mutation.md).
 
-Core runtime subsystems:
-
-- value representation
-- GC heap for Kagari-owned values
-- explicit roots for host-retained Kagari values
-- module store with epochs
-- shared immutable verified programs and runtime-local interpreter cache records
-- installed native handles retaining code owners and exact dependency versions
-- type and interface metadata registry
-- host registry
-- root cancellation and execution phase
-- resource accounting
-- hot reload coordinator
-
-The GC manages Kagari script data.
-It does not own Rust host objects, Rust references, or the Rust object graph.
-
-## Host Interop and Typed Path Mutation
-
-Host interop exposes Rust functionality through explicit registration.
-
-The host boundary has two separate mechanisms:
-
-- frame-scoped host borrow tokens for temporary host calls using `&T` or `&mut T`
-- typed path mutation for ergonomic field/index access to host-owned domain state
-
-Typed path mutation represents a checked path rooted at a host object.
-It carries typed metadata, dynamic index operands, access policy, dirty tracking hooks, and reload validation data.
-It must not store Rust `&mut` references in script values.
+Installation determines exposed native/host APIs; declared visibility, writeability,
+storage access, ownership and generations remain checked. Root cancellation is
+sticky across calls, callbacks and reentry. Calls, loops and long native work poll
+at safe boundaries without splitting indivisible commits. Call depth is bounded.
+Hosts own admission and deadlines; runtime provides no hard preemption or generic
+CPU/memory quota. See [execution](spec/execution.md) and [security](spec/security.md).
 
 ## Embedding API
 
-The Rust embedding surface is defined in `docs/spec/embedding-api.md`.
+Current entrypoints are KagariEngine, KagariRuntime, PreparedProgram and
+ExecutionContext. SDK features are independent: no features gives artifact-only
+interpretation; `source` adds the frontend; `native` adds frontend-free MIR/codegen
+preparation. Default features enable both; the host supplies a concrete backend.
+Source-only builds can emit portable MIR for native-only consumers.
 
-The embedding API owns:
-
-- compile, load, execute, and reload entry points
-- host registry setup
-- module loader configuration
-- execution context construction
-- runtime call-depth limits and cooperative cancellation
-- structured diagnostics and runtime errors
-- interpreter/JIT execution policy
-
-Embedding APIs expose stable Kagari concepts rather than parser or backend internals.
-Convenience CLI behavior must remain a thin layer over the same embedding pipeline.
-
-The SDK exposes `KagariEngine`, `KagariRuntime`, `PreparedProgram`, load/reload
-options and `ExecutionContext`. The default `source,native` feature set enables source
-compilation and native preparation. No features gives artifact-only interpretation;
-`source` adds HIR/syntax/compiler source, and `native` adds frontend-free MIR/compiler
-core/codegen. The host supplies any concrete backend. Source-only builds can emit
-portable MIR for native-only consumers.
-
-Hosts compile or decode an artifact, construct a reusable `PreparedProgram`, then
-load it into each runtime. `execute` interprets; `prepare_native` uses a trusted
-compilation-only backend and a bounded configuration/version cache, then installs
-runtime-specific handles. `execute_prepared` executes that decision. Reload consumes
-a prepared candidate and preserves its verified identity. Preparation precedes
-script execution and has its own structural work limits.
-
-## Interpreter
-
-The interpreter is the semantic execution foundation.
-It executes verified bytecode against the runtime model.
-
-The interpreter must:
-
-- preserve bytecode-visible control flow and value behavior
-- enforce traps and runtime errors consistently
-- call runtime helpers at allocation, host, reflection and path boundaries
-- maintain correct stack/root metadata for GC
-- respect pinned module versions across hot reload
-- reject unsupported or unverified bytecode instead of guessing behavior
+Prepare reusable checked products, then link them in each runtime. `execute`
+interprets; `prepare_native` compiles/caches and installs exact-version handles;
+`execute_prepared` consumes that decision. Reload validates a prepared candidate
+before publication and retains old dependency versions needed by values/calls.
+Public facade changes are [queued](host-api-refactor.md), not current API names.
+See [embedding](spec/embedding-api.md), [loading](spec/module-loading.md) and
+[activation](spec/module-activation.md).
 
 ## Debugger and Tooling
 
-Debugger support is defined in `docs/spec/debugger.md`.
-
-The debugger is a host/tooling capability, not an ordinary script API.
-It is built on:
-
-- bytecode source maps
-- safe debug points
-- runtime frame inspection
-- value inspection
-- declared reflection metadata
-- host exposure policy
-- typed path read policy
-- module epoch identity
-
-The baseline debugger is interpreter-first and supports source breakpoints, conditional breakpoints, hit counts, stepping, call stacks, variable inspection, watch expressions, trap breakpoints, and hot-reload-aware breakpoint remapping.
-The current native subset has no observer callbacks; attached execution observers force pre-entry interpreter fallback. Metadata flags alone cannot provide debugger semantics.
-
-The implemented VM exposes a debugger adapter boundary through `DebugProtocolAdapter`, `DebugAdapterRequest`, `DebugAdapterResponse`, `DebugAdapterEvent`, and `DebugAdapterEventSink`.
-IDE and DAP integrations should translate their transport messages at that boundary instead of coupling directly to VM internals.
+The interpreter-first debugger uses source maps, safe points, rooted frame/value
+inspection and module epochs. IDE/DAP transport belongs outside runtime.
+DebugProtocolAdapter is the implemented boundary; see [debugger](spec/debugger.md#adapter-boundary).
+Attached observers force pre-entry fallback when native code lacks callbacks.
+Ordinary reflection stays within declared metadata and member adapters.
 
 ## Baseline Cranelift JIT
 
-The baseline JIT is optional and function-level.
-It compiles verified MIR and explicit ABI/link descriptions through Cranelift.
+The compilation-only CodegenBackend consumes verified MIR and explicit helper
+links. Products own executable pages independently of backend lifetime; installed
+handles retain exact program/dependency generations. Supported functions are
+zero-argument, straight-line Unit/Bool/i32 constants, moves, checked arithmetic,
+supported comparisons and return. Unsupported locals/control flow/calls/GC values
+fall back before entry. Failures after entry never restart interpretation.
 
-The JIT must:
+Wider native support needs a concrete call/result/status ABI, real native-root
+publication, checked cross-module targets and conservative call effects. Logical
+stack-map schemas alone do not establish GC integration. The outstanding
+[architecture review](architecture-review-2026-10-03.md#native-expansion-gates)
+records those gates. See [JIT](spec/jit.md) and [backend contract](spec/codegen-backend.md).
 
-- preserve interpreter semantics
-- share runtime helper ABI boundaries
-- emit safepoint and stack-map metadata
-- respect host interop and typed path mutation checks
-- bind installed code to exact immutable versions and reject mismatched entries
-- avoid mandatory deoptimization, tracing behavior, and optimizing-tier complexity
+## Contract and common responsibility cleanup
 
-`docs/spec/jit.md` defines the JIT contract.
-`kagari-codegen-cranelift` implements the unsafe compilation-only `CodegenBackend`
-contract. Runtime owns installation/invocation; VM only consumes prepared entries.
-The supported subset is zero-argument, straight-line Unit/Bool/i32 constants, moves,
-checked arithmetic, supported comparisons and return. Locals, control flow, calls,
-GC-bearing values and other numeric operations use pre-entry fallback. Compiler
-errors and failures after native entry never silently restart the interpreter.
-Each product owns its pages independently of backend lifetime and later compilations.
+Status: queued design; implementation has not been activated. Retain narrow
+`kagari-abi` for binary interfaces and extract source-independent semantic contracts
+into `kagari-contract`. Separate language-required declarations from ordinary
+native libraries. This replaces the all-source foundation proposal; cleaning ABI
+does not require making every trait source-authored.
 
-## Hot Reload
+### Ownership boundaries
 
-Hot reload is built around module epochs and validated publication.
+| Responsibility | Proposed owner |
+| --- | --- |
+| Physical values, calling conventions, helper symbols/signatures, native entries and stack maps | Narrow ABI; no semantic catalog, frontend or runtime implementation dependency |
+| Semantic types/declarations, logical layouts, imports, interface records and verification | Contract; source-independent, depending on ABI where physical facts are needed |
+| Syntax-required trait declarations and role selection | Language foundation source and compiler semantics, using ordinary parser/HIR |
+| Collection/standard-library traits, types, methods and Rust bodies | Explicit native library ownership; Rust declarations generate `.kgr` for compiler/LSP analysis |
+| Substitution and implementation proofs | Focused contract verification, including linked and bounded checks |
+| Source rendering, navigation and diagnostics | Source/tooling ownership; no executable dependency on generated text |
 
-Reload must:
+Use module-owned names: AbiType -> Type, NominalAbiType -> NominalType,
+FunctionAbi/TypeAbi/TraitAbi -> FunctionDecl/TypeDecl/TraitDecl,
+ParameterAbi -> Parameter, GenericBoundAbi -> GenericBound,
+InterfaceTableAbi -> InterfaceTable. Keep ModuleDecl/ImplDecl. Reconcile runtime
+authoring versus portable declarations before renaming; add no compatibility aliases.
 
-- compile and validate a new module before publishing it
-- preserve the current active module when validation fails
-- compare public ABI fingerprints, type metadata, interface tables, and typed path descriptors
-- keep old code and metadata reachable while old values or calls need them
-- ensure new calls use the latest successfully published epoch
-- avoid implicit migration of script-visible module storage
+### Language items and ordinary trait records
 
-Script-visible durable module storage is deferred until the reload model defines explicit versioning and migration rules.
+A syntax-required declaration may use `#[lang = "add"]`. Parsing recognizes the
+attribute; HIR collects a role-to-declaration ID and uses normal checked trait
+selection. Executable consumers use selected callable identities/signatures/witnesses.
+Ordinary library traits require no global protocol enum.
 
-## Security and Reflection
+The exact per-trait partition of the current 38 contracts remains an AC01 decision.
+Add/Index and iteration are syntax-use examples to audit. List/MutableList,
+Map/MutableMap and Set/MutableSet belong to native library declarations; their
+methods, parents and defaults are library policy. A role may point to a library
+declaration where syntax needs it, without a second trait definition.
 
-Kagari primarily embeds trusted scripts. Installation determines available native
-and host APIs. Member visibility, readonly views and host adapters enforce declared
-language/interface contracts. Reflection uses these metadata and access contracts.
-There is no language-profile or generic runtime permission matrix.
+Validate unknown/duplicate/missing roles, installed origin, declaration kind,
+binder arity and required member shapes. Application attributes or copied names
+cannot acquire reserved roles. Preserve exact scopes and generation checks.
 
-Execution retains cooperative cancellation and a runtime call-depth limit, without
-instruction charging or generic CPU/memory quotas. Hosts own service admission and
-deadlines. GC, borrow, generation, artifact and candidate-publication validation
-remain mandatory. See [execution control](spec/security.md).
+### Library identities and representation boundaries
 
-## Production Readiness Definition
+Remove collection-name recognition from generic HIR/contract/execution consumers.
+Protocol, NativeTypeKind/NativeTypeConstructor and list_item/writable_list currently
+spread that knowledge. Replace it with nominal declarations, checked implementations
+and member/call identities. Private library enums can remain. An ordinary new
+container must not require a generic type or execution-dispatch variant.
 
-Kagari is production-ready when:
+Existing syntax needs small explicit bridges: `[T]` selects List<T>; `[a, b]`
+constructs the mandatory ArrayList<T>; `[value; count]` repeats construction without
+putting length in the type. Indexed assignment needs a checked writable member
+contract. Preserve left-to-right once-only evaluation, trap/allocation order and
+completed effects when replacing MakeArray/RepeatArray lowering. These bridges
+must not become a second complete collection catalog.
 
-- syntax, semantics, runtime, and bytecode match the specifications
-- module loading, artifact validation, and embedding APIs are stable
-- the complete standard library surface is implemented and tested
-- incompatible legacy language forms have been removed
-- conformance tests cover accepted and rejected source programs
-- interpreter behavior is deterministic and verified through integration tests
-- host interop enforces no-escape and aliasing rules
-- typed path mutation is validated, efficient, and reload-aware
-- debugger sessions support IDEA-like source debugging through safe runtime hooks
-- hot reload cannot corrupt the active runtime on failure
-- installed interfaces and declared member contracts are enforced at runtime boundaries
-- baseline Cranelift JIT can be enabled without changing language behavior
-- documentation matches implementation and gives Codex agents an executable roadmap
+String literal typing/representation may remain intrinsic while its methods are
+ordinary native-authored implementations. Adding trim or split needs no compiler
+method enum. Audit storage layouts, CollectionAccess, standard enums and
+RuntimePrimitive separately: they may carry required tracing/access/operation facts.
+Retain those at their consumer layer; do not erase host restrictions or replace
+every engine instruction merely to move declaration ownership.
+
+### Declaration preparation and dependency direction
+
+```text
+language trait source + generated native declaration source
+  -> ordinary parser/HIR, validated roles and declarations
+  -> checked semantic contracts and selected calls
+  -> verified MIR -> bytecode/native products
+
+checked executable products + installed Rust implementations
+  -> source-independent validation/linking -> execution
+```
+
+Rust native definitions remain authoritative for ordinary libraries. Generated
+source is not independently editable authority. Check analyzed declaration IDs,
+binders, signatures, bounds, parents and associated members against native records;
+source spans remain analysis data. Remove duplicate injected library catalogs.
+Collect headers/roles before dependent bodies without recursively injecting the
+foundation being compiled. Runtime installation never parses either source form.
+
+The dependency direction is contract -> ABI, never ABI -> contract. Neither has
+syntax/HIR or frontend build dependencies. Semantic type-to-representation lowering
+belongs to contract and uses physical ABI facts. Split logical from physical layouts.
+Choose role/preparation owners from concrete consumers; add no empty/forwarding crates.
+
+Audit common by responsibility: source/diagnostic/literal tooling; portable identities
+versus source revisions/spans; shared numeric semantics; portable host schemas;
+cancellation and decode mechanisms. Preserve one checked numeric implementation and
+source-free executable consumers. A shared consumer count is not an ownership rule.
+
+### Scope and completion boundary
+
+The [roadmap](implementation-roadmap.md#contract-and-common-responsibility-cleanup-queued)
+owns AC01-AC05, checks and activation. Preserve the current finite trait/API surface,
+mandatory foundation, shared generics, storage safety and reload pinning. No new
+containers/traits, general downcast, async/permission redesign, blanket standard-enum
+replacement, stable external ABI or compatibility reader is authorized here.
+Performance effects are unmeasured. A future kagari-ffi C adapter belongs over
+kagari-embed; internal helper ABI stays separate, and no placeholder crate is needed.

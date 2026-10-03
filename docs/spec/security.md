@@ -52,4 +52,4 @@ Hosts own service admission, IO deadlines, rate limiting and isolation for
 untrusted code. Kagari does not promise hard preemption, process isolation or
 per-script CPU/memory guarantees. See [runtime](runtime.md),
 [failure semantics](failure-semantics.md) and the
-[implementation plan](../execution-policy-refactor.md).
+[execution contract](execution.md).

@@ -192,7 +192,7 @@ arguments and expected result, check those arguments against the method's
 bounds, and specialize reachable local or dependency-defined implementations.
 The method's arguments follow the implementation's type arguments in the
 concrete instance key. Interface calls retain method arguments separately and
-use the shared generic entry specified below. FA01 owns the executable migration.
+use the shared generic entry specified below.
 
 Struct and enum declarations retain generic binders and inline bounds in checked
 signatures. Type applications such as `Cell<i32>` resolve those binders, check
@@ -455,8 +455,9 @@ same signature and constraint rules. Runtime execution does not infer source typ
 or require call-time monomorphization. An enclosing generic function may forward
 its checked generic environment, including through retained closures.
 
-The [foundation API completion plan](../foundation-api-completion.md) tracks the
-implementation of this approved contract; end-to-end execution is not yet complete.
+This contract supports both script and native shared generic implementations;
+[collection methods](collection-access.md#foundation-algorithms) are consumers of
+the same general interface mechanism.
 
 ## Receiver Model
 

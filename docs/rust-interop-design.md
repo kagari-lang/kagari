@@ -6,14 +6,11 @@ the agreed behavior and proposed binding API; the examples are target API sketch
 not interfaces that exist today. Implementation and commits are not authorized by
 this documentation task.
 
-Start only after acceptance of the [standard-library and HIR migration](stdlib-hir-refactor.md)
-and [native provider unification](native-provider-refactor.md). The proposed
-implementation placement is after [execution-policy simplification](execution-policy-refactor.md),
-so registration does not introduce another permission matrix. Activation and exact
-scheduling belong to the [roadmap](implementation-roadmap.md). Synchronous interop
-does not depend on async implementation and does not alter its existing prerequisites.
-Re-audit all predecessors before starting; existing specifications remain in force
-until their implementing phase updates them.
+Build on the current [native registration](spec/standard-declarations.md) and
+[installation-based access model](spec/execution.md). Activation and scheduling
+belong to the [roadmap](implementation-roadmap.md). Synchronous interop does not
+depend on async. Re-audit affected APIs at activation; existing specifications
+remain in force until an implementation updates them.
 
 ## Design decisions
 
@@ -32,7 +29,7 @@ until their implementing phase updates them.
   name and schema, not a repeated module prefix.
 - Opaque objects may expose modifying methods. In this version Rust objects own
   their safe interior mutation; the wrapper does not manufacture exclusive access.
-- Registration and exposure authorize use under the queued execution-policy model.
+- Registration and exposure authorize use under the current execution model.
   Properties have declared writeability, not additional runtime permission flags.
 
 Excluded here are script-visible `&T`/`&mut T`, automatic binding of exclusive
@@ -487,13 +484,3 @@ claiming zero allocations or zero-cost property access. Record toolchain, machin
 profile, features, default Cargo parallelism, cache state and workload; separate
 compilation from execution. Store temporary output under ignored `target/` and keep
 durable conclusions here. No benchmark result is claimed by this proposal.
-
-## Progress ledger
-
-- 2026-09-30: Recorded the agreed owned-value and opaque binding design, optional
-  schema-backed Serde adapter, module-owned naming and host-managed mutation.
-  Clarified that wrapper cloning does not require payload cloning or public `Arc`
-  selection. Queued RI00-RI05; no implementation, runtime validation or commit.
-- Documentation validation: checked 127 local links, 12 heading anchors, whitespace
-  and code-fence balance across seven related documents. `git diff --check` passed.
-  No Rust build, runtime tests or benchmarks were run for this documentation change.

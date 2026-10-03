@@ -5,20 +5,18 @@ by this document. The proposed first release lets scripts await host-owned RPC,
 database and timer operations without blocking the VM thread or exposing completion
 callbacks to script authors. Rust remains responsible for IO and scheduling.
 
-This design follows [native provider unification](native-provider-refactor.md) and
-[execution-policy simplification](execution-policy-refactor.md), after ST06 acceptance
-in the [standard-library and HIR plan](stdlib-hir-refactor.md).
-It does not extend those migrations' implementation scope. Implementation requires
-separate activation through the [roadmap](implementation-roadmap.md) and resolution
-of the design gates below. Existing specifications remain authoritative until the
-corresponding implementation updates them.
+This design builds on current [native registration](spec/standard-declarations.md)
+and [execution control](spec/execution.md). Implementation requires separate
+activation through the [roadmap](implementation-roadmap.md) and resolution of the
+design gates below. Existing specifications remain authoritative until an
+implementation updates them.
 
 The [host task scope design](host-task-scope-design.md) defines synchronous handlers
 launching Actor-owned async work, scope admission and mailbox-driven resumption.
 It refines the original root-bound task proposal without introducing script threads
 or a mandatory Actor/Tokio dependency.
 
-The execution-policy plan owns the proposed access/protection model: installation
+The execution contract owns the current access/protection model: installation
 authorizes API use, root cancellation and a call-depth limit control execution, and the host
 owns deadlines/service limits. Per-task permission matrices, precise allocation
 attribution and hierarchical budget delegation are not async requirements.
@@ -31,14 +29,13 @@ The [syntax specification](spec/syntax.md) excludes async and coroutine syntax.
 but only establish restrictions on borrowed and ephemeral values. A `may_suspend`
 metadata field does not define task execution, wakeup or cancellation semantics.
 
-At the planning baseline, [host callbacks](../crates/kagari-runtime/src/host.rs)
-return synchronously. [Native continuations](../crates/kagari-runtime/src/native/mod.rs)
-request nested script callbacks on the current execution stack; they do not yield
-an owned async execution to the host. [Sessions](../crates/kagari-runtime/src/session.rs)
+Current [host callbacks](../crates/kagari-runtime/src/host.rs) and
+[native calls](../crates/kagari-runtime/src/native/mod.rs) run synchronously;
+callbacks reenter the same execution stack. They do not yield an owned async
+execution to the host. [Sessions](../crates/kagari-runtime/src/session.rs)
 retain root options, frames, termination and resource baselines for synchronous
 execution and reentry. These are reusable concepts, not a completed async runtime.
-Re-audit their implementation after the native-provider and execution-policy
-predecessors complete before selecting concrete API changes.
+Re-audit their implementation at activation before selecting concrete API changes.
 
 The product boundary follows [project goals](project_goal.md) and
 [architecture](architecture.md): one thread executes a script heap at a time;
@@ -324,19 +321,18 @@ JIT support for suspension is deferred. Never enter unsupported native code and 
 restart it in the interpreter after effects have occurred.
 
 Portable artifacts encode program behavior, not live tasks, OS resources, wakers
-or runtime operation IDs. Change ABI/artifact versions when contracts change;
-reject old unsupported products rather than adding a second semantic reader.
+or runtime operation IDs. Retain ABI/format identifiers and invalidate affected
+development products when contracts change. Establish a version boundary for a
+published compatibility commitment; add no old-format reader for disposable caches.
 Keep source-free validation and the existing crate dependency boundaries intact.
 
-## Relationship to native provider unification
+## Relationship to synchronous native execution
 
-NR00-NR05 must remain useful without async: synchronous direct entries and generic
-callback continuations already solve the standard-library coupling problem.
-Do not add speculative `Pending` variants, executor dependencies or task tables
-as acceptance requirements for that refactor.
+Synchronous direct entries and callbacks remain useful without async. Async work
+must preserve their ordinary linked invocation and cleanup contract.
 
-Reuse its trusted provider contracts, linked identities, rooted callables, owned
-continuation lifecycle, sticky termination and generation retention when async is
+Reuse trusted provider contracts, linked identities, rooted callables,
+sticky termination and generation retention when async is
 implemented. Extend execution-mode metadata generically at that time, with matching
 verification and runtime support. Callback resumption inside the current session
 and external suspension back to the host are distinct capabilities. Async is not
@@ -344,8 +340,7 @@ a reason to reintroduce Engine-versus-Host method lists or privileged RPC paths.
 
 ## Design gates and implementation sequence
 
-This is a design queue, not authorization to begin coding. After NR05 and execution
-policy refactor acceptance, re-audit the implementation and resolve these gates
+This is a queued design. Re-audit the implementation and resolve these gates
 before activating async work:
 
 - Ratify cold task creation, cached repeat-await, scope admission, execution
@@ -375,8 +370,7 @@ Suggested vertical implementation order:
 
 Each implementation checkpoint must cover a real producer-to-consumer path. Record
 intermediate failures and their owner here after activation; do not weaken tests
-or add production placeholder success. This proposal does not change current ST
-or NR phase checklists or claim any phase complete.
+or add production placeholder success. This proposal does not activate any phase.
 
 ## Acceptance evidence
 
@@ -392,9 +386,9 @@ servers or timing sleeps. Required cases include:
   dispatcher, and cannot be launched twice; scope close cancels all admitted jobs.
 - Immediate and deferred completions agree; completion-before-wait and wakeup races
   lose no result; duplicate/late/stale-slot events cannot resume another operation.
-- A waiting execution consumes no drive loop or work allowance; another root runs
-  with independent work/cancellation state and pinned versions under the same
-  installation; driver slices do not reset limits.
+- A waiting execution consumes no drive loop; another root runs with independent
+  cancellation state and pinned versions under the same installation. Host drive
+  slices preserve call-depth and lifetime checks rather than resetting them.
 - Cancellation before start, while waiting, after readiness and before conversion,
   plus owner drop and runtime shutdown, leave no retained frames, roots or leases.
 - GC during every wait and completion conversion preserves captures and results;
@@ -409,32 +403,9 @@ servers or timing sleeps. Required cases include:
   implementation, registration and tests, with no compiler/VM method cases.
 
 Reuse existing [session tests](../crates/kagari-vm/src/tests/sessions.rs),
-[native continuation tests](../crates/kagari-vm/src/tests/native_continuations.rs)
+[native boundary tests](../crates/kagari-vm/tests/native_boundary.rs)
 and [host interface tests](../crates/kagari-embed/tests/host_interfaces.rs), extending
 their meaningful behavioral coverage. Final implementation acceptance includes the
 repository structure, formatting, clippy, workspace-test and diff checks, plus the
-completed predecessor's feature/dependency matrix. Measure runtime/parked memory,
+source-free/native feature and dependency matrix. Measure runtime/parked memory,
 allocation counts and drive overhead before making performance claims.
-
-## Planning ledger
-
-- 2026-09-30: Recorded this proposal after reviewing current syntax, host suspension,
-  failure, session, activation and native registration boundaries. The user approved
-  design documentation only, with no implementation or commit. Task policies above
-  are proposed choices pending the design gates, not existing language behavior.
-  No implementation phase has started. Validation checked 91 local links and 12
-  heading anchors across the four affected planning documents, including existing
-  uncommitted predecessor changes. Whitespace and `git diff --check` passed. No Rust
-  build or runtime test was run for this documentation-only change.
-- 2026-09-30: Added the companion host task scope concept after the Actor/RPC design
-  discussion. Revised cold-task ownership to permit explicit admission into a
-  scope-owned execution before the synchronous handler ends. Recorded launch as
-  enqueue-only, Actor-controlled drive/resume, bounded wakeup handling and scope
-  shutdown. These remain proposed semantics; no implementation or commit is authorized.
-  Validation checked 96 local links, 12 heading anchors and whitespace across the
-  five planning documents; tracked `git diff --check` passed. No Rust build or
-  runtime tests were run for this documentation-only update.
-- 2026-09-30: Aligned the queued design with the approved execution-policy refactor.
-  Replaced per-task authority/allocation-accounting assumptions with installed API
-  access, coarse root work protection, runtime heap/depth limits and host deadlines.
-  Async implementation remains deferred until that simplification is accepted.

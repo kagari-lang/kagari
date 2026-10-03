@@ -35,8 +35,7 @@ cancellation failures while preserving valid storage and completed effects.
 ArrayList sorting retains every original element, but may change their order;
 custom container writes may leave partial progress. This does not relax individual
 write validation or the separate host-path and reload publication contracts.
-FA03 in the [foundation plan](../foundation-api-completion.md) owns replacement
-of the old sorting rollback implementation.
+The [collection contract](collection-access.md) defines these mutation guarantees.
 
 Frame scopes share one session-owned stack. Each scope unwinds only its own suffix
 on failure, preserving suspended callers that may handle an ordinary nested trap.

@@ -11,14 +11,13 @@ scope admission, launch, scheduling notifications and the host drive protocol. I
 refines that proposal's initial root-bound task policy: a cold task may be admitted
 as a new scope-owned execution before its creating handler ends.
 
-Both documents remain design-only work after [native provider unification](native-provider-refactor.md)
-and [execution-policy simplification](execution-policy-refactor.md).
-They do not expand ST00-ST06 or NR00-NR05, introduce a second implementation queue,
-or override current specifications. The [roadmap](implementation-roadmap.md) records
-the dependency; the async proposal retains the implementation sequence and ledger.
+Both documents remain design-only work built on current
+[native registration](spec/standard-declarations.md) and
+[execution control](spec/execution.md). The [roadmap](implementation-roadmap.md)
+owns activation; the async proposal owns implementation sequencing.
 All API names and examples below are illustrative and require review before coding.
 
-The execution-policy plan supplies the simplified baseline: installed APIs authorize
+The execution contract supplies the baseline: installed APIs authorize
 use, root cancellation and call-depth limits control execution, and the host manages task
 admission, deadlines and service limits. Scope/operation identities below are
 lifetime and ownership checks, not another boolean permission matrix.

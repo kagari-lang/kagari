@@ -378,14 +378,3 @@ build; any exception needs activation-time approval. Measure preparation, quiesc
 snapshot, restoration and commit separately, recording machine/toolchain/profile,
 features, default Cargo parallelism, cache state and workload. No latency target
 or success result is invented by this proposal.
-
-## Progress ledger
-
-- 2026-09-30: Recorded the compatible-update/state-replacement split. Excluded new
-  trait impls on old types and arbitrary in-place migration; retained the new-type
-  trait-collection use case. UP00-UP05 remain unstarted. No implementation or commit.
-- Documentation review: aligned HA/RI/async/task-scope proposals with the two update
-  modes, receiver-pinned dynamic dispatch and drain-versus-cancel distinction.
-  Checked 173 local links, 13 heading anchors, whitespace and code-fence balance
-  across ten related documents; `git diff --check` passed. No Rust build, runtime
-  tests or benchmarks were run for this documentation-only work.

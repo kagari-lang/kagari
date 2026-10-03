@@ -65,15 +65,11 @@ import references. The native import must match the exact implementation member
 and applied trait signature. Both callable targets retain their implementation
 generation and share frame, callback-return and cleanup validation.
 
-Invocation state owns Rust data and explicit roots. Checked callbacks run on shared
-frames; return values stay rooted while receive() runs. Work uses cooperative cancellation
-safepoints and unit mutations retain separate publication. Artifacts contain no
-live heap state/Rust references. Generic persistent traced state remains NR03 work.
-
-The reset native_provider.kbc fixture covers array direct/interface/callback calls
-with serialized and source-free execution. The old feature_artifact.kbc remains
-tracked for NR04 restoration: its bytes/API are superseded and do not load under
-v115. This does not reduce the required final feature matrix.
+Invocation state owns Rust data and explicit roots. Native callbacks execute
+synchronously on shared frames; results remain rooted across allocation/reentry.
+Cooperative cancellation and individual mutation commit rules remain explicit.
+Native payloads trace retained script values/callables. Artifacts contain portable
+contracts, not live heap state, Rust references or function pointers.
 
 ## SDK Feature Boundary
 
@@ -82,9 +78,9 @@ set enables both `source` and `native`; hosts may disable defaults and select:
 
 | SDK features | Available preparation and execution | Production dependency boundary |
 | --- | --- | --- |
-| None | Validate/load/reload artifacts and interpret bytecode | No source stdlib, compiler, HIR, syntax, MIR, codegen or concrete backend |
-| `source` | Source analysis and artifact emission, plus bytecode execution | Stdlib/compiler source/HIR/syntax/MIR enabled; no codegen required |
-| `native` | Decode verified portable MIR, compile through a trusted backend, install and execute | Compiler core/MIR/codegen enabled; no stdlib, HIR or syntax |
+| None | Validate/load/reload artifacts and interpret bytecode | No compiler, HIR, syntax, MIR, codegen or concrete backend |
+| `source` | Source analysis and artifact emission, plus bytecode execution | Compiler source/HIR/syntax/MIR enabled; no codegen required |
+| `native` | Decode verified portable MIR, compile through a trusted backend, install and execute | Compiler core/MIR/codegen enabled; no HIR or syntax |
 | `source,native` | Both paths | Combination of the above |
 
 `PreparedProgram::from_artifact` always validates the envelope and bytecode. With
@@ -105,8 +101,8 @@ locked dependency versions and normal target directory. The native-only consumer
 runs real Cranelift code from the tracked portable artifact, without script source
 text or production HIR/syntax dependencies. The audit also checks that ABI has no
 source-analysis dependencies through build edges. Workspace dev-feature unification
-is not used as proof of isolation. Current migration acceptance and carried build
-failures are recorded in the [active plan](../stdlib-hir-refactor.md#progress-ledger).
+is not used as proof of isolation. Pending migrations and genuinely carried errors
+belong to the [roadmap](../implementation-roadmap.md).
 
 ## Logical Layout
 

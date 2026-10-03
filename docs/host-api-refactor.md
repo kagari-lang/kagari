@@ -18,12 +18,10 @@ handoffs, not circular requirements to finish both implementations first.
 
 ## Dependencies and scope
 
-Implement after acceptance of [native provider unification](native-provider-refactor.md),
-[execution-policy simplification](execution-policy-refactor.md) and
-[Rust interoperability](rust-interop-design.md), following the active
-[standard-library and HIR migration](stdlib-hir-refactor.md). The
-[roadmap](implementation-roadmap.md) owns activation and scheduling; no predecessor
-scope is expanded by this plan.
+Build on current [native registration](spec/standard-declarations.md) and
+[execution control](spec/execution.md). The queued
+[Rust interoperability](rust-interop-design.md) supplies conversion/root contracts.
+The [roadmap](implementation-roadmap.md) owns activation and scheduling.
 
 This track owns the coherent host-facing facade, default workflows, call argument
 adapter and reload-aware entry handles. Rust interop owns value conversion, opaque
@@ -38,9 +36,8 @@ not silently add another prerequisite to their already queued execution order.
 
 ## Current API inventory
 
-This is a source inspection of the migration-era SDK, not a passing build report.
-Refresh it after predecessor acceptance. The active roadmap currently records
-carried ST integration errors.
+This inventory describes the existing SDK concepts. Re-audit concrete names and
+behavior at activation; it is not a current build report or the proposed facade.
 
 | Area | Current surface and limitation |
 | --- | --- |
@@ -298,14 +295,14 @@ Place options at the lifetime where they belong:
 | Configuration | Responsibility |
 | --- | --- |
 | Engine/build | Source resolution, compiler limits, artifact preparation and backend configuration |
-| Runtime | Host implementations, heap/depth limits, default root protection, installed backend policy and diagnostics |
-| Call | Explicit per-root work/cancellation overrides and genuinely call-specific deterministic inputs |
+| Runtime | Host implementations, call-depth limits, installed backend policy and diagnostics |
+| Call | Root cancellation and genuinely call-specific deterministic inputs |
 
 Normal calls use runtime defaults. A `call_with` variant may take focused
 `CallOptions`; it must distinguish an absent override from an explicit setting.
 Do not recreate ExecutionContext's per-call permission/JIT/host-exposure bundle or
-silently replenish a nested execution's budget. Apply the execution-policy plan's
-installation-based access and coarse work guards.
+reset nested call-depth/cancellation state. Preserve installation-based access;
+host services own admission and deadlines, without generic runtime work quotas.
 
 Interpreter and native execution use one call surface and identical boundary
 validation. Backend preparation, helper linking, cache ownership and optional
@@ -419,13 +416,3 @@ Measure repeated calls and reload cache invalidation separately from compilation
 Record toolchain, machine, profile, features, default Cargo parallelism, cache state
 and workload. Preserve conclusions here and temporary output under ignored `target/`.
 No performance or working-build claim is made by this design-only document.
-
-## Progress ledger
-
-- 2026-09-30: Recorded the unified host API proposal and the user's confirmed
-  outer-tuple argument convention. Queued HA00-HA05 after predecessor acceptance.
-  Latest-version logical handles and lifecycle details remain activation gates.
-  No implementation or commit was performed.
-- Documentation validation: checked 144 local links, 13 heading anchors, whitespace
-  and code-fence balance across eight related documents. `git diff --check` passed.
-  No Rust builds, runtime tests or benchmarks were run for this documentation task.

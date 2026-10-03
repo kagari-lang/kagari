@@ -23,12 +23,11 @@ or commit is authorized by this planning task.
 - [Loading specifications](spec/module-loading.md) describe host-approved package
   roots and dependency mappings, and reserve `kg` for future tooling. They are not
   evidence of an implemented general package manager.
-- The standard package (retired predecessor file) has a bundled source
-  manifest and content fingerprint. General packages should use common identities
-  and source handoff, not copy standard-library-specific installation privileges.
+- General packages use common identities and source handoff; native declaration
+  installation is a separate boundary, not an implicit package privilege.
 
-Re-audit these foundations after the active [ST migration](stdlib-hir-refactor.md).
-Existing specifications govern until an activated implementation updates them.
+Re-audit these foundations at activation. Existing specifications govern until
+an implementation updates them.
 Preserve [source-module execution tests](../crates/kagari-embed/tests/source_modules/execution.rs)
 and [source snapshots](../crates/kagari-embed/tests/source_snapshots.rs) when changing
 resolution and input registration; they are not full package-manager acceptance.
@@ -181,7 +180,7 @@ convenient facade without merging distinct declaration identities.
 
 Script source, bundled standard source and host declaration packages should expose
 the same logical namespace/dependency contract to analysis. Runtime providers remain
-explicit trusted implementations linked by the [Native contract model](native-provider-refactor.md).
+explicit trusted implementations linked by the [Native contract model](spec/standard-declarations.md).
 A downloaded package declaring a Native symbol does not register arbitrary Rust code.
 
 The host supplies actual Native bindings separately from portable declarations.
@@ -280,13 +279,3 @@ Buildable checkpoints are the default; record any explicitly approved intermedia
 failure with command, cause and owner. Update formats and consumers directly without
 compatibility-only readers or duplicate resolution semantics. No performance result
 is implied by this proposal.
-
-## Progress ledger
-
-- 2026-09-30: Drafted Cargo-inspired package declarations, resolved identities and
-  Program handoff. PK00-PK04 remain unstarted; review choices remain open. No code
-  change, runtime verification or commit was performed.
-- Documentation review: reconciled package identity and update ownership with the
-  roadmap and host API proposal. Checked 173 local links, 13 heading anchors,
-  whitespace and code-fence balance across ten related documents; `git diff --check`
-  passed. No Rust build or runtime tests were run for this documentation-only work.

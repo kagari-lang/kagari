@@ -605,7 +605,7 @@ The debugger API is not script-visible.
 The host may attach a debugger; inspection validates handles and declared member access.
 
 Debug sessions use the model defined in [debugger.md](debugger.md).
-The VM adapter boundary is documented in [debugger-adapter.md](../debugger-adapter.md) and exposes request, response, event, and event-sink types for IDE or DAP integrations.
+The VM [debugger adapter boundary](debugger.md#adapter-boundary) exposes request, response, event, and event-sink types for IDE or DAP integrations.
 
 ## Threading and Isolates
 

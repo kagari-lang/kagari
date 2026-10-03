@@ -2,8 +2,9 @@
 
 This defines the collection access and construction contract. Value, identity
 and failure rules are defined in [value semantics](value-semantics.md).
-The 2026-10-02 [native collections reset](../native-provider-refactor.md) makes
-foundational collection traits compiler-owned. The runtime foundation supplies the three default implementations.
+The current compiler-owned catalog defines the foundational collection traits.
+The runtime foundation supplies the three default implementations through
+[ordinary native registration](standard-declarations.md).
 Generated .kgr files are tooling views, not the source of these declarations.
 
 ## Types
@@ -118,8 +119,7 @@ methods continue returning their concrete receiver.
 
 ## Foundation algorithms
 
-The [foundation completion plan](../foundation-api-completion.md) defines
-sorted, sorted_by, sorted_by_key, reversed and distinct to List; sort, sort_by,
+List declares sorted, sorted_by, sorted_by_key, reversed and distinct; sort, sort_by,
 sort_by_key, reverse, retain and dedup belong to MutableList. Method-specific Ord
 and Eq bounds do not restrict construction of the interface itself. Key methods
 accept a method-local K: Ord and are callable through interfaces. The methods
@@ -205,5 +205,5 @@ calls, mutable-to-read-only upcasts, live aliasing, indexed compound assignment,
 custom Eq/Hash keys, interface identity, malformed artifacts and generated
 navigation. The accepted sorting/lazy/object proof covers source and encoded
 artifacts, GC during callbacks, cleanup, reload and independent source-free loading.
-The active plan records actual integration status and measured performance; old
-algorithm-family tests do not imply that those APIs remain installed.
+The [performance report](../performance-baseline.md) records scoped measurements;
+coverage for retired algorithms does not imply that those APIs remain installed.

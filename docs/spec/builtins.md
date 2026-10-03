@@ -8,18 +8,38 @@ and is not an executable standard library.
 
 The foundation is always installed. List/MutableList own common algorithm methods,
 String owns its inherent methods, and `std::collections` provides lazy map. The
-[foundation completion plan](../foundation-api-completion.md) records the finite
-inventory and verification. Predecessor APIs outside that inventory, including
+[collection contract](collection-access.md) defines the finite API surface.
+Predecessor APIs outside that inventory, including
 numeric convenience methods, enum combinators, extended iterator algorithms,
 collection snapshots and additional container classes, remain withdrawn.
 
-## Foundation trait scope
+## Foundation trait inventory
 
-The foundation contains all 38 traits implemented before the reset. Into,
-TryFrom, TryInto, FromStr, FromIterator, Sum and Product are compiler-owned core
-contracts under the [approved correction](../native-provider-refactor.md#approved-foundation-boundary-correction).
-Their ownership does not depend on optional library installation or direct syntax
-support. Algorithms and additional container implementations remain separate.
+The current compiler-owned foundation contains these 38 traits. All remain
+available without optional libraries. This is the implemented inventory, not a
+decision that every trait needs a compiler language role.
+
+| Family | Traits |
+| --- | --- |
+| Collection interfaces | List, MutableList, Map, MutableMap, Set, MutableSet |
+| Iteration | Iterator, Iterable |
+| Equality and hashing | PartialEq, Eq, Hash |
+| Ordering | PartialOrd, Ord |
+| Arithmetic | Add, Sub, Mul, Div, Rem |
+| Bitwise and shifts | BitAnd, BitOr, BitXor, Shl, Shr |
+| Unary operators | Neg, Not |
+| Indexing and calls | Index, Fn |
+| Ranges | RangeBounds |
+| Formatting | Debug, Display |
+| Conversion | From, Into, TryFrom, TryInto |
+| Parsing | FromStr |
+| Construction and aggregation | FromIterator, Sum, Product |
+
+The [queued ownership cleanup](../architecture.md#contract-and-common-responsibility-cleanup)
+moves ordinary collection/library declarations to native-library ownership and
+keeps actual language dependencies explicit. Its exact per-trait role partition
+remains to be decided. Algorithms and additional container implementations remain
+separate from trait declarations.
 Try and FromResidual are not added; Option/Result `?` keeps its current semantics.
 
 ## Core Builtin Types

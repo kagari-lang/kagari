@@ -19,22 +19,19 @@ This currently means:
 ## Documentation
 
 - [Agent and engineering guidelines](AGENTS.md)
+- [Documentation index](docs/README.md)
 - [Project goal](docs/project_goal.md)
 - [Architecture](docs/architecture.md)
 - [Implementation roadmap](docs/implementation-roadmap.md)
-- [MIR and crate architecture execution plan](docs/mir-architecture-refactor.md)
-- [Foundation checkpoints and semantic contracts](docs/foundation-refactor.md)
-- [Foundation performance baseline](docs/performance-baseline.md)
+- [Performance measurements](docs/performance-baseline.md)
 - [Runnable language examples](examples/README.md)
-- [Codex goal guide](docs/codex-goal-guide.md)
 - [Syntax grammar](docs/kagari.ebnf)
 - [Embedding API specification](docs/spec/embedding-api.md)
 - [Module loading specification](docs/spec/module-loading.md)
-- [Native collections plan and explicit registration API](docs/native-provider-refactor.md)
+- [Native declarations and explicit registration API](docs/spec/standard-declarations.md)
 - [Builtins and standard library specification](docs/spec/builtins.md)
 - [Bytecode artifact specification](docs/spec/artifacts.md)
 - [Debugger specification](docs/spec/debugger.md)
-- [Debugger adapter boundary](docs/debugger-adapter.md)
 - [Baseline JIT specification](docs/spec/jit.md)
 
 ## Design Direction
@@ -66,7 +63,7 @@ The aim is to keep the scripting model ergonomic without giving up the host appl
 The repository is organized as a Rust workspace so that major responsibilities are separated:
 
 The [architecture](docs/architecture.md) describes the thirteen active crates;
-the [MIR refactor plan](docs/mir-architecture-refactor.md) records acceptance progress.
+the [roadmap](docs/implementation-roadmap.md) records pending work.
 
 - `kagari-common`: source identities, diagnostics, limits and shared primitives
 - `kagari-syntax`: lexer, parser, CST and AST views

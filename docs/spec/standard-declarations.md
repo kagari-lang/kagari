@@ -188,5 +188,5 @@ inherent methods and trait impl methods, including MapIterator.next.
 
 Behavioral and tooling coverage lives in native_provider_reset,
 VM library_collections/library_mapping and the independent artifact_features
-consumer. The [active plan](../native-provider-refactor.md) records measured costs,
-source-free feature checks, deferred APIs and final integration status.
+consumer. [Performance measurements](../performance-baseline.md) record measured
+costs; the [roadmap](../implementation-roadmap.md) owns pending work.

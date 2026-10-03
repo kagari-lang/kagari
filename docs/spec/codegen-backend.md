@@ -3,7 +3,7 @@
 Native compilation consumes verified Kagari MIR and explicit ABI/link descriptions.
 Compilation, runtime installation and invocation are separate boundaries. The
 [architecture](../architecture.md) defines crate ownership; the
-[MIR refactor plan](../mir-architecture-refactor.md) records migration and validation.
+[roadmap](../implementation-roadmap.md) owns pending integration work.
 
 ## Ownership
 
