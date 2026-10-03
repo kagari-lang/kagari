@@ -4,31 +4,31 @@ use crate::{
     module::{LoadedModule, ModuleKey},
 };
 use kagari_abi::types::{AbiType, NominalAbiType, substitution::TypeSubstitution};
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use std::{borrow::Cow, collections::HashSet, ptr};
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeView<'a> {
-    pub(crate) ty: &'a AbiType,
+    pub(crate) ty: &'a AbiType<DefinitionId>,
     pub(crate) owner: &'a LoadedModule,
     pub(crate) environment: Option<&'a TypeEnvironment>,
     application: Option<&'a Application<'a>>,
 }
 
 struct Application<'a> {
-    declaration: &'a DefinitionPath,
+    declaration: &'a DefinitionId,
     arguments: Vec<TypeView<'a>>,
 }
 
 #[derive(PartialEq, Eq, Hash)]
 struct TypeIdentity {
-    ty: AbiType,
+    ty: AbiType<DefinitionId>,
     owners: Vec<ModuleKey>,
 }
 
 impl<'a> TypeView<'a> {
     pub(crate) fn new(
-        ty: &'a AbiType,
+        ty: &'a AbiType<DefinitionId>,
         owner: &'a LoadedModule,
         environment: Option<&'a TypeEnvironment>,
     ) -> Self {
@@ -40,7 +40,7 @@ impl<'a> TypeView<'a> {
         }
     }
 
-    fn child(self, ty: &'a AbiType) -> Self {
+    fn child(self, ty: &'a AbiType<DefinitionId>) -> Self {
         Self { ty, ..self }
     }
 
@@ -59,7 +59,7 @@ impl<'a> TypeView<'a> {
         Some(self)
     }
 
-    pub(crate) fn closed(self) -> Option<Cow<'a, AbiType>> {
+    pub(crate) fn closed(self) -> Option<Cow<'a, AbiType<DefinitionId>>> {
         let view = self.normalized()?;
         if view.ty.is_concrete() {
             return Some(Cow::Borrowed(view.ty));
@@ -155,30 +155,32 @@ impl<'a> TypeView<'a> {
     fn compare_fields(
         self,
         other: Self,
-        closed: &AbiType,
+        closed: &AbiType<DefinitionId>,
         visited: &mut HashSet<(TypeIdentity, TypeIdentity)>,
     ) -> bool {
         let (Some(left), Some(right)) = (self.application(), other.application()) else {
             return false;
         };
-        let mut compare =
-            |a: &AbiType, a_owner: &LoadedModule, b: &AbiType, b_owner: &LoadedModule| {
+        let mut compare = |a: &AbiType<DefinitionId>,
+                           a_owner: &LoadedModule,
+                           b: &AbiType<DefinitionId>,
+                           b_owner: &LoadedModule| {
+            TypeView {
+                ty: a,
+                owner: a_owner,
+                environment: None,
+                application: Some(&left),
+            }
+            .compare(
                 TypeView {
-                    ty: a,
-                    owner: a_owner,
+                    ty: b,
+                    owner: b_owner,
                     environment: None,
-                    application: Some(&left),
-                }
-                .compare(
-                    TypeView {
-                        ty: b,
-                        owner: b_owner,
-                        environment: None,
-                        application: Some(&right),
-                    },
-                    visited,
-                )
-            };
+                    application: Some(&right),
+                },
+                visited,
+            )
+        };
         match closed {
             AbiType::Struct(ty) => {
                 let (Some(a), Some(b)) = (
@@ -248,7 +250,7 @@ impl<'a> TypeView<'a> {
             let Some(application) = view.application() else {
                 return false;
             };
-            let mut check = |ty: &AbiType, owner: &LoadedModule| {
+            let mut check = |ty: &AbiType<DefinitionId>, owner: &LoadedModule| {
                 TypeView {
                     ty,
                     owner,
@@ -293,7 +295,7 @@ impl<'a> TypeView<'a> {
     }
 }
 
-fn nominal(ty: &AbiType) -> Option<&NominalAbiType> {
+fn nominal(ty: &AbiType<DefinitionId>) -> Option<&NominalAbiType<DefinitionId>> {
     match ty {
         AbiType::Struct(ty) | AbiType::Enum(ty) => Some(ty),
         _ => None,
@@ -301,9 +303,9 @@ fn nominal(ty: &AbiType) -> Option<&NominalAbiType> {
 }
 
 fn children_match<'a>(
-    left: &'a AbiType,
-    right: &'a AbiType,
-    mut test: impl FnMut(&'a AbiType, &'a AbiType) -> bool,
+    left: &'a AbiType<DefinitionId>,
+    right: &'a AbiType<DefinitionId>,
+    mut test: impl FnMut(&'a AbiType<DefinitionId>, &'a AbiType<DefinitionId>) -> bool,
 ) -> bool {
     match (left, right) {
         (AbiType::Struct(a), AbiType::Struct(b))

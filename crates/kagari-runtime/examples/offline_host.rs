@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "offline-demo",
         BytecodeProgram {
             root: ModuleRef::new(0),
-            modules: vec![(*loaded.bytecode).clone()],
+            modules: vec![loaded.to_unverified(&Default::default()).unwrap()],
         },
     )?;
     let initialization = runtime.begin_candidate_initialization(&candidate)?;

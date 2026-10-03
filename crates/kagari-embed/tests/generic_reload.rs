@@ -57,7 +57,13 @@ fn make() -> Run {{
             .iter()
             .find(|contract| contract.abi.name == "Run")
             .unwrap();
-        let run = ModuleDecl::method_id(&contract.declaration, "run");
+        let run = ModuleDecl::method_id(
+            &old.definitions()
+                .resolve(contract.declaration)
+                .unwrap()
+                .to_path(),
+            "run",
+        );
         let old_key = old.key();
         let mut vm = Vm::new(runtime);
         let saved = vm.execute(&old, "make").unwrap().return_value;

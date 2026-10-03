@@ -14,6 +14,7 @@ use crate::{
     value::Value,
 };
 use kagari_abi::native_import::callables::NativeCallableRequirement;
+use kagari_common::identity::table::DefinitionId;
 use std::{rc::Rc, slice};
 
 impl LinkedCallable {
@@ -21,7 +22,7 @@ impl LinkedCallable {
         runtime: &Runtime,
         caller: &LoadedModule,
         caller_environment: &Rc<TypeEnvironment>,
-        required: &NativeCallableRequirement,
+        required: &NativeCallableRequirement<DefinitionId>,
         operation: &BoundOperation,
     ) -> NativeResult<Self> {
         let (binders, environment) = if let Some(generic) = &operation.generic {

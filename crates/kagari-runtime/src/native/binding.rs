@@ -18,6 +18,7 @@ use kagari_abi::{
     native_import::NativeSignature,
     types::{AbiType, TypeAbiKind, native::NativeStorageLayout},
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_common::{collection::CollectionAccess, identity::DefinitionPath};
 use std::{fmt, rc::Rc, slice};
 
@@ -154,7 +155,7 @@ impl NativeBinding {
 #[derive(Debug, Clone)]
 pub struct LinkedNativeFunction {
     pub(crate) binding: NativeBinding,
-    pub(crate) signature: NativeSignature,
+    pub(crate) signature: NativeSignature<DefinitionId>,
     pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,

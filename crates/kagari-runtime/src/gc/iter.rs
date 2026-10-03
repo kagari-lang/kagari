@@ -13,6 +13,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::AbiType,
 };
+use kagari_common::identity::table::DefinitionId;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -27,7 +28,7 @@ struct IterTypeScope<'a> {
 #[derive(Debug)]
 pub(super) struct NativeIter {
     pub(super) source: Value,
-    pub(super) item_type: AbiType,
+    pub(super) item_type: AbiType<DefinitionId>,
     pub(super) item_contract: StorageType,
     pub(super) position: u128,
     pub(super) string: Option<StringTraversal>,
@@ -152,7 +153,11 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(super) fn validate_iter(&self, value: &Value, ty: &AbiType) -> Result<(), RuntimeError> {
+    pub(super) fn validate_iter(
+        &self,
+        value: &Value,
+        ty: &AbiType<DefinitionId>,
+    ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
             return Err(invalid());
@@ -196,7 +201,7 @@ impl GcHeap {
     pub(crate) fn matches_iter_type(
         &self,
         id: HeapObjectId,
-        element: &AbiType,
+        element: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -221,8 +226,8 @@ impl GcHeap {
     fn new_iter_with(
         &self,
         source: &Value,
-        ty: &AbiType,
-        traversal: Option<(AbiType, StringTraversal)>,
+        ty: &AbiType<DefinitionId>,
+        traversal: Option<(AbiType<DefinitionId>, StringTraversal)>,
         owner: &LoadedModule,
         scope: Option<IterTypeScope<'_>>,
     ) -> Result<Value, RuntimeError> {
@@ -318,7 +323,7 @@ impl GcHeap {
     pub(crate) fn new_string_iter(
         &self,
         source: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         kind: StringIterKind,
         owner: &LoadedModule,
     ) -> Result<Value, RuntimeError> {
@@ -341,7 +346,7 @@ impl GcHeap {
     pub(crate) fn advance_iter(
         &self,
         value: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         op: IterOp,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -367,7 +372,7 @@ impl GcHeap {
     pub(crate) fn next_iter_item(
         &self,
         value: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
     ) -> Result<Option<Value>, RuntimeError> {
         self.advance_iter_with(value, ty, Ok)
     }
@@ -375,7 +380,7 @@ impl GcHeap {
     fn advance_iter_with<R>(
         &self,
         value: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         finish: impl FnOnce(Option<Value>) -> Result<R, RuntimeError>,
     ) -> Result<R, RuntimeError> {
         self.ensure_execution_allowed()?;

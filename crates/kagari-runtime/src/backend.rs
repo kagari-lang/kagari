@@ -1,6 +1,7 @@
 use crate::error::RuntimeError;
 use kagari_abi::native::ExecutableDebugInfo;
 use kagari_bytecode::module::BytecodeFunction;
+use kagari_common::identity::table::DefinitionId;
 pub mod native;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -22,7 +23,7 @@ impl BackendInvocationError {
 
 pub fn missing_debug_requirements(
     debug: &ExecutableDebugInfo,
-    function: &BytecodeFunction,
+    function: &BytecodeFunction<DefinitionId>,
 ) -> Vec<String> {
     let mut missing = Vec::new();
     if !debug.has_line_tables {

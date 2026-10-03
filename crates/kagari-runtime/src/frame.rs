@@ -1,3 +1,4 @@
+use kagari_common::identity::table::DefinitionId;
 mod arguments;
 mod layouts;
 mod native;
@@ -489,7 +490,10 @@ impl ExecutionFrame {
         self.environment.clone()
     }
 
-    pub fn resolve_type<'a>(&self, ty: &'a AbiType) -> Result<Cow<'a, AbiType>, RuntimeError> {
+    pub fn resolve_type<'a>(
+        &self,
+        ty: &'a AbiType<DefinitionId>,
+    ) -> Result<Cow<'a, AbiType<DefinitionId>>, RuntimeError> {
         if ty.is_concrete() {
             return Ok(Cow::Borrowed(ty));
         }
@@ -567,7 +571,7 @@ impl ExecutionFrame {
         Ok(())
     }
 
-    pub fn next_instruction(&mut self) -> Option<BytecodeInstruction> {
+    pub fn next_instruction(&mut self) -> Option<BytecodeInstruction<DefinitionId>> {
         let instruction = self.function()?.instructions.get(self.ip).cloned();
         if instruction.is_some() {
             self.executing = Some(self.ip);
@@ -580,7 +584,7 @@ impl ExecutionFrame {
         self.target
     }
 
-    pub fn function(&self) -> Option<&BytecodeFunction> {
+    pub fn function(&self) -> Option<&BytecodeFunction<DefinitionId>> {
         match self.target {
             CallableTarget::Script(function) => {
                 self.loaded.bytecode.functions.get(function.index())

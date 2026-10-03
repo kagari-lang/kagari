@@ -1,4 +1,9 @@
 //! Closed type arguments retain the lexical scope that supplied their layouts.
+use kagari_common::identity::{
+    mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
+};
 #[cfg(test)]
 mod identity_tests;
 use crate::{
@@ -9,18 +14,19 @@ use crate::{
     module::LoadedModule,
     value::{EnumTag, Value},
 };
-use kagari_abi::types::AbiType;
+use kagari_abi::types::{AbiType, verify::types_in_scope_in};
 use std::{rc::Rc, slice};
 
 #[derive(Debug, Clone)]
 pub struct TypeArgument {
-    ty: AbiType,
+    ty: AbiType<DefinitionId>,
+    definitions: DefinitionTable,
     origin: Option<Rc<TypeOrigin>>,
 }
 
 #[derive(Debug)]
 struct TypeOrigin {
-    expression: AbiType,
+    expression: AbiType<DefinitionId>,
     scope: Rc<TypeScope>,
 }
 
@@ -57,7 +63,7 @@ impl TypeArgument {
         &self,
         runtime: &Runtime,
         fallback: &LoadedModule,
-        derive: impl FnOnce(&AbiType) -> Option<AbiType>,
+        derive: impl FnOnce(&AbiType<DefinitionId>) -> Option<AbiType<DefinitionId>>,
     ) -> Result<Self, RuntimeError> {
         let (expression, owner, environment) = match &self.origin {
             Some(origin) => (
@@ -84,8 +90,12 @@ impl TypeArgument {
         self.derive(runtime, fallback, |ty| type_parameter(ty, index).cloned())
     }
 
-    pub fn ty(&self) -> &AbiType {
+    pub fn ty(&self) -> &AbiType<DefinitionId> {
         &self.ty
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
     }
 
     pub(crate) fn has_origin(&self) -> bool {
@@ -93,6 +103,17 @@ impl TypeArgument {
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        let table = runtime.definition_context().snapshot();
+        self.ty
+            .visit_definitions(
+                &mut |id| {
+                    self.definitions.resolve(*id)?;
+                    table.resolve(*id)?;
+                    Ok(())
+                },
+                &Default::default(),
+            )
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         if let Some(origin) = &self.origin
             && !origin.scope.owner.belongs_to(runtime.host.owner())
         {
@@ -117,7 +138,10 @@ impl TypeArgument {
     }
 }
 
-pub(crate) fn type_parameter(ty: &AbiType, index: usize) -> Option<&AbiType> {
+pub(crate) fn type_parameter(
+    ty: &AbiType<DefinitionId>,
+    index: usize,
+) -> Option<&AbiType<DefinitionId>> {
     match ty {
         AbiType::Struct(nominal)
         | AbiType::Enum(nominal)
@@ -141,7 +165,7 @@ pub(crate) fn type_parameter(ty: &AbiType, index: usize) -> Option<&AbiType> {
     }
 }
 
-fn contains_nominal_layout(ty: &AbiType) -> bool {
+fn contains_nominal_layout(ty: &AbiType<DefinitionId>) -> bool {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         match ty {
@@ -172,7 +196,7 @@ impl Runtime {
     pub(crate) fn matches_capture_type(
         &self,
         value: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: &TypeEnvironment,
     ) -> bool {
@@ -188,19 +212,33 @@ impl Runtime {
     }
 
     /// Prepare concrete host-supplied arguments against a specific loaded generation.
-    pub fn resolve_type_arguments(
+    pub fn resolve_type_arguments<I: DefinitionReference>(
         &self,
         owner: &LoadedModule,
-        types: &[AbiType],
+        types: &[AbiType<I>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
-        self.type_arguments(owner, None, types)
+        let cancel = Default::default();
+        let types = types
+            .iter()
+            .map(|ty| {
+                ty.map_identities(&mut DefinitionMapper::new(
+                    &mut |id| {
+                        id.resolve(owner.definitions())
+                            .map_err(DefinitionMappingError::from)
+                    },
+                    &cancel,
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        self.type_arguments(owner, None, &types)
     }
 
     pub(crate) fn type_arguments(
         &self,
         owner: &LoadedModule,
         environment: Option<Rc<TypeEnvironment>>,
-        types: &[AbiType],
+        types: &[AbiType<DefinitionId>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("type argument scope");
         // Reified types own immutable metadata, not executable module instances.
@@ -208,6 +246,7 @@ impl Runtime {
             return Err(invalid());
         }
         let mut scope = None;
+        let definitions = self.definition_context().snapshot();
         let mut arguments = Vec::with_capacity(types.len());
         for expression in types {
             if let AbiType::Parameter { owner, position } = expression {
@@ -223,7 +262,9 @@ impl Runtime {
                 Some(environment) => environment.resolve(expression)?,
                 None => expression.clone(),
             };
-            if !ty.is_concrete() || !ty.within_wire_limits() {
+            if !ty.is_concrete()
+                || !types_in_scope_in([&ty], &[], &Default::default(), Some(&definitions))
+            {
                 return Err(invalid());
             }
             let origin = if contains_nominal_layout(&ty) {
@@ -251,7 +292,11 @@ impl Runtime {
             } else {
                 None
             };
-            arguments.push(TypeArgument { ty, origin });
+            arguments.push(TypeArgument {
+                ty,
+                definitions: definitions.clone(),
+                origin,
+            });
         }
         Ok(arguments)
     }
@@ -259,7 +304,7 @@ impl Runtime {
     pub(crate) fn matches_type_in(
         &self,
         value: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -293,7 +338,7 @@ impl GcHeap {
     pub(crate) fn matches_type_in(
         &self,
         value: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {

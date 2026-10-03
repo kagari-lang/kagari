@@ -159,12 +159,33 @@ regeneration. Strict workspace/all-target Clippy and structure (694 files, zero
 violations/exceptions), formatting and diff checks pass. Full workspace regression
 passes with no carried build, codec or verification error.
 
-ID02-ID05 are still not accepted: named/generic HIR and MIR seals retain authoring
-paths; runtime VerifiedProgram currently expands the compact bytecode seal at its
-adoption boundary. Finish runtime/native value metadata, contextual codecs/layouts,
-exact reload normalization and retained compact executable ownership before final
-measurement and acceptance. The parameterized authoring model is an explicit input
-boundary, not a second semantic implementation or a compatibility reader.
+ID04 runtime adoption checkpoint: frame/object/layout/loaded-module, native-call
+and VM records now instantiate scoped metadata. Runtime VerifiedProgram retains
+compact modules, their owning table and the immutable original version. Preparation
+imports exact identities once into the runtime context without replacing version
+identity, dependency versions or epochs. Host type bindings are resolved once during
+linking. Type arguments retain their own immutable table after their runtime drops;
+foreign tables remain rejected. Named execution queries borrow table views rather
+than materializing paths. Fingerprints, authoring contract checks and explicit mutable
+extraction remain exact-path boundaries. Contextual validation uses the same bounded
+type algorithm as authoring validation, including nominal kinds and associated members.
+
+All 124 carried runtime diagnostics are resolved. Workspace/all-target checking and
+strict Clippy pass. Runtime/VM/embed library and integration regressions pass, including
+complete language contracts (75.96 seconds, unpaired), source-free execution, native
+backends and pinned reload. Focused common/ABI tests pass (39/50), followed by runtime
+native execution, layout and host registration tests and embed host-interface/offline
+nominal tests. New boundary coverage checks foreign references, independent runtime
+imports, unchanged immutable version identity, reload epochs and retained type tables.
+Structure checks cover 695 Rust files with no violations or exceptions. No carried
+build, codec, verification or test error remains. Full final integration and measured
+normalization costs remain ID05 work; these observations do not establish a speedup.
+
+ID02-ID05 are still not accepted: named/generic HIR ownership, MIR seals/backend
+inputs and native catalog value metadata still retain authoring paths. Finish those
+ownership boundaries before the final feature/backend matrix and metadata/artifact/
+allocation/timing measurements. The parameterized authoring model is an explicit
+input boundary, not a second semantic implementation or a compatibility reader.
 
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 

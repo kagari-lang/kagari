@@ -47,7 +47,16 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
         "script",
         "view",
     ]
-    .map(|name| ModuleDecl::method_id(&contract.declaration, name))
+    .map(|name| {
+        ModuleDecl::method_id(
+            &loaded
+                .definitions()
+                .resolve(contract.declaration)
+                .unwrap()
+                .to_path(),
+            name,
+        )
+    })
     .to_vec();
     let mut vm = Vm::new(runtime);
     let runner = vm.execute(&loaded, "runner").unwrap().return_value;

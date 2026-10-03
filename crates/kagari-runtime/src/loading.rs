@@ -16,14 +16,17 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
+use kagari_common::identity::table::DefinitionId;
 
 impl Runtime {
     fn link_native_module(
         &self,
-        module: &BytecodeModule,
+        module: &BytecodeModule<DefinitionId>,
         program: &VerifiedProgram,
     ) -> Result<LinkedHostBindings, RuntimeError> {
-        let mut bindings = self.host.link_module(module, &self.types)?;
+        let mut bindings = self
+            .host
+            .link_module(module, &self.types, program.definitions())?;
         bindings.native = module
             .native_imports
             .iter()
@@ -82,6 +85,7 @@ impl Runtime {
         name: impl Into<String>,
         program: VerifiedProgram,
     ) -> Result<LoadedModule, RuntimeError> {
+        let program = program.normalized(self.definition_context())?;
         let name = name.into();
         let dependencies = program.dependencies().clone();
         let bindings = program
@@ -155,6 +159,9 @@ impl Runtime {
         name: String,
         program: VerifiedProgram,
     ) -> Result<PreparedReload, ReloadValidationError> {
+        let program = program
+            .normalized(self.definition_context())
+            .map_err(ReloadValidationError::Runtime)?;
         self.validate_loaded_module(baseline)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&baseline.name);
@@ -293,7 +300,12 @@ impl Runtime {
             .invalidate_for_reload(&ReloadInvalidation {
                 module_name: module.name.clone(),
                 module_identity: module.bytecode.identity.clone(),
-                module_fingerprint: ArtifactFingerprint::of_serialized(module.bytecode.as_ref()),
+                module_fingerprint: ArtifactFingerprint::of_serialized(
+                    &module
+                        .verified_program()
+                        .paths(module.bytecode.as_ref())
+                        .expect("verified module identity scope"),
+                ),
                 module_id: module.id,
                 published: module.key(),
                 dependencies,

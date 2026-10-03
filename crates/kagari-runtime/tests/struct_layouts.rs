@@ -32,7 +32,7 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
     let object = runtime
         .alloc_struct(layout.clone(), vec![Value::I32(1), Value::Bool(true)])
         .unwrap();
-    let mut foreign = (*layout.module().bytecode).clone();
+    let mut foreign = layout.module().to_unverified(&Default::default()).unwrap();
     foreign.structures[0].declaration.module.path = vec!["other.kgr".into()];
     for field in &mut foreign.structures[0].fields {
         field.declaration.module.path = vec!["other.kgr".into()];
@@ -161,7 +161,12 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
             "Point",
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![(*original.module().bytecode).clone()],
+                modules: vec![
+                    original
+                        .module()
+                        .to_unverified(&Default::default())
+                        .unwrap(),
+                ],
             },
         )
         .unwrap();
@@ -236,18 +241,29 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     );
     let wrong_owner = wrong.module().clone();
     let wrong_type = AbiType::Struct(NominalAbiType {
-        declaration: wrong.layout().declaration.clone(),
+        declaration: wrong.layout().declaration,
         arguments: vec![],
         associated_types: Default::default(),
     });
     let wrong_value = Value::Struct(runtime.alloc_struct(wrong, vec![Value::I32(9)]).unwrap());
-    let mut bytecode = (*wrapper.module().bytecode).clone();
-    bytecode.structures.push(leaf.layout().clone());
+    let mut bytecode = wrapper.module().to_unverified(&Default::default()).unwrap();
+    bytecode.structures.push(
+        leaf.module()
+            .to_unverified(&Default::default())
+            .unwrap()
+            .structures[0]
+            .clone(),
+    );
     bytecode.structures[0].fields[0].ty = AbiType::Array(
         Box::new(AbiType::Tuple(vec![
             AbiType::Struct(NominalAbiType {
                 associated_types: Default::default(),
-                declaration: leaf.layout().declaration.clone(),
+                declaration: leaf
+                    .module()
+                    .definitions()
+                    .resolve(leaf.layout().declaration)
+                    .unwrap()
+                    .to_path(),
                 arguments: vec![],
             }),
             AbiType::Builtin(BuiltinType::Bool),

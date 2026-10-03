@@ -13,14 +13,14 @@ use crate::{
 };
 use kagari_abi::types::{AbiType, GenericParameterAbi};
 use kagari_bytecode::instruction::{EnumId, StructId};
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use std::{borrow::Cow, rc::Rc, slice};
 
 impl ExecutionFrame {
     pub fn type_arguments(
         &self,
         runtime: &Runtime,
-        types: &[AbiType],
+        types: &[AbiType<DefinitionId>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         runtime.type_arguments(self.loaded(), self.environment(), types)
     }
@@ -28,7 +28,7 @@ impl ExecutionFrame {
     fn element_contract(
         &self,
         runtime: &Runtime,
-        element: &AbiType,
+        element: &AbiType<DefinitionId>,
     ) -> Result<Rc<StorageType>, RuntimeError> {
         let argument = runtime
             .type_arguments(self.loaded(), self.environment(), slice::from_ref(element))?
@@ -40,7 +40,7 @@ impl ExecutionFrame {
     pub fn alloc_array(
         &self,
         runtime: &Runtime,
-        element: &AbiType,
+        element: &AbiType<DefinitionId>,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         runtime.validate_heap_payloads(&elements)?;
@@ -52,7 +52,7 @@ impl ExecutionFrame {
     pub fn alloc_array_repeat(
         &self,
         runtime: &Runtime,
-        element: &AbiType,
+        element: &AbiType<DefinitionId>,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
@@ -66,8 +66,8 @@ impl ExecutionFrame {
 
     fn layout_arguments<'a>(
         &self,
-        arguments: &'a [AbiType],
-    ) -> Result<Cow<'a, [AbiType]>, RuntimeError> {
+        arguments: &'a [AbiType<DefinitionId>],
+    ) -> Result<Cow<'a, [AbiType<DefinitionId>]>, RuntimeError> {
         if arguments.iter().all(AbiType::is_concrete) {
             return Ok(Cow::Borrowed(arguments));
         }
@@ -81,8 +81,8 @@ impl ExecutionFrame {
     fn layout_environment(
         &self,
         runtime: &Runtime,
-        declaration: &DefinitionPath,
-        arguments: &[AbiType],
+        declaration: &DefinitionId,
+        arguments: &[AbiType<DefinitionId>],
     ) -> Result<Option<Rc<TypeEnvironment>>, RuntimeError> {
         if arguments.iter().all(AbiType::is_concrete) {
             return Ok(None);
@@ -93,7 +93,7 @@ impl ExecutionFrame {
         }
         let parameters = (0..arguments.len())
             .map(|position| GenericParameterAbi {
-                owner: declaration.clone(),
+                owner: *declaration,
                 position,
             })
             .collect();
@@ -105,7 +105,7 @@ impl ExecutionFrame {
         &self,
         runtime: &Runtime,
         id: StructId,
-        arguments: &[AbiType],
+        arguments: &[AbiType<DefinitionId>],
     ) -> Result<StructLayoutRef, RuntimeError> {
         let mut layout = self
             .loaded()
@@ -120,7 +120,7 @@ impl ExecutionFrame {
         &self,
         runtime: &Runtime,
         id: EnumId,
-        arguments: &[AbiType],
+        arguments: &[AbiType<DefinitionId>],
         variant: u32,
     ) -> Result<EnumVariantRef, RuntimeError> {
         let mut layout = self

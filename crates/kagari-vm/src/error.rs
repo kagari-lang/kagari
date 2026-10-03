@@ -3,6 +3,7 @@ use kagari_bytecode::{
     instruction::{CallTarget, ModuleSlot},
     verifier::BytecodeVerificationError,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_runtime::{
     backend::BackendInvocationError,
     builtin::BuiltinError,
@@ -35,7 +36,7 @@ pub enum VmError {
     JitInvocation(BackendInvocationError),
     Trap(&'static str),
     TypeMismatch(&'static str),
-    UnsupportedCallTarget(Box<CallTarget>),
+    UnsupportedCallTarget(Box<CallTarget<DefinitionId>>),
     UnsupportedInstruction(&'static str),
 }
 

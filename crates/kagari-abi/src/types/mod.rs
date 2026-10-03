@@ -26,7 +26,10 @@ use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
     host_interface::value_type::HostValueType,
-    identity::{DefinitionKind, DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+    identity::{
+        DefinitionKind, DefinitionPath, ModuleIdentity, reference::DefinitionReference,
+        table::DefinitionTable,
+    },
     range::RangeKind,
 };
 
@@ -425,14 +428,14 @@ pub struct InterfaceTableAbi<I = DefinitionPath> {
     pub methods: Vec<FunctionAbi<I>>,
 }
 
-impl InterfaceTableAbi {
+impl<I: DefinitionReference> InterfaceTableAbi<I> {
     /// Substitute a selected impl's concrete arguments into its call contract.
     /// Method-owned generics remain scoped templates until their application is
     /// selected. Associated output projections retain their substituted receivers
     /// until the linked proof catalog resolves them. Implementation bounds retain
     /// their concrete substitutions for downstream method applications. The verifier proves template
     /// validity, bounds and method slots.
-    pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
+    pub fn instantiate(&self, arguments: &[AbiType<I>]) -> Option<Self> {
         self.instantiate_in(arguments, &[])
     }
 
@@ -441,11 +444,25 @@ impl InterfaceTableAbi {
     /// implementation bounds and the selected executable entries.
     pub fn instantiate_in(
         &self,
-        arguments: &[AbiType],
-        parameters: &[GenericParameterAbi],
+        arguments: &[AbiType<I>],
+        parameters: &[GenericParameterAbi<I>],
+    ) -> Option<Self> {
+        self.instantiate_scoped(arguments, parameters, None)
+    }
+
+    pub fn instantiate_scoped(
+        &self,
+        arguments: &[AbiType<I>],
+        parameters: &[GenericParameterAbi<I>],
+        table: Option<&DefinitionTable>,
     ) -> Option<Self> {
         if arguments.len() != self.generic_params.len()
-            || !verify::types_in_scope(arguments, parameters, &CancellationToken::default())
+            || !verify::types_in_scope_in(
+                arguments,
+                parameters,
+                &CancellationToken::default(),
+                table,
+            )
         {
             return None;
         }
@@ -454,7 +471,7 @@ impl InterfaceTableAbi {
         for (parameter, argument) in self.generic_params.iter().zip(arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
-        let apply = |ty: &AbiType| substitution.apply(ty, &cancel).ok();
+        let apply = |ty: &AbiType<I>| substitution.apply(ty, &cancel).ok();
         let methods = self
             .methods
             .iter()
@@ -617,14 +634,38 @@ pub type PublicAbiItemBuffer<I = DefinitionPath> = Vec<PublicAbiItem<I>>;
 /// follow the same carried-contract path; a well-known ID is not a declaration.
 pub fn trait_contract<'a>(
     owner: &ModuleIdentity,
-    public_items: &'a [PublicAbiItem],
+    items: &'a [PublicAbiItem],
     private: &'a [TraitContract],
     id: &DefinitionPath,
 ) -> Option<&'a TraitAbi> {
-    if id.module != *owner
-        || id.path.len() != 1
-        || id.path[0].kind != DefinitionKind::Trait
-        || id.path[0].occurrence != 0
+    trait_contract_in(None, owner, items, private, id)
+}
+
+pub fn native_storage_contract<'a>(
+    owner: &ModuleIdentity,
+    items: &'a [PublicAbiItem],
+    id: &DefinitionPath,
+) -> Option<&'a TypeAbi> {
+    native_storage_contract_in(None, owner, items, id)
+}
+
+pub fn is_collection_interface(id: &DefinitionPath) -> bool {
+    is_collection_interface_in(id, None)
+}
+
+pub fn trait_contract_in<'a, I: DefinitionReference>(
+    table: Option<&DefinitionTable>,
+    owner: &ModuleIdentity,
+    public_items: &'a [PublicAbiItem<I>],
+    private: &'a [TraitContract<I>],
+    id: &I,
+) -> Option<&'a TraitAbi<I>> {
+    let view = id.describe(table).ok()?;
+    let part = view.last()?;
+    if view.module() != owner
+        || view.segments().count() != 1
+        || part.kind != DefinitionKind::Trait
+        || part.occurrence != 0
     {
         return None;
     }
@@ -634,34 +675,39 @@ pub fn trait_contract<'a>(
         .map(|record| &record.abi)
         .or_else(|| {
             public_items.iter().find_map(|item| match item {
-                PublicAbiItem::Trait(record) if record.name == id.path[0].name => Some(record),
+                PublicAbiItem::Trait(record) if record.name == part.name => Some(record),
                 _ => None,
             })
         })
 }
 
 /// Whether a canonical standard interface uses collection identity semantics.
-pub fn is_collection_interface(id: &DefinitionPath) -> bool {
-    Protocol::from_id(id).is_some_and(Protocol::collection)
+pub fn is_collection_interface_in<I: DefinitionReference>(
+    id: &I,
+    table: Option<&DefinitionTable>,
+) -> bool {
+    Protocol::from_reference(id, table).is_some_and(Protocol::collection)
 }
 
 /// Find a declared native storage type by its exact owning identity.
-pub fn native_storage_contract<'a>(
+pub fn native_storage_contract_in<'a, I: DefinitionReference>(
+    table: Option<&DefinitionTable>,
     owner: &ModuleIdentity,
-    items: &'a [PublicAbiItem],
-    id: &DefinitionPath,
-) -> Option<&'a TypeAbi> {
-    if id.module != *owner
-        || id.path.len() != 1
-        || id.path[0].kind != DefinitionKind::AssociatedType
-        || id.path[0].occurrence != 0
+    items: &'a [PublicAbiItem<I>],
+    id: &I,
+) -> Option<&'a TypeAbi<I>> {
+    let view = id.describe(table).ok()?;
+    let part = view.last()?;
+    if view.module() != owner
+        || view.segments().count() != 1
+        || part.kind != DefinitionKind::AssociatedType
+        || part.occurrence != 0
     {
         return None;
     }
     items.iter().find_map(|item| match item {
         PublicAbiItem::Type(record)
-            if record.name == id.path[0].name
-                && matches!(record.kind, TypeAbiKind::NativeStorage(_)) =>
+            if record.name == part.name && matches!(record.kind, TypeAbiKind::NativeStorage(_)) =>
         {
             Some(record)
         }
@@ -669,8 +715,8 @@ pub fn native_storage_contract<'a>(
     })
 }
 
-impl AbiType {
-    pub fn from_host_type(ty: &HostValueType) -> Self {
+impl<I: DefinitionReference> AbiType<I> {
+    pub fn from_host_type(ty: &HostValueType<I>) -> Self {
         match ty {
             HostValueType::Unit => Self::Builtin(BuiltinType::Unit),
             HostValueType::Bool => Self::Builtin(BuiltinType::Bool),
@@ -705,7 +751,7 @@ impl AbiType {
         }
     }
 
-    pub fn instantiate(&self, owner: &DefinitionPath, arguments: &[AbiType]) -> Option<Self> {
+    pub fn instantiate(&self, owner: &I, arguments: &[AbiType<I>]) -> Option<Self> {
         let result = TypeSubstitution::for_owner(owner, arguments)
             .apply(self, &CancellationToken::default())
             .ok()?;

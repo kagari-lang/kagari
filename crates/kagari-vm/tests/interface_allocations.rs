@@ -57,7 +57,14 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             .iter()
             .find(|contract| contract.abi.name == "Bench")
             .unwrap();
-        let method = ModuleDecl::method_id(&contract.declaration, "m0");
+        let method = ModuleDecl::method_id(
+            &loaded
+                .definitions()
+                .resolve(contract.declaration)
+                .unwrap()
+                .to_path(),
+            "m0",
+        );
         let mut vm = Vm::new(runtime);
         let receiver = vm.execute(&loaded, "make").unwrap().return_value;
         let root = vm.runtime().root_value(receiver.clone()).unwrap();
@@ -115,7 +122,14 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
             .iter()
             .find(|contract| contract.abi.name == "Parent")
             .unwrap();
-        let method = ModuleDecl::method_id(&declaration.declaration, "identity");
+        let method = ModuleDecl::method_id(
+            &loaded
+                .definitions()
+                .resolve(declaration.declaration)
+                .unwrap()
+                .to_path(),
+            "identity",
+        );
         let receiver = vm.execute(&loaded, "make").unwrap().return_value;
         let root = vm.runtime().root_value(receiver.clone()).unwrap();
         for _ in 0..5 {
@@ -196,19 +210,16 @@ fn make() -> List<i32> { Sequence { items: [3, 1, 2] } }
                     .iter()
                     .flat_map(|table| &table.methods)
                     .find(|slot| {
-                        slot.method
-                            .path
-                            .last()
-                            .is_some_and(|segment| segment.name == name)
-                            && slot
-                                .method
-                                .path
+                        let view = member.definitions().resolve(slot.method).unwrap();
+                        let segments = view.segments().collect::<Vec<_>>();
+                        segments.last().is_some_and(|part| part.name == name)
+                            && segments
                                 .iter()
                                 .rev()
                                 .nth(1)
-                                .is_some_and(|segment| segment.name == "List")
+                                .is_some_and(|part| part.name == "List")
                     })
-                    .map(|slot| slot.method.clone())
+                    .map(|slot| slot.method)
             })
             .unwrap()
     });

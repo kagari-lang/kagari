@@ -8,6 +8,7 @@ mod native_boundary_resources;
 mod native_boundary_sessions;
 mod native_boundary_storage;
 mod support;
+use kagari_abi::types::AbiType;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -599,7 +600,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .runtime()
         .alloc_array(
             &loaded,
-            Type::bool().abi().clone(),
+            AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool),
             vec![Value::Bool(true); 3],
         )
         .unwrap();
@@ -614,7 +615,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .runtime()
         .alloc_array(
             &loaded,
-            Type::bool().abi().clone(),
+            AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool),
             vec![Value::Bool(true), Value::Bool(false), Value::Bool(true)],
         )
         .unwrap();

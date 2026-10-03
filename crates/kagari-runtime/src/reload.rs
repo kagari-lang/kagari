@@ -99,11 +99,13 @@ pub(crate) fn validate_verified_reload_candidate(
     active_latest: Option<&LoadedModule>,
 ) -> Result<(), ReloadValidationError> {
     validate_reload_target(active, candidate_name, active_latest)?;
-    validate_reload_contracts(
-        active,
-        &candidate.modules()[candidate.root().index()],
-        candidate.modules().iter().map(|module| module.as_ref()),
-    )
+    let modules = candidate
+        .modules()
+        .iter()
+        .map(|module| candidate.paths(module.as_ref()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ReloadValidationError::Runtime)?;
+    validate_reload_contracts(active, &modules[candidate.root().index()], modules.iter())
 }
 
 fn validate_reload_target(
@@ -163,12 +165,16 @@ fn validate_reload_contracts<'a>(
         let previous = current
             .get(&module.identity)
             .ok_or(ReloadValidationError::PublicAbiFingerprintMismatch)?;
-        if public_abi_fingerprints_for_module(&previous.bytecode)
+        let previous_bytecode = previous
+            .verified_program()
+            .paths(previous.bytecode.as_ref())
+            .map_err(ReloadValidationError::Runtime)?;
+        if public_abi_fingerprints_for_module(&previous_bytecode)
             != public_abi_fingerprints_for_module(module)
         {
             return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
         }
-        if path_fingerprints_for_module(&previous.bytecode) != path_fingerprints_for_module(module)
+        if path_fingerprints_for_module(&previous_bytecode) != path_fingerprints_for_module(module)
         {
             return Err(ReloadValidationError::PathFingerprintMismatch);
         }

@@ -14,6 +14,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, native::NativeStorageLayout},
 };
+use kagari_common::identity::table::DefinitionId;
 use std::{any::Any, collections::TryReserveError, rc::Rc};
 
 #[derive(Debug)]
@@ -38,7 +39,7 @@ pub(crate) enum SequenceStorage {
 macro_rules! storage {
     ($($variant:ident:$ty:ty),+) => {
         impl SequenceStorage {
-            pub(crate) fn empty(element: &AbiType) -> Self {
+            pub(crate) fn empty(element: &AbiType<DefinitionId>) -> Self {
                 match element {
                     $(AbiType::Builtin(BuiltinType::$variant) => Self::$variant(Vec::new()),)+
                     _ => Self::Traced(Vec::new()),
@@ -187,7 +188,7 @@ impl SequenceStorage {
 
 #[derive(Debug)]
 pub(crate) struct SequencePayload {
-    pub(crate) element: AbiType,
+    pub(crate) element: AbiType<DefinitionId>,
     pub(crate) contract: Rc<StorageType>,
     pub(crate) values: SequenceStorage,
     pub(crate) leased_units: Option<usize>,

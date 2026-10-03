@@ -13,6 +13,7 @@ use kagari_abi::{
     standard::RuntimePrimitive,
     types::{AbiType, native::NativeStorageLayout},
 };
+use kagari_common::identity::table::DefinitionId;
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -55,7 +56,7 @@ impl NativePayload for SetPayload {
     }
 }
 
-fn builtin_keys(context: &StorageContext<'_>, key: &AbiType) -> NativeResult<bool> {
+fn builtin_keys(context: &StorageContext<'_>, key: &AbiType<DefinitionId>) -> NativeResult<bool> {
     let hash = context.selected(0)?;
     let equal = context.selected(1)?;
     if hash.params.as_ref() != [key.clone()] || equal.params.as_ref() != [key.clone(), key.clone()]

@@ -337,7 +337,17 @@ fn main() -> i32 { boxed().read() }
         vm.invoke_interface_method(&value, &method, &[]).unwrap(),
         Value::I32(42)
     );
-    assert_eq!(parent.declaration.path.last().unwrap().name, "Read");
+    assert_eq!(
+        loaded
+            .definitions()
+            .resolve(parent.declaration)
+            .unwrap()
+            .segments()
+            .last()
+            .unwrap()
+            .name,
+        "Read"
+    );
     let foreign = kagari_runtime::Runtime::default();
     assert!(foreign.resolve_interface_method(&value, &method).is_err());
     drop(root);

@@ -24,6 +24,8 @@ use crate::{
 use kagari_abi::{native_import::callables::NativeCallableRequirement, types::AbiType};
 use kagari_abi::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
+use kagari_common::identity::reference::DefinitionReference;
+use kagari_common::identity::table::DefinitionId;
 use std::{rc::Rc, slice};
 
 #[derive(Clone, Copy)]
@@ -103,8 +105,8 @@ pub struct LinkedCallable {
     pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
     pub(crate) owner: CallableOwner,
     pub(crate) target: CallableTarget,
-    pub(crate) params: Box<[AbiType]>,
-    pub(crate) result: AbiType,
+    pub(crate) params: Box<[AbiType<DefinitionId>]>,
+    pub(crate) result: AbiType<DefinitionId>,
     pub(crate) primitive: Option<RuntimePrimitive>,
 }
 
@@ -128,7 +130,7 @@ impl LinkedCallable {
 #[derive(Debug, Clone)]
 pub(crate) enum LinkedOperation {
     Ready(LinkedCallable),
-    Forward(NativeCallableRequirement),
+    Forward(NativeCallableRequirement<DefinitionId>),
 }
 
 impl LinkedOperation {
@@ -220,7 +222,7 @@ impl<'call> CallContext<'call> {
                 .runtime
                 .native_entries
                 .storage
-                .get(&nominal.declaration),
+                .get_id(nominal.declaration),
             _ => self.heap().default_storage(ty),
         }
         .ok_or_else(|| RuntimeError::module_validation("native result storage is not installed"))?;
@@ -257,7 +259,7 @@ impl<'call> CallContext<'call> {
             .runtime
             .native_entries
             .storage
-            .get(&nominal.declaration)
+            .get_id(nominal.declaration)
             .ok_or_else(|| RuntimeError::module_validation("native storage is not installed"))?;
         self.runtime.validate_loaded_module(self.owner)?;
         let mut object = storage.prepare_payload(self.heap(), ty, payload, self.owner)?;
@@ -292,7 +294,10 @@ impl<'call> CallContext<'call> {
 
     /// Resolve a type in this native function's lexical program. Result parameters
     /// must use result_type_parameter() to retain their supplying scopes.
-    pub fn resolve_type(&self, ty: &AbiType) -> NativeResult<TypeArgument> {
+    pub fn resolve_type<I: DefinitionReference>(
+        &self,
+        ty: &AbiType<I>,
+    ) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()
@@ -367,7 +372,7 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native argument slot"))
     }
 
-    pub fn argument_type(&self, index: usize) -> NativeResult<&'call AbiType> {
+    pub fn argument_type(&self, index: usize) -> NativeResult<&'call AbiType<DefinitionId>> {
         self.function
             .signature
             .params
@@ -389,7 +394,7 @@ impl<'call> CallContext<'call> {
         .ok_or_else(|| RuntimeError::module_validation("native argument scope"))
     }
 
-    pub fn result_type(&self) -> &'call AbiType {
+    pub fn result_type(&self) -> &'call AbiType<DefinitionId> {
         &self.function.signature.result
     }
 
@@ -440,7 +445,7 @@ impl<'call> CallContext<'call> {
         arguments: A,
     ) -> NativeResult<R> {
         self.heap().ensure_no_native_borrow()?;
-        if R::abi_type() != target.result || !A::matches(&target.params) {
+        if R::abi_type_in() != target.result || !A::matches(&target.params) {
             return Err(RuntimeError::module_validation(
                 "native callback conversion differs from its declared result",
             ));

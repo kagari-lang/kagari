@@ -1,5 +1,5 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
-use crate::identity::reference::DefinitionReference;
+use crate::identity::{reference::DefinitionReference, table::DefinitionTable};
 
 use bincode::{DefaultOptions, Options};
 
@@ -47,14 +47,23 @@ pub fn host_type_identity(symbol: &str) -> DefinitionPath {
 }
 
 pub fn validate_host_type_identity(id: &DefinitionPath) -> Result<(), HostInterfaceError> {
+    validate_host_type_identity_in(id, None)
+}
+
+pub fn validate_host_type_identity_in<I: DefinitionReference>(
+    id: &I,
+    table: Option<&DefinitionTable>,
+) -> Result<(), HostInterfaceError> {
     if !id.within_path_limit() {
         return Err(HostInterfaceError::TooLarge);
     }
-    if id.module.package.0.is_empty()
-        || id.module.path.iter().any(String::is_empty)
-        || id.path.iter().any(|part| part.name.is_empty())
-        || id
-            .path
+    let view = id
+        .describe(table)
+        .map_err(|_| HostInterfaceError::InvalidDeclaration)?;
+    if view.module().package.0.is_empty()
+        || view.module().path.iter().any(String::is_empty)
+        || view.segments().any(|part| part.name.is_empty())
+        || view
             .last()
             .is_none_or(|part| part.kind != DefinitionKind::Struct)
     {

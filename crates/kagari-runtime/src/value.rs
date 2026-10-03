@@ -8,7 +8,7 @@ use crate::{
 use kagari_abi::{
     representation::ValueType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -53,15 +53,10 @@ impl EnumTag {
             Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => "Ordering",
             Self::OptionSome | Self::OptionNone => "Option",
             Self::ResultOk | Self::ResultErr => "Result",
-            Self::Declared(layout) => {
-                &layout
-                    .layout()
-                    .declaration
-                    .path
-                    .last()
-                    .expect("enum declaration")
-                    .name
-            }
+            Self::Declared(layout) => layout
+                .module()
+                .definition_name(layout.layout().declaration)
+                .expect("enum declaration"),
         }
     }
 
@@ -88,15 +83,10 @@ impl EnumTag {
             Self::OptionNone => "None",
             Self::ResultOk => "Ok",
             Self::ResultErr => "Err",
-            Self::Declared(layout) => {
-                &layout
-                    .variant()
-                    .declaration
-                    .path
-                    .last()
-                    .expect("variant declaration")
-                    .name
-            }
+            Self::Declared(layout) => layout
+                .module()
+                .definition_name(layout.variant().declaration)
+                .expect("variant declaration"),
         }
     }
 
@@ -204,7 +194,12 @@ enum KeyPart {
     Str(String),
     Tuple(usize),
     StandardEnum(u8),
-    DeclaredEnum(HostRegistryId, DefinitionPath, Vec<AbiType>, DefinitionPath),
+    DeclaredEnum(
+        HostRegistryId,
+        DefinitionId,
+        Vec<AbiType<DefinitionId>>,
+        DefinitionId,
+    ),
     Identity(u8, HeapObjectId),
 }
 
@@ -301,9 +296,9 @@ impl MapKey {
                         EnumTag::ResultErr => KeyPart::StandardEnum(3),
                         EnumTag::Declared(ref r) => KeyPart::DeclaredEnum(
                             r.registry_owner(),
-                            r.layout().declaration.clone(),
+                            r.layout().declaration,
                             r.layout().arguments.clone(),
-                            r.variant().declaration.clone(),
+                            r.variant().declaration,
                         ),
                     });
                     parts.push(KeyPart::Tuple(snapshot.fields.len()));

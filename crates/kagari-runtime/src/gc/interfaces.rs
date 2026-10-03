@@ -12,35 +12,35 @@ use kagari_abi::{
     types::{AbiType, GenericParameterAbi, NominalAbiType},
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use std::{cell::OnceCell, rc::Rc};
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceMethodBinding {
     pub(crate) application: OnceCell<Rc<MethodApplication>>,
     pub(crate) receiver_operations: OnceCell<Option<Rc<ReceiverOperations>>>,
-    pub(crate) parameters: Vec<GenericParameterAbi>,
-    pub(crate) entry_parameters: Vec<GenericParameterAbi>,
-    pub(crate) entry_arguments: Vec<AbiType>,
+    pub(crate) parameters: Vec<GenericParameterAbi<DefinitionId>>,
+    pub(crate) entry_parameters: Vec<GenericParameterAbi<DefinitionId>>,
+    pub(crate) entry_arguments: Vec<AbiType<DefinitionId>>,
     pub(crate) result_adapter: Option<InterfaceResultBinding>,
-    pub(crate) method: DefinitionPath,
+    pub(crate) method: DefinitionId,
     pub(crate) target: CallableTarget,
-    pub(crate) parameter_types: Vec<AbiType>,
-    pub(crate) return_type: AbiType,
+    pub(crate) parameter_types: Vec<AbiType<DefinitionId>>,
+    pub(crate) return_type: AbiType<DefinitionId>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceResultBinding {
     pub(crate) owner: LoadedModule,
     pub(crate) table: usize,
-    pub(crate) arguments: Vec<AbiType>,
+    pub(crate) arguments: Vec<AbiType<DefinitionId>>,
     pub(crate) environment: Option<Rc<TypeEnvironment>>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceParentBinding {
     pub(crate) prepared: OnceCell<Rc<InterfaceValueSnapshot>>,
-    pub(crate) interface: NominalAbiType,
+    pub(crate) interface: NominalAbiType<DefinitionId>,
     pub(crate) binding: InterfaceResultBinding,
     pub(crate) view: bool,
 }
@@ -51,10 +51,10 @@ pub(crate) struct InterfaceValueSnapshot {
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) parents: Vec<InterfaceParentBinding>,
     pub(crate) data: Value,
-    pub(crate) concrete_type: AbiType,
-    pub(crate) concrete_expression: AbiType,
-    pub(crate) interface_type: NominalAbiType,
-    pub(crate) interface_expression: NominalAbiType,
+    pub(crate) concrete_type: AbiType<DefinitionId>,
+    pub(crate) concrete_expression: AbiType<DefinitionId>,
+    pub(crate) interface_type: NominalAbiType<DefinitionId>,
+    pub(crate) interface_expression: NominalAbiType<DefinitionId>,
     pub(crate) environment: Option<Rc<TypeEnvironment>>,
     pub(crate) implementation: LoadedModule,
     pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
@@ -62,7 +62,7 @@ pub(crate) struct InterfaceValueSnapshot {
 
 #[derive(Debug)]
 pub(crate) struct MethodApplication {
-    pub(crate) signature: NativeSignature,
+    pub(crate) signature: NativeSignature<DefinitionId>,
     pub(crate) scoped_signature: Option<ScopedSignature>,
     pub(crate) environment: Option<Rc<TypeEnvironment>>,
     pub(crate) result_adapter: Option<InterfaceResultBinding>,
@@ -71,7 +71,7 @@ pub(crate) struct MethodApplication {
 impl InterfaceValueSnapshot {
     pub(crate) fn matches_type(
         &self,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {

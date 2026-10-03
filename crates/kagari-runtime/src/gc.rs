@@ -1,3 +1,4 @@
+use kagari_common::identity::table::DefinitionId;
 mod arrays;
 mod maps_sets;
 mod native;
@@ -209,7 +210,7 @@ impl ClosureValueSnapshot {
         {
             return Ok((Cow::Borrowed(parameters), function.metadata.return_type));
         }
-        let resolve = |physical, semantic: Option<&AbiType>| {
+        let resolve = |physical, semantic: Option<&AbiType<DefinitionId>>| {
             if physical != ValueType::Generic {
                 return Ok(physical);
             }
@@ -240,8 +241,8 @@ impl ClosureValueSnapshot {
 
     pub(crate) fn matches_function(
         &self,
-        params: &[AbiType],
-        result: &AbiType,
+        params: &[AbiType<DefinitionId>],
+        result: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -253,7 +254,7 @@ impl ClosureValueSnapshot {
         else {
             return false;
         };
-        let compatible = |actual: &AbiType, expected: &AbiType| {
+        let compatible = |actual: &AbiType<DefinitionId>, expected: &AbiType<DefinitionId>| {
             TypeView::new(actual, &self.implementation, self.environment.as_deref())
                 .compatible(TypeView::new(expected, owner, environment))
         };
@@ -525,7 +526,12 @@ impl GcHeap {
         ))
     }
 
-    pub(crate) fn matches_abi(&self, value: &Value, ty: &AbiType, owner: &LoadedModule) -> bool {
+    pub(crate) fn matches_abi(
+        &self,
+        value: &Value,
+        ty: &AbiType<DefinitionId>,
+        owner: &LoadedModule,
+    ) -> bool {
         if let AbiType::Builtin(kind) = ty {
             return if kind.integer_layout().is_some() {
                 numeric::read_integer(*kind, value).is_ok()
@@ -615,7 +621,13 @@ impl GcHeap {
     }
 
     pub fn struct_name(&self, id: HeapObjectId) -> Option<String> {
-        self.with_struct(id, |layout, _| layout.layout().name().to_owned())
+        self.with_struct(id, |layout, _| {
+            layout
+                .module()
+                .definition_name(layout.layout().declaration)
+                .expect("verified struct definition")
+                .to_owned()
+        })
     }
 
     pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
@@ -625,7 +637,11 @@ impl GcHeap {
     pub fn struct_snapshot(&self, id: HeapObjectId) -> Option<(String, Vec<StructValueField>)> {
         self.with_struct(id, |layout, fields| {
             (
-                layout.layout().name().to_owned(),
+                layout
+                    .module()
+                    .definition_name(layout.layout().declaration)
+                    .expect("verified struct definition")
+                    .to_owned(),
                 fields
                     .iter()
                     .zip(&layout.layout().fields)

@@ -5,7 +5,10 @@ use crate::{
     standard::surface::StandardEnum as StandardEnumKind,
     types::{AbiType, GenericParameterAbi, verify},
 };
-use kagari_common::range::RangeKind;
+use kagari_common::{
+    identity::{reference::DefinitionReference, table::DefinitionTable},
+    range::RangeKind,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,6 +151,14 @@ pub fn range_operands_valid(
 }
 
 pub fn range_bound_valid(range: &AbiType, bound: &AbiType) -> bool {
+    range_bound_valid_in(range, bound, None)
+}
+
+pub fn range_bound_valid_in<I: DefinitionReference>(
+    range: &AbiType<I>,
+    bound: &AbiType<I>,
+    table: Option<&DefinitionTable>,
+) -> bool {
     let (
         AbiType::Range(item, kind),
         AbiType::StandardEnum {
@@ -160,8 +171,7 @@ pub fn range_bound_valid(range: &AbiType, bound: &AbiType) -> bool {
     };
     range.within_wire_limits()
         && bound.within_wire_limits()
-        && verify::concrete_type_valid(range, &Default::default())
-        && verify::concrete_type_valid(bound, &Default::default())
+        && verify::types_in_scope_in([range, bound], &[], &Default::default(), table)
         && args.len() == 1
         && (*kind == RangeKind::Full || args[0] == **item)
 }
@@ -178,7 +188,7 @@ pub enum StringIterKind {
 }
 
 impl StringIterKind {
-    pub fn source_type(self) -> AbiType {
+    pub fn source_type<I: DefinitionReference>(self) -> AbiType<I> {
         let string = AbiType::Builtin(BuiltinType::String);
         AbiType::Tuple(match self {
             Self::Split => vec![string.clone(), string],
@@ -187,7 +197,7 @@ impl StringIterKind {
         })
     }
 
-    pub fn item_type(self) -> AbiType {
+    pub fn item_type<I: DefinitionReference>(self) -> AbiType<I> {
         match self {
             Self::Bytes => AbiType::Builtin(BuiltinType::U8),
             Self::CharIndices => AbiType::Tuple(vec![
@@ -198,7 +208,7 @@ impl StringIterKind {
         }
     }
 
-    pub fn valid_source(self, ty: &AbiType) -> bool {
+    pub fn valid_source<I: DefinitionReference>(self, ty: &AbiType<I>) -> bool {
         *ty == self.source_type()
     }
 }

@@ -11,6 +11,7 @@ use std::{
 };
 
 use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_common::identity::table::DefinitionId;
 use kagari_embed::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_runtime::{
     Runtime,
@@ -38,8 +39,10 @@ pub(super) fn count_lua(lua: &Lua, entry: &Function, expected: i32) {
 
 #[derive(Debug, Default)]
 struct InstructionCounts {
-    counts: RefCell<HashMap<Discriminant<BytecodeInstruction>, (String, u64)>>,
+    counts: RefCell<InstructionCountMap>,
 }
+
+type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction<DefinitionId>>, (String, u64)>;
 
 impl ExecutionObserver for InstructionCounts {
     fn observe(
@@ -93,7 +96,7 @@ pub(super) fn run(
     println!(
         "PROFILE_LAYOUT,value_bytes={},instruction_bytes={}",
         size_of::<Value>(),
-        size_of::<BytecodeInstruction>()
+        size_of::<BytecodeInstruction<DefinitionId>>()
     );
     println!("PROFILE_READY,{name}");
     io::stdout().flush().unwrap();

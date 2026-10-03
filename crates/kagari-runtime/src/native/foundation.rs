@@ -276,5 +276,11 @@ fn range_bound(cx: &mut CallContext<'_>, upper: bool) -> NativeResult<Value> {
     let Value::Range(range) = cx.argument(0)? else {
         return Err(invalid());
     };
-    range.bound(cx.heap(), cx.argument_type(0)?, cx.result_type(), upper)
+    range.bound(
+        cx.heap(),
+        cx.owner().definitions(),
+        cx.argument_type(0)?,
+        cx.result_type(),
+        upper,
+    )
 }

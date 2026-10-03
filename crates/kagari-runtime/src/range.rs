@@ -6,6 +6,7 @@ use crate::{
     numeric,
     value::{EnumTag, Value},
 };
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 
 use kagari_abi::{operations, scalar::BuiltinType, types::AbiType};
 use kagari_common::{integer, range::RangeKind};
@@ -26,7 +27,7 @@ fn invalid() -> RuntimeError {
 
 impl RangeValue {
     pub fn new(
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         start: Option<&Value>,
         end: Option<&Value>,
     ) -> Result<Self, RuntimeError> {
@@ -60,11 +61,14 @@ impl RangeValue {
     pub fn bound(
         &self,
         gc: &GcHeap,
-        range: &AbiType,
-        bound: &AbiType,
+        definitions: &DefinitionTable,
+        range: &AbiType<DefinitionId>,
+        bound: &AbiType<DefinitionId>,
         upper: bool,
     ) -> Result<Value, RuntimeError> {
-        if !self.matches(range) || !operations::range_bound_valid(range, bound) {
+        if !self.matches(range)
+            || !operations::range_bound_valid_in(range, bound, Some(definitions))
+        {
             return Err(invalid());
         }
         let value = if upper {
@@ -88,7 +92,7 @@ impl RangeValue {
         .map(Value::Enum)
     }
 
-    pub(crate) fn matches(&self, ty: &AbiType) -> bool {
+    pub(crate) fn matches(&self, ty: &AbiType<DefinitionId>) -> bool {
         matches!(ty, AbiType::Range(item, kind) if *kind == self.kind && **item == AbiType::Builtin(self.item))
     }
 

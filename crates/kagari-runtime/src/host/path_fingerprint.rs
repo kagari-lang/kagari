@@ -6,6 +6,13 @@ use kagari_common::host_interface::{
     type_declaration::PathAccess,
     value_type::HostValueType,
 };
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        mapping::{DefinitionMapper, DefinitionRecord},
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 
 use crate::{
     error::RuntimeError,
@@ -18,10 +25,30 @@ use kagari_abi::representation::ValueType;
 impl HostRegistry {
     pub(crate) fn link_module(
         &self,
-        module: &BytecodeModule,
+        module: &BytecodeModule<DefinitionId>,
         types: &TypeRegistry,
+        definitions: &DefinitionTable,
     ) -> Result<LinkedHostBindings, RuntimeError> {
-        let functions = self.link_interface(&module.host_interface)?;
+        let cancel = CancellationToken::default();
+        let interface = module
+            .host_interface
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |id| Ok(definitions.resolve(*id)?.to_path()),
+                &cancel,
+            ))
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let functions = self.link_interface(&interface)?;
+        let host_types = module
+            .host_interface
+            .types
+            .iter()
+            .zip(&interface.types)
+            .map(|(scoped, authored)| {
+                self.host_type_by_declaration(&authored.id)
+                    .map(|host| (scoped.id, host.type_id))
+                    .ok_or_else(|| RuntimeError::module_validation("linked host type is absent"))
+            })
+            .collect::<Result<_, _>>()?;
         let paths = module
             .paths
             .iter()
@@ -102,6 +129,7 @@ impl HostRegistry {
             }
         }
         Ok(LinkedHostBindings {
+            types: host_types,
             functions,
             paths,
             native: vec![],

@@ -11,7 +11,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }",
     );
     let table = &loaded.bytecode.interface_tables[0];
-    let method = table.methods[0].method.clone();
+    let method = table.methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
     assert_eq!(resolved.receiver(), &Value::I32(7));
@@ -45,7 +45,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
     use kagari_abi::types::{AbiType, PublicAbiItem};
     let (runtime, loaded) = load_test_module(
-        "trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
+        "trait Other {} trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
     );
     let table = loaded
         .bytecode
@@ -70,10 +70,19 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
         loaded.bytecode.interface_tables[0]
             .methods
             .iter()
-            .find(|slot| slot.method.path.last().unwrap().name == name)
+            .find(|slot| {
+                loaded
+                    .definitions()
+                    .resolve(slot.method)
+                    .unwrap()
+                    .segments()
+                    .last()
+                    .unwrap()
+                    .name
+                    == name
+            })
             .unwrap()
             .method
-            .clone()
     };
     assert_eq!(
         first.target(),
@@ -96,7 +105,13 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
             .is_err()
     );
     let mut wrong = interface.clone();
-    wrong.declaration.path.last_mut().unwrap().name = "Other".into();
+    let mut path = loaded
+        .definitions()
+        .resolve(wrong.declaration)
+        .unwrap()
+        .to_path();
+    path.path.last_mut().unwrap().name = "Other".into();
+    wrong.declaration = loaded.definitions().lookup(&path).unwrap();
     assert!(
         runtime
             .resolve_interface_method_slot(&boxed, &wrong, 0, &[])
@@ -167,7 +182,7 @@ fn interface_method_keeps_its_implementation_across_reload() {
     let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
     let mut runtime = Runtime::default();
     let old = runtime.load_program("interface-reload", first).unwrap();
-    let method = old.bytecode.interface_tables[0].methods[0].method.clone();
+    let method = old.bytecode.interface_tables[0].methods[0].method;
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let old_root = runtime.root_value(old_value.clone()).unwrap();
     let candidate = runtime
@@ -200,7 +215,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     );
     let mut runtime = Runtime::default();
     let old = runtime.load_program("interface-frames", old_code).unwrap();
-    let method = old.bytecode.interface_tables[0].methods[0].method.clone();
+    let method = old.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let _root = runtime.root_value(boxed.clone()).unwrap();
     let candidate = runtime
@@ -359,9 +374,7 @@ fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self / 0 } } fn main() -> i32 { 42 }",
     );
-    let method = loaded.bytecode.interface_tables[0].methods[0]
-        .method
-        .clone();
+    let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let mut vm = Vm::new(runtime);
     assert!(vm.invoke_interface_method(&boxed, &method, &[]).is_err());
@@ -377,9 +390,7 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
     let (runtime, loaded) = load_test_module(
         "struct A { val n: i32 } struct B { val n: i32 } trait Tag { fn read(self, x: A) -> i32; } impl Tag for i32 { fn read(self, x: A) -> i32 { x.n } } fn run<T: Tag>(x: T, a: A) -> i32 { x.read(a) } fn main() -> i32 { run(7, A { n: 1 }) } fn make_a() -> A { A { n: 5 } } fn make_b() -> B { B { n: 9 } }",
     );
-    let method = loaded.bytecode.interface_tables[0].methods[0]
-        .method
-        .clone();
+    let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let mut vm = Vm::new(runtime);
     let right = vm.execute(&loaded, "make_a").unwrap().return_value;
@@ -666,7 +677,17 @@ fn check_type_provenance_reload(source: &str) {
                 .bytecode
                 .structures
                 .iter()
-                .position(|layout| layout.declaration.path.last().unwrap().name == "Item")
+                .position(|layout| {
+                    loaded
+                        .definitions()
+                        .resolve(layout.declaration)
+                        .unwrap()
+                        .segments()
+                        .last()
+                        .unwrap()
+                        .name
+                        == "Item"
+                })
                 .unwrap();
             loaded.struct_layout(StructId::new(index)).unwrap()
         };
@@ -678,7 +699,7 @@ fn check_type_provenance_reload(source: &str) {
         let old_root = runtime.root_value(old_item.clone()).unwrap();
         let current_layout = item_layout(&second);
         let item_type = AbiType::Struct(NominalAbiType {
-            declaration: current_layout.layout().declaration.clone(),
+            declaration: current_layout.layout().declaration,
             arguments: vec![],
             associated_types: Default::default(),
         });
@@ -850,10 +871,20 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .bytecode
         .structures
         .iter()
-        .find(|layout| layout.declaration.path.last().unwrap().name == "Item")
+        .find(|layout| {
+            current
+                .definitions()
+                .resolve(layout.declaration)
+                .unwrap()
+                .segments()
+                .last()
+                .unwrap()
+                .name
+                == "Item"
+        })
         .unwrap();
     let ty = AbiType::Struct(NominalAbiType {
-        declaration: item.declaration.clone(),
+        declaration: item.declaration,
         arguments: vec![],
         associated_types: Default::default(),
     });

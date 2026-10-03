@@ -106,6 +106,37 @@ pub struct DefinitionTable {
 }
 
 impl DefinitionTable {
+    pub fn parent(&self, id: DefinitionId) -> Result<Option<DefinitionId>, DefinitionTableError> {
+        validate_id(self.id, &self.data, id)?;
+        Ok(match self.data.nodes[id.index()] {
+            Node::Root(_) => None,
+            Node::Child { parent, .. } => Some(DefinitionId {
+                table: self.id,
+                index: parent,
+            }),
+        })
+    }
+
+    pub fn lookup_child(
+        &self,
+        parent: DefinitionId,
+        kind: DefinitionKind,
+        name: &str,
+        occurrence: u32,
+    ) -> Option<DefinitionId> {
+        validate_id(self.id, &self.data, parent).ok()?;
+        let name = *self.data.symbol_indices.get(name)?;
+        let index = *self.data.node_indices.get(&Node::Child {
+            parent: parent.index,
+            kind,
+            name,
+            occurrence,
+        })?;
+        Some(DefinitionId {
+            table: self.id,
+            index,
+        })
+    }
     pub fn id(&self) -> DefinitionTableId {
         self.id
     }

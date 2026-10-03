@@ -56,10 +56,10 @@ pub struct NativeDefaultApplication<I = DefinitionPath> {
     pub arguments: Vec<AbiType<I>>,
 }
 
-impl NativeDefaultApplication {
+impl<I: DefinitionReference> NativeDefaultApplication<I> {
     pub fn apply(
         &self,
-        substitution: &TypeSubstitution<'_>,
+        substitution: &TypeSubstitution<'_, I>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -77,10 +77,10 @@ impl NativeDefaultApplication {
     }
 }
 
-impl CallableImplementation {
+impl<I: DefinitionReference> CallableImplementation<I> {
     pub fn apply(
         &self,
-        substitution: &TypeSubstitution<'_>,
+        substitution: &TypeSubstitution<'_, I>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;

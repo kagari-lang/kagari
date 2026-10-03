@@ -18,7 +18,7 @@ use kagari_abi::{
     types::{AbiType, GenericParameterAbi, NominalAbiType, substitution::substitute_parameters},
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::{DefinitionPath, map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -29,12 +29,12 @@ pub(crate) struct BoundOperation {
     pub(crate) receiver_operations: Weak<ReceiverOperations>,
     pub(crate) application: OnceCell<Rc<MethodApplication>>,
     pub(crate) generic: Option<BoundGenericMethod>,
-    pub(crate) requirement: NativeCallableRequirement,
+    pub(crate) requirement: NativeCallableRequirement<DefinitionId>,
     pub(crate) slot: u32,
     pub(crate) primitive: Option<RuntimePrimitive>,
     pub(crate) owner: LoadedModule,
     pub(crate) target: CallableTarget,
-    pub(crate) signature: NativeSignature,
+    pub(crate) signature: NativeSignature<DefinitionId>,
     pub(crate) retention: Rc<RetainedRuntimeProgram>,
 }
 
@@ -42,9 +42,9 @@ pub(crate) struct BoundOperation {
 pub(crate) struct BoundGenericMethod {
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) receiver_environment: Option<Rc<TypeEnvironment>>,
-    pub(crate) parameters: Vec<GenericParameterAbi>,
-    pub(crate) entry_parameters: Vec<GenericParameterAbi>,
-    pub(crate) entry_arguments: Vec<AbiType>,
+    pub(crate) parameters: Vec<GenericParameterAbi<DefinitionId>>,
+    pub(crate) entry_parameters: Vec<GenericParameterAbi<DefinitionId>>,
+    pub(crate) entry_arguments: Vec<AbiType<DefinitionId>>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,7 +59,7 @@ pub struct TypeEnvironment {
 impl TypeEnvironment {
     pub(crate) fn new(
         definitions: &DefinitionContext,
-        parameters: Vec<GenericParameterAbi>,
+        parameters: Vec<GenericParameterAbi<DefinitionId>>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
         if parameters.len() != arguments.len()
@@ -69,17 +69,12 @@ impl TypeEnvironment {
                 "generic call type arguments",
             ));
         }
-        let parameters = parameters
-            .into_iter()
-            .map(|parameter| {
-                Ok(GenericParameterAbi {
-                    owner: definitions
-                        .intern(&parameter.owner)
-                        .map_err(|error| RuntimeError::module_validation(error.to_string()))?,
-                    position: parameter.position,
-                })
-            })
-            .collect::<Result<Vec<_>, RuntimeError>>()?;
+        let table = definitions.snapshot();
+        for parameter in &parameters {
+            table
+                .resolve(parameter.owner)
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        }
         Ok(Self {
             definitions: definitions.clone(),
             parameters: parameters.into(),
@@ -122,12 +117,8 @@ impl TypeEnvironment {
         Ok(())
     }
 
-    pub(crate) fn argument(
-        &self,
-        owner: &DefinitionPath,
-        position: usize,
-    ) -> Option<&TypeArgument> {
-        self.argument_id(self.definitions.lookup(owner)?, position)
+    pub(crate) fn argument(&self, owner: &DefinitionId, position: usize) -> Option<&TypeArgument> {
+        self.argument_id(*owner, position)
     }
 
     fn argument_id(&self, owner: DefinitionId, position: usize) -> Option<&TypeArgument> {
@@ -142,7 +133,7 @@ impl TypeEnvironment {
             })
     }
 
-    pub(crate) fn matches(&self, body: &GenericBody) -> bool {
+    pub(crate) fn matches(&self, body: &GenericBody<DefinitionId>) -> bool {
         let mut offset = 0;
         let mut environment = Some(self);
         while let Some(current) = environment {
@@ -154,8 +145,7 @@ impl TypeEnvironment {
                 .iter()
                 .zip(current.parameters.iter())
                 .all(|(expected, actual)| {
-                    current.definitions.lookup(&expected.owner) == Some(actual.owner)
-                        && expected.position == actual.position
+                    expected.owner == actual.owner && expected.position == actual.position
                 })
             {
                 return false;
@@ -166,7 +156,10 @@ impl TypeEnvironment {
         offset == body.parameters.len()
     }
 
-    pub(crate) fn resolve(&self, ty: &AbiType) -> Result<AbiType, RuntimeError> {
+    pub(crate) fn resolve(
+        &self,
+        ty: &AbiType<DefinitionId>,
+    ) -> Result<AbiType<DefinitionId>, RuntimeError> {
         let result = substitute_parameters(
             ty,
             &|owner, position| self.argument(owner, position).map(TypeArgument::ty),
@@ -181,8 +174,8 @@ impl TypeEnvironment {
 
     pub(crate) fn resolve_requirement(
         &self,
-        required: &NativeCallableRequirement,
-    ) -> Result<NativeCallableRequirement, RuntimeError> {
+        required: &NativeCallableRequirement<DefinitionId>,
+    ) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
         let AbiType::Trait(interface) =
             self.resolve(&AbiType::Trait(required.interface.clone()))?
         else {
@@ -191,7 +184,7 @@ impl TypeEnvironment {
         Ok(NativeCallableRequirement {
             receiver: self.resolve(&required.receiver)?,
             interface,
-            member: required.member.clone(),
+            member: required.member,
             arguments: required
                 .arguments
                 .iter()
@@ -202,8 +195,8 @@ impl TypeEnvironment {
 
     pub(crate) fn operation_slot(
         &self,
-        receiver: &AbiType,
-        interface: &NominalAbiType,
+        receiver: &AbiType<DefinitionId>,
+        interface: &NominalAbiType<DefinitionId>,
         slot: u32,
     ) -> Option<&Rc<BoundOperation>> {
         self.operations.operation_slot(receiver, interface, slot)
@@ -211,7 +204,7 @@ impl TypeEnvironment {
 
     pub(crate) fn operation(
         &self,
-        required: &NativeCallableRequirement,
+        required: &NativeCallableRequirement<DefinitionId>,
     ) -> Option<&Rc<BoundOperation>> {
         self.operations.operation(required)
     }

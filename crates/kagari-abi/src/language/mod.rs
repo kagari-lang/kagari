@@ -5,6 +5,7 @@ use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
 
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
 pub mod catalog;
 pub mod primitive;
 
@@ -158,10 +159,22 @@ impl Protocol {
     }
 
     pub fn from_id(id: &DefinitionPath) -> Option<Self> {
-        if id.module != module_identity() || id.path.len() != 1 {
+        Self::from_reference(id, None)
+    }
+
+    pub fn from_reference<I: DefinitionReference>(
+        id: &I,
+        table: Option<&DefinitionTable>,
+    ) -> Option<Self> {
+        let view = id.describe(table).ok()?;
+        if view.module() != &module_identity() || view.segments().count() != 1 {
             return None;
         }
-        Self::ALL.into_iter().find(|kind| identity(*kind) == *id)
+        let part = view.last()?;
+        if part.kind != DefinitionKind::Trait || part.occurrence != 0 {
+            return None;
+        }
+        Self::ALL.into_iter().find(|kind| kind.name() == part.name)
     }
 
     pub fn conversion(self) -> bool {

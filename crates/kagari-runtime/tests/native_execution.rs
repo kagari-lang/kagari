@@ -9,6 +9,7 @@ use std::{
 
 use kagari_abi::{
     ids::FunctionRef,
+    layout::StructLayout,
     native::{
         BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
         ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap, NativeCodeOwner,
@@ -16,6 +17,7 @@ use kagari_abi::{
     },
     native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
     representation::ValueType,
+    types::{AbiType, NominalAbiType},
 };
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -23,6 +25,7 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::InstalledNativeFunction},
@@ -561,4 +564,70 @@ fn shared_verified_program_identity_survives_independent_runtime_linking() {
     assert!(second.validate_loaded_module(&a).is_err());
     drop(verified);
     assert!(a.verified_program().same_version(b.verified_program()));
+}
+
+#[test]
+fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs() {
+    let mut raw = program();
+    let path = DefinitionPath {
+        module: raw.modules[0].identity.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Struct,
+            name: "Record".into(),
+            occurrence: 0,
+        }],
+    };
+    raw.modules[0].structures.push(StructLayout {
+        declaration: path.clone(),
+        arguments: vec![],
+        fields: vec![],
+    });
+    let verified = VerifiedProgram::new(raw.clone()).unwrap();
+    let source_id = verified.modules()[0].structures[0].declaration;
+    let mut first = runtime();
+    let mut second = runtime();
+    let a = first
+        .load_verified_program("scoped", verified.clone())
+        .unwrap();
+    let b = second
+        .load_verified_program("scoped", verified.clone())
+        .unwrap();
+    let a_id = a.bytecode.structures[0].declaration;
+    let b_id = b.bytecode.structures[0].declaration;
+    assert_ne!(source_id, a_id);
+    assert_ne!(a_id, b_id);
+    assert_eq!(a.definitions().resolve(a_id).unwrap().to_path(), path);
+    assert_eq!(b.definitions().resolve(b_id).unwrap().to_path(), path);
+    assert!(a.verified_program().same_version(b.verified_program()));
+    assert!(a.verified_program().same_version(&verified));
+    let foreign = AbiType::Struct(NominalAbiType {
+        declaration: a_id,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    assert!(second.resolve_type_arguments(&b, &[foreign]).is_err());
+    let candidate = first.stage_reload_program(&a, "scoped", raw).unwrap();
+    let current = first.publish_staged_reload(candidate).unwrap();
+    assert_eq!(current.bytecode.structures[0].declaration, a_id);
+    assert_ne!(current.key(), a.key());
+    assert!(
+        !current
+            .verified_program()
+            .same_version(a.verified_program())
+    );
+    drop(verified);
+    assert_eq!(a.definitions().resolve(a_id).unwrap().to_path(), path);
+    assert!(a.verified_program().same_version(b.verified_program()));
+    let ty = AbiType::Struct(NominalAbiType {
+        declaration: b_id,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let retained = second.resolve_type_arguments(&b, &[ty]).unwrap().remove(0);
+    drop(b);
+    drop(second);
+    assert_eq!(
+        retained.definitions().resolve(b_id).unwrap().to_path(),
+        path
+    );
 }

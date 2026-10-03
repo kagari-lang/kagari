@@ -1,3 +1,4 @@
+use kagari_common::identity::table::DefinitionId;
 pub mod native;
 use kagari_abi::{
     ids::FunctionRef,
@@ -8,7 +9,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::reference::DefinitionReference;
 use kagari_runtime::{
     Runtime,
     error_trace::ResultFailure,
@@ -177,10 +178,10 @@ impl Vm {
     /// Invokes a linked script implementation through a runtime-owned
     /// interface value. The receiver and arguments remain rooted while module
     /// the method body executes.
-    pub fn invoke_interface_method(
+    pub fn invoke_interface_method<I: DefinitionReference>(
         &mut self,
         interface: &Value,
-        method: &DefinitionPath,
+        method: &I,
         arguments: &[Value],
     ) -> Result<Value, VmError> {
         let resolved = self
@@ -204,7 +205,10 @@ impl Vm {
     }
 }
 
-fn find_function_ref(module: &BytecodeModule, name: &str) -> Result<FunctionRef, VmError> {
+fn find_function_ref(
+    module: &BytecodeModule<DefinitionId>,
+    name: &str,
+) -> Result<FunctionRef, VmError> {
     let mut matches = module
         .functions
         .iter()

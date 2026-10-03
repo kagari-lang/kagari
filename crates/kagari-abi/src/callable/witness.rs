@@ -108,14 +108,6 @@ impl OperationWitness {
         }
     }
 
-    pub fn requirement(&self) -> &NativeCallableRequirement {
-        match self {
-            Self::Selected(selected) => &selected.requirement,
-            Self::SharedMethod(selected) => &selected.requirement,
-            Self::Forward(required) => required,
-        }
-    }
-
     pub fn valid(
         &self,
         catalog: &ProofCatalog<'_>,
@@ -147,6 +139,16 @@ impl OperationWitness {
                 || required
                     .signature_in_scope(catalog, parameters, assumptions, cancel)?
                     .is_some())),
+        }
+    }
+}
+
+impl<I: DefinitionReference> OperationWitness<I> {
+    pub fn requirement(&self) -> &NativeCallableRequirement<I> {
+        match self {
+            Self::Selected(selected) => &selected.requirement,
+            Self::SharedMethod(selected) => &selected.requirement,
+            Self::Forward(required) => required,
         }
     }
 }

@@ -104,7 +104,8 @@ impl Runtime {
             let contract = owner
                 .members()
                 .find_map(|member| {
-                    abi::trait_contract(
+                    abi::trait_contract_in(
+                        Some(member.definitions()),
                         &member.bytecode.identity,
                         &member.bytecode.public_items,
                         &member.bytecode.trait_contracts,
@@ -119,11 +120,11 @@ impl Runtime {
                     .ok_or_else(invalid)?,
             );
             for slot in &table.methods {
-                let name = &slot.method.path.last().ok_or_else(invalid)?.name;
+                let name = owner.definition_name(slot.method).ok_or_else(invalid)?;
                 let method = template
                     .methods
                     .iter()
-                    .find(|method| method.name == *name)
+                    .find(|method| method.name == name)
                     .ok_or_else(invalid)?;
                 if method
                     .params
@@ -135,12 +136,12 @@ impl Runtime {
                 let ordinal = contract
                     .methods
                     .iter()
-                    .position(|method| method.name == *name)
+                    .position(|method| method.name == name)
                     .ok_or_else(invalid)?;
                 let requirement = NativeCallableRequirement {
                     receiver: receiver.clone(),
                     interface: interface.clone(),
-                    member: slot.method.clone(),
+                    member: slot.method,
                     arguments: vec![],
                 };
                 if operations

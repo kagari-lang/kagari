@@ -4,6 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::types::TypeEnvironment,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
+    metadata::TypeId,
     module::layouts::LayoutCache,
     native::binding::LinkedNativeFunction,
     reload::ModuleEpoch,
@@ -20,7 +21,15 @@ use kagari_bytecode::{
 
 use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
 
-use kagari_common::identity::ModuleIdentity;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionPath, ModuleIdentity,
+        map::DefinitionContext,
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        table::{DefinitionId, DefinitionTable, DefinitionView},
+    },
+};
 use std::{
     cell::{BorrowError, RefCell, RefMut},
     collections::{HashMap, HashSet},
@@ -111,7 +120,10 @@ pub struct LoadedModule {
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
     root: ModuleRef,
-    modules: Arc<[Arc<BytecodeModule>]>,
+    modules: Arc<[Arc<BytecodeModule<DefinitionId>>]>,
+    definitions: DefinitionTable,
+    version: Arc<[Arc<BytecodeModule<DefinitionId>>]>,
+    version_definitions: DefinitionTable,
     dependencies: ReloadDependencySnapshot,
 }
 
@@ -132,27 +144,122 @@ impl VerifiedProgram {
     /// Adopt bytecode-owned immutable verification evidence. Runtime-local host,
     /// native, ownership and generation checks still run when linking this code.
     pub fn from_bytecode(program: VerifiedBytecodeProgram) -> Self {
-        let program = program.into_unverified();
-        let dependencies = ReloadDependencySnapshot::from_program(&program);
+        let dependencies = ReloadDependencySnapshot::from_program(
+            &program
+                .to_unverified(&CancellationToken::default())
+                .expect("verified program retains its bounded identity scope"),
+        );
+        let definitions = program.definitions().clone();
+        let modules: Arc<[Arc<BytecodeModule<DefinitionId>>]> = program
+            .program()
+            .modules
+            .iter()
+            .cloned()
+            .map(Arc::new)
+            .collect();
         Self {
-            root: program.root,
-            modules: program.modules.into_iter().map(Arc::new).collect(),
+            root: program.program().root,
+            version: modules.clone(),
+            version_definitions: definitions.clone(),
+            definitions,
+            modules,
             dependencies,
         }
+    }
+
+    pub(crate) fn paths<T: DefinitionRecord<DefinitionId>>(
+        &self,
+        record: &T,
+    ) -> Result<T::Rebind<DefinitionPath>, RuntimeError> {
+        record
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |id| Ok(self.definitions.resolve(*id)?.to_path()),
+                &CancellationToken::default(),
+            ))
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))
+    }
+
+    pub(crate) fn scope<T: DefinitionRecord<DefinitionPath>>(
+        &self,
+        record: &T,
+    ) -> Result<T::Rebind<DefinitionId>, RuntimeError> {
+        record
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |path| {
+                    self.definitions
+                        .lookup(path)
+                        .ok_or(DefinitionMappingError::InvalidContract)
+                },
+                &CancellationToken::default(),
+            ))
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))
     }
 
     pub fn root(&self) -> ModuleRef {
         self.root
     }
 
-    pub fn modules(&self) -> &[Arc<BytecodeModule>] {
+    pub fn modules(&self) -> &[Arc<BytecodeModule<DefinitionId>>] {
         &self.modules
     }
 
     /// Identity of the immutable verified program, shared by clones and loads.
     /// Equal bytecode or a matching compatibility hash does not imply this identity.
     pub fn same_version(&self, other: &Self) -> bool {
-        self.root == other.root && Arc::ptr_eq(&self.modules, &other.modules)
+        self.root == other.root && Arc::ptr_eq(&self.version, &other.version)
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+
+    /// Import exact identities once while retaining the immutable source version.
+    /// Mapping changes only identity representation; no verification flag or hash
+    /// can create this evidence, and the original sealed records stay immutable.
+    pub(crate) fn normalized(&self, context: &DefinitionContext) -> Result<Self, RuntimeError> {
+        if self.definitions.id() == context.snapshot().id() {
+            return Ok(self.clone());
+        }
+        let cancel = CancellationToken::default();
+        let mut ids = HashSet::new();
+        for module in self.modules.iter() {
+            module
+                .visit_definitions(
+                    &mut |id| {
+                        ids.insert(*id);
+                        Ok(())
+                    },
+                    &cancel,
+                )
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        }
+        if ids.is_empty() {
+            return Ok(self.clone());
+        }
+        let remap = context
+            .import(&self.definitions, ids)
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let modules = self
+            .modules
+            .iter()
+            .map(|module| {
+                module
+                    .map_identities(&mut DefinitionMapper::new(
+                        &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
+                        &cancel,
+                    ))
+                    .map(Arc::new)
+            })
+            .collect::<Result<_, _>>()
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        Ok(Self {
+            root: self.root,
+            modules,
+            definitions: context.snapshot(),
+            version: self.version.clone(),
+            version_definitions: self.version_definitions.clone(),
+            dependencies: self.dependencies.clone(),
+        })
     }
 
     pub(crate) fn dependencies(&self) -> &ReloadDependencySnapshot {
@@ -174,7 +281,7 @@ pub struct LinkedModule {
     pub id: ModuleId,
     pub name: String,
     pub epoch: ModuleEpoch,
-    pub bytecode: Arc<BytecodeModule>,
+    pub bytecode: Arc<BytecodeModule<DefinitionId>>,
     registry_owner: HostRegistryId,
     native_bindings: Vec<Rc<LinkedNativeFunction>>,
     layouts: LayoutCache,
@@ -183,6 +290,7 @@ pub struct LinkedModule {
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkedHostBindings {
+    pub types: HashMap<DefinitionId, TypeId>,
     pub functions: Vec<HostFunctionId>,
     pub native: Vec<Rc<LinkedNativeFunction>>,
     pub paths: Vec<HostPathDescriptorId>,
@@ -197,6 +305,40 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
+    pub(crate) fn host_type(&self, id: DefinitionId) -> Option<TypeId> {
+        self.host_bindings.types.get(&id).copied()
+    }
+    /// Materialize editable authoring metadata without verification evidence.
+    pub fn to_unverified(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<BytecodeModule, RuntimeError> {
+        self.bytecode
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |id| Ok(self.definitions().resolve(*id)?.to_path()),
+                cancel,
+            ))
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))
+    }
+    pub(crate) fn definition(&self, id: DefinitionId) -> Result<DefinitionView<'_>, RuntimeError> {
+        self.definitions()
+            .resolve(id)
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))
+    }
+
+    pub(crate) fn definition_name(&self, id: DefinitionId) -> Option<&str> {
+        self.definitions()
+            .resolve(id)
+            .ok()?
+            .segments()
+            .last()
+            .map(|part| part.name)
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        self.program.code.definitions()
+    }
+
     pub fn verified_program(&self) -> &VerifiedProgram {
         &self.program.code
     }
@@ -276,7 +418,7 @@ pub struct EnumVariantRef {
     module: LoadedModule,
     id: EnumId,
     variant: u32,
-    applied: Option<Rc<EnumLayout>>,
+    applied: Option<Rc<EnumLayout<DefinitionId>>>,
     pub(crate) environment: Option<Rc<TypeEnvironment>>,
 }
 
@@ -285,13 +427,13 @@ impl EnumVariantRef {
         self.module.registry_owner
     }
 
-    pub fn layout(&self) -> &EnumLayout {
+    pub fn layout(&self) -> &EnumLayout<DefinitionId> {
         self.applied
             .as_deref()
             .unwrap_or(&self.module.bytecode.enumerations[self.id.index()])
     }
 
-    pub fn variant(&self) -> &EnumVariantLayout {
+    pub fn variant(&self) -> &EnumVariantLayout<DefinitionId> {
         &self.layout().variants[self.variant as usize]
     }
 
@@ -314,12 +456,12 @@ impl PartialEq for EnumVariantRef {
 pub struct StructLayoutRef {
     module: LoadedModule,
     id: StructId,
-    applied: Option<Rc<StructLayout>>,
+    applied: Option<Rc<StructLayout<DefinitionId>>>,
     pub(crate) environment: Option<Rc<TypeEnvironment>>,
 }
 
 impl StructLayoutRef {
-    pub fn layout(&self) -> &StructLayout {
+    pub fn layout(&self) -> &StructLayout<DefinitionId> {
         self.applied
             .as_deref()
             .unwrap_or(&self.module.bytecode.structures[self.id.index()])

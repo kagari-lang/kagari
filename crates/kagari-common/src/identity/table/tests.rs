@@ -1,5 +1,47 @@
 use super::*;
+use crate::identity::reference::DefinitionReference;
 use std::mem::size_of;
+
+#[test]
+fn borrowed_identity_queries_require_the_explicit_scope() {
+    let expected = path("game", "hp");
+    let mut builder = DefinitionTableBuilder::new().unwrap();
+    let id = builder.intern_path(&expected).unwrap();
+    let table = builder.freeze();
+    let parent = table.parent(id).unwrap().unwrap();
+    assert_eq!(
+        table.lookup_child(parent, DefinitionKind::Field, "hp", 0),
+        Some(id)
+    );
+    assert_eq!(
+        table.lookup_child(parent, DefinitionKind::Field, "hp", 1),
+        None
+    );
+    assert_eq!(expected.resolve(&table).unwrap(), id);
+    let view = id.describe(Some(&table)).unwrap();
+    assert_eq!(view.module(), &expected.module);
+    assert_eq!(view.last().unwrap().name, "hp");
+    assert!(matches!(
+        id.describe(None),
+        Err(DefinitionTableError::ForeignTable)
+    ));
+    let foreign = DefinitionTableBuilder::new().unwrap().freeze();
+    assert!(matches!(
+        id.describe(Some(&foreign)),
+        Err(DefinitionTableError::ForeignTable)
+    ));
+    assert!(matches!(
+        id.resolve(&foreign),
+        Err(DefinitionTableError::ForeignTable)
+    ));
+    assert!(matches!(
+        table.parent(DefinitionId {
+            table: table.id(),
+            index: DefinitionIndex(u32::MAX)
+        }),
+        Err(DefinitionTableError::InvalidIndex)
+    ));
+}
 
 fn path(module: &str, name: &str) -> DefinitionPath {
     DefinitionPath {

@@ -3,6 +3,7 @@ use kagari_bytecode::{
     instruction::LocalSlot,
     module::{BytecodeFunction, CallableTarget, SafeDebugPoint},
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
 use kagari_runtime::{
     Runtime,
@@ -466,14 +467,19 @@ impl DebugSession {
                     let CallableTarget::Native(import) = frame.target() else {
                         unreachable!("native frame target");
                     };
-                    member.bytecode.native_imports[import.index()]
-                        .instance
-                        .declaration
-                        .path
-                        .last()
+                    member
+                        .definitions()
+                        .resolve(
+                            member.bytecode.native_imports[import.index()]
+                                .instance
+                                .declaration,
+                        )
                         .expect("verified native identity")
+                        .segments()
+                        .last()
+                        .expect("verified native name")
                         .name
-                        .clone()
+                        .to_owned()
                 }
             },
             instruction_offset,
@@ -485,7 +491,7 @@ impl DebugSession {
 }
 
 fn breakpoint_matches(
-    function: &BytecodeFunction,
+    function: &BytecodeFunction<DefinitionId>,
     breakpoint: &SourceBreakpoint,
     point: &SafeDebugPoint,
 ) -> bool {
@@ -508,7 +514,7 @@ fn breakpoint_matches(
 }
 
 fn safe_debug_point(
-    function: &BytecodeFunction,
+    function: &BytecodeFunction<DefinitionId>,
     instruction_offset: usize,
 ) -> Option<&SafeDebugPoint> {
     function
@@ -519,7 +525,7 @@ fn safe_debug_point(
         .find(|point| point.instruction_offset == instruction_offset)
 }
 
-fn source_span_for(function: &BytecodeFunction, instruction_offset: usize) -> Span {
+fn source_span_for(function: &BytecodeFunction<DefinitionId>, instruction_offset: usize) -> Span {
     function
         .metadata
         .debug

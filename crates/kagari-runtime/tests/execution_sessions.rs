@@ -417,7 +417,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
             "main",
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![(*baseline.bytecode).clone()],
+                modules: vec![baseline.to_unverified(&Default::default()).unwrap()],
             },
         )
         .unwrap();
@@ -447,7 +447,7 @@ fn candidate_module_state_access_is_limited_to_its_program() {
             "main",
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![(*old.bytecode).clone()],
+                modules: vec![old.to_unverified(&Default::default()).unwrap()],
             },
         )
         .unwrap();
@@ -498,7 +498,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
                 "main",
                 BytecodeProgram {
                     root: ModuleRef::new(0),
-                    modules: vec![(*baseline.bytecode).clone()],
+                    modules: vec![baseline.to_unverified(&Default::default()).unwrap()],
                 },
             )
             .unwrap();
@@ -573,7 +573,7 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
                 "main",
                 BytecodeProgram {
                     root: ModuleRef::new(0),
-                    modules: vec![(*baseline.bytecode).clone()],
+                    modules: vec![baseline.to_unverified(&Default::default()).unwrap()],
                 },
             )
             .unwrap();

@@ -13,6 +13,7 @@ use crate::{
     value::Value,
 };
 use kagari_abi::types::AbiType;
+use kagari_common::identity::table::DefinitionId;
 
 /// A generic value keeps the exact closed Kagari type of its rooted argument.
 /// Use a scalar copy or an explicit owning root when retaining it in Rust.
@@ -20,7 +21,7 @@ pub struct ValueHandle<'call> {
     heap: &'call GcHeap,
     arguments: ArgumentView<'call>,
     slot: usize,
-    ty: &'call AbiType,
+    ty: &'call AbiType<DefinitionId>,
 }
 
 impl<'call> ValueHandle<'call> {
@@ -36,7 +37,7 @@ impl<'call> ValueHandle<'call> {
         })
     }
 
-    pub fn declared_type(&self) -> &'call AbiType {
+    pub fn declared_type(&self) -> &'call AbiType<DefinitionId> {
         self.ty
     }
 
@@ -49,7 +50,7 @@ impl<'call> ValueHandle<'call> {
     }
 
     pub fn scalar<S: NativeScalar>(&self) -> NativeResult<S> {
-        if self.ty != &S::abi_type() {
+        if self.ty != &S::abi_type_in() {
             return Err(RuntimeError::module_validation(
                 "native scalar differs from its argument type",
             ));
@@ -81,7 +82,7 @@ impl<'call> ValueHandle<'call> {
 pub struct SequenceHandle<'call> {
     heap: &'call GcHeap,
     id: HeapObjectId,
-    ty: &'call AbiType,
+    ty: &'call AbiType<DefinitionId>,
     _arguments: ArgumentView<'call>,
 }
 
@@ -99,7 +100,7 @@ impl<'call> SequenceHandle<'call> {
         })
     }
 
-    pub fn declared_type(&self) -> &'call AbiType {
+    pub fn declared_type(&self) -> &'call AbiType<DefinitionId> {
         self.ty
     }
 

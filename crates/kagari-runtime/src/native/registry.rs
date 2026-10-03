@@ -14,15 +14,21 @@ use crate::{
 };
 use kagari_abi::{
     callable::{CallableImplementation, witness::OperationWitness},
-    declaration::ModuleDecl,
-    language::{self, Protocol},
+    language::Protocol,
     native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
     native_import::{NativeImport, NativeSignature},
     standard::RuntimePrimitive,
     types::{AbiType, NativeDeclaration, verify::validate_native_declarations},
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget, program::ModuleRef};
-use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionMap};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind,
+        map::DefinitionMap,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 use std::{collections::HashSet, rc::Rc, slice};
 
 #[derive(Debug, Clone)]
@@ -33,7 +39,7 @@ pub(crate) struct BindingRegistration {
 }
 
 pub(crate) fn link_host(
-    import: &NativeImport,
+    import: &NativeImport<DefinitionId>,
     binding: HostFunctionId,
 ) -> Rc<LinkedNativeFunction> {
     let signature = import.signature.clone();
@@ -128,18 +134,25 @@ impl NativeRegistry {
 
     pub(crate) fn link(
         &self,
-        import: &NativeImport,
+        import: &NativeImport<DefinitionId>,
         program: &VerifiedProgram,
     ) -> NativeResult<Rc<LinkedNativeFunction>> {
         let entry = self
             .entries
-            .get(&import.binding)
+            .get_id(import.binding)
             .ok_or_else(|| RuntimeError::module_validation("native binding is not installed"))?;
         dependencies::validate(&entry.required_catalog, program)?;
         let declaration = program
             .modules()
             .iter()
-            .find(|module| module.identity == import.instance.declaration.module)
+            .find(|module| {
+                module.identity
+                    == *program
+                        .definitions()
+                        .resolve(import.instance.declaration)
+                        .expect("verified native definition")
+                        .module()
+            })
             .and_then(|module| {
                 module
                     .native_declarations
@@ -147,10 +160,15 @@ impl NativeRegistry {
                     .find(|declaration| declaration.declaration == import.instance.declaration)
             })
             .ok_or_else(|| RuntimeError::module_validation("native declaration is absent"))?;
-        if !import.structurally_valid()
-            || !entry.declarations.contains(declaration)
-            || declaration.function.implementation
-                != CallableImplementation::Native(import.binding.clone())
+        let authored = program.paths(import)?;
+        if !authored.structurally_valid()
+            || !entry
+                .declarations
+                .iter()
+                .map(|record| program.scope(record))
+                .collect::<NativeResult<Vec<_>>>()?
+                .contains(declaration)
+            || declaration.function.implementation != CallableImplementation::Native(import.binding)
         {
             return Err(RuntimeError::module_validation(
                 "native binding differs from its registered contract",
@@ -160,7 +178,9 @@ impl NativeRegistry {
         if let Some(adapter) = &import.result_adapter {
             signature.result = adapter.receiver.clone();
         }
-        entry.binding.check(&signature, &entry.required_catalog)?;
+        entry
+            .binding
+            .check(&program.paths(&signature)?, &entry.required_catalog)?;
         let selected = import
             .callables
             .iter()
@@ -172,7 +192,14 @@ impl NativeRegistry {
                     .modules()
                     .iter()
                     .enumerate()
-                    .find(|(_, owner)| owner.identity == callable.instance.declaration.module)
+                    .find(|(_, owner)| {
+                        owner.identity
+                            == *program
+                                .definitions()
+                                .resolve(callable.instance.declaration)
+                                .expect("verified callable definition")
+                                .module()
+                    })
                     .ok_or_else(|| RuntimeError::module_validation("native callable owner"))?;
                 let target = match &callable.implementation {
                     CallableImplementation::Script => owner
@@ -201,7 +228,7 @@ impl NativeRegistry {
                     target,
                     params: callable.signature.params.clone().into_boxed_slice(),
                     result: callable.signature.result.clone(),
-                    primitive: callable_primitive(callable),
+                    primitive: callable_primitive(callable, program.definitions()),
                 }))
             })
             .collect::<NativeResult<Vec<_>>>()?;
@@ -215,7 +242,10 @@ impl NativeRegistry {
     }
 }
 
-pub(crate) fn callable_primitive(callable: &NativeCallableApplication) -> Option<RuntimePrimitive> {
+pub(crate) fn callable_primitive(
+    callable: &NativeCallableApplication<DefinitionId>,
+    table: &DefinitionTable,
+) -> Option<RuntimePrimitive> {
     if callable.origin == NativeCallableOrigin::ProtocolAdapter
         && callable
             .signature
@@ -231,7 +261,17 @@ pub(crate) fn callable_primitive(callable: &NativeCallableApplication) -> Option
         ]
         .into_iter()
         .find(|(protocol, name, _)| {
-            ModuleDecl::method_id(&language::identity(*protocol), name) == *member
+            table.parent(*member).ok().flatten().is_some_and(|parent| {
+                Protocol::from_reference(&parent, Some(table)) == Some(*protocol)
+            }) && table
+                .resolve(*member)
+                .ok()
+                .and_then(|view| view.segments().last())
+                .is_some_and(|part| {
+                    part.kind == DefinitionKind::Method
+                        && part.occurrence == 0
+                        && part.name == *name
+                })
         })
         .map(|(_, _, primitive)| primitive)
     } else {

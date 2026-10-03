@@ -1,3 +1,4 @@
+use kagari_common::identity::table::DefinitionId;
 mod application;
 mod calls;
 pub(crate) mod method;
@@ -25,14 +26,14 @@ use kagari_abi::{
     representation::ValueType,
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, substitution::TypeSubstitution},
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_common::identity::{DefinitionKind, reference::DefinitionReference};
 use std::{cell::OnceCell, rc::Rc, slice};
 
 impl Runtime {
     pub fn alloc_array(
         &self,
         owner: &LoadedModule,
-        element: AbiType,
+        element: AbiType<DefinitionId>,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.validate_loaded_module(owner)?;
@@ -43,7 +44,7 @@ impl Runtime {
     pub fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,
-        element: AbiType,
+        element: AbiType<DefinitionId>,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
@@ -173,7 +174,7 @@ impl Runtime {
             })
             .ok_or_else(invalid)?;
         let table = template
-            .instantiate(&concrete_arguments)
+            .instantiate_scoped(&concrete_arguments, &[], Some(implementation.definitions()))
             .ok_or_else(invalid)?;
         let environment = if template.generic_params.is_empty() {
             None
@@ -208,11 +209,15 @@ impl Runtime {
             .transpose()
             .map_err(|_| invalid())?;
         let interface_type = view_interface.as_ref().unwrap_or(interface_type);
+        let module = implementation
+            .definition(interface_type.declaration)?
+            .module();
         let trait_contract = implementation
             .members()
-            .find(|member| member.bytecode.identity == interface_type.declaration.module)
+            .find(|member| &member.bytecode.identity == module)
             .and_then(|member| {
-                abi::trait_contract(
+                abi::trait_contract_in(
+                    Some(member.definitions()),
                     &member.bytecode.identity,
                     &member.bytecode.public_items,
                     &member.bytecode.trait_contracts,
@@ -238,16 +243,15 @@ impl Runtime {
             let Some(method) = method else {
                 return Err(invalid());
             };
-            let mut path = interface_type.declaration.path.clone();
-            path.push(DefinitionPathSegment {
-                kind: DefinitionKind::Method,
-                name: method.name.clone(),
-                occurrence: 0,
-            });
-            let method_id = DefinitionPath {
-                module: interface_type.declaration.module.clone(),
-                path,
-            };
+            let method_id = implementation
+                .definitions()
+                .lookup_child(
+                    interface_type.declaration,
+                    DefinitionKind::Method,
+                    &method.name,
+                    0,
+                )
+                .ok_or_else(invalid)?;
             let mut candidates = linked
                 .methods
                 .iter()
@@ -387,7 +391,7 @@ impl Runtime {
     fn parent_snapshot(
         &self,
         snapshot: &InterfaceValueSnapshot,
-        target: &NominalAbiType,
+        target: &NominalAbiType<DefinitionId>,
     ) -> Result<Rc<InterfaceValueSnapshot>, RuntimeError> {
         let parent = snapshot
             .parents
@@ -491,7 +495,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         value: &value::Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         op: IterOp,
     ) -> Result<value::Value, RuntimeError> {
         let ty = self
@@ -588,10 +592,10 @@ impl Runtime {
         })
     }
 
-    pub fn resolve_interface_method(
+    pub fn resolve_interface_method<I: DefinitionReference>(
         &self,
         value: &Value,
-        method: &DefinitionPath,
+        method: &I,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let Value::Interface(id) = value else {
             return Err(RuntimeError::module_validation("expected interface value"));
@@ -600,6 +604,10 @@ impl Runtime {
             .gc
             .interface_snapshot(*id)
             .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
+        let method_id = method
+            .resolve(snapshot.receiver_table.owner.definitions())
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let method = &method_id;
         let root = self.root_value(value.clone()).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
         })?;
@@ -614,8 +622,13 @@ impl Runtime {
                 &[],
             );
         }
-        let mut owner = method.clone();
-        owner.path.pop();
+        let owner = snapshot
+            .receiver_table
+            .owner
+            .definitions()
+            .parent(*method)
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?
+            .ok_or_else(|| RuntimeError::module_validation("interface method parent"))?;
         if let Some(parent) = snapshot
             .parents
             .iter()
@@ -643,8 +656,8 @@ impl Runtime {
     pub fn upcast_interface(
         &self,
         value: &value::Value,
-        source: &NominalAbiType,
-        target: &NominalAbiType,
+        source: &NominalAbiType<DefinitionId>,
+        target: &NominalAbiType<DefinitionId>,
     ) -> Result<value::Value, RuntimeError> {
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
@@ -667,7 +680,7 @@ impl Runtime {
     pub fn resolve_interface_method_slot(
         &self,
         value: &Value,
-        interface: &NominalAbiType,
+        interface: &NominalAbiType<DefinitionId>,
         slot: usize,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
@@ -790,7 +803,7 @@ impl Runtime {
     pub(super) fn matches_interface_method_abi(
         &self,
         value: &value::Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         implementation: &LoadedModule,
     ) -> bool {
         if !self.gc.validate_value(value) {
@@ -805,10 +818,7 @@ impl Runtime {
             }
             (Value::HostRoot(root), AbiType::Host(id)) => {
                 self.host.matches_root(*root)
-                    && self
-                        .host
-                        .host_type_by_declaration(id)
-                        .is_some_and(|host| host.type_id == root.type_id())
+                    && implementation.host_type(*id) == Some(root.type_id())
             }
             _ => self.gc.matches_abi(value, ty, implementation),
         }

@@ -1,6 +1,7 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
 use kagari_abi::{standard::surface::StandardEnum as StandardEnumKind, types::AbiType};
+use kagari_common::identity::table::DefinitionId;
 
 use crate::{
     Runtime,
@@ -84,12 +85,9 @@ impl ErrorTrace {
                     unreachable!("native frame target");
                 };
                 let contract = &frame.loaded().bytecode.native_imports[import.index()];
-                let name = contract
-                    .instance
-                    .declaration
-                    .path
-                    .last()
-                    .map(|part| part.name.as_str())
+                let name = frame
+                    .loaded()
+                    .definition_name(contract.instance.declaration)
                     .unwrap_or("<native>");
                 let Some(function_name) = label(name, &mut trace.incomplete) else {
                     break;
@@ -235,7 +233,7 @@ impl Runtime {
         owner: &LoadedModule,
         original: &Value,
         error: Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
     ) -> Result<Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
         if let AbiType::StandardEnum {

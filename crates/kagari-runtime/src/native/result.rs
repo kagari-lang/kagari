@@ -9,19 +9,20 @@ use crate::{
 };
 use kagari_abi::{native_import::NativeImport, types::AbiType};
 use kagari_bytecode::{program::ModuleRef, trait_bounds::views::native_result_target};
+use kagari_common::identity::table::DefinitionId;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LinkedResultAdapter {
     owner: ModuleRef,
     table: usize,
-    arguments: Vec<AbiType>,
+    arguments: Vec<AbiType<DefinitionId>>,
     applied: Option<Vec<TypeArgument>>,
 }
 
 impl LinkedResultAdapter {
     pub(crate) fn link(
-        import: &NativeImport,
+        import: &NativeImport<DefinitionId>,
         program: &VerifiedProgram,
     ) -> NativeResult<Option<Self>> {
         let Some(adapter) = &import.result_adapter else {

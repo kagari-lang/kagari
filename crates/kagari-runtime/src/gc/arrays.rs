@@ -10,6 +10,7 @@ use crate::{
 };
 use kagari_abi::types::AbiType;
 use kagari_common::collection::CollectionAccess;
+use kagari_common::identity::table::DefinitionId;
 use std::{mem, ops::Bound, rc::Rc};
 
 fn invalid() -> RuntimeError {
@@ -23,7 +24,7 @@ impl GcHeap {
     pub(crate) fn alloc_array(
         &self,
         owner: &LoadedModule,
-        element: AbiType,
+        element: AbiType<DefinitionId>,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.alloc_array_with_contract(Rc::new(StorageType::prepare(element, owner)?), elements)
@@ -56,7 +57,7 @@ impl GcHeap {
     pub(crate) fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,
-        element: AbiType,
+        element: AbiType<DefinitionId>,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {

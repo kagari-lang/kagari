@@ -6,6 +6,7 @@ use crate::{
     value::Value,
 };
 use kagari_abi::{operations::IterOp, types::AbiType};
+use kagari_common::identity::table::DefinitionId;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -14,7 +15,7 @@ pub struct NativeCursor(Rc<Cursor>);
 #[derive(Debug)]
 struct Cursor {
     value: Value,
-    ty: AbiType,
+    ty: AbiType<DefinitionId>,
 }
 
 impl NativePayload for NativeCursor {

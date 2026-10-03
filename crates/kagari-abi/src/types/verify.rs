@@ -13,8 +13,11 @@ use crate::{
 
 use kagari_common::{
     cancellation::CancellationToken,
-    host_interface,
-    identity::{self, DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
+    host_interface::validate_host_type_identity_in,
+    identity::{
+        self, DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        reference::DefinitionReference, table::DefinitionTable,
+    },
     range::RangeKind,
 };
 
@@ -1004,6 +1007,44 @@ fn type_valid(
     self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
+    type_valid_in(ty, params, self_owner, cancel, None)
+}
+
+/// Check scoped type expressions without materializing owned paths.
+pub fn types_in_scope_in<'a, I: DefinitionReference + 'a>(
+    types: impl IntoIterator<Item = &'a AbiType<I>>,
+    parameters: &[GenericParameterAbi<I>],
+    cancel: &CancellationToken,
+    table: Option<&DefinitionTable>,
+) -> bool {
+    if parameters
+        .iter()
+        .any(|parameter| parameter.owner.describe(table).is_err())
+    {
+        return false;
+    }
+    let parameters = parameters
+        .iter()
+        .map(|parameter| (parameter.owner.clone(), parameter.position))
+        .collect();
+    types
+        .into_iter()
+        .all(|ty| ty.within_wire_limits() && type_valid_in(ty, &parameters, None, cancel, table))
+}
+
+fn type_valid_in<I: DefinitionReference>(
+    ty: &AbiType<I>,
+    params: &HashSet<(I, usize)>,
+    self_owner: Option<&I>,
+    cancel: &CancellationToken,
+    table: Option<&DefinitionTable>,
+) -> bool {
+    let associated = |member: &I, parent: &I| match (member.describe(table), parent.describe(table))
+    {
+        (Ok(member), Ok(parent)) => member.associated_member(parent),
+        _ => false,
+    };
+    let nominal_valid = |id: &I, kind| id.describe(table).is_ok_and(|id| id.nominal(kind));
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         if cancel.check().is_err() {
@@ -1019,11 +1060,7 @@ fn type_valid(
                 if params.is_empty() && self_owner.is_none() {
                     return false;
                 }
-                if *member
-                    != identity::associated_type_id(
-                        &interface.declaration,
-                        member.path.last().map_or("", |p| p.name.as_str()),
-                    )
+                if !associated(member, &interface.declaration)
                     || !nominal_valid(&interface.declaration, DefinitionKind::Trait)
                 {
                     return false;
@@ -1031,12 +1068,7 @@ fn type_valid(
                 pending.push(receiver);
                 pending.extend(arguments);
                 for (binding, value) in &interface.associated_types {
-                    if *binding
-                        != identity::associated_type_id(
-                            &interface.declaration,
-                            binding.path.last().map_or("", |part| part.name.as_str()),
-                        )
-                    {
+                    if !associated(binding, &interface.declaration) {
                         return false;
                     }
                     pending.push(value);
@@ -1055,7 +1087,7 @@ fn type_valid(
             }
             AbiType::Builtin(_) => {}
             AbiType::Host(id) => {
-                if host_interface::validate_host_type_identity(id).is_err() {
+                if validate_host_type_identity_in(id, table).is_err() {
                     return false;
                 }
             }
@@ -1093,19 +1125,19 @@ fn type_valid(
             | AbiType::Trait(nominal) => {
                 pending.extend(&nominal.arguments);
                 if !matches!(
-                    nominal.declaration.path.last().map(|part| part.kind),
+                    nominal
+                        .declaration
+                        .describe(table)
+                        .ok()
+                        .and_then(|view| view.last())
+                        .map(|part| part.kind),
                     Some(DefinitionKind::Trait)
                 ) && !nominal.associated_types.is_empty()
                 {
                     return false;
                 }
                 for (member, value) in &nominal.associated_types {
-                    if *member
-                        != identity::associated_type_id(
-                            &nominal.declaration,
-                            member.path.last().map_or("", |p| p.name.as_str()),
-                        )
-                    {
+                    if !associated(member, &nominal.declaration) {
                         return false;
                     }
                     pending.push(value);
@@ -1128,5 +1160,7 @@ fn type_valid(
     true
 }
 
+#[cfg(test)]
+mod scoped_tests;
 #[cfg(test)]
 mod tests;

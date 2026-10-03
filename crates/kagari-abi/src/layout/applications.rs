@@ -3,10 +3,13 @@ use crate::{
     layout::{EnumLayout, StructLayout},
     types::{AbiType, GenericParameterAbi, substitution::TypeSubstitution, verify::types_in_scope},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{cancellation::CancellationToken, identity::reference::DefinitionReference};
 use std::borrow::Cow;
 
-fn parameters(owner: &DefinitionPath, arguments: &[AbiType]) -> Option<Vec<GenericParameterAbi>> {
+fn parameters<I: DefinitionReference>(
+    owner: &I,
+    arguments: &[AbiType<I>],
+) -> Option<Vec<GenericParameterAbi<I>>> {
     if arguments.iter().all(AbiType::is_concrete) {
         return Some(vec![]);
     }
@@ -23,32 +26,24 @@ fn parameters(owner: &DefinitionPath, arguments: &[AbiType]) -> Option<Vec<Gener
         .collect()
 }
 
-fn accepts(owner: &DefinitionPath, template: &[AbiType], arguments: &[AbiType]) -> bool {
+fn accepts<I: DefinitionReference>(
+    owner: &I,
+    template: &[AbiType<I>],
+    arguments: &[AbiType<I>],
+) -> bool {
     template == arguments
         || (template.len() == arguments.len()
             && parameters(owner, template).is_some_and(|parameters| !parameters.is_empty()))
 }
 
-impl StructLayout {
-    pub fn accepts(&self, arguments: &[AbiType]) -> bool {
+impl<I: DefinitionReference> StructLayout<I> {
+    pub fn accepts(&self, arguments: &[AbiType<I>]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
-    }
-
-    pub fn types_valid(&self, cancel: &CancellationToken) -> bool {
-        parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope(
-                self.arguments
-                    .iter()
-                    .chain(self.fields.iter().map(|field| &field.ty)),
-                &parameters,
-                cancel,
-            )
-        })
     }
 
     pub fn apply<'a>(
         &'a self,
-        arguments: &[AbiType],
+        arguments: &[AbiType<I>],
         cancel: &CancellationToken,
     ) -> Option<Cow<'a, Self>> {
         if self.arguments == arguments {
@@ -67,26 +62,14 @@ impl StructLayout {
     }
 }
 
-impl EnumLayout {
-    pub fn accepts(&self, arguments: &[AbiType]) -> bool {
+impl<I: DefinitionReference> EnumLayout<I> {
+    pub fn accepts(&self, arguments: &[AbiType<I>]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
-    }
-
-    pub fn types_valid(&self, cancel: &CancellationToken) -> bool {
-        parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope(
-                self.arguments
-                    .iter()
-                    .chain(self.variants.iter().flat_map(|variant| &variant.payload)),
-                &parameters,
-                cancel,
-            )
-        })
     }
 
     pub fn apply<'a>(
         &'a self,
-        arguments: &[AbiType],
+        arguments: &[AbiType<I>],
         cancel: &CancellationToken,
     ) -> Option<Cow<'a, Self>> {
         if self.arguments == arguments {
@@ -104,5 +87,33 @@ impl EnumLayout {
             }
         }
         Some(Cow::Owned(applied))
+    }
+}
+
+impl StructLayout {
+    pub fn types_valid(&self, cancel: &CancellationToken) -> bool {
+        parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
+            types_in_scope(
+                self.arguments
+                    .iter()
+                    .chain(self.fields.iter().map(|field| &field.ty)),
+                &parameters,
+                cancel,
+            )
+        })
+    }
+}
+
+impl EnumLayout {
+    pub fn types_valid(&self, cancel: &CancellationToken) -> bool {
+        parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
+            types_in_scope(
+                self.arguments
+                    .iter()
+                    .chain(self.variants.iter().flat_map(|variant| &variant.payload)),
+                &parameters,
+                cancel,
+            )
+        })
     }
 }

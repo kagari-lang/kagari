@@ -4,24 +4,27 @@ use kagari_abi::{
     native_import::callables::NativeCallableRequirement,
     types::{AbiType, NominalAbiType},
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use std::{collections::HashMap, rc::Rc};
 
 #[derive(Debug, Default)]
 struct ReceiverMethods {
     slots: Vec<Option<usize>>,
-    members: HashMap<DefinitionPath, usize>,
+    members: HashMap<DefinitionId, usize>,
 }
 
 #[derive(Debug)]
 pub(crate) struct ReceiverOperations {
     entries: Vec<Rc<BoundOperation>>,
-    index: HashMap<NominalAbiType, HashMap<AbiType, ReceiverMethods>>,
+    index: HashMap<NominalAbiType<DefinitionId>, HashMap<AbiType<DefinitionId>, ReceiverMethods>>,
 }
 
 impl ReceiverOperations {
     pub(crate) fn new(entries: Vec<BoundOperation>) -> Rc<Self> {
-        let mut index: HashMap<NominalAbiType, HashMap<AbiType, ReceiverMethods>> = HashMap::new();
+        let mut index: HashMap<
+            NominalAbiType<DefinitionId>,
+            HashMap<AbiType<DefinitionId>, ReceiverMethods>,
+        > = HashMap::new();
         for (position, operation) in entries.iter().enumerate() {
             let methods = index
                 .entry(operation.requirement.interface.clone())
@@ -35,7 +38,7 @@ impl ReceiverOperations {
             methods.slots[slot].get_or_insert(position);
             methods
                 .members
-                .entry(operation.requirement.member.clone())
+                .entry(operation.requirement.member)
                 .or_insert(position);
         }
         Rc::new_cyclic(|weak| Self {
@@ -50,14 +53,18 @@ impl ReceiverOperations {
         })
     }
 
-    fn methods(&self, receiver: &AbiType, interface: &NominalAbiType) -> Option<&ReceiverMethods> {
+    fn methods(
+        &self,
+        receiver: &AbiType<DefinitionId>,
+        interface: &NominalAbiType<DefinitionId>,
+    ) -> Option<&ReceiverMethods> {
         self.index.get(interface)?.get(receiver)
     }
 
     fn slot(
         &self,
-        receiver: &AbiType,
-        interface: &NominalAbiType,
+        receiver: &AbiType<DefinitionId>,
+        interface: &NominalAbiType<DefinitionId>,
         slot: u32,
     ) -> Option<&Rc<BoundOperation>> {
         let position = self
@@ -70,7 +77,7 @@ impl ReceiverOperations {
 
     pub(crate) fn operation(
         &self,
-        required: &NativeCallableRequirement,
+        required: &NativeCallableRequirement<DefinitionId>,
     ) -> Option<&Rc<BoundOperation>> {
         let position = self
             .methods(&required.receiver, &required.interface)?
@@ -121,8 +128,8 @@ impl OperationBindings {
 
     pub(crate) fn operation_slot(
         &self,
-        receiver: &AbiType,
-        interface: &NominalAbiType,
+        receiver: &AbiType<DefinitionId>,
+        interface: &NominalAbiType<DefinitionId>,
         slot: u32,
     ) -> Option<&Rc<BoundOperation>> {
         self.segments.iter().find_map(|segment| match segment {
@@ -136,7 +143,7 @@ impl OperationBindings {
 
     pub(crate) fn operation(
         &self,
-        required: &NativeCallableRequirement,
+        required: &NativeCallableRequirement<DefinitionId>,
     ) -> Option<&Rc<BoundOperation>> {
         self.segments.iter().find_map(|segment| match segment {
             OperationSegment::Selected(operation) => {
@@ -147,7 +154,10 @@ impl OperationBindings {
     }
 }
 
-fn matches_requirement(operation: &BoundOperation, required: &NativeCallableRequirement) -> bool {
+fn matches_requirement(
+    operation: &BoundOperation,
+    required: &NativeCallableRequirement<DefinitionId>,
+) -> bool {
     operation.requirement == *required
         || (operation.generic.is_some()
             && operation.requirement.receiver == required.receiver

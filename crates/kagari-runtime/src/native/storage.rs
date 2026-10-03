@@ -18,6 +18,8 @@ use crate::{
     value::Value,
 };
 use kagari_abi::types::{AbiType, native::NativeStorageLayout};
+use kagari_common::identity::reference::DefinitionReference;
+use kagari_common::identity::table::DefinitionId;
 use std::{
     any::{Any, TypeId},
     fmt::{self, Debug},
@@ -41,7 +43,7 @@ pub trait NativePayload: Any + Debug {
 pub struct StorageContext<'call> {
     pub(crate) runtime: &'call Runtime,
     pub(crate) owner: &'call LoadedModule,
-    pub(crate) ty: &'call AbiType,
+    pub(crate) ty: &'call AbiType<DefinitionId>,
     pub(crate) scope: Option<&'call TypeArgument>,
     pub(crate) selected: &'call [LinkedOperation],
 }
@@ -51,7 +53,10 @@ impl<'call> StorageContext<'call> {
         self.runtime.gc()
     }
 
-    pub fn resolve_type(&self, ty: &AbiType) -> NativeResult<TypeArgument> {
+    pub fn resolve_type<I: DefinitionReference>(
+        &self,
+        ty: &AbiType<I>,
+    ) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()
@@ -105,7 +110,7 @@ impl<'call> StorageContext<'call> {
             })
     }
 
-    pub fn ty(&self) -> &'call AbiType {
+    pub fn ty(&self) -> &'call AbiType<DefinitionId> {
         self.ty
     }
 }
@@ -219,7 +224,7 @@ impl NativeStorage {
     pub(crate) fn prepare_payload<S: NativePayload>(
         &self,
         heap: &GcHeap,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         payload: S,
         owner: &LoadedModule,
     ) -> NativeResult<NativeObject> {
@@ -234,7 +239,7 @@ impl NativeStorage {
     fn object(
         &self,
         heap: &GcHeap,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         payload: Box<dyn Any>,
         owner: &LoadedModule,
     ) -> NativeResult<NativeObject> {
@@ -266,7 +271,7 @@ impl NativeStorage {
 pub(crate) struct NativeObject {
     pub(crate) storage: NativeStorage,
     payload: Box<dyn Any>,
-    pub(crate) ty: AbiType,
+    pub(crate) ty: AbiType<DefinitionId>,
     _owner: LoadedModule,
     pub(crate) scope: Option<TypeArgument>,
 }
@@ -283,9 +288,13 @@ impl Debug for NativeObject {
 impl NativeObject {
     // Linking compares every native storage contract with its installed owner.
     // Installation forbids replacing that owner while its heap objects exist.
+    pub(crate) fn definition_name(&self, id: DefinitionId) -> Option<&str> {
+        self._owner.definition_name(id)
+    }
+
     pub(crate) fn matches(
         &self,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {

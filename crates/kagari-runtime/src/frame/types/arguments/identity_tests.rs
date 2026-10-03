@@ -15,9 +15,9 @@ fn owner(module: &str) -> DefinitionPath {
     }
 }
 
-fn binder(module: &str) -> GenericParameterAbi {
+fn binder(definitions: &DefinitionContext, module: &str) -> GenericParameterAbi<DefinitionId> {
     GenericParameterAbi {
-        owner: owner(module),
+        owner: definitions.intern(&owner(module)).unwrap(),
         position: 0,
     }
 }
@@ -25,6 +25,7 @@ fn binder(module: &str) -> GenericParameterAbi {
 fn argument(kind: BuiltinType) -> TypeArgument {
     TypeArgument {
         ty: AbiType::Builtin(kind),
+        definitions: DefinitionContext::new().unwrap().snapshot(),
         origin: None,
     }
 }
@@ -35,20 +36,23 @@ fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
     let parent = Rc::new(
         TypeEnvironment::new(
             &definitions,
-            vec![binder("parent.kgr")],
+            vec![binder(&definitions, "parent.kgr")],
             vec![argument(BuiltinType::I32)],
         )
         .unwrap(),
     );
     let mut child = TypeEnvironment::new(
         &definitions,
-        vec![binder("child.kgr")],
+        vec![binder(&definitions, "child.kgr")],
         vec![argument(BuiltinType::String)],
     )
     .unwrap();
     child.include(Some(parent.clone())).unwrap();
     let body = GenericBody {
-        parameters: vec![binder("child.kgr"), binder("parent.kgr")],
+        parameters: vec![
+            binder(&definitions, "child.kgr"),
+            binder(&definitions, "parent.kgr"),
+        ],
         bounds: vec![],
     };
     assert!(child.matches(&body));
@@ -69,9 +73,10 @@ fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
     let types_only = child.types_only();
     drop(child);
     drop(parent);
+    let foreign = definitions.intern(&owner("foreign.kgr")).unwrap();
     drop(definitions);
     assert_eq!(types_only.resolve(&expression).unwrap(), expected);
-    assert!(types_only.argument(&owner("foreign.kgr"), 0).is_none());
+    assert!(types_only.argument(&foreign, 0).is_none());
 }
 
 #[test]
@@ -80,14 +85,14 @@ fn environments_reject_duplicate_binders_and_foreign_context_parents() {
     let parent = Rc::new(
         TypeEnvironment::new(
             &definitions,
-            vec![binder("owner.kgr")],
+            vec![binder(&definitions, "owner.kgr")],
             vec![argument(BuiltinType::I32)],
         )
         .unwrap(),
     );
     let mut duplicate = TypeEnvironment::new(
         &definitions,
-        vec![binder("owner.kgr")],
+        vec![binder(&definitions, "owner.kgr")],
         vec![argument(BuiltinType::String)],
     )
     .unwrap();
@@ -95,7 +100,7 @@ fn environments_reject_duplicate_binders_and_foreign_context_parents() {
     let foreign = DefinitionContext::new().unwrap();
     let mut child = TypeEnvironment::new(
         &foreign,
-        vec![binder("other.kgr")],
+        vec![binder(&foreign, "other.kgr")],
         vec![argument(BuiltinType::String)],
     )
     .unwrap();

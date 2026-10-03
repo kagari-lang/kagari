@@ -12,6 +12,7 @@ use crate::{
     value::Value,
 };
 use kagari_abi::types::AbiType;
+use kagari_common::identity::table::DefinitionId;
 use std::cell::Cell;
 
 struct NativeBorrow<'heap>(&'heap Cell<usize>);
@@ -26,7 +27,7 @@ impl GcHeap {
     pub(crate) fn matches_native_type(
         &self,
         id: HeapObjectId,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -34,7 +35,7 @@ impl GcHeap {
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty, owner, environment))
     }
 
-    pub(crate) fn default_storage(&self, ty: &AbiType) -> Option<&NativeStorage> {
+    pub(crate) fn default_storage(&self, ty: &AbiType<DefinitionId>) -> Option<&NativeStorage> {
         match ty {
             AbiType::Array(..) => Some(&self.sequence_storage),
             AbiType::Map { .. } => Some(&self.map_storage),
@@ -51,7 +52,7 @@ impl GcHeap {
         let AbiType::NativeObject(nominal) = &object.ty else {
             return None;
         };
-        Some(nominal.declaration.path.last()?.name.clone())
+        Some(object.definition_name(nominal.declaration)?.to_owned())
     }
 
     pub(crate) fn ensure_no_native_borrow(&self) -> NativeResult<()> {

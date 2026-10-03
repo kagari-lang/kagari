@@ -577,10 +577,19 @@ fn runner() -> Run { 7 }
         .interface_tables
         .iter()
         .flat_map(|table| &table.methods)
-        .find(|method| method.method.path.last().unwrap().name == "run")
+        .find(|method| {
+            current
+                .definitions()
+                .resolve(method.method)
+                .unwrap()
+                .segments()
+                .last()
+                .unwrap()
+                .name
+                == "run"
+        })
         .unwrap()
-        .method
-        .clone();
+        .method;
     assert_eq!(
         vm.invoke_interface_method(&runner, &method, &[receiver])
             .unwrap(),

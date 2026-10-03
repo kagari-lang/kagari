@@ -13,6 +13,7 @@ use crate::{
     value::Value,
 };
 use kagari_abi::types::AbiType;
+use kagari_common::identity::table::DefinitionId;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -56,11 +57,11 @@ impl PreparedClosure {
     fn call<R: NativeScalar, A: CallArguments>(
         &self,
         cx: &CallContext<'_>,
-        params: &[AbiType],
-        result: &AbiType,
+        params: &[AbiType<DefinitionId>],
+        result: &AbiType<DefinitionId>,
         arguments: A,
     ) -> NativeResult<R> {
-        if result != &R::abi_type() || !A::matches(params) {
+        if result != &R::abi_type_in() || !A::matches(params) {
             return Err(RuntimeError::module_validation(
                 "native callback conversion differs from its declaration",
             ));
@@ -109,8 +110,8 @@ impl PreparedClosure {
 /// shares immutable capture metadata and never holds a heap borrow across calls.
 pub struct CallableHandle<'call> {
     target: PreparedClosure,
-    params: &'call [AbiType],
-    result: &'call AbiType,
+    params: &'call [AbiType<DefinitionId>],
+    result: &'call AbiType<DefinitionId>,
     _arguments: ArgumentView<'call>,
 }
 
@@ -182,8 +183,8 @@ impl<'call> CallableHandle<'call> {
 #[derive(Debug)]
 struct StoredFunction {
     target: PreparedClosure,
-    params: Box<[AbiType]>,
-    result: AbiType,
+    params: Box<[AbiType<DefinitionId>]>,
+    result: AbiType<DefinitionId>,
 }
 
 /// Embed this immutable descriptor in a NativePayload and visit it in trace.

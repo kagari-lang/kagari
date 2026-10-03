@@ -6,6 +6,7 @@ use crate::{
     value::Value,
 };
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_common::identity::reference::DefinitionReference;
 
 mod sealed {
     pub trait Scalar {}
@@ -13,6 +14,13 @@ mod sealed {
 
 pub trait NativeScalar: sealed::Scalar + Sized + 'static {
     fn abi_type() -> AbiType;
+
+    fn abi_type_in<I: DefinitionReference>() -> AbiType<I> {
+        let AbiType::Builtin(kind) = Self::abi_type() else {
+            unreachable!("sealed scalar contract");
+        };
+        AbiType::Builtin(kind)
+    }
 
     fn decode(value: Value) -> NativeResult<Self>;
 

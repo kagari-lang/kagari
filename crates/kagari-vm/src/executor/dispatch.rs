@@ -2,6 +2,7 @@ use kagari_abi::{operations::IterOp, standard::RuntimePrimitive, types::AbiType}
 use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
 use std::iter;
 
@@ -14,7 +15,7 @@ impl<'a> Executor<'a> {
     fn dispatch_iterator(
         &mut self,
         source: &Value,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         op: IterOp,
         dst: Option<Register>,
     ) -> Result<(), VmError> {
@@ -30,15 +31,21 @@ impl<'a> Executor<'a> {
     fn dispatch_range_bound(
         &mut self,
         value: Value,
-        range: &AbiType,
-        bound: &AbiType,
+        range: &AbiType<DefinitionId>,
+        bound: &AbiType<DefinitionId>,
         upper: bool,
         dst: Option<Register>,
     ) -> Result<(), VmError> {
         let Value::Range(value) = value else {
             return Err(VmError::Trap("invalid range value"));
         };
-        let result = value.bound(self.runtime.gc(), range, bound, upper)?;
+        let result = value.bound(
+            self.runtime.gc(),
+            self.current_frame()?.loaded().definitions(),
+            range,
+            bound,
+            upper,
+        )?;
         if let Some(dst) = dst {
             self.current_frame_mut()?.write_register(dst, result)?;
         }
@@ -47,7 +54,7 @@ impl<'a> Executor<'a> {
 
     pub(crate) fn dispatch_instruction(
         &mut self,
-        instruction: BytecodeInstruction,
+        instruction: BytecodeInstruction<DefinitionId>,
     ) -> Result<(), VmError> {
         match instruction {
             BytecodeInstruction::Convert {
@@ -481,7 +488,7 @@ impl<'a> Executor<'a> {
     fn dispatch_call(
         &mut self,
         dst: Option<Register>,
-        callee: CallTarget,
+        callee: CallTarget<DefinitionId>,
         args: Vec<Register>,
     ) -> Result<(), VmError> {
         if let CallTarget::Native(import) = callee {

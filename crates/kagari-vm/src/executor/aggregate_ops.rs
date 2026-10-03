@@ -2,6 +2,7 @@ use kagari_abi::{
     operations::StandardEnumOp, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
 };
 use kagari_bytecode::instruction::{EnumId, FieldRef, Register, StructId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     value::{EnumTag, Value},
@@ -14,7 +15,7 @@ impl Executor<'_> {
         &self,
         value: Register,
         enumeration: EnumId,
-        arguments: &[AbiType],
+        arguments: &[AbiType<DefinitionId>],
         variant: u32,
     ) -> Result<Value, VmError> {
         let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
@@ -38,7 +39,7 @@ impl Executor<'_> {
         &self,
         value: Register,
         enumeration: EnumId,
-        arguments: &[AbiType],
+        arguments: &[AbiType<DefinitionId>],
         variant: u32,
         index: u32,
     ) -> Result<Value, VmError> {
@@ -66,7 +67,7 @@ impl Executor<'_> {
     pub(crate) fn make_enum(
         &self,
         enumeration: EnumId,
-        arguments: &[AbiType],
+        arguments: &[AbiType<DefinitionId>],
         variant: u32,
         fields: &[Register],
     ) -> Result<Value, VmError> {
@@ -93,7 +94,7 @@ impl Executor<'_> {
 
     pub(crate) fn make_array(
         &self,
-        element: &AbiType,
+        element: &AbiType<DefinitionId>,
         elements: &[Register],
     ) -> Result<Value, VmError> {
         let elements = elements
@@ -115,7 +116,7 @@ impl Executor<'_> {
     pub(crate) fn make_struct(
         &self,
         structure: StructId,
-        arguments: &[AbiType],
+        arguments: &[AbiType<DefinitionId>],
         fields: &[Register],
     ) -> Result<Value, VmError> {
         let fields = fields
@@ -132,7 +133,11 @@ impl Executor<'_> {
         Ok(Value::Struct(handle))
     }
 
-    pub(crate) fn read_field(&self, base: Register, field: FieldRef) -> Result<Value, VmError> {
+    pub(crate) fn read_field(
+        &self,
+        base: Register,
+        field: FieldRef<DefinitionId>,
+    ) -> Result<Value, VmError> {
         let layout =
             self.current_frame()?
                 .struct_layout(self.runtime, field.structure, &field.arguments)?;
@@ -179,7 +184,7 @@ impl Executor<'_> {
     pub(crate) fn write_field(
         &self,
         base: Register,
-        field: FieldRef,
+        field: FieldRef<DefinitionId>,
         value: Register,
     ) -> Result<(), VmError> {
         let value = self.current_frame()?.read_register(value)?;
@@ -259,7 +264,7 @@ impl Executor<'_> {
     pub(crate) fn standard_enum_operation(
         &self,
         value: Option<Register>,
-        ty: &AbiType,
+        ty: &AbiType<DefinitionId>,
         op: StandardEnumOp,
     ) -> Result<Value, VmError> {
         let AbiType::StandardEnum { kind, args } = ty else {

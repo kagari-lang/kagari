@@ -260,7 +260,7 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
             "frames",
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![(*old.bytecode).clone()],
+                modules: vec![old.to_unverified(&Default::default()).unwrap()],
             },
         )
         .unwrap();
@@ -316,7 +316,7 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
             "frames",
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![(*old.bytecode).clone()],
+                modules: vec![old.to_unverified(&Default::default()).unwrap()],
             },
         )
         .unwrap();

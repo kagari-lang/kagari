@@ -485,7 +485,9 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
             },
         )
         .expect("consumer should load");
-    let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(&consumer.bytecode);
+    let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(
+        &consumer.to_unverified(&Default::default()).unwrap(),
+    );
     consumer_snapshot
         .dependency_fingerprints
         .push(DependencyFingerprint {
@@ -552,7 +554,9 @@ fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_st
         .register_interpreter_cache(
             loaded.key(),
             None,
-            ReloadDependencySnapshot::from_bytecode(&loaded.bytecode),
+            ReloadDependencySnapshot::from_bytecode(
+                &loaded.to_unverified(&Default::default()).unwrap(),
+            ),
         )
         .expect("function cache should register");
 
@@ -614,7 +618,9 @@ fn failed_reload_does_not_invalidate_interpreter_caches() {
             },
         )
         .expect("consumer should load");
-    let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(&consumer.bytecode);
+    let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(
+        &consumer.to_unverified(&Default::default()).unwrap(),
+    );
     consumer_snapshot
         .dependency_fingerprints
         .push(DependencyFingerprint {

@@ -25,6 +25,7 @@ use kagari_abi::{
     types::{self as abi, AbiType, ConcreteFunctionIdentity},
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
+use kagari_common::identity::table::DefinitionId;
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -32,13 +33,14 @@ use std::{
 
 pub(super) fn interface_binding(
     implementation: &LoadedModule,
-    application: &ConcreteFunctionIdentity,
+    application: &ConcreteFunctionIdentity<DefinitionId>,
     environment: Option<Rc<TypeEnvironment>>,
 ) -> Result<InterfaceResultBinding, RuntimeError> {
     let invalid = || RuntimeError::module_validation("invalid selected interface binding");
+    let module = implementation.definition(application.declaration)?.module();
     let owner = implementation
         .members()
-        .find(|owner| owner.bytecode.identity == application.declaration.module)
+        .find(|owner| &owner.bytecode.identity == module)
         .ok_or_else(invalid)?;
     let shared = application.arguments.iter().any(|ty| !ty.is_concrete());
     let table = owner
@@ -64,8 +66,8 @@ pub(super) fn interface_binding(
 
 fn resolve_requirement(
     frame: &ExecutionFrame,
-    required: &NativeCallableRequirement,
-) -> Result<NativeCallableRequirement, RuntimeError> {
+    required: &NativeCallableRequirement<DefinitionId>,
+) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
     let AbiType::Trait(interface) = frame
         .resolve_type(&AbiType::Trait(required.interface.clone()))?
         .into_owned()
@@ -75,7 +77,7 @@ fn resolve_requirement(
     Ok(NativeCallableRequirement {
         receiver: frame.resolve_type(&required.receiver)?.into_owned(),
         interface,
-        member: required.member.clone(),
+        member: required.member,
         arguments: required
             .arguments
             .iter()
@@ -88,7 +90,7 @@ impl Runtime {
     pub fn resolve_interface_call(
         &self,
         frame: &ExecutionFrame,
-        contract: &InterfaceCallContract,
+        contract: &InterfaceCallContract<DefinitionId>,
         receiver: &Value,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
@@ -157,7 +159,7 @@ impl Runtime {
     pub(crate) fn bind_operations(
         &self,
         frame: &ExecutionFrame,
-        witnesses: &[OperationWitness],
+        witnesses: &[OperationWitness<DefinitionId>],
     ) -> Result<OperationBindings, RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         let mut operations = OperationBindings::default();
@@ -190,12 +192,14 @@ impl Runtime {
                             retention
                         }
                     };
+                    let module = frame
+                        .loaded()
+                        .definition(selected.instance.declaration)?
+                        .module();
                     let owner = frame
                         .loaded()
                         .members()
-                        .find(|owner| {
-                            owner.bytecode.identity == selected.instance.declaration.module
-                        })
+                        .find(|owner| &owner.bytecode.identity == module)
                         .ok_or_else(invalid)?;
                     let target = match &selected.implementation {
                         CallableImplementation::Script => owner
@@ -217,14 +221,16 @@ impl Runtime {
                         _ => None,
                     }
                     .ok_or_else(invalid)?;
+                    let module = frame
+                        .loaded()
+                        .definition(selected.requirement.interface.declaration)?
+                        .module();
                     let slot = owner
                         .members()
-                        .find(|member| {
-                            member.bytecode.identity
-                                == selected.requirement.interface.declaration.module
-                        })
+                        .find(|member| &member.bytecode.identity == module)
                         .and_then(|member| {
-                            abi::trait_contract(
+                            abi::trait_contract_in(
+                                Some(member.definitions()),
                                 &member.bytecode.identity,
                                 &member.bytecode.public_items,
                                 &member.bytecode.trait_contracts,
@@ -232,12 +238,8 @@ impl Runtime {
                             )
                             .and_then(|contract| {
                                 contract.methods.iter().position(|method| {
-                                    selected
-                                        .requirement
-                                        .member
-                                        .path
-                                        .last()
-                                        .is_some_and(|segment| segment.name == method.name)
+                                    member.definition_name(selected.requirement.member)
+                                        == Some(method.name.as_str())
                                 })
                             })
                         })
@@ -248,7 +250,7 @@ impl Runtime {
                         generic: None,
                         retention,
                         slot,
-                        primitive: callable_primitive(selected),
+                        primitive: callable_primitive(selected, owner.definitions()),
                         requirement: selected.requirement.clone(),
                         owner,
                         target,
@@ -266,7 +268,7 @@ impl Runtime {
     fn bind_shared_method(
         &self,
         frame: &ExecutionFrame,
-        selected: &SharedMethodWitness,
+        selected: &SharedMethodWitness<DefinitionId>,
     ) -> Result<(Rc<BoundOperation>, Rc<ReceiverOperations>), RuntimeError> {
         let binding = interface_binding(
             frame.loaded(),

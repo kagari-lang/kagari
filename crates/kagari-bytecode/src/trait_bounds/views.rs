@@ -21,7 +21,9 @@ use kagari_abi::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, reference::DefinitionReference,
+    },
 };
 
 pub struct InterfaceLinks {
@@ -218,10 +220,10 @@ pub(super) fn valid(
     Ok(true)
 }
 
-fn template<'a>(
-    module: &'a BytecodeModule,
-    linked: &InterfaceTableRecord,
-) -> Option<&'a InterfaceTableAbi> {
+fn template<'a, I: DefinitionReference>(
+    module: &'a BytecodeModule<I>,
+    linked: &InterfaceTableRecord<I>,
+) -> Option<&'a InterfaceTableAbi<I>> {
     module.public_items.iter().find_map(|item| match item {
         PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
             Some(table.as_ref())
@@ -231,14 +233,16 @@ fn template<'a>(
 }
 
 /// Locate the exact preselected table; symbolic applications use its canonical body.
-pub fn native_result_target(
-    adapter: &NativeResultAdapter,
-    closure: &[&BytecodeModule],
+pub fn native_result_target<I: DefinitionReference>(
+    adapter: &NativeResultAdapter<I>,
+    closure: &[&BytecodeModule<I>],
 ) -> Option<(ModuleRef, usize)> {
-    let (owner_index, owner) = closure
-        .iter()
-        .enumerate()
-        .find(|(_, owner)| owner.identity == adapter.implementation.declaration.module)?;
+    let (owner_index, owner) = closure.iter().enumerate().find(|(_, owner)| {
+        owner
+            .interface_tables
+            .iter()
+            .any(|linked| linked.declaration == adapter.implementation.declaration)
+    })?;
     let table_index = owner.interface_tables.iter().position(|linked| {
         if linked.declaration != adapter.implementation.declaration {
             return false;

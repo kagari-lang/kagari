@@ -20,7 +20,17 @@ fn variant(module: &LoadedModule, name: &str) -> kagari_runtime::module::EnumVar
         .bytecode
         .enumerations
         .iter()
-        .position(|layout| layout.declaration.path.last().unwrap().name == name)
+        .position(|layout| {
+            module
+                .definitions()
+                .resolve(layout.declaration)
+                .unwrap()
+                .segments()
+                .last()
+                .unwrap()
+                .name
+                == name
+        })
         .unwrap();
     module.enum_variant(EnumId::new(slot), 0).unwrap()
 }
