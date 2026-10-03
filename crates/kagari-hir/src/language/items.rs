@@ -1,4 +1,5 @@
 //! Header-time role collection. Roles identify ordinary traits, not a second trait model.
+use kagari_contract::library::catalog;
 #[cfg(test)]
 mod tests;
 use crate::{
@@ -18,10 +19,10 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
-    language::{self, catalog, role::LangRole},
+    language::{self, role::LangRole},
     types::Constraint,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 
 pub(crate) fn collect(
     lowered: &LoweredModule,
@@ -86,10 +87,11 @@ pub(crate) fn collect(
             );
             continue;
         }
-        if items.contains_key(&role) {
-            report(&name, "duplicate role", attribute.span);
-        } else {
-            items.insert(role, id.clone());
+        match items.entry(role) {
+            Entry::Vacant(entry) => {
+                entry.insert(id.clone());
+            }
+            Entry::Occupied(_) => report(&name, "duplicate role", attribute.span),
         }
     }
     if lowered.language_foundation {
@@ -118,7 +120,9 @@ pub(crate) fn validate_shapes(
             .expect("required checked language product");
         let owner_generic_count = expected.generic_params.len();
         let valid = aggregates.trait_(id).is_some_and(|actual| {
-            actual.generic_params.len() == expected.generic_params.len()
+            actual.storage_access == expected.storage_access
+                && actual.conversion_adapter == expected.conversion_adapter
+                && actual.generic_params.len() == expected.generic_params.len()
                 && actual.bounds.values().all(Vec::is_empty)
                 && actual.associated_consts.is_empty()
                 && actual.associated_type_parameters.is_empty()

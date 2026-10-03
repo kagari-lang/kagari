@@ -160,6 +160,7 @@ pub(crate) fn check_signatures(
                     lowered.source_map.type_span(field.ty),
                     &mut diagnostics,
                     cancel,
+                    None,
                 );
             }
             type_table.insert_field_type(field.id, ty);
@@ -192,6 +193,7 @@ pub(crate) fn check_signatures(
                         lowered.source_map.type_span(*payload),
                         &mut diagnostics,
                         cancel,
+                        None,
                     ),
                     ty => {
                         validate_standard_type_constraints(
@@ -202,6 +204,7 @@ pub(crate) fn check_signatures(
                             lowered.source_map.type_span(*payload),
                             &mut diagnostics,
                             cancel,
+                            None,
                         );
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
@@ -300,6 +303,7 @@ pub(crate) fn check_signatures(
                 lowered.source_map.type_span(param.ty),
                 &mut diagnostics,
                 cancel,
+                None,
             );
             if param_type.is_unresolved() {
                 diagnostics.push(
@@ -329,6 +333,7 @@ pub(crate) fn check_signatures(
                     lowered.source_map.type_span(*ty_ref),
                     &mut diagnostics,
                     cancel,
+                    None,
                 );
                 if ty.is_unresolved() {
                     diagnostics.push(
@@ -440,6 +445,7 @@ pub(crate) fn check_bodies_controlled(
                         lowered.source_map.type_span(ty_ref),
                         &mut diagnostics,
                         cancel,
+                        None,
                     );
                     ty
                 }
@@ -450,6 +456,7 @@ pub(crate) fn check_bodies_controlled(
                         lowered.source_map.type_span(ty_ref),
                         &mut diagnostics,
                         cancel,
+                        None,
                     );
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnknownConstType {
@@ -728,6 +735,7 @@ pub(super) fn validate_standard_type_constraints(
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
+    catalog: Option<&AggregateCatalog>,
 ) {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
@@ -742,6 +750,7 @@ pub(super) fn validate_standard_type_constraints(
                     generic_bounds,
                     span,
                     diagnostics,
+                    catalog,
                 );
                 pending.push(value);
                 pending.push(key);
@@ -753,6 +762,7 @@ pub(super) fn validate_standard_type_constraints(
                     generic_bounds,
                     span,
                     diagnostics,
+                    catalog,
                 );
                 pending.push(element);
             }
@@ -785,6 +795,7 @@ pub(super) fn validate_standard_constraint_type(
     generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+    catalog: Option<&AggregateCatalog>,
 ) {
     if matches!(ty, TypeId::Unknown | TypeId::Error) {
         return;
@@ -792,7 +803,12 @@ pub(super) fn validate_standard_constraint_type(
     if constraint == StandardTypeConstraint::Comparable && ty.is_unresolved() {
         return;
     }
-    if constraints::type_satisfies_standard_constraint(ty, constraint, generic_bounds) {
+    // Header checking has not assembled installed trait facts yet. Nominal
+    // interface value constraints are completed with the aggregate catalog.
+    if catalog.is_none() && ty.contains_interface() {
+        return;
+    }
+    if constraints::type_satisfies_standard_constraint(ty, constraint, generic_bounds, catalog) {
         return;
     }
 
@@ -1063,6 +1079,7 @@ mod constraint_traversal_tests {
             Default::default(),
             &mut diagnostics,
             &cancelled,
+            None,
         );
         let cancelled_count = diagnostics.len();
         validate_standard_type_constraints(
@@ -1071,6 +1088,7 @@ mod constraint_traversal_tests {
             Default::default(),
             &mut diagnostics,
             &Default::default(),
+            None,
         );
         // Drop the synthetic deep input iteratively as well: this test exercises
         // validation, not the recursive representation's destructor.

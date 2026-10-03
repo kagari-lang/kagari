@@ -12,7 +12,11 @@ use crate::{
         storage::NativeStorage,
     },
 };
-use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget, program::ModuleRef};
+use kagari_bytecode::{
+    instruction::NativeImportId,
+    module::{BytecodeModule, CallableTarget},
+    program::ModuleRef,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -108,6 +112,13 @@ impl Default for NativeRegistry {
 }
 
 impl NativeRegistry {
+    pub(crate) fn validate_installed_traits(
+        &self,
+        module: &BytecodeModule<DefinitionId>,
+    ) -> NativeResult<()> {
+        dependencies::validate_installed_traits(&self.catalog, module)
+    }
+
     pub(crate) fn install(
         &mut self,
         registration: Rc<BindingRegistration>,

@@ -11,7 +11,7 @@ use kagari_common::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_contract::{language::catalog, scalar::BuiltinType};
+use kagari_contract::{library::catalog, scalar::BuiltinType};
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapshot {
     db.signatures(sources.snapshot(), &Default::default())

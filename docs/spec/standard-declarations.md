@@ -64,7 +64,10 @@ Kagari generic parameters, parameter/result types, bounds and selected callable
 requirements. `TypeBuilder` declares a nominal native type and its storage.
 `implement` introduces scoped implementation parameters; `inherent_impl` and
 `trait_impl` declare the appropriate method groups. Native implementations
-reference the compiler's complete trait contracts instead of redeclaring them.
+reference complete checked trait contracts instead of redeclaring them.
+`TraitBuilder::storage_view` declares an installed readonly/mutable storage
+capability. It does not grant a new heap representation; nominal implementations
+retain their storage and ownership checks. Script traits cannot author this fact.
 
 For example, a scalar application entry can be declared and bound as follows:
 
@@ -180,12 +183,20 @@ permits later mutation while a retained cursor may resume if its source remains
 valid. Reentrant next on the same adapter is rejected. The generic execution loop
 does not identify an adapter by its library name.
 
+Installed conversion adapter records identify the forward trait/method and the
+source/target error members for reverse conversion, or the checked numeric method
+and error output. Portable proofs validate their declaration shapes, while runtime
+loading requires an exact installed contract even without a native invocation.
+The shared numeric implementation remains the authority for numeric behavior.
+
 ## Tooling
 
 Generated `.kgr` is a read-only projection for navigation, completion, signatures
 and documentation. It is not executable source, a second signature authority or
-an installation trigger. Declaration locations and docs come from the same
-records used by compilation. The generated views include library-owned types,
+an installation trigger. The compiler parses/lowers this view through ordinary
+declaration machinery and checks non-trivia correspondence with registration
+before attaching native storage, bindings and default metadata. Declaration
+locations and docs come from the same records used by compilation. The generated views include library-owned types,
 inherent methods and trait impl methods, including MapIterator.next.
 
 Behavioral and tooling coverage lives in native_provider_reset,

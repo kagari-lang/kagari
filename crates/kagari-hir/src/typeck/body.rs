@@ -1,5 +1,6 @@
 use crate::{
     aggregates::AggregateCatalog,
+    builtin::array_bridge,
     declarations::Declarations,
     hir::{
         expr::{Condition, ExprKind, literal::LiteralKind},
@@ -681,9 +682,12 @@ impl<'a> BodyChecker<'a> {
                                 then_ty = else_ty;
                             } else if else_completes
                                 && then_ty != else_ty
-                                && then_ty.same_collection_family(&else_ty)
+                                && let Some(view) = self.aggregates.shared_storage_view(
+                                    &then_ty,
+                                    &else_ty,
+                                    self.cancel,
+                                )
                             {
-                                let view = then_ty.collection_view().expect("collection join");
                                 if let Some(tail) =
                                     self.lowered.module.block(*then_branch).tail_expr
                                 {
@@ -774,8 +778,11 @@ impl<'a> BodyChecker<'a> {
                         continue;
                     }
                     if let Some(result) = &mut result {
-                        if found != *result && found.same_collection_family(result) {
-                            let view = result.collection_view().expect("collection match join");
+                        if found != *result
+                            && let Some(view) =
+                                self.aggregates
+                                    .shared_storage_view(&found, result, self.cancel)
+                        {
                             for previous in arms {
                                 if let Some(ty) = self.type_table.expr_type(previous.expr) {
                                     self.apply_interface_coercion(
@@ -843,18 +850,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::ArrayRepeat { value, count } => {
-                let member = match expected {
-                    Some(TypeId::Array(element, _)) => Some(element.as_ref()),
-                    Some(TypeId::Trait(interface))
-                        if matches!(
-                            Protocol::from_id(&interface.declaration),
-                            Some(Protocol::List | Protocol::MutableList)
-                        ) =>
-                    {
-                        interface.arguments.first()
-                    }
-                    _ => None,
-                };
+                let member = expected.and_then(array_bridge::element_context);
                 let element = self.infer_expr_with_coercion(*value, env, member);
                 if !self.solving
                     && !types::supports_array_repetition(&element, |instance| {
@@ -903,18 +899,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Array(Box::new(element), CollectionAccess::Mutable)
             }
             ExprKind::Array(elements) => {
-                let member = match expected {
-                    Some(TypeId::Array(element, _)) => Some(element.as_ref()),
-                    Some(TypeId::Trait(interface))
-                        if matches!(
-                            Protocol::from_id(&interface.declaration),
-                            Some(Protocol::List | Protocol::MutableList)
-                        ) =>
-                    {
-                        interface.arguments.first()
-                    }
-                    _ => None,
-                };
+                let member = expected.and_then(array_bridge::element_context);
                 let mut element_ty: Option<TypeId> = None;
                 let mut reachable = true;
                 for expr in elements {

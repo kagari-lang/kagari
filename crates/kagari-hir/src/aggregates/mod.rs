@@ -22,6 +22,7 @@ pub mod implementations;
 mod interfaces;
 mod native;
 pub mod protocols;
+mod storage;
 pub mod traits;
 
 use kagari_contract::language::{Protocol, role::LangRole};
@@ -381,8 +382,10 @@ impl AggregateCatalog {
                 pending.extend(node.dependencies().iter().cloned());
             }
         }
-        let mut result = Self::default();
-        result.language_items = self.language_items.clone();
+        let mut result = Self {
+            language_items: self.language_items.clone(),
+            ..Self::default()
+        };
         for module in reachable {
             cancel.check()?;
             self.include_traits(&mut result, &module, cancel)?;

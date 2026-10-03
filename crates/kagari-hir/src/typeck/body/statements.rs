@@ -72,6 +72,7 @@ impl<'a> BodyChecker<'a> {
                         self.lowered.source_map.type_span(ty),
                         self.diagnostics,
                         self.cancel,
+                        Some(self.aggregates),
                     );
                     resolved
                 });

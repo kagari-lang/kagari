@@ -1,0 +1,57 @@
+use super::*;
+use crate::{native::render::declaration_source, tests::native::module};
+use kagari_contract::library::catalog;
+
+#[test]
+fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility() {
+    let module = module();
+    let providers = [catalog::shared(), module.clone()];
+    let original = declaration_source(&module).unwrap();
+    for (from, to) in [
+        ("-> i32", "-> i64"),
+        ("pub trait NativeRead", "trait NativeRead"),
+        ("fn fixed", "fn different"),
+        ("core::language::Hash", "core::language::Eq"),
+        ("value0: T0", "value0: i32"),
+    ] {
+        let mut source = original.clone();
+        assert!(source.text.contains(from), "{from}: {}", source.text);
+        source.text = source.text.replace(from, to);
+        let error = import_source(
+            &module,
+            &providers,
+            &source,
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap_err();
+        assert!(
+            error.0.contains("differs from authoritative registration"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
+    let module = module();
+    let mut source = declaration_source(&module).unwrap();
+    source.text = format!("// Tooling overlay.\n{}", source.text);
+    let (_, lowered) = import_source(
+        &module,
+        &[catalog::shared(), module.clone()],
+        &source,
+        Default::default(),
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(lowered.module.traits.len(), 1);
+    assert_eq!(lowered.module.traits[0].methods.len(), 2);
+    assert!(
+        lowered.module.traits[0]
+            .methods
+            .iter()
+            .all(|method| method.has_default)
+    );
+    assert_eq!(lowered.native_functions.len(), 6);
+}

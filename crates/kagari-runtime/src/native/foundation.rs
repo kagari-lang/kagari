@@ -16,7 +16,7 @@ use crate::{
     },
     value::{EnumTag, Value},
 };
-use kagari_contract::{callable::CallableImplementation, language::catalog, operations::IterOp};
+use kagari_contract::{callable::CallableImplementation, library::catalog, operations::IterOp};
 use std::{cell::OnceCell, collections::BTreeMap};
 
 type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;

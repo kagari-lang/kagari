@@ -2,6 +2,7 @@ use crate::{
     language::{Protocol, primitive as intrinsic},
     types::{
         Ty,
+        conversion::ConversionAdapter,
         proofs::implementation::Implementation,
         proofs::{Budget, ProofCatalog},
         substitution::TypeTransformError,
@@ -78,16 +79,28 @@ impl ProofCatalog<'_> {
         let Some(interface) = table.interface() else {
             return Ok(false);
         };
-        let Some(kind) = Protocol::from_id(&interface.declaration) else {
-            return Ok(true);
-        };
-        if kind.conversion_origin().is_some() {
+        if self
+            .trait_contract(&interface.declaration)
+            .is_some_and(|contract| contract.storage_access.is_some())
+        {
+            return Ok(match table.receiver() {
+                Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
+                    nominal.declaration.module == table.declaration().module
+                }
+                Ty::Array(_, _) | Ty::Map { .. } | Ty::Set(_, _) => {
+                    interface.declaration.module == table.declaration().module
+                }
+                _ => false,
+            });
+        }
+        let adapter = self
+            .trait_contract(&interface.declaration)
+            .and_then(|contract| contract.conversion_adapter.as_ref());
+        let kind = Protocol::from_id(&interface.declaration);
+        if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
             return Ok(false);
         }
-        if kind.iteration() && self.iteration_conflict(kind, table.receiver(), budget)? {
-            return Ok(false);
-        }
-        if kind == Protocol::From
+        if kind == Some(Protocol::From)
             && interface.arguments.first().is_some_and(|input| {
                 input == table.receiver()
                     || match (input, table.receiver()) {
@@ -101,7 +114,9 @@ impl ProofCatalog<'_> {
         {
             return Ok(false);
         }
-        if matches!(kind, Protocol::From | Protocol::TryFrom) {
+        if kind == Some(Protocol::From)
+            || matches!(adapter, Some(ConversionAdapter::CheckedNumeric { .. }))
+        {
             if iter::once(table.receiver())
                 .chain(&interface.arguments)
                 .any(|ty| matches!(ty, Ty::Host(_)))
@@ -109,6 +124,12 @@ impl ProofCatalog<'_> {
                 return Ok(false);
             }
             return Ok(interface.declaration.module == table.declaration().module || iter::once(table.receiver()).chain(&interface.arguments).any(|ty| matches!(ty, Ty::Struct(n) | Ty::NativeObject(n) | Ty::Enum(n) if n.declaration.module == table.declaration().module)));
+        }
+        let Some(kind) = kind else {
+            return Ok(true);
+        };
+        if kind.iteration() && self.iteration_conflict(kind, table.receiver(), budget)? {
+            return Ok(false);
         }
         if kind.host_implementable() {
             return Ok(true);

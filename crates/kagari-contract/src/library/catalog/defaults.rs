@@ -1,9 +1,9 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
-use crate::language::catalog::contracts::{applied_item, method, unit};
+use crate::library::catalog::contracts::{applied_item, method, unit};
+use crate::library::catalog::key::{self, RegistrationTrait};
 use crate::{
     callable::CallableImplementation,
     declaration::{ImplDecl, ModuleDecl},
-    language::{self, Protocol, primitive},
     native_import::callables::NativeCallableRequirement,
     scalar::BuiltinType,
     standard::surface::StandardEnum,
@@ -73,11 +73,11 @@ fn hash_bounds(key: Ty) -> Vec<GenericBound> {
     vec![GenericBound {
         ty: key,
         constraints: vec![
-            Constraint::Trait(primitive::applied(Protocol::Eq, vec![])),
-            Constraint::Trait(primitive::applied(Protocol::Hash, vec![])),
+            Constraint::Trait(key::applied(RegistrationTrait::Eq, vec![])),
+            Constraint::Trait(key::applied(RegistrationTrait::Hash, vec![])),
             // The selected equality member belongs to PartialEq. Carry its
             // inherited obligation explicitly in the portable callback template.
-            Constraint::Trait(primitive::applied(Protocol::PartialEq, vec![])),
+            Constraint::Trait(key::applied(RegistrationTrait::PartialEq, vec![])),
         ],
     }]
 }
@@ -102,7 +102,7 @@ fn binding(module: &ModuleDecl, family: &str, name: &str) -> DefinitionPath {
 
 fn implement(
     module: &mut ModuleDecl,
-    kind: Protocol,
+    kind: RegistrationTrait,
     generic_params: Vec<GenericParam>,
     applied: NominalTy,
     receiver: Ty,
@@ -138,18 +138,21 @@ fn declare_key_calls(module: &mut ModuleDecl, family: &str) {
     let index = module.implementations.len() - 1;
     let implementation = &module.implementations[index];
     let key = implementation.generic_params[0].as_type();
-    let requirements: Vec<_> = [(Protocol::Hash, "hash"), (Protocol::PartialEq, "eq")]
-        .into_iter()
-        .map(|(protocol, name)| {
-            let interface = primitive::applied(protocol, vec![]);
-            NativeCallableRequirement {
-                receiver: key.clone(),
-                member: ModuleDecl::method_id(&interface.declaration, name),
-                interface,
-                arguments: vec![],
-            }
-        })
-        .collect();
+    let requirements: Vec<_> = [
+        (RegistrationTrait::Hash, "hash"),
+        (RegistrationTrait::PartialEq, "eq"),
+    ]
+    .into_iter()
+    .map(|(protocol, name)| {
+        let interface = key::applied(protocol, vec![]);
+        NativeCallableRequirement {
+            receiver: key.clone(),
+            member: ModuleDecl::method_id(&interface.declaration, name),
+            interface,
+            arguments: vec![],
+        }
+    })
+    .collect();
     let owner = module.implementation_id(index);
     let methods: Vec<_> = implementation
         .methods
@@ -242,23 +245,31 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             "list",
             &["T"][..],
             &[
-                Protocol::List,
-                Protocol::MutableList,
-                Protocol::Index,
-                Protocol::Iterable,
+                RegistrationTrait::List,
+                RegistrationTrait::MutableList,
+                RegistrationTrait::Index,
+                RegistrationTrait::Iterable,
             ][..],
         ),
         (
             "map",
             &["K", "V"][..],
-            &[Protocol::Map, Protocol::MutableMap, Protocol::Iterable][..],
+            &[
+                RegistrationTrait::Map,
+                RegistrationTrait::MutableMap,
+                RegistrationTrait::Iterable,
+            ][..],
         ),
         (
             "set",
             &["T"][..],
-            &[Protocol::Set, Protocol::MutableSet, Protocol::Iterable][..],
+            &[
+                RegistrationTrait::Set,
+                RegistrationTrait::MutableSet,
+                RegistrationTrait::Iterable,
+            ][..],
         ),
-        ("cursor", &["T"][..], &[Protocol::Iterator][..]),
+        ("cursor", &["T"][..], &[RegistrationTrait::Iterator][..]),
     ] {
         for kind in protocols {
             let owner = module.implementation_id(module.implementations.len());
@@ -272,18 +283,18 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             let receiver = storage(family, &items);
             let mut applied = if kind.iteration() {
                 applied_item(*kind, item.clone())
-            } else if *kind == Protocol::Index {
-                primitive::applied(*kind, vec![Ty::Builtin(BuiltinType::USize)])
+            } else if *kind == RegistrationTrait::Index {
+                key::applied(*kind, vec![Ty::Builtin(BuiltinType::USize)])
             } else {
-                primitive::applied(*kind, items.clone())
+                key::applied(*kind, items.clone())
             };
-            if *kind == Protocol::Index {
+            if *kind == RegistrationTrait::Index {
                 applied.associated_types.insert(
                     associated_type_id(&applied.declaration, "Output"),
                     item.clone(),
                 );
             }
-            if *kind == Protocol::Iterable {
+            if *kind == RegistrationTrait::Iterable {
                 applied.associated_types.insert(
                     associated_type_id(&applied.declaration, "Iter"),
                     Ty::Iter(Box::new(item)),
@@ -313,9 +324,9 @@ fn range_implementations(module: &mut ModuleDecl, kind: RangeKind) {
     };
     implement(
         module,
-        Protocol::RangeBounds,
+        RegistrationTrait::RangeBounds,
         params,
-        primitive::applied(Protocol::RangeBounds, vec![item]),
+        key::applied(RegistrationTrait::RangeBounds, vec![item]),
         Ty::Range(Box::new(layout), kind),
         vec![],
         kind.name(),
@@ -336,14 +347,14 @@ fn range_implementations(module: &mut ModuleDecl, kind: RangeKind) {
         BuiltinType::USize,
     ] {
         let item = Ty::Builtin(scalar);
-        let mut applied = applied_item(Protocol::Iterable, item.clone());
+        let mut applied = applied_item(RegistrationTrait::Iterable, item.clone());
         applied.associated_types.insert(
             associated_type_id(&applied.declaration, "Iter"),
             Ty::Iter(Box::new(item.clone())),
         );
         implement(
             module,
-            Protocol::Iterable,
+            RegistrationTrait::Iterable,
             vec![],
             applied,
             Ty::Range(Box::new(item), kind),
@@ -382,15 +393,15 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
     let mut methods: Vec<FnDecl> = vec![new];
     // Concrete mutators preserve fluent returns; capability methods return unit.
     for kind in [
-        Protocol::MutableList,
-        Protocol::MutableMap,
-        Protocol::MutableSet,
+        RegistrationTrait::MutableList,
+        RegistrationTrait::MutableMap,
+        RegistrationTrait::MutableSet,
     ] {
         if !matches!(
             (family, kind),
-            ("list", Protocol::MutableList)
-                | ("map", Protocol::MutableMap)
-                | ("set", Protocol::MutableSet)
+            ("list", RegistrationTrait::MutableList)
+                | ("map", RegistrationTrait::MutableMap)
+                | ("set", RegistrationTrait::MutableSet)
         ) {
             continue;
         }
@@ -400,7 +411,7 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
             .find(|contract| contract.name == kind.name())
             .expect("mutable contract")
             .clone();
-        let contract_owner = language::identity(kind);
+        let contract_owner = key::identity(kind);
         let mut substitution = TypeSubstitution::for_owner(&contract_owner, &items);
         substitution.bind_receiver(&contract_owner, &receiver);
         for mut method in contract.methods {

@@ -1,5 +1,5 @@
+use kagari_contract::library;
 use kagari_contract::{
-    language::{self as standard_traits, Protocol},
     scalar::BuiltinType,
     types::{PublicItem, Ty},
 };
@@ -263,7 +263,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     let Ty::Trait(list) = &payload[1] else {
         panic!("list interface payload")
     };
-    assert_eq!(list.declaration, standard_traits::identity(Protocol::List));
+    assert_eq!(list.declaration, library::trait_id("List"));
     assert_eq!(list.arguments, vec![Ty::Builtin(BuiltinType::String)]);
     let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
     decoded.validate_for_loader(&Default::default()).unwrap();

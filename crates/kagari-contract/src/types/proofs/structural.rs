@@ -72,9 +72,10 @@ impl ProofCatalog<'_> {
             | Ty::Map { .. }
             | Ty::Set(_, _) => return Ok(true),
             Ty::Trait(interface) => {
-                return Ok(
-                    Protocol::from_id(&interface.declaration).is_some_and(Protocol::collection)
-                );
+                return Ok(self
+                    .contracts
+                    .get(&interface.declaration)
+                    .is_some_and(|contract| contract.storage_access.is_some()));
             }
             Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => items.iter().collect(),
             Ty::Enum(instance) => {

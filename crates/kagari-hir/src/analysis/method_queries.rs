@@ -179,9 +179,12 @@ impl MemberQuery<'_> {
                 return true;
             }
             constraints.iter().all(|constraint| match constraint {
-                ConstraintTarget::Standard(standard) => {
-                    type_satisfies_standard_constraint(&actual, *standard, self.assumptions)
-                }
+                ConstraintTarget::Standard(standard) => type_satisfies_standard_constraint(
+                    &actual,
+                    *standard,
+                    self.assumptions,
+                    Some(self.aggregates),
+                ),
                 ConstraintTarget::Trait(required) => {
                     let required = instantiate(&TypeId::Trait(required.clone()));
                     if required.is_unresolved() {

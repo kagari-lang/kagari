@@ -9,8 +9,13 @@ use kagari_syntax::{
     parser::parse,
 };
 
-use kagari_common::{cancellation::CancellationToken, source::SourceFile, span::Span};
-use kagari_contract::{callable::MethodPolicy, types::NativeDeclaration};
+use kagari_common::{
+    cancellation::CancellationToken, collection::CollectionAccess, source::SourceFile, span::Span,
+};
+use kagari_contract::{
+    callable::MethodPolicy,
+    types::{NativeDeclaration, conversion::ConversionAdapter},
+};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -24,7 +29,7 @@ mod ty;
 
 use crate::{
     hir::{
-        ids::{EnumId, FunctionId, OpaqueTypeId},
+        ids::{EnumId, FunctionId, OpaqueTypeId, TraitId},
         item::Module,
     },
     lower::context::Lowerer,
@@ -45,6 +50,8 @@ pub struct LoweredModule {
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
     pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
+    pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter>,
+    pub(crate) native_trait_access: HashMap<TraitId, CollectionAccess>,
     pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     pub(crate) native_attributes: HashSet<(usize, usize)>,
 }
@@ -150,6 +157,8 @@ pub(crate) fn lower_module_controlled(
         native_types: HashMap::new(),
         native_enums: HashMap::new(),
         native_functions: HashMap::new(),
+        native_trait_access: HashMap::new(),
+        native_trait_adapters: HashMap::new(),
         method_policies: HashMap::new(),
         native_attributes: HashSet::new(),
     }

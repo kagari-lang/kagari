@@ -5,7 +5,7 @@ use crate::{
     numeric,
     scalar::BuiltinType,
     types::{
-        Constraint, GenericBound, NominalTy, Ty,
+        Constraint, GenericBound, NominalTy, TraitDef, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -27,11 +27,15 @@ pub fn requirements(
     interface: &NominalTy,
     receiver: &Ty,
     cancel: &CancellationToken,
+    contract: Option<&TraitDef>,
 ) -> Result<Option<Vec<GenericBound>>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
-    if let Some((interface, target)) = conversion_requirement(interface, receiver) {
+    if let Some((interface, target)) = contract
+        .and_then(|contract| contract.conversion_adapter.as_ref())
+        .and_then(|adapter| adapter.reverse_requirement(interface, receiver))
+    {
         return Ok(Some(vec![GenericBound {
             ty: target,
             constraints: vec![Constraint::Trait(interface)],
@@ -44,13 +48,14 @@ pub fn requirements(
     {
         return Ok(Some(vec![]));
     }
-    if let Some(error) = conversion_error(interface, receiver) {
+    if let Some((error, output)) = contract
+        .and_then(|contract| contract.conversion_adapter.as_ref())
+        .and_then(|adapter| adapter.numeric_error(interface, receiver))
+    {
         return Ok(interface
             .associated_types
             .iter()
-            .all(|(member, ty)| {
-                *member == associated_type_id(&interface.declaration, "Error") && *ty == error
-            })
+            .all(|(member, ty)| *member == error && *ty == output)
             .then(Vec::new));
     }
     if let Some(output) = operator_output(interface, receiver) {
@@ -75,25 +80,16 @@ pub fn associated_output(
     receiver: &Ty,
     member: &DefinitionPath,
     cancel: &CancellationToken,
+    contract: Option<&TraitDef>,
 ) -> Result<Option<Ty>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
-    if *member == associated_type_id(&interface.declaration, "Error")
-        && let Some(error) = conversion_error(interface, receiver)
+    if let Some(output) = contract
+        .and_then(|contract| contract.conversion_adapter.as_ref())
+        .and_then(|adapter| adapter.associated_output(interface, receiver, member))
     {
-        return Ok(Some(error));
-    }
-    if !matches!(receiver, Ty::SelfType(_))
-        && *member == associated_type_id(&interface.declaration, "Error")
-        && let Some((required, target)) = conversion_requirement(interface, receiver)
-    {
-        return Ok(Some(Ty::Projection {
-            receiver: Box::new(target),
-            member: associated_type_id(&required.declaration, "Error"),
-            interface: Box::new(required),
-            arguments: vec![],
-        }));
+        return Ok(Some(output));
     }
     Ok(
         if *member == associated_type_id(&interface.declaration, "Output") {
@@ -168,40 +164,4 @@ pub fn identity_iterator(interface: &NominalTy, receiver: &Ty) -> Option<Nominal
         }
     }
     Some(required)
-}
-
-/// Into and TryInto reuse the destination conversion, including its error output.
-pub fn conversion_requirement(interface: &NominalTy, receiver: &Ty) -> Option<(NominalTy, Ty)> {
-    let kind = Protocol::from_id(&interface.declaration)?;
-    let origin = kind.conversion_origin()?;
-    let [target] = interface.arguments.as_slice() else {
-        return None;
-    };
-    let mut required = applied(origin, vec![receiver.clone()]);
-    for (member, ty) in &interface.associated_types {
-        if kind != Protocol::TryInto
-            || *member != associated_type_id(&interface.declaration, "Error")
-        {
-            return None;
-        }
-        required.associated_types.insert(
-            associated_type_id(&required.declaration, "Error"),
-            ty.clone(),
-        );
-    }
-    Some((required, target.clone()))
-}
-
-fn conversion_error(interface: &NominalTy, receiver: &Ty) -> Option<Ty> {
-    if Protocol::from_id(&interface.declaration) != Some(Protocol::TryFrom) {
-        return None;
-    }
-    let (Ty::Builtin(target), [Ty::Builtin(source)]) = (receiver, interface.arguments.as_slice())
-    else {
-        return None;
-    };
-    Some(Ty::StandardEnum {
-        kind: numeric::conversion_error(*source, *target)?,
-        args: vec![],
-    })
 }

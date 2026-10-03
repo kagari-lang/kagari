@@ -19,7 +19,7 @@ use kagari_common::{
 };
 use kagari_contract::{
     callable::interface::InterfaceCallContract,
-    language::Protocol,
+    language::{Protocol, role::LangRole},
     types::{
         self as abi, GenericBound, GenericParam, NominalTy, PublicItem, TraitDef, Ty,
         inheritance as trait_inheritance,
@@ -79,7 +79,9 @@ fn executable_interface(
         return false;
     };
     for view in views {
-        if Protocol::from_id(&view.declaration).is_some_and(|kind| !kind.dynamic()) {
+        if Protocol::from_id(&view.declaration).is_some_and(|kind| {
+            LangRole::from_protocol(kind).is_some_and(LangRole::requires_static_dispatch)
+        }) {
             return false;
         }
         let Some(record) = contract(&view.declaration, closure) else {

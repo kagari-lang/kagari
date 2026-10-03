@@ -1,7 +1,6 @@
 pub mod abi;
 
 use crate::{
-    language::semantics::ProtocolSemantics,
     native::enum_display_name,
     typeck::{GenericBounds, associated},
 };
@@ -11,7 +10,6 @@ use kagari_common::{
     range::RangeKind,
 };
 use kagari_contract::{
-    language::Protocol,
     scalar::BuiltinType,
     standard::surface::{self as standard_surface, StandardEnum},
 };
@@ -144,53 +142,6 @@ pub enum TypeId<I: DefinitionReference = DefinitionPath> {
 }
 
 impl TypeId {
-    /// Canonical read-only interface for a native collection or collection view.
-    pub fn collection_view(&self) -> Option<Self> {
-        let (kind, arguments) = match self {
-            Self::Array(item, _) => (Protocol::List, vec![item.as_ref().clone()]),
-            Self::Map { key, value, .. } => (
-                Protocol::Map,
-                vec![key.as_ref().clone(), value.as_ref().clone()],
-            ),
-            Self::Set(item, _) => (Protocol::Set, vec![item.as_ref().clone()]),
-            Self::Trait(interface) => (
-                match Protocol::from_id(&interface.declaration)? {
-                    Protocol::List | Protocol::MutableList => Protocol::List,
-                    Protocol::Map | Protocol::MutableMap => Protocol::Map,
-                    Protocol::Set | Protocol::MutableSet => Protocol::Set,
-                    _ => return None,
-                },
-                interface.arguments.clone(),
-            ),
-            _ => return None,
-        };
-        let mut interface = kind.nominal();
-        interface.arguments = arguments;
-        Some(Self::Trait(interface))
-    }
-
-    pub fn same_collection_family(&self, other: &Self) -> bool {
-        self.collection_view()
-            .is_some_and(|view| other.collection_view().as_ref() == Some(&view))
-    }
-
-    /// The element type exposed by a standard list interface.
-    pub fn list_item(&self) -> Option<&TypeId> {
-        let Self::Trait(interface) = self else {
-            return None;
-        };
-        matches!(
-            Protocol::from_id(&interface.declaration),
-            Some(Protocol::List | Protocol::MutableList)
-        )
-        .then(|| interface.arguments.first())
-        .flatten()
-    }
-
-    pub fn writable_list(&self) -> bool {
-        matches!(self, Self::Trait(interface) if Protocol::from_id(&interface.declaration) == Some(Protocol::MutableList))
-    }
-
     pub fn with_associated_types(&self, interface: &NominalType) -> Self {
         associated::normalize(self, &|projected, _, member, arguments| {
             (arguments.is_empty() && projected.declaration == interface.declaration)
@@ -516,10 +467,31 @@ impl<I: DefinitionReference> TypeId<I> {
     }
 
     pub fn contains_projection(&self) -> bool {
+        self.contains_type(|ty| matches!(ty, Self::Projection { .. }))
+    }
+
+    pub(crate) fn contains_interface(&self) -> bool {
+        self.contains_type(|ty| matches!(ty, Self::Trait(_)))
+    }
+
+    fn contains_type(&self, predicate: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
+            if predicate(ty) {
+                return true;
+            }
             match ty {
-                Self::Projection { .. } => return true,
+                Self::Projection {
+                    receiver,
+                    interface,
+                    arguments,
+                    ..
+                } => {
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                    pending.extend(arguments);
+                }
                 Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());

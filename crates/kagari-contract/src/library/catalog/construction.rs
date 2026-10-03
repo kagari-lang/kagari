@@ -1,40 +1,41 @@
 //! Foundational conversion, parsing and aggregation contracts. Algorithms are
 //! supplied by ordinary implementations, independently of declaration ownership.
+use crate::library::catalog::key::{self, RegistrationTrait};
 use crate::{
     declaration::ModuleDecl,
-    language::{self, Protocol, catalog::contracts, primitive},
+    library::catalog::contracts,
     scalar::BuiltinType,
     standard::surface::StandardEnum,
-    types::{Constraint, GenericBound, GenericParam, Ty},
+    types::{Constraint, GenericBound, GenericParam, Ty, conversion::ConversionAdapter},
 };
 use kagari_common::identity::associated_type_id;
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     for (kind, name, parameters, error) in [
-        (Protocol::Into, "into", &["Target"][..], None),
+        (RegistrationTrait::Into, "into", &["Target"][..], None),
         (
-            Protocol::TryFrom,
+            RegistrationTrait::TryFrom,
             "try_from",
             &["Source"][..],
             Some("Error"),
         ),
         (
-            Protocol::TryInto,
+            RegistrationTrait::TryInto,
             "try_into",
             &["Target"][..],
             Some("Error"),
         ),
-        (Protocol::FromStr, "from_str", &[][..], Some("Err")),
+        (RegistrationTrait::FromStr, "from_str", &[][..], Some("Err")),
     ] {
         let mut declaration = contracts::contract(kind, parameters);
-        let owner = language::identity(kind);
+        let owner = key::identity(kind);
         let this = contracts::receiver(kind);
-        let input = if kind == Protocol::FromStr {
+        let input = if kind == RegistrationTrait::FromStr {
             Ty::Builtin(BuiltinType::String)
         } else {
             declaration.generic_params[0].as_type()
         };
-        let instance = matches!(kind, Protocol::Into | Protocol::TryInto);
+        let instance = matches!(kind, RegistrationTrait::Into | RegistrationTrait::TryInto);
         let result = if instance {
             input.clone()
         } else {
@@ -50,7 +51,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
                     result,
                     Ty::Projection {
                         receiver: Box::new(this.clone()),
-                        interface: Box::new(primitive::applied(
+                        interface: Box::new(key::applied(
                             kind,
                             declaration
                                 .generic_params
@@ -68,13 +69,44 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         };
         let mut method = contracts::method(name, vec![if instance { this } else { input }], result);
         if !instance {
-            method.params[0].name = if kind == Protocol::FromStr {
+            method.params[0].name = if kind == RegistrationTrait::FromStr {
                 "text"
             } else {
                 "value"
             }
             .into();
         }
+        declaration.conversion_adapter = match kind {
+            RegistrationTrait::Into | RegistrationTrait::TryInto => {
+                let forward = key::identity(if kind == RegistrationTrait::Into {
+                    RegistrationTrait::From
+                } else {
+                    RegistrationTrait::TryFrom
+                });
+                Some(ConversionAdapter::Reverse {
+                    method: ModuleDecl::method_id(
+                        &forward,
+                        if kind == RegistrationTrait::Into {
+                            "from"
+                        } else {
+                            "try_from"
+                        },
+                    ),
+                    error: (kind == RegistrationTrait::TryInto).then(|| {
+                        (
+                            associated_type_id(&owner, "Error"),
+                            associated_type_id(&forward, "Error"),
+                        )
+                    }),
+                    origin: forward,
+                })
+            }
+            RegistrationTrait::TryFrom => Some(ConversionAdapter::CheckedNumeric {
+                method: ModuleDecl::method_id(&owner, "try_from"),
+                error: associated_type_id(&owner, "Error"),
+            }),
+            _ => None,
+        };
         declaration.methods.push(method);
         module
             .documentation
@@ -82,12 +114,12 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         module.traits.push(declaration);
     }
     for (kind, name) in [
-        (Protocol::FromIterator, "from_iter"),
-        (Protocol::Sum, "sum"),
-        (Protocol::Product, "product"),
+        (RegistrationTrait::FromIterator, "from_iter"),
+        (RegistrationTrait::Sum, "sum"),
+        (RegistrationTrait::Product, "product"),
     ] {
         let mut declaration = contracts::contract(kind, &["T"]);
-        let owner = language::identity(kind);
+        let owner = key::identity(kind);
         let source = GenericParam {
             owner: ModuleDecl::method_id(&owner, name),
             position: 0,
@@ -97,7 +129,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         method.bounds.push(GenericBound {
             ty: source.as_type(),
             constraints: vec![Constraint::Trait(contracts::applied_item(
-                Protocol::Iterable,
+                RegistrationTrait::Iterable,
                 declaration.generic_params[0].as_type(),
             ))],
         });

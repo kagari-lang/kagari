@@ -25,13 +25,10 @@ pub(super) fn core_text(module: &ModuleDecl, owner: &DefinitionPath, role: LangR
                 owner,
                 method.split('(').next().unwrap(),
             ))
-        } else if let Some(member) = trimmed.strip_prefix("type ") {
-            Some(associated_type_id(
-                owner,
-                member.split([';', ':']).next().unwrap(),
-            ))
         } else {
-            None
+            trimmed
+                .strip_prefix("type ")
+                .map(|member| associated_type_id(owner, member.split([';', ':']).next().unwrap()))
         };
         if let Some(docs) = id.as_ref().and_then(|id| module.documentation.get(id)) {
             for doc in docs.lines() {

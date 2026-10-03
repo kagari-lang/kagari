@@ -25,9 +25,13 @@ impl ProofCatalog<'_> {
             &|interface, receiver, member, arguments| {
                 budget.step(depth)?;
                 if arguments.is_empty() {
-                    if let Some(output) =
-                        intrinsic::associated_output(interface, receiver, member, budget.cancel)?
-                    {
+                    if let Some(output) = intrinsic::associated_output(
+                        interface,
+                        receiver,
+                        member,
+                        budget.cancel,
+                        self.trait_contract(&interface.declaration),
+                    )? {
                         return Ok(Some(output));
                     }
                     if Protocol::from_id(&interface.declaration) == Some(Protocol::Iterable)
@@ -68,17 +72,21 @@ impl ProofCatalog<'_> {
                 let mut selected = None;
                 for implementation in &self.implementations {
                     budget.step(depth)?;
-                    if let Some(output) = matching::projection_output(
-                        implementation
-                            .pattern()
-                            .ok_or(TypeTransformError::InvalidContract)?,
-                        implementation.families(),
-                        interface,
-                        receiver,
-                        member,
-                        arguments,
-                        budget.cancel,
-                    )? {
+                    if let Some(output) =
+                        matching::projection_output(
+                            implementation
+                                .pattern(implementation.interface().and_then(|interface| {
+                                    self.trait_contract(&interface.declaration)
+                                }))
+                                .ok_or(TypeTransformError::InvalidContract)?,
+                            implementation.families(),
+                            interface,
+                            receiver,
+                            member,
+                            arguments,
+                            budget.cancel,
+                        )?
+                    {
                         if selected.is_some() {
                             return Ok(None);
                         }

@@ -1,8 +1,9 @@
 //! Inherent String methods belong to the language declaration owner.
+use crate::library::catalog::key::{self, RegistrationTrait};
 use crate::{
     callable::CallableImplementation,
     declaration::{ImplDecl, ModuleDecl},
-    language::{Protocol, catalog::contracts, primitive},
+    library::catalog::contracts,
     scalar::BuiltinType,
     types::{Param, Ty},
 };
@@ -85,7 +86,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         (
             "split",
             vec![("separator", string.clone())],
-            Ty::Trait(primitive::applied(Protocol::List, vec![string.clone()])),
+            Ty::Trait(key::applied(RegistrationTrait::List, vec![string.clone()])),
             "Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.",
         ),
     ] {

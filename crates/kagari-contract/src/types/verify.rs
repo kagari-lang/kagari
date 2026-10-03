@@ -365,6 +365,10 @@ fn trait_valid(ty: &TraitDef, module: &ModuleIdentity, cancel: &CancellationToke
     let owner = owner(module, &[], DefinitionKind::Trait, &ty.name);
     let mut methods = HashSet::new();
     !ty.name.is_empty()
+        && ty
+            .conversion_adapter
+            .as_ref()
+            .is_none_or(|adapter| adapter.valid_in(&owner, ty))
         && {
             let mut members = HashSet::new();
             ty.associated_consts.iter().all(|member| {
@@ -606,6 +610,7 @@ fn same_method_contract(
                 };
                 matching::projection_output(
                     matching::ImplementationPattern {
+                        storage_access: None,
                         parameters: &table.generic_params,
                         receiver: &table.for_type,
                         interface: implemented,

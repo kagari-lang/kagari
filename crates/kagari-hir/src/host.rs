@@ -254,6 +254,7 @@ impl HostDeclarations {
                                     actual,
                                     *standard,
                                     &Default::default(),
+                                    None,
                                 )
                             }
                             ConstraintTarget::Trait(required) => {

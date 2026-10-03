@@ -123,6 +123,7 @@ pub(super) fn validate_trait_surface(
                                 &available,
                                 span,
                                 diagnostics,
+                                None,
                             );
                         }
                         ConstraintTarget::Trait(required_trait) => {
@@ -210,7 +211,7 @@ pub(super) fn validate_trait_surface(
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
                 || !lowered.registered_native_api
-                    && !kind.conversion()
+                    && kind != Protocol::From
                     && !matches!(
                         for_ty,
                         TypeId::NativeObject(_)

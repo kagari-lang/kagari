@@ -1,7 +1,6 @@
 use crate::{
     aggregates::implementations::ImplementationSearchError,
     hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
-    language::semantics::ProtocolSemantics,
     native::NativeBinding,
     typeck::{
         BodyTypeEnv, FunctionImplementation,
@@ -22,6 +21,7 @@ use kagari_common::{
 use kagari_contract::{
     language::{self as standard_traits, Protocol},
     standard::surface::StandardEnum,
+    types::conversion::ConversionAdapter,
 };
 
 impl<'a> BodyChecker<'a> {
@@ -246,6 +246,7 @@ impl<'a> BodyChecker<'a> {
                 &function.generic_params,
                 &mut substitution,
                 self.cancel,
+                Some(self.aggregates),
             )
             .is_err()
         {
@@ -418,29 +419,53 @@ impl<'a> BodyChecker<'a> {
             } else {
                 trait_types.clear();
             }
-        } else if receiver.is_none()
-            && matches!(name.as_str(), "from" | "try_from")
-            && args.len() == 1
-        {
-            let mut requested = if name == "from" {
-                Protocol::From
-            } else {
-                Protocol::TryFrom
-            }
-            .nominal();
-            requested.arguments.push(self.infer_expr_type(args[0], env));
-            if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
-                trait_types = vec![applied];
+        } else if receiver.is_none() && args.len() == 1 {
+            let input = self.infer_expr_type(args[0], env);
+            let candidates = self
+                .aggregates
+                .traits()
+                .filter(|contract| {
+                    (Protocol::from_id(&contract.id) == Some(Protocol::From)
+                        || matches!(
+                            contract.conversion_adapter,
+                            Some(ConversionAdapter::CheckedNumeric { .. })
+                        ))
+                        && contract.methods.iter().any(|method| method.name == *name)
+                })
+                .map(|contract| contract.id.clone())
+                .collect::<Vec<_>>();
+            for declaration in candidates {
+                let requested = NominalType {
+                    declaration,
+                    arguments: vec![input.clone()],
+                    associated_types: Default::default(),
+                };
+                if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
+                    trait_types.push(applied);
+                }
             }
         }
         if receiver.is_some()
             && let Some(expected) = expected
         {
-            for (kind, method) in [(Protocol::Into, "into"), (Protocol::TryInto, "try_into")] {
-                if name != method {
-                    continue;
-                }
-                let target = if kind == Protocol::TryInto {
+            let candidates = self
+                .aggregates
+                .traits()
+                .filter_map(|contract| {
+                    let ConversionAdapter::Reverse { error, .. } =
+                        contract.conversion_adapter.as_ref()?
+                    else {
+                        return None;
+                    };
+                    contract
+                        .methods
+                        .iter()
+                        .any(|method| method.name == *name)
+                        .then(|| (contract.id.clone(), error.is_some()))
+                })
+                .collect::<Vec<_>>();
+            for (declaration, fallible) in candidates {
+                let target = if fallible {
                     match expected {
                         TypeId::StandardEnum {
                             kind: StandardEnum::Result,
@@ -452,8 +477,11 @@ impl<'a> BodyChecker<'a> {
                     Some(expected)
                 };
                 if let Some(target) = target {
-                    let mut requested = kind.nominal();
-                    requested.arguments.push(target.clone());
+                    let requested = NominalType {
+                        declaration,
+                        arguments: vec![target.clone()],
+                        associated_types: Default::default(),
+                    };
                     if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
                         trait_types
                             .retain(|available| available.declaration != applied.declaration);
@@ -561,6 +589,7 @@ impl<'a> BodyChecker<'a> {
                 method_generics,
                 &mut substitution,
                 self.cancel,
+                Some(self.aggregates),
             )
             .is_err()
         {
@@ -575,8 +604,15 @@ impl<'a> BodyChecker<'a> {
             receiver,
         );
         if receiver.is_none()
-            || Protocol::from_id(&interface.declaration)
-                .is_some_and(|kind| kind.conversion_origin().is_some())
+            || self
+                .aggregates
+                .trait_(&interface.declaration)
+                .is_some_and(|contract| {
+                    matches!(
+                        contract.conversion_adapter,
+                        Some(ConversionAdapter::Reverse { .. })
+                    )
+                })
         {
             self.type_table
                 .insert_protocol_receiver(call_expr, self_ty.clone());

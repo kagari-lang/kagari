@@ -15,7 +15,7 @@ use kagari_common::{
 };
 use kagari_contract::{
     callable::interface::InterfaceCallContract,
-    language::Protocol,
+    language::{Protocol, role::LangRole},
     native_import::{NativeImport, result::NativeResultAdapter},
     types::{
         ConcreteFunctionIdentity, GenericParam, InterfaceTable, NominalTy, PublicItem, Ty,
@@ -58,7 +58,9 @@ pub fn links(
     {
         // Static language protocols are proved by bounds and operation witnesses;
         // they have no boxed parent table (including implicit implementations).
-        if Protocol::from_id(&parent.declaration).is_some_and(|protocol| !protocol.dynamic()) {
+        if Protocol::from_id(&parent.declaration).is_some_and(|protocol| {
+            LangRole::from_protocol(protocol).is_some_and(LangRole::requires_static_dispatch)
+        }) {
             continue;
         }
         parents.push(select(
@@ -153,7 +155,13 @@ fn select(
             let Some(template) = template(owner, linked) else {
                 return Err(invalid);
             };
-            let Some(substitution) = match_implementation(template, &header, receiver, cancel)?
+            let Some(substitution) = match_implementation(
+                template,
+                contract(&header.declaration, closure),
+                &header,
+                receiver,
+                cancel,
+            )?
             else {
                 continue;
             };

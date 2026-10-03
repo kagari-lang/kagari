@@ -1,7 +1,8 @@
 //! Base implementations use ordinary native declarations and selected callbacks.
+use crate::library::catalog::key::{self, RegistrationTrait};
 use crate::{
     declaration::ModuleDecl,
-    language::{Protocol, catalog::contracts, primitive},
+    library::catalog::contracts,
     native_import::callables::NativeCallableRequirement,
     scalar::BuiltinType,
     standard::surface::StandardEnum,
@@ -30,7 +31,7 @@ const SCALARS: [BuiltinType; 13] = [
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     for target in SCALARS {
-        let mut interface = primitive::applied(Protocol::FromStr, vec![]);
+        let mut interface = key::applied(RegistrationTrait::FromStr, vec![]);
         interface.associated_types.insert(
             associated_type_id(&interface.declaration, "Err"),
             contracts::enum_type(StandardEnum::ParseError, vec![]),
@@ -44,13 +45,13 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         );
         if target.number_type().is_some() {
             for (kind, binding) in [
-                (Protocol::Sum, "$foundation_sum"),
-                (Protocol::Product, "$foundation_product"),
+                (RegistrationTrait::Sum, "$foundation_sum"),
+                (RegistrationTrait::Product, "$foundation_product"),
             ] {
                 let item = Ty::Builtin(target);
                 implement(
                     module,
-                    primitive::applied(kind, vec![item.clone()]),
+                    key::applied(kind, vec![item.clone()]),
                     item.clone(),
                     vec![],
                     binding,
@@ -66,7 +67,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
     let item = parameter.as_type();
     implement(
         module,
-        primitive::applied(Protocol::FromIterator, vec![item.clone()]),
+        key::applied(RegistrationTrait::FromIterator, vec![item.clone()]),
         Ty::Array(Box::new(item.clone()), CollectionAccess::Mutable),
         vec![parameter],
         "$foundation_list_from_iter",
@@ -106,14 +107,14 @@ fn iteration_calls(module: &mut ModuleDecl, item: Ty) {
     let owner = module.implementation_id(module.implementations.len() - 1);
     let method = &module.implementations.last().unwrap().methods[0];
     let source = method.params[0].ty.clone();
-    let iterable = contracts::applied_item(Protocol::Iterable, item.clone());
+    let iterable = contracts::applied_item(RegistrationTrait::Iterable, item.clone());
     let cursor = Ty::Projection {
         receiver: Box::new(source.clone()),
         member: associated_type_id(&iterable.declaration, "Iter"),
         interface: Box::new(iterable.clone()),
         arguments: vec![],
     };
-    let iterator = contracts::applied_item(Protocol::Iterator, item);
+    let iterator = contracts::applied_item(RegistrationTrait::Iterator, item);
     module.callable_requirements.insert(
         ModuleDecl::method_id(&owner, &method.name),
         vec![

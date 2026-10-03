@@ -123,7 +123,7 @@ pub(super) fn validate(
             }
             for required in contract.associated_types.get(member).into_iter().flatten() {
                 let satisfies = match normalize_bound(required) {
-                    ConstraintTarget::Standard(required) => type_satisfies_standard_constraint(&output, required, &available),
+                    ConstraintTarget::Standard(required) => type_satisfies_standard_constraint(&output, required, &available, Some(catalog)),
                     ConstraintTarget::Trait(required) => {
                         available.get(&output).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(&required))))
                             || catalog.intrinsic_implementation(&required, &output, &available) || catalog.concrete_interface_implementation(&required, &output, &available, 100_000, 64, cancel).ok().flatten().is_some()

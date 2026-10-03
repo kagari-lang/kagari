@@ -24,6 +24,7 @@ impl Runtime {
         module: &BytecodeModule<DefinitionId>,
         program: &VerifiedProgram,
     ) -> Result<LinkedHostBindings, RuntimeError> {
+        self.native_entries.validate_installed_traits(module)?;
         let mut bindings = self
             .host
             .link_module(module, &self.types, program.definitions())?;

@@ -80,6 +80,7 @@ impl<'a> BodyChecker<'a> {
             self.lowered.source_map.type_span(ty),
             self.diagnostics,
             self.cancel,
+            Some(self.aggregates),
         );
         resolved
     }
@@ -312,6 +313,7 @@ impl<'a> BodyChecker<'a> {
                     &struct_def.generic_params,
                     &mut substitution,
                     self.cancel,
+                    Some(self.aggregates),
                 )
                 .is_err()
             {

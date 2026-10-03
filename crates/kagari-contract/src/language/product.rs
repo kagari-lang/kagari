@@ -8,7 +8,7 @@ use bincode::{DefaultOptions, Options};
 use kagari_common::cancellation::CancellationToken;
 use std::sync::OnceLock;
 
-pub(super) fn declarations() -> Vec<TraitDef> {
+pub(crate) fn declarations() -> Vec<TraitDef> {
     static TRAITS: OnceLock<Vec<TraitDef>> = OnceLock::new();
     TRAITS
         .get_or_init(|| {
@@ -16,7 +16,7 @@ pub(super) fn declarations() -> Vec<TraitDef> {
                 .with_fixint_encoding()
                 .with_little_endian()
                 .with_limit(64 * 1024)
-                .deserialize(include_bytes!("../traits.bin"))
+                .deserialize(include_bytes!("traits.bin"))
                 .expect("checked language declaration product");
             assert_eq!(traits.len(), LangRole::ALL.len());
             for (role, item) in LangRole::ALL.into_iter().zip(&traits) {

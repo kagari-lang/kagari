@@ -1,17 +1,20 @@
 //! Complete syntax/value contracts, explicitly expressed in Kagari's type model.
+use crate::library::catalog::key::{self, RegistrationTrait};
 use crate::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::ModuleDecl,
-    language::{self, Protocol, catalog::core_traits, primitive},
+    language::product,
     scalar::BuiltinType,
     standard::surface::StandardEnum,
     types::{AssociatedTypeDef, Constraint, FnDecl, GenericParam, NominalTy, Param, TraitDef, Ty},
 };
 use kagari_common::identity::{DefinitionPath, associated_type_id};
 
-pub(super) fn contract(kind: Protocol, parameters: &[&str]) -> TraitDef {
-    let owner = language::identity(kind);
+pub(super) fn contract(kind: RegistrationTrait, parameters: &[&str]) -> TraitDef {
+    let owner = key::identity(kind);
     TraitDef {
+        conversion_adapter: None,
+        storage_access: None,
         name: kind.name().into(),
         supertraits: vec![],
         generic_params: parameters
@@ -29,8 +32,8 @@ pub(super) fn contract(kind: Protocol, parameters: &[&str]) -> TraitDef {
     }
 }
 
-pub(super) fn receiver(kind: Protocol) -> Ty {
-    Ty::SelfType(language::identity(kind))
+pub(super) fn receiver(kind: RegistrationTrait) -> Ty {
+    Ty::SelfType(key::identity(kind))
 }
 
 pub(super) fn associated(
@@ -90,8 +93,8 @@ pub(super) fn boolean() -> Ty {
     Ty::Builtin(BuiltinType::Bool)
 }
 
-pub(super) fn applied_item(kind: Protocol, item: Ty) -> NominalTy {
-    let mut applied = primitive::applied(kind, vec![]);
+pub(super) fn applied_item(kind: RegistrationTrait, item: Ty) -> NominalTy {
+    let mut applied = key::applied(kind, vec![]);
     applied
         .associated_types
         .insert(associated_type_id(&applied.declaration, "Item"), item);
@@ -99,14 +102,14 @@ pub(super) fn applied_item(kind: Protocol, item: Ty) -> NominalTy {
 }
 
 pub(super) fn declare(module: &mut ModuleDecl) {
-    module.traits.extend(core_traits::declarations());
-    module.documentation.insert(language::identity(Protocol::Iterator),
+    module.traits.extend(product::declarations());
+    module.documentation.insert(key::identity(RegistrationTrait::Iterator),
         "A shared cursor. Each next call advances it and returns Some(item), or None when exhausted.".into());
     module.documentation.insert(
-        language::identity(Protocol::Iterable),
+        key::identity(RegistrationTrait::Iterable),
         "Produces an iterator whose Item matches this collection or sequence.".into(),
     );
-    let mut bounds = contract(Protocol::RangeBounds, &["T"]);
+    let mut bounds = contract(RegistrationTrait::RangeBounds, &["T"]);
     let bound = enum_type(
         StandardEnum::Bound,
         vec![bounds.generic_params[0].as_type()],
@@ -114,10 +117,14 @@ pub(super) fn declare(module: &mut ModuleDecl) {
     bounds.methods.extend([
         method(
             "start_bound",
-            vec![receiver(Protocol::RangeBounds)],
+            vec![receiver(RegistrationTrait::RangeBounds)],
             bound.clone(),
         ),
-        method("end_bound", vec![receiver(Protocol::RangeBounds)], bound),
+        method(
+            "end_bound",
+            vec![receiver(RegistrationTrait::RangeBounds)],
+            bound,
+        ),
     ]);
     module.traits.push(bounds);
 }

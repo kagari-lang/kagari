@@ -1,5 +1,6 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_hir::{
+    builtin::array_bridge,
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
     language::semantics::ProtocolSemantics,
     resolver::resolved::ResolvedName,
@@ -200,16 +201,15 @@ impl FunctionLowerer<'_, '_> {
                         self.function.debug.source_span,
                     )?
                     .remove(0);
-                if let Some(item) = receiver.list_item() {
+                if let Some(item) = array_bridge::list_item(&receiver) {
                     let mut read = Protocol::Index.nominal();
                     read.arguments.push(TypeId::Builtin(BuiltinType::USize));
                     read.associated_types.insert(
                         identity::associated_type_id(&read.declaration, "Output"),
                         item.clone(),
                     );
-                    let write = if receiver.writable_list() {
-                        let mut write = Protocol::MutableList.nominal();
-                        write.arguments.push(item.clone());
+                    let write = if array_bridge::writable_list(&receiver) {
+                        let write = array_bridge::list_interface(item.clone(), true);
                         Some(lower_nominal_type(&write))
                     } else {
                         None

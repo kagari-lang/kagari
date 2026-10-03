@@ -4,9 +4,10 @@ use kagari_common::{
     identity::{DefinitionPath, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_contract::language::catalog as language;
+use kagari_contract::library;
+use kagari_contract::library::catalog as language;
 use kagari_contract::{
-    language::{self as identities, Protocol, primitive},
+    language::{self as identities, Protocol},
     scalar::BuiltinType,
     types::{Constraint, PublicItem, Ty, inheritance, verify},
 };
@@ -125,10 +126,13 @@ fn portable_collection_view_preserves_concrete_iterator_proofs() {
     let module = language::declarations();
     let lookup = |id: &DefinitionPath| {
         module.traits.iter().find(|contract| {
-            Protocol::from_id(id).is_some_and(|protocol| protocol.name() == contract.name)
+            module.definition(
+                kagari_common::identity::DefinitionKind::Trait,
+                &contract.name,
+            ) == *id
         })
     };
-    let list = primitive::applied(Protocol::List, vec![Ty::Builtin(BuiltinType::I32)]);
+    let list = library::applied("List", vec![Ty::Builtin(BuiltinType::I32)]);
     let receiver = Ty::Trait(list.clone());
     let cancel = CancellationToken::default();
     let original = inheritance::trait_closure(&list, &receiver, &cancel, &lookup).unwrap();

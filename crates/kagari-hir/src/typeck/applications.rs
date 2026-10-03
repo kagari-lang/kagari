@@ -24,7 +24,10 @@ use kagari_common::{
     range::RangeKind,
     span::Span,
 };
-use kagari_contract::{language::Protocol, standard::surface::StandardTypeConstraint};
+use kagari_contract::{
+    language::{Protocol, role::LangRole},
+    standard::surface::StandardTypeConstraint,
+};
 
 pub(super) fn validate(
     ty: &TypeId,
@@ -65,10 +68,21 @@ pub(super) fn validate(
             _ => None,
         };
         if let Some(key) = key
-            && type_satisfies_standard_constraint(key, StandardTypeConstraint::HashKey, bounds)
-            && [Protocol::Eq, Protocol::Hash]
-                .into_iter()
-                .any(|p| !intrinsic_holds(p, key, Some(catalog), bounds))
+            && ((key.contains_interface()
+                && !type_satisfies_standard_constraint(
+                    key,
+                    StandardTypeConstraint::HashKey,
+                    bounds,
+                    Some(catalog),
+                ))
+                || (type_satisfies_standard_constraint(
+                    key,
+                    StandardTypeConstraint::HashKey,
+                    bounds,
+                    None,
+                ) && [Protocol::Eq, Protocol::Hash]
+                    .into_iter()
+                    .any(|p| !intrinsic_holds(p, key, Some(catalog), bounds))))
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
@@ -117,7 +131,12 @@ pub(super) fn validate(
                         for constraint in constraints {
                             let satisfied = match constraint {
                                 ConstraintTarget::Standard(required) => {
-                                    type_satisfies_standard_constraint(&actual, *required, bounds)
+                                    type_satisfies_standard_constraint(
+                                        &actual,
+                                        *required,
+                                        bounds,
+                                        Some(catalog),
+                                    )
                                 }
                                 ConstraintTarget::Trait(required) => {
                                     let required = required.instantiate(&substitution);
@@ -202,6 +221,7 @@ pub(super) fn validate(
                                         bounds,
                                         span,
                                         diagnostics,
+                                        Some(catalog),
                                     )
                                 }
                                 ConstraintTarget::Trait(id) => {
@@ -259,7 +279,10 @@ pub(super) fn validate(
                             let satisfied = match constraint {
                                 ConstraintTarget::Standard(standard) => {
                                     constraints::type_satisfies_standard_constraint(
-                                        actual, *standard, bounds,
+                                        actual,
+                                        *standard,
+                                        bounds,
+                                        Some(catalog),
                                     )
                                 }
                                 ConstraintTarget::Trait(required) => {
@@ -524,7 +547,9 @@ pub(super) fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
-                if Protocol::from_id(&instance.declaration).is_some_and(|kind| !kind.dynamic()) {
+                if Protocol::from_id(&instance.declaration).is_some_and(|kind| {
+                    LangRole::from_protocol(kind).is_some_and(LangRole::requires_static_dispatch)
+                }) {
                     diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
                 }
                 let erased = catalog.trait_closure(instance, ty, cancel);
@@ -550,9 +575,10 @@ pub(super) fn validate_imported_interface_type(
                         let Some(contract) = catalog.trait_(&parent.declaration) else {
                             continue;
                         };
-                        if Protocol::from_id(&parent.declaration)
-                            .is_some_and(|kind| !kind.dynamic())
-                            && index != 0
+                        if Protocol::from_id(&parent.declaration).is_some_and(|kind| {
+                            LangRole::from_protocol(kind)
+                                .is_some_and(LangRole::requires_static_dispatch)
+                        }) && index != 0
                         {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidInterfaceType {

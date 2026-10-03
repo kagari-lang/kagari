@@ -67,8 +67,9 @@ impl<'a> Implementation<'a> {
         }
     }
 
-    pub(super) fn pattern(&self) -> Option<ImplementationPattern<'a>> {
+    pub(super) fn pattern(&self, contract: Option<&TraitDef>) -> Option<ImplementationPattern<'a>> {
         Some(ImplementationPattern {
+            storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: self.parameters(),
             receiver: self.receiver(),
             interface: self.interface()?,

@@ -27,6 +27,8 @@ fn applied(name: &str) -> NominalTy {
 
 fn record(name: &str) -> TraitDef {
     TraitDef {
+        conversion_adapter: None,
+        storage_access: None,
         name: name.into(),
         generic_params: vec![],
         bounds: vec![],

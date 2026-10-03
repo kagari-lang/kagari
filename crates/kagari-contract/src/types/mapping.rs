@@ -379,6 +379,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitDef<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(TraitDef {
+            conversion_adapter: self
+                .conversion_adapter
+                .as_ref()
+                .map(|adapter| adapter.map_identities(mapper))
+                .transpose()?,
+            storage_access: self.storage_access,
             associated_consts: map_sequence(&self.associated_consts, |value| {
                 (value).map_identities(mapper)
             })?,
@@ -401,6 +407,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitDef<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        if let Some(adapter) = &self.conversion_adapter {
+            adapter.visit_definitions(visit, cancel)?;
+        }
         for value0 in &self.associated_consts {
             (value0).visit_definitions(visit, cancel)?;
         }

@@ -24,6 +24,7 @@ use {
         operations::{BinaryOp, StandardEnumOp, UnaryOp},
         scalar::BuiltinType,
         standard::RuntimePrimitive,
+        types::conversion::ConversionAdapter,
     },
 };
 
@@ -134,9 +135,21 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
 
-        if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
-            let origin = Protocol::from_id(&required.declaration).expect("conversion origin");
-            let method = self.protocol_method(origin, 0)?;
+        if let Some((required, target)) =
+            traits::conversion_requirement(&interface, &ty, Some(self.planner.catalog))
+        {
+            let method = self
+                .planner
+                .catalog
+                .trait_(&interface.declaration)
+                .and_then(|contract| contract.conversion_adapter.as_ref())
+                .and_then(|adapter| match adapter {
+                    ConversionAdapter::Reverse { method, .. } => Some(method.clone()),
+                    _ => None,
+                })
+                .ok_or(MirLoweringError::MissingBinding(
+                    "registered forward conversion member",
+                ))?;
             return self.lower_applied_method(required, target, &method, &method_arguments, args);
         }
 
@@ -308,24 +321,22 @@ impl FunctionLowerer<'_, '_> {
         {
             return Ok(args[0]);
         }
-        if let (
-            Some(kind @ (Protocol::From | Protocol::TryFrom)),
-            TypeId::Builtin(target),
-            [TypeId::Builtin(source)],
-        ) = (
-            Protocol::from_id(&interface.declaration),
-            &ty,
-            interface.arguments.as_slice(),
-        ) && traits::intrinsic_applies(
-            &interface,
-            &ty,
-            Some(self.planner.catalog),
-            &Default::default(),
-        ) {
+        let checked = self.planner.catalog.trait_(&interface.declaration)
+            .is_some_and(|contract| matches!(&contract.conversion_adapter, Some(ConversionAdapter::CheckedNumeric { method: declared, .. }) if declared == method));
+        if let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
+            (&ty, interface.arguments.as_slice())
+            && (checked || Protocol::from_id(&interface.declaration) == Some(Protocol::From))
+            && traits::intrinsic_applies(
+                &interface,
+                &ty,
+                Some(self.planner.catalog),
+                &Default::default(),
+            )
+        {
             let conversion = NumericConversion {
                 source: *source,
                 target: *target,
-                checked: kind == Protocol::TryFrom,
+                checked,
             };
             let (_, output) = conversion
                 .contract()

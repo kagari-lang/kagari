@@ -63,7 +63,7 @@ fn scalar_aggregation_is_not_a_source_free_intrinsic_proof() {
     for name in ["Sum", "Product"] {
         let interface = nominal(id(DefinitionKind::Trait, name), vec![scalar()]);
         assert!(
-            intrinsic::requirements(&interface, &scalar(), &cancel)
+            intrinsic::requirements(&interface, &scalar(), &cancel, None)
                 .unwrap()
                 .is_none()
         );

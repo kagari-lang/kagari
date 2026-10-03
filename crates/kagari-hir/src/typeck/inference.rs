@@ -1,32 +1,40 @@
-use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
+use crate::{
+    aggregates::AggregateCatalog,
+    types::{GenericParameterType, TypeId, TypeSubstitution},
+};
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
-use kagari_contract::language::Protocol;
 
 /// Infer only the callee's parameters. Repeated occurrences are checked against
 /// the resulting signature by the caller; no source spelling participates.
-pub(super) fn infer(
+pub(crate) fn infer(
     expected: &TypeId,
     actual: &TypeId,
     parameters: &[GenericParameterType],
     substitution: &mut TypeSubstitution,
     cancel: &CancellationToken,
+    aggregates: Option<&AggregateCatalog>,
 ) -> Result<(), Cancelled> {
+    if let Some(aggregates) = aggregates
+        && (matches!(expected, TypeId::Trait(_)) || matches!(actual, TypeId::Trait(_)))
+        && !matches!((expected, actual), (TypeId::Trait(left), TypeId::Trait(right)) if left.declaration == right.declaration)
+        && let Some((expected, actual)) =
+            aggregates.matching_storage_headers(expected, actual, cancel)
+    {
+        return infer(
+            &TypeId::Trait(expected),
+            &TypeId::Trait(actual),
+            parameters,
+            substitution,
+            cancel,
+            None,
+        );
+    }
     let mut pending = vec![(expected, actual)];
     while let Some((expected, actual)) = pending.pop() {
         cancel.check()?;
         if matches!(actual, TypeId::Unknown | TypeId::Error) {
-            continue;
-        }
-        if (matches!(expected, TypeId::Trait(_)) || matches!(actual, TypeId::Trait(_)))
-            && !matches!((expected, actual), (TypeId::Trait(left), TypeId::Trait(right)) if left.declaration == right.declaration)
-            && let (Some((left, left_args)), Some((right, right_args))) =
-                (collection_inputs(expected), collection_inputs(actual))
-            && left == right
-            && left_args.len() == right_args.len()
-        {
-            pending.extend(left_args.into_iter().zip(right_args).rev());
             continue;
         }
         match (expected, actual) {
@@ -103,37 +111,40 @@ pub(super) fn infer(
     Ok(())
 }
 
-/// Borrow the native representation's slots so cross-view inference keeps the
-/// same bounded, iterative traversal as nominal and structural types.
-fn collection_inputs(ty: &TypeId) -> Option<(Protocol, Vec<&TypeId>)> {
-    Some(match ty {
-        TypeId::Array(item, _) => (Protocol::List, vec![item]),
-        TypeId::Set(item, _) => (Protocol::Set, vec![item]),
-        TypeId::Map { key, value, .. } => (Protocol::Map, vec![key, value]),
-        TypeId::Trait(interface) => (
-            match Protocol::from_id(&interface.declaration)? {
-                Protocol::List | Protocol::MutableList => Protocol::List,
-                Protocol::Map | Protocol::MutableMap => Protocol::Map,
-                Protocol::Set | Protocol::MutableSet => Protocol::Set,
-                _ => return None,
-            },
-            interface.arguments.iter().collect(),
-        ),
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::types::NominalType;
+    use kagari_contract::library;
+
+    fn foundation_interface(name: &str) -> NominalType {
+        NominalType {
+            declaration: library::trait_id(name),
+            arguments: vec![],
+            associated_types: Default::default(),
+        }
+    }
+
     use super::*;
-    use crate::{language::semantics::ProtocolSemantics, types::NominalType};
+    use crate::analysis::AnalysisDatabase;
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
+    use kagari_common::{source::SourceFile, source_database::SourceSnapshot};
     use kagari_contract::scalar::BuiltinType;
+    use std::sync::Arc;
 
     #[test]
     fn collection_context_infers_slots_across_native_and_declared_views() {
+        let source = Arc::new(SourceFile::new("memory://views.kgr", "fn main() {}"));
+        let id = source.id();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(SourceSnapshot::single_file(source), &Default::default())
+            .unwrap();
+        let facts = snapshot
+            .file(id)
+            .unwrap()
+            .to_unverified(&Default::default())
+            .unwrap();
         let parameter = GenericParameterType {
             owner: DefinitionPath {
                 module: ModuleIdentity::single_file("views.kgr"),
@@ -146,10 +157,10 @@ mod tests {
             position: 0,
             name: "T".into(),
         };
-        let mut expected = Protocol::Set.nominal();
+        let mut expected = foundation_interface("Set");
         expected.arguments = vec![TypeId::Generic(parameter.clone())];
         let integer = TypeId::Builtin(BuiltinType::I32);
-        let mut writable = Protocol::MutableSet.nominal();
+        let mut writable = foundation_interface("MutableSet");
         writable.arguments = vec![integer.clone()];
         for actual in [
             TypeId::Set(Box::new(integer.clone()), CollectionAccess::Mutable),
@@ -162,6 +173,7 @@ mod tests {
                 std::slice::from_ref(&parameter),
                 &mut substitution,
                 &Default::default(),
+                Some(&facts.facts().aggregates),
             )
             .unwrap();
             assert_eq!(substitution[&parameter], integer);
@@ -197,6 +209,7 @@ mod tests {
             std::slice::from_ref(&parameter),
             &mut substitution,
             &cancelled,
+            None,
         )
         .unwrap_err();
         assert!(substitution.is_empty());
@@ -206,6 +219,7 @@ mod tests {
             std::slice::from_ref(&parameter),
             &mut substitution,
             &Default::default(),
+            None,
         )
         .unwrap();
         assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
@@ -225,6 +239,7 @@ mod tests {
             std::slice::from_ref(&parameter),
             &mut substitution,
             &Default::default(),
+            None,
         )
         .unwrap();
         assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
@@ -357,6 +372,7 @@ mod tests {
                 std::slice::from_ref(&parameter),
                 &mut substitution,
                 &Default::default(),
+                None,
             )
             .unwrap();
             assert_eq!(template.instantiate(&substitution), actual);
@@ -393,6 +409,7 @@ mod tests {
                     std::slice::from_ref(&parameter),
                     &mut substitution,
                     &Default::default(),
+                    None,
                 )
                 .unwrap();
                 assert!(substitution.is_empty());

@@ -1,8 +1,7 @@
 # Kagari Implementation Roadmap
 
 This is the single queue and progress owner for pending work. AC01-AC05 are active
-under the continuous implementation goal. AC01-AC02 are complete; AC03 is next and
-AC04-AC05 remain pending. Other queued proposals are outside this goal.
+under the continuous implementation goal. AC01-AC03 are complete; AC04 is in progress and AC05 remains pending. Other queued proposals are outside this goal.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -97,7 +96,7 @@ track; that scope does not require a separate approval for each phase:
   Cover both the 21 syntax roles and the three retained implicit-value roles.
   Exercise a source-declared addition trait, operator selection and a same-named
   application trait; add no second trait model or compiler-wide string matching.
-- [ ] **AC03: Analyze native-generated declarations and localize collection policy.**
+- [x] **AC03: Analyze native-generated declarations and localize collection policy.**
   Keep Rust native definitions authoritative for ordinary library traits, types,
   methods and implementations. Generate `.kgr` declarations for compiler/LSP
   analysis through the same declaration/selection machinery as handwritten traits.
@@ -199,7 +198,7 @@ The AC01 module/consumer audit is:
 | `representation`, `native_call`, `version`, physical `native` | ABI; contract lowering, codegen, Cranelift, runtime, VM and SDK |
 | `types`, `callable`, `declaration`, `native_import`, `layout`, `slots`, `contracts` | Contract; HIR/compiler, MIR/bytecode verification, runtime linking and execution metadata |
 | `scalar`, `numeric`, `operations`, `effects`, `standard`, `host`, `ids`, `decode_limits` | Contract; checked semantic/operation facts and bounded portable verification, shared with source and executable consumers |
-| `language`, `language/catalog`, `language/primitive` | Explicit foundation ownership in contract during AC01; Rust authority remains until AC02/AC03 |
+| Starting `language`, `language/catalog`, `language/primitive` | Contract core roles/product/implicit semantics; AC03 moves Rust registration catalog to `library/catalog` and library capabilities/adapters into checked records |
 | `declaration/render` | HIR tooling; no executable consumer or ABI dependency on generated source |
 | Common `identity` and its map/metadata/reference/table modules | Portable identity machinery stays common; FileId/Revision/FileSpan source records move to source ownership in AC04 |
 | Common `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Source/tooling ownership move in AC04; shared span coordinates remain available to executable debug metadata |
@@ -216,8 +215,8 @@ iteration, formatting and Result propagation select 21 syntax traits; implicit
 value/composite/identity eligibility also needs Eq/Hash/Ord. RangeBounds already
 uses registered implementation selection; range constructors remain syntax
 bindings. Into/TryInto derive from From/TryFrom, and numeric conversion adapters
-retain checked implementation facts. Those library recognition paths remain
-AC03 work, including collection interface identity checks and inherited methods.
+retain checked implementation facts. AC03 replaces library recognition with checked storage and conversion adapter
+records; inherited methods follow normal declared parent closure.
 
 Bounded retained representation exceptions: StandardEnum keeps Option/Result
 propagation, enum payload validation and tracing; RangeKind keeps endpoint shape
@@ -258,6 +257,40 @@ and diff checks pass. The discovered documentation/inventory and standalone inde
 assignment regressions are resolved. Native view documentation remains in native
 registration records until AC04's source-navigation ownership integration. No carried
 build/test failure remains; command logs are in `target/ac-cleanup/ac02-*.log`.
+
+AC03 replaces direct native record-to-HIR ingestion with ordinary declaration
+parsing/lowering. Non-trivia view correspondence is checked before installed
+storage, bindings and default metadata attach; core traits retain semantic role/
+shape checks. Rust registration ownership moves to `contract::library::catalog`;
+its 38-entry RegistrationTrait key is private to that owner. `language::Protocol`
+contains only the 24 core roles. No generic consumer recognizes library traits
+through that enum.
+
+Native TraitDef records carry installed storage access and conversion adapters.
+Storage joins/inference, readonly portable matching, identity/equality and dynamic
+call checks read declarations and implementation/parent records. The explicit
+`builtin::array_bridge` owns `[T]` context and existing indexed assignment. Ordinary
+new native containers use nominal NativeStorage registration and the same trait
+records. Storage implementations retain object/nominal ownership checks. Key
+eligibility is rechecked with the complete catalog after header collection.
+Into/TryInto retain exact forward method/error identities; TryFrom carries its
+checked scalar adapter. Portable adapter shape checks and exact installation
+checks preserve authority without source dependencies or a new blanket feature.
+
+AC03 acceptance passes: workspace all-target compilation; 412 HIR unit and eight
+language-contract tests;
+five collection-access, five collection-interface, 15 conversion, 17 provider-reset
+and one standard-declaration embedding tests; checked source/product comparison;
+51 contract unit tests, 29 bytecode tests, 13 native-default and two bytecode doc
+tests; 13 runtime native-builder and three installation tests; six language-role
+regressions; strict Clippy for contract/HIR/runtime/compiler/bytecode all targets.
+Earlier cursor-name,
+deferred interface-key and enum-based test-lookup failures are resolved. The four discovered earlier role/rendering Clippy findings and the new redundant
+borrow are resolved. Structure (731 files, no exceptions), formatting, import/
+ownership review and diff checks pass. No carried build/test failure remains.
+Executable fixture regeneration and the full feature/backend matrix belong to
+AC05; unmodified checked products are not repeatedly rebuilt. Logs are under
+`target/ac-cleanup/ac03-*.log`.
 
 Acceptance includes both sides of the boundary: source-defined operator traits,
 native-generated library traits and application traits use the same record/selection
@@ -321,7 +354,7 @@ Current code entrypoints, to be updated when their owners move:
 | --- | --- |
 | ABI/contract model and verification | [Contract root](../crates/kagari-contract/src/lib.rs), `types/`, `callable/`, `layout.rs`, `slots.rs`, `contracts.rs`, `native_import/` under that crate |
 | Physical representation and native boundary | [Value representations](../crates/kagari-abi/src/representation.rs), [native calls](../crates/kagari-abi/src/native_call.rs), [native products](../crates/kagari-abi/src/native.rs) |
-| Existing foundation definitions and generated source | [Language catalog](../crates/kagari-contract/src/language/catalog/mod.rs), [native declarations](../crates/kagari-contract/src/declaration/mod.rs), [source renderer](../crates/kagari-hir/src/native/render.rs) |
+| Existing foundation definitions and generated source | [Language catalog](../crates/kagari-contract/src/library/catalog/mod.rs), [native declarations](../crates/kagari-contract/src/declaration/mod.rs), [source renderer](../crates/kagari-hir/src/native/render.rs) |
 | Attribute analysis and language selection | [Syntax attributes](../crates/kagari-syntax/src/ast/item.rs), [HIR entry](../crates/kagari-hir/src/lib.rs), HIR `lower/`, `language/`, `typeck/` and compiler `source/lower/` |
 | Installation and executable consumers | Runtime `native/`, `loading.rs`, `backend.rs` and `backend/native.rs`; MIR, bytecode, VM, codegen and embed consumers of the old ABI model |
 | Common ownership and dependency validation | [Common root](../crates/kagari-common/src/lib.rs), workspace/crate manifests and [standalone feature checker](../scripts/check_features.py) |

@@ -108,6 +108,8 @@ impl Fixture {
         Self {
             owner: owner.clone(),
             contract: TraitDef {
+                conversion_adapter: None,
+                storage_access: None,
                 name: "Echo".into(),
                 generic_params: vec![],
                 bounds: vec![],

@@ -235,6 +235,7 @@ impl<'a> BodyChecker<'a> {
                 function.generic_params(),
                 &mut substitution,
                 self.cancel,
+                Some(self.aggregates),
             )
             .is_err()
         {
@@ -569,6 +570,7 @@ impl<'a> BodyChecker<'a> {
                 &env.generic_bounds,
                 self.lowered.source_map.expr_span(span_expr),
                 self.diagnostics,
+                Some(self.aggregates),
             );
         }
     }
@@ -720,7 +722,15 @@ impl<'a> BodyChecker<'a> {
             if completes
                 && !generics.is_empty()
                 && let Some(parameter) = parameter
-                && inference::infer(&parameter, &ty, generics, substitution, self.cancel).is_err()
+                && inference::infer(
+                    &parameter,
+                    &ty,
+                    generics,
+                    substitution,
+                    self.cancel,
+                    Some(self.aggregates),
+                )
+                .is_err()
             {
                 break;
             }
@@ -740,6 +750,7 @@ impl<'a> BodyChecker<'a> {
                         generics,
                         substitution,
                         self.cancel,
+                        Some(self.aggregates),
                     );
                 }
             }

@@ -53,6 +53,8 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Valu
                     identity,
                     public_items: vec![
                         PublicItem::Trait(TraitDef {
+                            conversion_adapter: None,
+                            storage_access: None,
                             associated_consts: Vec::new(),
                             supertraits: Vec::new(),
                             associated_types: Vec::new(),

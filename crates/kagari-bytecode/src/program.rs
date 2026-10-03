@@ -198,7 +198,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             if let Some(kind) = Protocol::from_id(&instance.declaration)
                 && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
                     || instance.declaration.module != table.declaration.module
-                        && !kind.conversion()
+                        && kind != Protocol::From
                         && !matches!(
                             table.for_type,
                             Ty::NativeObject(_) | Ty::Struct(_) | Ty::Enum(_) | Ty::Host(_)

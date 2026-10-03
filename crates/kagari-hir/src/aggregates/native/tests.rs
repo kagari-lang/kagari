@@ -1,3 +1,13 @@
+use crate::types::NominalType;
+use kagari_contract::library;
+
+fn foundation_interface(name: &str) -> NominalType {
+    NominalType {
+        declaration: library::trait_id(name),
+        arguments: vec![],
+        associated_types: Default::default(),
+    }
+}
 use crate::{
     aggregates::AggregateCatalog,
     analysis::{AnalysisDatabase, AnalysisSnapshot},
@@ -12,11 +22,7 @@ use kagari_common::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_contract::{
-    language::{self, Protocol},
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-};
+use kagari_contract::{language::Protocol, scalar::BuiltinType, standard::surface::StandardEnum};
 
 fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
     let mut sources = SourceDatabase::default();
@@ -41,8 +47,8 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
     let item = TypeId::Builtin(BuiltinType::I32);
     let mutable = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
     let readonly = TypeId::Array(Box::new(item.clone()), CollectionAccess::ReadOnly);
-    for kind in [Protocol::List, Protocol::MutableList] {
-        let mut interface = kind.nominal();
+    for kind in ["List", "MutableList"] {
+        let mut interface = foundation_interface(kind);
         interface.arguments.push(item.clone());
         assert!(
             AggregateCatalog::default()
@@ -96,7 +102,7 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
         value: Box::new(TypeId::Builtin(BuiltinType::I32)),
         access: CollectionAccess::Mutable,
     };
-    let mut interface = Protocol::Map.nominal();
+    let mut interface = foundation_interface("Map");
     interface.arguments = vec![key, TypeId::Builtin(BuiltinType::I32)];
     assert!(
         catalog
@@ -164,10 +170,10 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
             .unwrap()
             .is_none()
     );
-    for kind in [Protocol::Sum, Protocol::Product, Protocol::FromIterator] {
+    for kind in ["Sum", "Product", "FromIterator"] {
         let contract = facts
             .aggregates
-            .trait_(&language::identity(kind))
+            .trait_(&library::trait_id(kind))
             .expect("foundation construction contract");
         assert_eq!(contract.methods.len(), 1);
         assert_eq!(contract.methods[0].generic_params.len(), 2);

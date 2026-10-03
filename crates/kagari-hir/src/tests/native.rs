@@ -5,6 +5,7 @@ use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionKind, ModuleIdentity, PackageId, associated_type_id},
 };
+use kagari_contract::library;
 use kagari_contract::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
     declaration::{ImplDecl, ModuleDecl},
@@ -104,6 +105,8 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
         methods.push(method);
     }
     module.traits.push(TraitDef {
+        conversion_adapter: None,
+        storage_access: None,
         name: "NativeRead".into(),
         generic_params: vec![],
         bounds: vec![],
@@ -162,6 +165,8 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
         Ty::Builtin(BuiltinType::String),
     );
     module.traits.push(TraitDef {
+        conversion_adapter: None,
+        storage_access: None,
         name: "TextItems".into(),
         generic_params: vec![],
         bounds: vec![],
@@ -194,8 +199,8 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
         let item = parameter.as_type();
         let receiver = match family {
             0 => Ty::Array(Box::new(item), CollectionAccess::Mutable),
-            1 => Ty::Trait(primitive::applied(Protocol::List, vec![item])),
-            2 => Ty::Trait(primitive::applied(Protocol::MutableList, vec![item])),
+            1 => Ty::Trait(library::applied("List", vec![item])),
+            2 => Ty::Trait(library::applied("MutableList", vec![item])),
             _ => Ty::Iter(Box::new(item)),
         };
         let method = FnDecl {

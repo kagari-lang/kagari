@@ -6,10 +6,11 @@ use crate::{
     types::{NominalType, TypeId},
 };
 use kagari_contract::{
-    language::{Protocol, identity},
+    language::{Protocol, identity, role::LangRole},
     numeric as scalar_numeric,
     scalar::BuiltinType,
     standard::surface::StandardEnum,
+    types::conversion::ConversionAdapter,
 };
 
 use kagari_common::identity::{DefinitionPath, associated_type_id};
@@ -167,16 +168,26 @@ pub fn intrinsic_applies(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if catalog.is_some_and(|catalog| {
+        catalog
+            .engine_implementation(interface, receiver, bounds)
+            .is_some()
+    }) {
+        return true;
+    }
+    if let Some((required, target)) = conversion_requirement(interface, receiver, catalog) {
+        return intrinsic_applies(&required, &target, catalog, bounds)
+            || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
+            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(&required, &target, bounds, 100_000, 64, &Default::default()).is_ok_and(|found| found.is_some()));
+    }
+    if let Some(error) = conversion_error(interface, receiver, catalog) {
+        return interface.associated_types.iter().all(|(member, ty)| {
+            *member == associated_type_id(&interface.declaration, "Error") && *ty == error
+        });
+    }
     let Some(kind) = Protocol::from_id(&interface.declaration) else {
         return false;
     };
-    if kind.collection() || kind == Protocol::RangeBounds {
-        return catalog.is_some_and(|catalog| {
-            catalog
-                .engine_implementation(interface, receiver, bounds)
-                .is_some()
-        });
-    }
     if kind.iteration() {
         return iteration_outputs(kind, receiver, catalog, bounds).is_some_and(|outputs| {
             interface.arguments.is_empty()
@@ -184,16 +195,6 @@ pub fn intrinsic_applies(
                     .associated_types
                     .iter()
                     .all(|(member, ty)| outputs.get(member) == Some(ty))
-        });
-    }
-    if let Some((required, target)) = conversion_requirement(interface, receiver) {
-        return intrinsic_applies(&required, &target, catalog, bounds)
-            || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
-            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(&required, &target, bounds, 100_000, 64, &Default::default()).is_ok_and(|found| found.is_some()));
-    }
-    if let Some(error) = conversion_error(interface, receiver) {
-        return interface.associated_types.iter().all(|(member, ty)| {
-            *member == associated_type_id(&interface.declaration, "Error") && *ty == error
         });
     }
     if kind == Protocol::From {
@@ -238,18 +239,13 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
-    if protocol.collection() || protocol == Protocol::RangeBounds {
+    if LangRole::from_protocol(protocol).is_none() {
         return false;
     }
     if protocol.iteration() {
         return iteration_outputs(protocol, ty, catalog, bounds).is_some();
     }
-    if protocol.conversion()
-        || matches!(
-            protocol,
-            Protocol::FromStr | Protocol::FromIterator | Protocol::Sum | Protocol::Product
-        )
-    {
+    if protocol == Protocol::From {
         return false;
     }
     if protocol.operator() {
@@ -311,8 +307,11 @@ pub fn intrinsic_holds(
                 }
             }
             TypeId::Trait(ref interface)
-                if Protocol::from_id(&interface.declaration).is_some_and(Protocol::collection)
-                    && protocol != Protocol::Display => {}
+                if catalog.is_some_and(|catalog| {
+                    catalog
+                        .trait_(&interface.declaration)
+                        .is_some_and(|contract| contract.storage_access.is_some())
+                }) && protocol != Protocol::Display => {}
             TypeId::Enum(_) | TypeId::Host(_) if protocol == Protocol::Debug => {}
             TypeId::NativeObject(_)
             | TypeId::Struct(_)
@@ -495,36 +494,49 @@ pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Optio
     Some(required)
 }
 
-/// Reverse conversions retain the forward impl identity and associated error.
+/// Reverse conversions retain the registered forward member and error identities.
 pub fn conversion_requirement(
     interface: &NominalType,
     receiver: &TypeId,
+    catalog: Option<&AggregateCatalog>,
 ) -> Option<(NominalType, TypeId)> {
-    let kind = Protocol::from_id(&interface.declaration)?;
-    let origin = kind.conversion_origin()?;
+    let ConversionAdapter::Reverse { origin, error, .. } = catalog?
+        .trait_(&interface.declaration)?
+        .conversion_adapter
+        .as_ref()?
+    else {
+        return None;
+    };
     let [target] = interface.arguments.as_slice() else {
         return None;
     };
-    let mut required = origin.nominal();
-    required.arguments.push(receiver.clone());
+    let mut required = NominalType {
+        declaration: origin.clone(),
+        arguments: vec![receiver.clone()],
+        associated_types: Default::default(),
+    };
     for (member, ty) in &interface.associated_types {
-        if kind != Protocol::TryInto
-            || *member != associated_type_id(&interface.declaration, "Error")
-        {
+        let (source, target) = error.as_ref()?;
+        if member != source {
             return None;
         }
-        required.associated_types.insert(
-            associated_type_id(&required.declaration, "Error"),
-            ty.clone(),
-        );
+        required.associated_types.insert(target.clone(), ty.clone());
     }
     Some((required, target.clone()))
 }
 
-pub fn conversion_error(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
-    if Protocol::from_id(&interface.declaration) != Some(Protocol::TryFrom) {
+pub fn conversion_error(
+    interface: &NominalType,
+    receiver: &TypeId,
+    catalog: Option<&AggregateCatalog>,
+) -> Option<TypeId> {
+    let ConversionAdapter::CheckedNumeric { .. } = catalog?
+        .trait_(&interface.declaration)?
+        .conversion_adapter
+        .as_ref()?
+    else {
         return None;
-    }
+    };
     let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
         (receiver, interface.arguments.as_slice())
     else {

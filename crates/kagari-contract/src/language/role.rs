@@ -87,6 +87,11 @@ impl LangRole {
         }
     }
 
+    /// Reserved core protocols whose implicit value contracts remain static.
+    pub fn requires_static_dispatch(self) -> bool {
+        !matches!(self, Self::Index | Self::Iterable | Self::Iterator)
+    }
+
     pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|role| role.name() == name)
     }

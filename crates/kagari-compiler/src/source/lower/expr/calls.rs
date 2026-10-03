@@ -143,12 +143,8 @@ impl FunctionLowerer<'_, '_> {
             );
         }
         if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
-            && Protocol::from_id(&interface.declaration).is_some_and(|kind| {
-                kind.operator()
-                    || kind.collection()
-                    || kind.iteration()
-                    || kind == Protocol::RangeBounds
-            })
+            && Protocol::from_id(&interface.declaration)
+                .is_some_and(|kind| kind.operator() || kind.iteration())
         {
             let receiver = call
                 .receiver

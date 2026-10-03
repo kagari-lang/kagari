@@ -1,9 +1,19 @@
+use crate::types::NominalType;
+use kagari_contract::library;
+
+fn foundation_interface(name: &str) -> NominalType {
+    NominalType {
+        declaration: library::trait_id(name),
+        arguments: vec![],
+        associated_types: Default::default(),
+    }
+}
 use super::*;
 use {crate::typeck::table::CallTarget, kagari_common::source::SourceFile};
 
 use crate::{language::semantics::ProtocolSemantics, native::NativeBinding};
 use kagari_common::identity::DefinitionKind;
-use kagari_contract::language::catalog;
+use kagari_contract::library::catalog;
 
 #[test]
 fn infers_array_method_call_types() {
@@ -203,7 +213,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     }
     let set = facts
         .aggregates
-        .trait_(&Protocol::Set.nominal().declaration)
+        .trait_(&foundation_interface("Set").declaration)
         .unwrap();
     assert_eq!(
         set.methods
@@ -371,13 +381,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .block(lowered.module.functions[0].body.unwrap())
         .tail_expr
         .expect("keys tail expr");
-    assert_eq!(
-        binding(keys_tail),
-        (
-            kagari_contract::language::identity(kagari_contract::language::Protocol::Map),
-            "get".into()
-        )
-    );
+    assert_eq!(binding(keys_tail), (library::trait_id("Map"), "get".into()));
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
         Some(TypeId::StandardEnum {
@@ -393,10 +397,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("chars tail expr");
     assert_eq!(
         binding(chars_tail),
-        (
-            kagari_contract::language::identity(kagari_contract::language::Protocol::List),
-            "len".into()
-        )
+        (library::trait_id("List"), "len".into())
     );
 
     let popped_tail = lowered

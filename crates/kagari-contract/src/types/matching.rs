@@ -2,12 +2,14 @@
 use crate::{
     language::Protocol,
     types::{
-        AssociatedTypeFamily, GenericParam, InterfaceTable, NominalTy, Ty,
+        AssociatedTypeFamily, GenericParam, InterfaceTable, NominalTy, TraitDef, Ty,
         substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
     },
 };
 
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{
+    cancellation::CancellationToken, collection::CollectionAccess, identity::DefinitionPath,
+};
 
 /// The actual checked header, independently of its declaration/executable source.
 #[derive(Clone, Copy)]
@@ -15,10 +17,12 @@ pub struct ImplementationPattern<'a> {
     pub parameters: &'a [GenericParam],
     pub receiver: &'a Ty,
     pub interface: &'a NominalTy,
+    pub storage_access: Option<CollectionAccess>,
 }
 
 pub fn match_implementation<'a>(
     table: &'a InterfaceTable,
+    contract: Option<&TraitDef>,
     interface: &'a NominalTy,
     receiver: &'a Ty,
     cancel: &CancellationToken,
@@ -28,6 +32,7 @@ pub fn match_implementation<'a>(
     };
     match_pattern(
         ImplementationPattern {
+            storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: &table.generic_params,
             receiver: &table.for_type,
             interface: implemented,
@@ -62,12 +67,11 @@ pub fn match_pattern<'a>(
     TypeSubstitution::default().apply_nominal(implemented, cancel)?;
     // Readonly native capabilities admit either storage view. Other impls must
     // match access exactly; storage arguments remain invariant in either case.
-    let readonly = Protocol::from_id(&implemented.declaration).is_some_and(|kind| {
-        matches!(
-            kind,
-            Protocol::List | Protocol::Map | Protocol::Set | Protocol::Iterable | Protocol::Index
-        )
-    });
+    let readonly = pattern.storage_access == Some(CollectionAccess::ReadOnly)
+        || matches!(
+            Protocol::from_id(&implemented.declaration),
+            Some(Protocol::Iterable | Protocol::Index)
+        );
     let mut bindings = TypeSubstitution::default();
     let mut pending = vec![(pattern.receiver, receiver)];
     pending.extend(implemented.arguments.iter().zip(&interface.arguments));
@@ -216,6 +220,7 @@ pub(crate) fn projection_output(
 mod tests {
     use super::*;
     use crate::{
+        library,
         scalar::BuiltinType,
         types::{AssociatedTypeFamily, GenericParam},
     };
@@ -237,7 +242,14 @@ mod tests {
     }
 
     #[test]
-    fn native_templates_weaken_only_readonly_outer_access() {
+    fn native_templates_weaken_only_declared_readonly_outer_access() {
+        let catalog = crate::library::catalog::shared();
+        let mut contract = catalog
+            .traits
+            .iter()
+            .find(|contract| contract.name == "List")
+            .unwrap()
+            .clone();
         let integer = Ty::Builtin(BuiltinType::I32);
         let mutable = Ty::Array(Box::new(integer.clone()), CollectionAccess::Mutable);
         let readonly = Ty::Array(Box::new(integer.clone()), CollectionAccess::ReadOnly);
@@ -245,8 +257,11 @@ mod tests {
             owner: id(DefinitionKind::Impl, ""),
             position: 0,
         };
-        let mut interface =
-            crate::language::primitive::applied(Protocol::List, vec![integer.clone()]);
+        let mut interface = library::applied("List", vec![integer.clone()]);
+        // An ordinary installed interface gets its capability from its record,
+        // without any addition to the language protocol inventory.
+        let custom = id(DefinitionKind::Trait, "CustomSequence");
+        interface.declaration = custom.clone();
         let mut table = InterfaceTable {
             declaration: parameter.owner.clone(),
             name: "List".into(),
@@ -255,49 +270,53 @@ mod tests {
             methods: vec![],
             associated_consts: vec![],
             for_type: Ty::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable),
-            trait_type: Ty::Trait(crate::language::primitive::applied(
-                Protocol::List,
-                vec![parameter.as_type()],
-            )),
+            trait_type: Ty::Trait(library::applied("List", vec![parameter.as_type()])),
             associated_type_families: vec![],
             host_bridge: false,
         };
+        let Ty::Trait(implemented) = &mut table.trait_type else {
+            unreachable!()
+        };
+        implemented.declaration = custom.clone();
         let cancel = CancellationToken::default();
         assert!(
-            match_implementation(&table, &interface, &mutable, &cancel)
+            match_implementation(&table, Some(&contract), &interface, &mutable, &cancel)
                 .unwrap()
                 .is_some()
         );
         assert!(
-            match_implementation(&table, &interface, &readonly, &cancel)
+            match_implementation(&table, Some(&contract), &interface, &readonly, &cancel)
                 .unwrap()
                 .is_some()
         );
-        interface.declaration = crate::language::identity(Protocol::MutableList);
+        contract.storage_access = Some(CollectionAccess::Mutable);
         let Ty::Trait(implemented) = &mut table.trait_type else {
             unreachable!()
         };
         implemented.declaration = interface.declaration.clone();
         assert!(
-            match_implementation(&table, &interface, &mutable, &cancel)
+            match_implementation(&table, Some(&contract), &interface, &mutable, &cancel)
                 .unwrap()
                 .is_some()
         );
         assert!(
-            match_implementation(&table, &interface, &readonly, &cancel)
+            match_implementation(&table, Some(&contract), &interface, &readonly, &cancel)
                 .unwrap()
                 .is_none()
         );
+        contract.storage_access = Some(CollectionAccess::ReadOnly);
         // Generic arguments cannot acquire the outer access relaxation.
-        interface = crate::language::primitive::applied(Protocol::List, vec![readonly.clone()]);
-        table.trait_type = Ty::Trait(crate::language::primitive::applied(
-            Protocol::List,
-            vec![parameter.as_type()],
-        ));
+        interface = library::applied("List", vec![readonly.clone()]);
+        interface.declaration = custom.clone();
+        table.trait_type = Ty::Trait(library::applied("List", vec![parameter.as_type()]));
+        let Ty::Trait(implemented) = &mut table.trait_type else {
+            unreachable!()
+        };
+        implemented.declaration = custom;
         table.for_type = Ty::Array(Box::new(mutable), CollectionAccess::Mutable);
         let nested = Ty::Array(Box::new(readonly), CollectionAccess::ReadOnly);
         assert!(
-            match_implementation(&table, &interface, &nested, &cancel)
+            match_implementation(&table, Some(&contract), &interface, &nested, &cancel)
                 .unwrap()
                 .is_none()
         );
@@ -347,19 +366,20 @@ mod tests {
         let cancel = CancellationToken::default();
         let receiver = Ty::Tuple(vec![integer.clone(), integer.clone()]);
         assert!(
-            match_implementation(&table, &interface, &receiver, &cancel)
+            match_implementation(&table, None, &interface, &receiver, &cancel)
                 .unwrap()
                 .is_some()
         );
         let mismatch = Ty::Tuple(vec![integer.clone(), boolean.clone()]);
         assert!(
-            match_implementation(&table, &interface, &mismatch, &cancel)
+            match_implementation(&table, None, &interface, &mismatch, &cancel)
                 .unwrap()
                 .is_none()
         );
         assert_eq!(
             projection_output(
                 ImplementationPattern {
+                    storage_access: None,
                     parameters: &table.generic_params,
                     receiver: &table.for_type,
                     interface: match &table.trait_type {
@@ -379,7 +399,7 @@ mod tests {
         );
         cancel.cancel();
         assert!(matches!(
-            match_implementation(&table, &interface, &receiver, &cancel),
+            match_implementation(&table, None, &interface, &receiver, &cancel),
             Err(TypeTransformError::Cancelled)
         ));
     }

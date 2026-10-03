@@ -1,4 +1,5 @@
 //! Native declaration views combined with authoritative handwritten core traits.
+use kagari_contract::library::catalog;
 mod core;
 use crate::native::render::core::{core_text, record_sites};
 use kagari_common::{
@@ -15,7 +16,7 @@ use kagari_contract::{
         native::NativeTypeConstructor,
     },
 };
-use std::{collections::BTreeMap, ops::Deref};
+use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct NativeDeclarationSite {
@@ -40,15 +41,25 @@ pub struct DeclarationSource {
 }
 
 pub fn declaration_source(module: &ModuleDecl) -> Result<DeclarationSource, DeclarationError> {
-    DeclarationView(module).render()
+    declaration_source_with_providers(module, &[catalog::shared()])
 }
 
-struct DeclarationView<'a>(&'a ModuleDecl);
+pub(crate) fn declaration_source_with_providers(
+    module: &ModuleDecl,
+    providers: &[Arc<ModuleDecl>],
+) -> Result<DeclarationSource, DeclarationError> {
+    DeclarationView { module, providers }.render()
+}
+
+struct DeclarationView<'a> {
+    module: &'a ModuleDecl,
+    providers: &'a [Arc<ModuleDecl>],
+}
 
 impl Deref for DeclarationView<'_> {
     type Target = ModuleDecl;
     fn deref(&self) -> &ModuleDecl {
-        self.0
+        self.module
     }
 }
 
@@ -296,12 +307,7 @@ impl DeclarationView<'_> {
             Ty::SelfType(_) => "Self".into(),
             Ty::Array(item, CollectionAccess::ReadOnly) => format!("[{}]", self.spell(item)?),
             Ty::Array(item, CollectionAccess::Mutable) => {
-                let name = self
-                    .types
-                    .iter()
-                    .find(|ty| ty.kind == TypeDefKind::Native(NativeTypeConstructor::Array))
-                    .map(|ty| ty.name.as_str())
-                    .unwrap_or("ArrayList");
+                let name = self.representation_name(NativeTypeConstructor::Array, "ArrayList")?;
                 format!("{name}<{}>", self.spell(item)?)
             }
             Ty::Map {
@@ -309,11 +315,11 @@ impl DeclarationView<'_> {
                 value,
                 access: CollectionAccess::Mutable,
             } => {
-                let name = self.representation_name(NativeTypeConstructor::Map, "HashMap");
+                let name = self.representation_name(NativeTypeConstructor::Map, "HashMap")?;
                 format!("{name}<{}, {}>", self.spell(key)?, self.spell(value)?)
             }
             Ty::Set(item, CollectionAccess::Mutable) => {
-                let name = self.representation_name(NativeTypeConstructor::Set, "HashSet");
+                let name = self.representation_name(NativeTypeConstructor::Set, "HashSet")?;
                 format!("{name}<{}>", self.spell(item)?)
             }
             Ty::Tuple(items) => format!(
@@ -344,22 +350,23 @@ impl DeclarationView<'_> {
             }
             Ty::Range(item, kind) => {
                 let name =
-                    self.representation_name(NativeTypeConstructor::Range(*kind), kind.name());
+                    self.representation_name(NativeTypeConstructor::Range(*kind), kind.name())?;
                 if NativeTypeConstructor::Range(*kind).arity() == 0 {
-                    name.into()
+                    name
                 } else {
                     format!("{name}<{}>", self.spell(item)?)
                 }
             }
             Ty::Iter(item) => {
-                let name = self.representation_name(NativeTypeConstructor::Iter, "Iter");
+                let name = self.representation_name(NativeTypeConstructor::Iter, "Iter")?;
                 format!("{name}<{}>", self.spell(item)?)
             }
             Ty::StandardEnum { kind, args } => {
                 let fallback = format!("{kind:?}");
-                let name = self.representation_name(NativeTypeConstructor::Enum(*kind), &fallback);
+                let name =
+                    self.representation_name(NativeTypeConstructor::Enum(*kind), &fallback)?;
                 if args.is_empty() {
-                    name.into()
+                    name
                 } else {
                     format!("{name}<{}>", join(args)?)
                 }
@@ -372,16 +379,50 @@ impl DeclarationView<'_> {
         })
     }
 
-    fn representation_name<'a>(
-        &'a self,
+    fn representation_name(
+        &self,
         constructor: NativeTypeConstructor,
-        fallback: &'a str,
-    ) -> &'a str {
-        self.types
+        fallback: &str,
+    ) -> Result<String, DeclarationError> {
+        if let Some(ty) = self
+            .types
             .iter()
             .find(|ty| ty.kind == TypeDefKind::Native(constructor))
-            .map(|ty| ty.name.as_str())
-            .unwrap_or(fallback)
+        {
+            return Ok(ty.name.clone());
+        }
+        let candidates: Vec<_> = self
+            .providers
+            .iter()
+            .filter(|provider| provider.identity != self.identity)
+            .flat_map(|provider| {
+                provider
+                    .types
+                    .iter()
+                    .filter(move |ty| ty.kind == TypeDefKind::Native(constructor))
+                    .map(move |ty| (provider, ty))
+            })
+            .collect();
+        let preferred: Vec<_> = candidates
+            .iter()
+            .copied()
+            .filter(|(_, ty)| ty.name == fallback)
+            .collect();
+        let candidates = if preferred.is_empty() {
+            &candidates
+        } else {
+            &preferred
+        };
+        let [(provider, ty)] = candidates.as_slice() else {
+            return Err(DeclarationError(
+                "missing or ambiguous native representation declaration".into(),
+            ));
+        };
+        Ok(if provider.identity == language::module_identity() {
+            format!("{}::language::{}", language::SOURCE_PACKAGE, ty.name)
+        } else {
+            format!("{}::{}", provider.identity, ty.name)
+        })
     }
 
     fn nominal_spelling(&self, ty: &NominalTy) -> Result<String, DeclarationError> {

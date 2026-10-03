@@ -9,7 +9,7 @@ use crate::{
     native::api as native_api,
     resolver::resolved::DeclarationNames,
 };
-use kagari_contract::language;
+use kagari_contract::library;
 
 use kagari_common::{
     cancellation::CancellationToken,
@@ -145,7 +145,7 @@ impl AnalysisDatabase {
         let native_files = match self.native_files.get() {
             Some(files) => files,
             None => {
-                let mut modules = vec![language::catalog::shared()];
+                let mut modules = vec![library::catalog::shared()];
                 modules.extend(self.native_modules.iter().cloned());
                 let prepared = modules
                     .iter()

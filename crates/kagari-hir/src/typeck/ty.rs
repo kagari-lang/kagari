@@ -1,11 +1,11 @@
 use crate::{
+    builtin::array_bridge,
     declarations::{DeclarationId, Declarations},
     hir::{
         ids::{BodyOwner, HirOwner, ImplId, TraitId, TypeRefId},
         item::{Module, behavior::GenericParam},
         ty::TypeKind,
     },
-    language::semantics::ProtocolSemantics,
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -388,13 +388,10 @@ pub(super) fn resolve_type_in(
                 TypeId::Tuple(elements)
             }
         }
-        TypeKind::Array(element) => {
-            let mut interface = Protocol::List.nominal();
-            interface
-                .arguments
-                .push(resolve_type_in(module, *element, context, table, cancel));
-            TypeId::Trait(interface)
-        }
+        TypeKind::Array(element) => TypeId::Trait(array_bridge::list_interface(
+            resolve_type_in(module, *element, context, table, cancel),
+            false,
+        )),
         TypeKind::Function { params, result } => TypeId::Function {
             params: params
                 .iter()

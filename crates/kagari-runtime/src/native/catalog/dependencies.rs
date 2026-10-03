@@ -224,6 +224,10 @@ impl DeclarationCatalog<DefinitionPath> {
                         };
                         if match_pattern(
                             ImplementationPattern {
+                                storage_access: self
+                                    .traits
+                                    .get(&implemented.declaration)
+                                    .and_then(|contract| contract.storage_access),
                                 parameters: &implementation.generic_params,
                                 receiver: &implementation.for_type,
                                 interface: implemented,

@@ -284,7 +284,11 @@ impl ProofCatalog<'_> {
                 budget.step(depth)?;
                 let Some(substitution) = matching::match_pattern(
                     implementation
-                        .pattern()
+                        .pattern(
+                            implementation
+                                .interface()
+                                .and_then(|interface| self.trait_contract(&interface.declaration)),
+                        )
                         .ok_or(TypeTransformError::InvalidContract)?,
                     interface,
                     receiver,
@@ -340,7 +344,12 @@ impl ProofCatalog<'_> {
         budget: &Budget<'_>,
         depth: usize,
     ) -> Result<bool, TypeTransformError> {
-        if let Some(requirements) = intrinsic::requirements(interface, receiver, budget.cancel)? {
+        if let Some(requirements) = intrinsic::requirements(
+            interface,
+            receiver,
+            budget.cancel,
+            self.trait_contract(&interface.declaration),
+        )? {
             return self.obligations(&requirements, assumptions, search, budget, depth + 1);
         }
         let Some(kind) = Protocol::from_id(&interface.declaration) else {

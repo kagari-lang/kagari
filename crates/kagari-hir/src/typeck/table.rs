@@ -425,6 +425,7 @@ impl TypeTable {
                             &actual,
                             *standard,
                             &Default::default(),
+                            None,
                         )
                     }
                     ConstraintTarget::Trait(trait_type) => self.implements_with_guard(

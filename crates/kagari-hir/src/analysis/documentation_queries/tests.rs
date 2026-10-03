@@ -1,7 +1,8 @@
 use crate::native::render::declaration_source;
 use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
-use kagari_contract::language::{self as standard_traits, Protocol, catalog};
+use kagari_contract::language::{self as standard_traits, Protocol};
+use kagari_contract::library::catalog;
 use std::collections::HashSet;
 
 #[test]

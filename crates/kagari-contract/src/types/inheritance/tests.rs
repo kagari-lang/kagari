@@ -30,6 +30,8 @@ fn applied(owner: &DefinitionPath, arguments: Vec<Ty>) -> NominalTy {
 
 fn contract(owner: &DefinitionPath, arity: usize, parents: Vec<NominalTy>) -> TraitDef {
     TraitDef {
+        conversion_adapter: None,
+        storage_access: None,
         name: owner.path.last().unwrap().name.clone(),
         generic_params: (0..arity)
             .map(|position| GenericParam {

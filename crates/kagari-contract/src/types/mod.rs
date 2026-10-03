@@ -1,6 +1,7 @@
 use crate::representation::builtin_representation;
 pub mod access;
 pub mod applications;
+pub mod conversion;
 pub mod identity;
 pub mod inheritance;
 pub mod matching;
@@ -24,7 +25,6 @@ use kagari_common::{
 use {
     crate::{
         callable::{CallableImplementation, MethodPolicy, interface::InterfaceCallContract},
-        language::Protocol,
         native_import::callables::NativeCallableRequirement,
         scalar::BuiltinType,
         standard::surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
@@ -366,6 +366,11 @@ pub struct TraitDef<I = DefinitionPath> {
     pub methods: Vec<FnDecl<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub associated_types: Vec<AssociatedTypeDef<I>>,
+    /// Installed native storage capability of this interface. Ordinary source
+    /// traits have no storage capability; declarations and loading retain it.
+    pub storage_access: Option<CollectionAccess>,
+    /// Adapter authority carried from installed native library declarations.
+    pub conversion_adapter: Option<conversion::ConversionAdapter<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -650,10 +655,6 @@ pub fn native_storage_contract<'a>(
     native_storage_contract_in(None, owner, items, id)
 }
 
-pub fn is_collection_interface(id: &DefinitionPath) -> bool {
-    is_collection_interface_in(id, None)
-}
-
 pub fn trait_contract_in<'a, I: DefinitionReference>(
     table: Option<&DefinitionTable>,
     owner: &ModuleIdentity,
@@ -680,14 +681,6 @@ pub fn trait_contract_in<'a, I: DefinitionReference>(
                 _ => None,
             })
         })
-}
-
-/// Whether a canonical standard interface uses collection identity semantics.
-pub fn is_collection_interface_in<I: DefinitionReference>(
-    id: &I,
-    table: Option<&DefinitionTable>,
-) -> bool {
-    Protocol::from_reference(id, table).is_some_and(Protocol::collection)
 }
 
 /// Find a declared native storage type by its exact owning identity.

@@ -1,8 +1,9 @@
 //! List algorithms are ordinary native defaults with concrete storage overrides.
+use crate::library::catalog::key::{self, RegistrationTrait};
 use crate::{
     callable::{CallableImplementation, NativeDefaultApplication},
     declaration::ModuleDecl,
-    language::{self, Protocol, catalog::contracts, primitive},
+    library::catalog::contracts,
     native_import::callables::NativeCallableRequirement,
     standard::surface::StandardEnum,
     types::{
@@ -18,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) fn declare(module: &mut ModuleDecl) {
     for (protocol, names) in [
         (
-            Protocol::List,
+            RegistrationTrait::List,
             &[
                 "sorted",
                 "sorted_by",
@@ -28,7 +29,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             ][..],
         ),
         (
-            Protocol::MutableList,
+            RegistrationTrait::MutableList,
             &[
                 "sort",
                 "sort_by",
@@ -39,7 +40,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             ][..],
         ),
     ] {
-        let owner = language::identity(protocol);
+        let owner = key::identity(protocol);
         let item = GenericParam {
             owner: owner.clone(),
             position: 0,
@@ -49,8 +50,8 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             let mut method = contracts::method(
                 name,
                 vec![Ty::SelfType(owner.clone())],
-                if protocol == Protocol::List {
-                    Ty::Trait(primitive::applied(Protocol::List, vec![item.clone()]))
+                if protocol == RegistrationTrait::List {
+                    Ty::Trait(key::applied(RegistrationTrait::List, vec![item.clone()]))
                 } else {
                     contracts::unit()
                 },
@@ -69,7 +70,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             if let Some(kind) = comparison(name) {
                 method.bounds.push(GenericBound {
                     ty: key.clone(),
-                    constraints: vec![Constraint::Trait(primitive::applied(kind, vec![]))],
+                    constraints: vec![Constraint::Trait(key::applied(kind, vec![]))],
                 });
             }
             let callback = if name.ends_with("_by_key") {
@@ -143,21 +144,21 @@ fn documentation(name: &str) -> &'static str {
     }
 }
 
-fn comparison(name: &str) -> Option<Protocol> {
+fn comparison(name: &str) -> Option<RegistrationTrait> {
     match name {
-        "sorted" | "sort" | "sorted_by_key" | "sort_by_key" => Some(Protocol::Ord),
-        "distinct" | "dedup" => Some(Protocol::Eq),
+        "sorted" | "sort" | "sorted_by_key" | "sort_by_key" => Some(RegistrationTrait::Ord),
+        "distinct" | "dedup" => Some(RegistrationTrait::Eq),
         _ => None,
     }
 }
 
 fn requirement(
     receiver: Ty,
-    protocol: Protocol,
+    protocol: RegistrationTrait,
     arguments: Vec<Ty>,
     member: &str,
 ) -> NativeCallableRequirement {
-    let interface = primitive::applied(protocol, arguments);
+    let interface = key::applied(protocol, arguments);
     NativeCallableRequirement {
         receiver,
         member: ModuleDecl::method_id(&interface.declaration, member),
@@ -177,8 +178,8 @@ fn calls(method: &FnDecl, item: Ty, generic_receiver: bool) -> Vec<NativeCallabl
         } else {
             item.clone()
         };
-        let (protocol, member) = if protocol == Protocol::Eq {
-            (Protocol::PartialEq, "eq")
+        let (protocol, member) = if protocol == RegistrationTrait::Eq {
+            (RegistrationTrait::PartialEq, "eq")
         } else {
             (protocol, "cmp")
         };
@@ -186,7 +187,7 @@ fn calls(method: &FnDecl, item: Ty, generic_receiver: bool) -> Vec<NativeCallabl
     }
     if generic_receiver {
         let receiver = method.params[0].ty.clone();
-        let iterable = contracts::applied_item(Protocol::Iterable, item.clone());
+        let iterable = contracts::applied_item(RegistrationTrait::Iterable, item.clone());
         let cursor = Ty::Projection {
             receiver: Box::new(receiver.clone()),
             member: associated_type_id(&iterable.declaration, "Iter"),
@@ -199,7 +200,7 @@ fn calls(method: &FnDecl, item: Ty, generic_receiver: bool) -> Vec<NativeCallabl
             interface: iterable,
             arguments: vec![],
         });
-        let iterator = contracts::applied_item(Protocol::Iterator, item.clone());
+        let iterator = contracts::applied_item(RegistrationTrait::Iterator, item.clone());
         calls.push(NativeCallableRequirement {
             receiver: cursor,
             member: ModuleDecl::method_id(&iterator.declaration, "next"),
@@ -212,14 +213,14 @@ fn calls(method: &FnDecl, item: Ty, generic_receiver: bool) -> Vec<NativeCallabl
         ) {
             calls.push(requirement(
                 receiver,
-                Protocol::MutableList,
+                RegistrationTrait::MutableList,
                 vec![item],
                 "set",
             ));
         } else if matches!(method.name.as_str(), "retain" | "dedup") {
             calls.push(requirement(
                 receiver,
-                Protocol::MutableList,
+                RegistrationTrait::MutableList,
                 vec![item],
                 "remove",
             ));
@@ -228,8 +229,8 @@ fn calls(method: &FnDecl, item: Ty, generic_receiver: bool) -> Vec<NativeCallabl
     calls
 }
 
-fn default(module: &mut ModuleDecl, protocol: Protocol, item: &Ty, method: &mut FnDecl) {
-    let owner = language::identity(protocol);
+fn default(module: &mut ModuleDecl, protocol: RegistrationTrait, item: &Ty, method: &mut FnDecl) {
+    let owner = key::identity(protocol);
     let name = format!("__default_{}_{}", protocol.name(), method.name);
     let id = module.definition(DefinitionKind::Function, &name);
     let mut arguments: Vec<_> = [Ty::SelfType(owner.clone()), item.clone()]
@@ -238,7 +239,7 @@ fn default(module: &mut ModuleDecl, protocol: Protocol, item: &Ty, method: &mut 
         .collect();
     // Pass the selected associated iterator as an ordinary hidden template
     // parameter. Shared bodies need no runtime projection or trait search.
-    let iterable = contracts::applied_item(Protocol::Iterable, item.clone());
+    let iterable = contracts::applied_item(RegistrationTrait::Iterable, item.clone());
     arguments.push(Ty::Projection {
         receiver: Box::new(arguments[0].clone()),
         member: associated_type_id(&iterable.declaration, "Iter"),
@@ -265,14 +266,14 @@ fn default(module: &mut ModuleDecl, protocol: Protocol, item: &Ty, method: &mut 
             let mut call = call
                 .apply(&substitution, &cancel)
                 .expect("default operation");
-            match Protocol::from_id(&call.interface.declaration) {
-                Some(Protocol::Iterable) => {
+            match RegistrationTrait::from_id(&call.interface.declaration) {
+                Some(RegistrationTrait::Iterable) => {
                     call.interface.associated_types.insert(
                         associated_type_id(&call.interface.declaration, "Iter"),
                         types.last().unwrap().clone(),
                     );
                 }
-                Some(Protocol::Iterator) => call.receiver = types.last().unwrap().clone(),
+                Some(RegistrationTrait::Iterator) => call.receiver = types.last().unwrap().clone(),
                 _ => {}
             }
             call
@@ -284,7 +285,7 @@ fn default(module: &mut ModuleDecl, protocol: Protocol, item: &Ty, method: &mut 
     template.implementation = CallableImplementation::Native(id.clone());
     template.bounds.push(GenericBound {
         ty: arguments[0].clone(),
-        constraints: vec![Constraint::Trait(primitive::applied(
+        constraints: vec![Constraint::Trait(key::applied(
             protocol,
             vec![item.clone()],
         ))],
@@ -292,7 +293,7 @@ fn default(module: &mut ModuleDecl, protocol: Protocol, item: &Ty, method: &mut 
     let mut bounds = substitution
         .apply_bounds(&template.bounds, &cancel)
         .expect("default bounds");
-    let mut iterable = contracts::applied_item(Protocol::Iterable, types[1].clone());
+    let mut iterable = contracts::applied_item(RegistrationTrait::Iterable, types[1].clone());
     iterable.associated_types.insert(
         associated_type_id(&iterable.declaration, "Iter"),
         types.last().unwrap().clone(),
@@ -304,7 +305,7 @@ fn default(module: &mut ModuleDecl, protocol: Protocol, item: &Ty, method: &mut 
     bounds.push(GenericBound {
         ty: types.last().unwrap().clone(),
         constraints: vec![Constraint::Trait(contracts::applied_item(
-            Protocol::Iterator,
+            RegistrationTrait::Iterator,
             types[1].clone(),
         ))],
     });
@@ -333,7 +334,7 @@ fn default(module: &mut ModuleDecl, protocol: Protocol, item: &Ty, method: &mut 
     template.return_type = substitution
         .apply(&template.return_type, &cancel)
         .expect("default result");
-    if protocol == Protocol::List {
+    if protocol == RegistrationTrait::List {
         module.concrete_results.insert(
             id.clone(),
             Ty::Array(Box::new(types[1].clone()), CollectionAccess::Mutable),
@@ -357,8 +358,8 @@ pub(super) fn configure_overrides(module: &mut ModuleDecl) {
             continue;
         };
         if !matches!(
-            Protocol::from_id(&interface.declaration),
-            Some(Protocol::List | Protocol::MutableList)
+            RegistrationTrait::from_id(&interface.declaration),
+            Some(RegistrationTrait::List | RegistrationTrait::MutableList)
         ) {
             continue;
         }
@@ -385,7 +386,7 @@ pub(super) fn configure_overrides(module: &mut ModuleDecl) {
             module
                 .callable_requirements
                 .insert(id.clone(), calls(method, item.clone(), false));
-            if Protocol::from_id(&interface.declaration) == Some(Protocol::List) {
+            if RegistrationTrait::from_id(&interface.declaration) == Some(RegistrationTrait::List) {
                 module
                     .concrete_results
                     .insert(id, implementation.for_type.clone());

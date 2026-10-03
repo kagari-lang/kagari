@@ -36,7 +36,7 @@ mod families;
 pub(crate) mod supertraits;
 
 pub mod constraints;
-mod inference;
+pub(crate) mod inference;
 pub(crate) mod members;
 pub mod scalar;
 mod solver;

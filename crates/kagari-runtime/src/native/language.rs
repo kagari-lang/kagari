@@ -5,9 +5,10 @@ use crate::native::{
     types::{TraitRef, Type},
 };
 use kagari_common::collection::CollectionAccess;
+use kagari_contract::library::{self, catalog};
 use kagari_contract::{
     declaration::ModuleDecl,
-    language::{self, Protocol, catalog},
+    language::{self, Protocol},
     standard::surface::StandardEnum,
     types::Ty,
 };
@@ -49,28 +50,42 @@ impl LanguageContracts {
         }
     }
 
+    fn library_trait(&self, name: &str) -> TraitRef {
+        TraitRef {
+            id: library::trait_id(name),
+            contract: Arc::new(
+                self.declarations
+                    .traits
+                    .iter()
+                    .find(|contract| contract.name == name)
+                    .expect("installed library trait")
+                    .clone(),
+            ),
+        }
+    }
+
     pub fn list(&self) -> TraitRef {
-        self.protocol(Protocol::List)
+        self.library_trait("List")
     }
 
     pub fn mutable_list(&self) -> TraitRef {
-        self.protocol(Protocol::MutableList)
+        self.library_trait("MutableList")
     }
 
     pub fn map(&self) -> TraitRef {
-        self.protocol(Protocol::Map)
+        self.library_trait("Map")
     }
 
     pub fn mutable_map(&self) -> TraitRef {
-        self.protocol(Protocol::MutableMap)
+        self.library_trait("MutableMap")
     }
 
     pub fn set(&self) -> TraitRef {
-        self.protocol(Protocol::Set)
+        self.library_trait("Set")
     }
 
     pub fn mutable_set(&self) -> TraitRef {
-        self.protocol(Protocol::MutableSet)
+        self.library_trait("MutableSet")
     }
 
     pub fn eq(&self) -> TraitRef {

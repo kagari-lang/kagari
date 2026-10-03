@@ -119,11 +119,12 @@ signature completion validates installed origin, uniqueness, required roles,
 binders, parents and member types before body selection. Contract decodes a bounded,
 validated source-compiled trait product without a frontend. The regeneration
 example checks that product against checked source analysis.
-Ordinary native library records still use direct ingestion until AC03; their generated
-`.kgr` provides documentation and navigation. Artifacts carry
+Rust library records under `kagari-contract::library` generate declaration views
+that use the ordinary declaration parser and HIR lowering. Non-trivia syntax is
+checked against authoritative registrations before native storage, bindings and
+default metadata attach. Core traits retain role/shape validation. Artifacts carry
 declarations, native imports, signatures and selected witnesses; loading checks
-them against installed implementations without parsing source. The proposal below
-changes frontend declaration ingestion while preserving source-free execution.
+them against installed implementations without parsing source. The ownership model below preserves source-free execution.
 See [native declarations](spec/standard-declarations.md) for the registration API.
 
 ## Synchronous calls and registered storage
@@ -371,8 +372,8 @@ The proposed target retains 24 of the current 38 traits as language items:
 21 have direct syntax consumers and three support existing implicit value
 implementations. Their declarations are ordinary foundation source, analyzed
 through parser/HIR. Language roles select those declarations; builtin or native
-implementations remain separate. Core source and role collection are implemented
-in AC02; native library ingestion and policy localization remain AC03 work.
+implementations remain separate. Core source and role collection are implemented in AC02. AC03 implements native
+view analysis and library capability/adapter records.
 
 | Core traits | Count | Compiler consumer |
 | --- | --- | --- |
@@ -408,8 +409,10 @@ All 38 traits remain mandatory and available without optional modules. Compiler
 recognition and library availability are separate decisions. Preserve current
 Into/From and TryInto/TryFrom derivation and checked numeric conversions through
 checked implementation/adaptation records. Relocating their declarations alone
-does not remove the current special consumers; AC03 must replace those consumers
-without adding a new blanket-implementation or coherence feature.
+does not itself replace selection. Installed conversion adapter records carry the
+forward trait/method and associated error identities; source and portable proofs
+read those records without recognizing Into/TryFrom/TryInto in the language enum.
+No new source blanket-implementation or coherence feature is introduced.
 
 The audit evidence is the operator/format/propagation selection in HIR and the
 implicit implementation rules in `kagari-hir/src/language/semantics.rs`. In that
@@ -488,13 +491,16 @@ format identifiers, without routine unpublished-version bumps.
 
 ### Library identities and representation boundaries
 
-Remove collection-name recognition from generic HIR/contract/execution consumers.
-Protocol, NativeTypeKind/NativeTypeConstructor and list_item/writable_list currently
-spread that knowledge. Replace it with nominal declarations, checked implementations
-and member/call identities. Private library enums can remain. An ordinary new
-container must not require a generic type or execution-dispatch variant.
+Generic HIR, contract and execution consumers read installed storage-access facts,
+nominal implementation headers, declared parents and checked members. The language
+Protocol inventory contains only 24 core roles. A private RegistrationTrait enum
+belongs solely to the Rust library catalog. Storage joins/inference, readonly
+matching, identity/equality and interface dispatch do not recognize collection
+names. NativeTypeKind/NativeTypeConstructor retain representation descriptors;
+ordinary new containers use existing nominal NativeStorage registration without
+a new generic type or execution-dispatch variant.
 
-Existing syntax needs small explicit bridges: `[T]` selects List<T>; `[a, b]`
+The bounded `builtin::array_bridge` owns existing syntax bindings: `[T]` selects List<T>; `[a, b]`
 constructs the mandatory ArrayList<T>; `[value; count]` repeats construction without
 putting length in the type. Indexed assignment needs a checked writable member
 contract. Preserve left-to-right once-only evaluation, trap/allocation order and

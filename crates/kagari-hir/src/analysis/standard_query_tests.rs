@@ -8,8 +8,18 @@ use crate::{
 use kagari_common::collection::CollectionAccess;
 use kagari_contract::language::Protocol;
 
+use crate::types::NominalType;
+use kagari_contract::library;
+fn foundation_interface(name: &str) -> NominalType {
+    NominalType {
+        declaration: library::trait_id(name),
+        arguments: vec![],
+        associated_types: Default::default(),
+    }
+}
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::analysis::AnalysisDatabase;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
@@ -172,11 +182,11 @@ mod tests {
             access: CollectionAccess::Mutable,
         };
         for (kind, arguments) in [
-            (Protocol::Map, vec![integer.clone(), string.clone()]),
-            (Protocol::MutableMap, vec![integer.clone(), string.clone()]),
-            (Protocol::Iterable, vec![]),
+            ("Map", vec![integer.clone(), string.clone()]),
+            ("MutableMap", vec![integer.clone(), string.clone()]),
+            ("Iterable", vec![]),
         ] {
-            let mut interface = kind.nominal();
+            let mut interface = foundation_interface(kind);
             interface.arguments = arguments;
             assert!(
                 catalog
@@ -185,7 +195,7 @@ mod tests {
                 "{kind:?}"
             );
         }
-        let mut interface = Protocol::Map.nominal();
+        let mut interface = foundation_interface("Map");
         interface.arguments = vec![integer.clone(), string.clone()];
         let (collect, arguments) = catalog
             .engine_implementation(&interface, &target, &Default::default())
@@ -217,7 +227,7 @@ mod tests {
                 .source(metadata.declaration.location.file)
                 .unwrap()
                 .name(),
-            declaration_source(&kagari_contract::language::catalog::shared())
+            declaration_source(&kagari_contract::library::catalog::shared())
                 .unwrap()
                 .uri
         );
@@ -536,6 +546,7 @@ mod interpolation_queries {
 
 #[cfg(test)]
 mod collection_access_tests {
+    use super::foundation_interface;
     use crate::{analysis::AnalysisDatabase, resolver::resolved::ResolvedName};
 
     use super::*;
@@ -544,7 +555,6 @@ mod collection_access_tests {
 
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
-        use kagari_contract::language::Protocol as S;
         let mut sources = SourceDatabase::default();
         let root = sources
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -571,16 +581,16 @@ mod collection_access_tests {
         let mut checked = 0;
         for receiver in receivers {
             let (kinds, arguments) = match &receiver {
-                TypeId::Array(item, _) => ([S::List, S::MutableList], vec![(**item).clone()]),
+                TypeId::Array(item, _) => (["List", "MutableList"], vec![(**item).clone()]),
                 TypeId::Map { key, value, .. } => (
-                    [S::Map, S::MutableMap],
+                    ["Map", "MutableMap"],
                     vec![(**key).clone(), (**value).clone()],
                 ),
-                TypeId::Set(item, _) => ([S::Set, S::MutableSet], vec![(**item).clone()]),
+                TypeId::Set(item, _) => (["Set", "MutableSet"], vec![(**item).clone()]),
                 _ => unreachable!(),
             };
             for kind in kinds {
-                let mut interface = kind.nominal();
+                let mut interface = foundation_interface(kind);
                 interface.arguments = arguments.clone();
                 let (implementation, arguments) = catalog
                     .engine_implementation(&interface, &receiver, &Default::default())

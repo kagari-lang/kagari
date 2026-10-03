@@ -1,7 +1,5 @@
-use kagari_contract::{
-    callable::CallableImplementation,
-    language::{self, Protocol},
-};
+use kagari_contract::callable::CallableImplementation;
+use kagari_contract::library;
 use {kagari_bytecode::program::ModuleRef, kagari_embed::context::JitPolicy};
 
 use kagari_common::source::SourceFile;
@@ -386,7 +384,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 contract.methods[0].name = "missing_implementation".into();
             } else {
                 contract.methods[0].implementation =
-                    CallableImplementation::Native(language::identity(Protocol::List));
+                    CallableImplementation::Native(library::trait_id("List"));
             }
         } else if mutation == 3 {
             let implementation = module

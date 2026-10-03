@@ -6,11 +6,9 @@ use crate::{
     typeck::{GenericBounds, inference, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{
-    cancellation::CancellationToken, identity::associated_type_id, range::RangeKind,
-};
+use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
 use kagari_contract::{
-    language::{self as standard_traits, Protocol},
+    language::{self as standard_traits, Protocol, role::LangRole},
     scalar::BuiltinType,
 };
 
@@ -29,6 +27,7 @@ pub(crate) fn inherent_substitution(
         &method.function.generic_params,
         &mut substitution,
         cancel,
+        Some(aggregates),
     )
     .ok()?;
     let owner = aggregates.normalize_type(&method.owner.instantiate(&substitution));
@@ -45,7 +44,10 @@ pub(crate) fn interfaces(
         let mut bounds = aggregates
             .interface_closure(interface, ty, cancel)
             .unwrap_or_default();
-        if Protocol::from_id(&interface.declaration).is_some_and(Protocol::collection) {
+        if aggregates
+            .trait_(&interface.declaration)
+            .is_some_and(|contract| contract.storage_access.is_some())
+        {
             bounds.extend(
                 [
                     Protocol::PartialEq,
@@ -72,6 +74,7 @@ pub(crate) fn interfaces(
                 &implementation.generic_params,
                 &mut substitution,
                 cancel,
+                Some(aggregates),
             )
             .is_ok()
             {
@@ -92,7 +95,7 @@ pub(crate) fn interfaces(
                 }
             }
         }
-        for kind in Protocol::ALL {
+        for kind in LangRole::ALL.map(LangRole::protocol) {
             let interface = kind.intrinsic_view(ty);
             if traits::intrinsic_holds(kind, ty, Some(aggregates), assumptions)
                 && !implemented.iter().any(|available| {
@@ -196,13 +199,6 @@ fn add_iterator_view(
     receiver: &TypeId,
     views: &mut Vec<NominalType>,
 ) {
-    if let TypeId::Range(item, kind) = receiver
-        && *kind != RangeKind::Full
-    {
-        let mut view = Protocol::RangeBounds.nominal();
-        view.arguments.push((**item).clone());
-        views.push(view);
-    }
     for kind in [Protocol::Iterator, Protocol::Iterable] {
         if matches!(
             receiver,

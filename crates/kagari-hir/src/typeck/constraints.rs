@@ -1,4 +1,5 @@
 use crate::{
+    aggregates::AggregateCatalog,
     builtin::surface,
     declarations::Declarations,
     hir::{
@@ -401,14 +402,15 @@ pub fn type_satisfies_standard_constraint(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     bounds: &super::GenericBounds,
+    catalog: Option<&AggregateCatalog>,
 ) -> bool {
     match constraint {
         StandardTypeConstraint::HashKey => {
-            intrinsic_holds(Protocol::Eq, ty, None, bounds)
-                && intrinsic_holds(Protocol::Hash, ty, None, bounds)
+            intrinsic_holds(Protocol::Eq, ty, catalog, bounds)
+                && intrinsic_holds(Protocol::Hash, ty, catalog, bounds)
         }
         StandardTypeConstraint::Comparable => {
-            intrinsic_holds(Protocol::PartialEq, ty, None, bounds)
+            intrinsic_holds(Protocol::PartialEq, ty, catalog, bounds)
         }
         _ if matches!(ty, TypeId::Generic(_) | TypeId::Projection { .. }) => bounds
             .get(ty)
@@ -433,7 +435,7 @@ pub(super) fn known_type_violates_constraint(
             {
                 pending.extend(members)
             }
-            _ if !type_satisfies_standard_constraint(ty, constraint, bounds) => return true,
+            _ if !type_satisfies_standard_constraint(ty, constraint, bounds, None) => return true,
             _ => {}
         }
     }

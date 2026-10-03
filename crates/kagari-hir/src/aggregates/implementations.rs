@@ -21,7 +21,10 @@ use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionPath, reference::DefinitionReference},
 };
-use kagari_contract::language::{self as standard_traits, Protocol};
+use kagari_contract::{
+    language::{self as standard_traits, Protocol},
+    types::conversion::ConversionAdapter,
+};
 use std::{
     collections::{BTreeMap, HashSet},
     iter,
@@ -77,24 +80,32 @@ impl AggregateCatalog {
         &self,
         implementation: &ImplementationSignature,
     ) -> Option<&'static str> {
-        let protocol = Protocol::from_id(&implementation.trait_type.declaration)?;
-        if protocol.conversion_origin().is_some() {
+        if self
+            .trait_(&implementation.trait_type.declaration)
+            .is_some_and(|contract| contract.storage_access.is_some())
+        {
+            return match &implementation.for_type {
+                TypeId::NativeObject(nominal) | TypeId::Struct(nominal) | TypeId::Enum(nominal) => {
+                    (nominal.declaration.module != implementation.id.module).then_some(
+                        "storage interface implementations must belong to their nominal type",
+                    )
+                }
+                TypeId::Array(_, _) | TypeId::Map { .. } | TypeId::Set(_, _)
+                    if implementation.engine_owned =>
+                {
+                    None
+                }
+                _ => Some("storage interface implementations require declared object storage"),
+            };
+        }
+        let adapter = self
+            .trait_(&implementation.trait_type.declaration)
+            .and_then(|contract| contract.conversion_adapter.as_ref());
+        let protocol = Protocol::from_id(&implementation.trait_type.declaration);
+        if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
             return Some("Into and TryInto are derived from From and TryFrom");
         }
-        if protocol.iteration() {
-            let other = if protocol == Protocol::Iterator {
-                Protocol::Iterable
-            } else {
-                Protocol::Iterator
-            };
-            if self.implementations.values().any(|candidate| {
-                candidate.trait_type.declaration == standard_traits::identity(other)
-                    && possibly_overlapping_impls(&candidate.for_type, &implementation.for_type)
-            }) {
-                return Some("Iterator already supplies identity Iterable");
-            }
-        }
-        if protocol == Protocol::From
+        if protocol == Some(Protocol::From)
             && implementation
                 .trait_type
                 .arguments
@@ -114,7 +125,9 @@ impl AggregateCatalog {
         {
             return Some("identity From<T> for T is supplied by the language");
         }
-        if matches!(protocol, Protocol::From | Protocol::TryFrom) {
+        if protocol == Some(Protocol::From)
+            || matches!(adapter, Some(ConversionAdapter::CheckedNumeric { .. }))
+        {
             if matches!(implementation.for_type, TypeId::Host(_))
                 || implementation
                     .trait_type
@@ -128,6 +141,20 @@ impl AggregateCatalog {
                 matches!(ty,TypeId::NativeObject(n)|TypeId::Struct(n)|TypeId::Enum(n) if n.declaration.module==implementation.id.module)
             });
             return (!owned && !implementation.engine_owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
+        }
+        let protocol = protocol?;
+        if protocol.iteration() {
+            let other = if protocol == Protocol::Iterator {
+                Protocol::Iterable
+            } else {
+                Protocol::Iterator
+            };
+            if self.implementations.values().any(|candidate| {
+                candidate.trait_type.declaration == standard_traits::identity(other)
+                    && possibly_overlapping_impls(&candidate.for_type, &implementation.for_type)
+            }) {
+                return Some("Iterator already supplies identity Iterable");
+            }
         }
         if protocol.host_implementable() {
             return None;
@@ -206,6 +233,14 @@ impl AggregateCatalog {
                 .trait_closure(interface, ty, budget.cancel)?
                 .iter()
                 .any(|parent| parent.satisfies(&protocol.nominal()))
+        {
+            return Ok(true);
+        }
+        if let TypeId::Trait(interface) = ty
+            && self
+                .trait_(&interface.declaration)
+                .is_some_and(|contract| contract.storage_access.is_some())
+            && (protocol.equality_protocol() || protocol == Protocol::Debug)
         {
             return Ok(true);
         }
@@ -331,7 +366,7 @@ impl AggregateCatalog {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
                 && *member == identity::associated_type_id(&interface.declaration, "Error")
-                && let Some(error) = traits::conversion_error(interface, receiver)
+                && let Some(error) = traits::conversion_error(interface, receiver, Some(self))
             {
                 return Some(error);
             }
@@ -340,7 +375,7 @@ impl AggregateCatalog {
                 && !matches!(receiver, TypeId::SelfType(_))
                 && *member == identity::associated_type_id(&interface.declaration, "Error")
                 && let Some((required, target)) =
-                    traits::conversion_requirement(interface, receiver)
+                    traits::conversion_requirement(interface, receiver, Some(self))
             {
                 return Some(TypeId::Projection {
                     receiver: Box::new(target),
@@ -733,6 +768,7 @@ impl AggregateCatalog {
                             &actual,
                             *standard,
                             budget.assumptions,
+                            Some(self),
                         ),
                         ConstraintTarget::Trait(required) => {
                             if budget.depth >= budget.max_depth {

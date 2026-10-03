@@ -1,10 +1,53 @@
 //! Match required registration authority against the verified executable closure.
 use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::DeclarationCatalog};
-use kagari_common::identity::table::DefinitionId;
+use kagari_bytecode::module::BytecodeModule;
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, table::DefinitionId,
+};
 use kagari_contract::{
     declaration::ImplDecl,
     types::{InterfaceTable, PublicItem, Ty},
 };
+
+/// Native storage/conversion capabilities are installation facts even without calls.
+/// A portable script cannot grant itself identity/storage semantics by forging a
+/// trait record or changing an installed readonly interface into a mutable one.
+pub(super) fn validate_installed_traits(
+    installed: &DeclarationCatalog,
+    module: &BytecodeModule<DefinitionId>,
+) -> Result<(), RuntimeError> {
+    for item in &module.public_items {
+        let PublicItem::Trait(contract) = item else {
+            continue;
+        };
+        if contract.storage_access.is_none() && contract.conversion_adapter.is_none() {
+            continue;
+        }
+        let id = DefinitionPath {
+            module: module.identity.clone(),
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Trait,
+                name: contract.name.clone(),
+                occurrence: 0,
+            }],
+        };
+        if installed.traits.get(&id) != Some(contract) {
+            return Err(RuntimeError::module_validation(
+                "storage interface differs from its installed contract",
+            ));
+        }
+    }
+    for contract in &module.trait_contracts {
+        if (contract.abi.storage_access.is_some() || contract.abi.conversion_adapter.is_some())
+            && installed.traits.get_id(contract.declaration) != Some(&contract.abi)
+        {
+            return Err(RuntimeError::module_validation(
+                "private storage interface lacks an installed contract",
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub(super) fn validate(
     required: &DeclarationCatalog,

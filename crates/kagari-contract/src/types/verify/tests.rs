@@ -1,7 +1,53 @@
 use crate::{
     callable::CallableImplementation,
-    types::{Param, verify::*},
+    library::catalog,
+    types::{Param, conversion::ConversionAdapter, verify::*},
 };
+
+#[test]
+fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
+    let module = catalog::shared();
+    let cancel = CancellationToken::default();
+    for name in ["Into", "TryInto", "TryFrom"] {
+        let contract = module
+            .traits
+            .iter()
+            .find(|contract| contract.name == name)
+            .unwrap();
+        let valid = |contract: &TraitDef| {
+            validate(
+                &[PublicItem::Trait(contract.clone())],
+                &module.identity,
+                &cancel,
+            )
+            .is_ok()
+        };
+        assert!(valid(contract));
+        let mut changed = contract.clone();
+        changed.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
+        assert!(!valid(&changed));
+        changed = contract.clone();
+        changed.storage_access = Some(CollectionAccess::ReadOnly);
+        assert!(!valid(&changed));
+        changed = contract.clone();
+        match changed.conversion_adapter.as_mut().unwrap() {
+            ConversionAdapter::Reverse { origin, .. } => {
+                *origin = module.definition(DefinitionKind::Trait, name);
+            }
+            ConversionAdapter::CheckedNumeric { method, .. } => {
+                method.path.last_mut().unwrap().name = "undeclared".into();
+            }
+        }
+        assert!(!valid(&changed));
+        changed = contract.clone();
+        let method = match changed.conversion_adapter.as_mut().unwrap() {
+            ConversionAdapter::Reverse { method, .. }
+            | ConversionAdapter::CheckedNumeric { method, .. } => method,
+        };
+        method.path.last_mut().unwrap().kind = DefinitionKind::Function;
+        assert!(!valid(&changed));
+    }
+}
 
 #[test]
 fn requirements_are_not_executable_functions_or_forged_native_entries() {
@@ -35,6 +81,8 @@ fn required_methods_cannot_forbid_an_implementation() {
     let module = ModuleIdentity::single_file("method-policy.kgr");
     let cancel = CancellationToken::default();
     let mut interface = TraitDef {
+        conversion_adapter: None,
+        storage_access: None,
         name: "Reader".into(),
         associated_consts: vec![],
         associated_types: vec![],
@@ -327,6 +375,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
             &|interface, receiver, member, arguments| {
                 matching::projection_output(
                     matching::ImplementationPattern {
+                        storage_access: None,
                         parameters: &dependency.generic_params,
                         receiver: &dependency.for_type,
                         interface: match &dependency.trait_type {

@@ -414,9 +414,12 @@ impl<'a> BodyChecker<'a> {
                 if (lhs_ty.conflicts_with(&rhs_ty)
                     && !lhs_ty.can_weaken_to(&rhs_ty)
                     && !rhs_ty.can_weaken_to(&lhs_ty)
-                    && !lhs_ty.same_collection_family(&rhs_ty))
+                    && self
+                        .aggregates
+                        .shared_storage_view(&lhs_ty, &rhs_ty, self.cancel)
+                        .is_none())
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
-                        ty.collection_view().is_none()
+                        !self.aggregates.has_storage_view(ty, self.cancel)
                             && !matches!(
                                 ty,
                                 TypeId::Unknown
@@ -442,7 +445,10 @@ impl<'a> BodyChecker<'a> {
                 if (lhs_ty.conflicts_with(&rhs_ty)
                     && !lhs_ty.can_weaken_to(&rhs_ty)
                     && !rhs_ty.can_weaken_to(&lhs_ty)
-                    && !lhs_ty.same_collection_family(&rhs_ty))
+                    && self
+                        .aggregates
+                        .shared_storage_view(&lhs_ty, &rhs_ty, self.cancel)
+                        .is_none())
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
                             && !traits::intrinsic_holds(
@@ -471,6 +477,7 @@ impl<'a> BodyChecker<'a> {
                             ty,
                             StandardTypeConstraint::OrderedNumber,
                             &env.generic_bounds,
+                            Some(self.aggregates),
                         )
                 };
                 if lhs_ty.conflicts_with(&rhs_ty)
@@ -522,6 +529,7 @@ impl<'a> BodyChecker<'a> {
                     lhs,
                     StandardTypeConstraint::OrderedNumber,
                     &env.generic_bounds,
+                    Some(self.aggregates),
                 ))
     }
 

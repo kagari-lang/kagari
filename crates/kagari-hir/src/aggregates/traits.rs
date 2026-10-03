@@ -10,9 +10,10 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
+    collection::CollectionAccess,
     identity::{self, DefinitionPath, FileSpan, ModuleIdentity, reference::DefinitionReference},
 };
-use kagari_contract::callable::MethodPolicy;
+use kagari_contract::{callable::MethodPolicy, types::conversion::ConversionAdapter};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -65,6 +66,8 @@ impl MethodSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitSignature<I: DefinitionReference = DefinitionPath> {
+    pub storage_access: Option<CollectionAccess>,
+    pub conversion_adapter: Option<ConversionAdapter<I>>,
     pub associated_type_parameters: BTreeMap<I, AssociatedTypeParameters<I>>,
     pub associated_consts: BTreeMap<I, AssociatedConstSignature<I>>,
     pub id: I,
@@ -212,6 +215,8 @@ impl AggregateCatalog {
             self.traits.insert(
                 id.clone(),
                 Arc::new(TraitSignature {
+                    storage_access: lowered.native_trait_access.get(&item.id).copied(),
+                    conversion_adapter: lowered.native_trait_adapters.get(&item.id).cloned(),
                     associated_type_parameters: item
                         .associated_types
                         .iter()
@@ -319,7 +324,9 @@ impl AggregateCatalog {
         self.traits.len() == other.traits.len()
             && self.traits.iter().all(|(id, a)| {
                 other.trait_(id).is_some_and(|b| {
-                    a.generic_params == b.generic_params
+                    a.storage_access == b.storage_access
+                        && a.conversion_adapter == b.conversion_adapter
+                        && a.generic_params == b.generic_params
                         && a.supertraits == b.supertraits
                         && a.associated_types == b.associated_types
                         && a.associated_type_parameters == b.associated_type_parameters

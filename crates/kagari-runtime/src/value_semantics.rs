@@ -18,11 +18,22 @@ pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
         return None;
     };
     let snapshot = gc.interface_snapshot(*id)?;
-    abi::is_collection_interface_in(
-        &snapshot.interface_type.declaration,
-        Some(snapshot.receiver_table.owner.definitions()),
-    )
-    .then(|| snapshot.data.clone())
+    let owner = &snapshot.receiver_table.owner;
+    owner
+        .verified_program()
+        .modules()
+        .iter()
+        .any(|module| {
+            abi::trait_contract_in(
+                Some(owner.definitions()),
+                &module.identity,
+                &module.public_items,
+                &module.trait_contracts,
+                &snapshot.interface_type.declaration,
+            )
+            .is_some_and(|contract| contract.storage_access.is_some())
+        })
+        .then(|| snapshot.data.clone())
 }
 
 /// Identity is available only for script object categories, never allocation

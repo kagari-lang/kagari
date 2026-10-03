@@ -1,52 +1,36 @@
-//! Direct declaration import. Generated CST is presentation only, not semantic input.
-use crate::native::render::declaration_source;
-use crate::native::render::{DeclarationSource, NativeBoundSite, parameter_spelling};
+//! Analyze native declaration views normally, then attach checked registration metadata.
+#[cfg(test)]
+mod tests;
 use crate::{
     hir::{
-        ids::{BodyOwner, EnumId, FunctionId, HirOwner, OpaqueTypeId, TypeRefId, VariantId},
-        item::{
-            Item,
-            adt::{Enum, OpaqueType, Variant},
-            behavior::{
-                AssociatedType, GenericParam, Impl, ImplMethod, ReceiverKind, TraitBound, TraitDef,
-                TraitMethod, TraitRef,
-            },
-            function::{Function, FunctionKind, Param},
-            module::Import,
-            storage::{Export, ExportItem, Visibility},
-        },
-        ty::{TypeData, TypeKind},
-        writeability::Writeability,
+        ids::FunctionId,
+        item::{function::FunctionKind, module::Import, storage::Visibility},
+        ty::TypeKind,
     },
-    lower::{LoweredModule, context::Lowerer, lower_attributes},
-    native::{NativeBinding, NativeTypeKind},
+    lower::{LoweredModule, lower_module_controlled},
+    native::{
+        NativeBinding, NativeTypeKind,
+        render::{DeclarationSource, declaration_source_with_providers},
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    collection::CollectionAccess,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
+    identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
     span::Span,
 };
 use kagari_contract::{
-    callable::{CallableImplementation, MethodPolicy},
+    callable::CallableImplementation,
     declaration::{DeclarationError, ModuleDecl},
     language::{self, Protocol, role::LangRole},
-    scalar::BuiltinType,
-    standard::surface::builtin_type_spec,
-    types::{
-        Constraint, FnDecl, GenericBound, GenericParam as ContractGenericParam, NominalTy, Ty,
-        TypeDefKind, native::NativeTypeConstructor,
-    },
+    types::{FnDecl, TypeDefKind, native::NativeTypeConstructor},
 };
 use kagari_syntax::{
-    ast::item::Item as AstItem,
+    ast::{item::Item, traits::AstNode},
     parser::{Parse, ParseLimits, parse_declarations},
 };
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 pub(crate) fn import(
     definition: &ModuleDecl,
@@ -54,7 +38,7 @@ pub(crate) fn import(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    let generated = declaration_source(&definition)?;
+    let generated = declaration_source_with_providers(definition, providers)?;
     import_source(definition, providers, &generated, limits, cancel)
 }
 
@@ -76,51 +60,291 @@ pub(crate) fn import_source(
     let source = sources
         .snapshot()
         .file(id)
-        .expect("generated native source")
+        .expect("native declaration source")
         .clone();
-    // Tool queries expose lossless syntax and docs; declaration checking below consumes records directly.
     let parsed = parse_declarations(&source, limits, cancel)
-        .map_err(|_| DeclarationError("native declaration presentation cancelled".into()))?;
+        .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
     if !parsed.diagnostics().is_empty() {
         return Err(DeclarationError(format!(
-            "invalid generated declaration syntax: {:?}",
+            "invalid native declaration syntax: {:?}",
             parsed.diagnostics().first()
         )));
     }
-    let mut importer = Importer {
-        definition,
-        providers,
-        generated: &generated,
-        lowerer: Lowerer::new(cancel.clone()),
-        native_types: HashMap::new(),
-        native_enums: HashMap::new(),
-        native_functions: HashMap::new(),
-        method_policies: HashMap::new(),
-        external_imports: HashSet::new(),
+    validate_view(definition, providers, &parsed, limits, cancel)?;
+    let mut lowered = lower_module_controlled(source, &parsed.syntax(), cancel);
+    lowered.registered_native_api = true;
+    lowered.language_foundation = definition.identity == language::module_identity();
+    lowered.native_package_alias = definition.package_alias.clone();
+    lowered.registered_declarations = definition.native_declarations();
+    attach_types(definition, &mut lowered)?;
+    attach_functions(definition, &mut lowered)?;
+    attach_dependencies(definition, providers, &mut lowered, cancel)?;
+    Ok((parsed, Arc::new(lowered)))
+}
+
+/// Exact non-trivia syntax correspondence prevents attaching a Rust entry to a
+/// changed declaration. The handwritten core portion is checked by role/shape
+/// validation instead. Signatures still pass ordinary name and type analysis.
+fn validate_view(
+    definition: &ModuleDecl,
+    providers: &[Arc<ModuleDecl>],
+    parsed: &Parse,
+    limits: ParseLimits,
+    cancel: &CancellationToken,
+) -> Result<(), DeclarationError> {
+    let expected = declaration_source_with_providers(definition, providers)?;
+    let expected = parse_declarations(
+        &SourceFile::new(&expected.uri, &expected.text),
+        limits,
+        cancel,
+    )
+    .map_err(|_| DeclarationError("native declaration correspondence cancelled".into()))?;
+    let tokens = |parsed: &Parse| {
+        parsed
+            .syntax()
+            .items()
+            .filter(|item| {
+                if definition.identity != language::module_identity() {
+                    return true;
+                }
+                let Item::TraitDef(item) = item else {
+                    return true;
+                };
+                let owner = definition
+                    .definition(DefinitionKind::Trait, &item.name_text().unwrap_or_default());
+                Protocol::from_id(&owner)
+                    .and_then(LangRole::from_protocol)
+                    .is_none()
+            })
+            .map(|item| {
+                item.syntax()
+                    .descendants_with_tokens()
+                    .filter_map(|element| element.into_token())
+                    .filter(|token| !token.kind().is_trivia())
+                    .map(|token| (token.kind(), token.text().to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
     };
-    importer.import_types()?;
-    importer.import_traits(&parsed)?;
-    importer.import_implementations()?;
-    importer.import_functions()?;
-    let mut occupied: HashSet<String> = importer
-        .lowerer
+    if tokens(parsed) != tokens(&expected) {
+        return Err(DeclarationError(
+            "native declaration source differs from authoritative registration".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn attach_types(
+    definition: &ModuleDecl,
+    lowered: &mut LoweredModule,
+) -> Result<(), DeclarationError> {
+    for ty in &definition.types {
+        let kind = match ty.kind {
+            TypeDefKind::NativeStorage(layout) => NativeTypeKind::Storage {
+                declaration: definition.definition(DefinitionKind::AssociatedType, &ty.name),
+                arity: ty.generic_params.len(),
+                layout,
+            },
+            TypeDefKind::Native(constructor) => match constructor {
+                NativeTypeConstructor::Array => NativeTypeKind::ArrayList,
+                NativeTypeConstructor::String => NativeTypeKind::String,
+                NativeTypeConstructor::Map => NativeTypeKind::HashMap,
+                NativeTypeConstructor::Set => NativeTypeKind::HashSet,
+                NativeTypeConstructor::Iter => NativeTypeKind::Iter,
+                NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
+                NativeTypeConstructor::Enum(kind) => NativeTypeKind::Enum(kind),
+            },
+            _ => return Err(DeclarationError("missing native representation".into())),
+        };
+        if let NativeTypeKind::Enum(_) = kind {
+            let item = lowered
+                .module
+                .enums
+                .iter()
+                .find(|item| item.name == ty.name)
+                .ok_or_else(|| DeclarationError("missing native enum declaration".into()))?;
+            lowered.native_enums.insert(item.id, kind);
+        } else {
+            let item = lowered
+                .module
+                .opaque_types
+                .iter()
+                .find(|item| item.name == ty.name)
+                .ok_or_else(|| DeclarationError("missing native type declaration".into()))?;
+            lowered.native_types.insert(item.id, kind);
+        }
+    }
+    Ok(())
+}
+
+fn attach_functions(
+    definition: &ModuleDecl,
+    lowered: &mut LoweredModule,
+) -> Result<(), DeclarationError> {
+    let mut bindings = vec![];
+    for trait_ in &definition.traits {
+        let item = lowered
+            .module
+            .traits
+            .iter_mut()
+            .find(|item| item.name == trait_.name)
+            .ok_or_else(|| DeclarationError("missing native trait declaration".into()))?;
+        if let Some(adapter) = &trait_.conversion_adapter {
+            lowered
+                .native_trait_adapters
+                .insert(item.id, adapter.clone());
+        }
+        if let Some(access) = trait_.storage_access {
+            lowered.native_trait_access.insert(item.id, access);
+        }
+        for method in &trait_.methods {
+            let member = item
+                .methods
+                .iter_mut()
+                .find(|item| item.name == method.name)
+                .ok_or_else(|| DeclarationError("missing native trait member".into()))?;
+            member.has_default = matches!(
+                method.implementation,
+                CallableImplementation::NativeDefault(_)
+            );
+            bindings.push((member.function, method));
+        }
+    }
+    if lowered.module.impls.len() != definition.implementations.len() {
+        return Err(DeclarationError(
+            "native implementation inventory differs".into(),
+        ));
+    }
+    for (item, implementation) in lowered.module.impls.iter().zip(&definition.implementations) {
+        for method in &implementation.methods {
+            let member = item
+                .methods
+                .iter()
+                .find(|item| item.name == method.name)
+                .ok_or_else(|| DeclarationError("missing native implementation member".into()))?;
+            bindings.push((member.function, method));
+        }
+    }
+    for function in &definition.functions {
+        let item = lowered
+            .module
+            .functions
+            .iter()
+            .find(|item| item.kind == FunctionKind::User && item.name == function.name)
+            .ok_or_else(|| DeclarationError("missing native function declaration".into()))?;
+        bindings.push((item.id, function));
+    }
+    for (id, function) in bindings {
+        attach_binding(lowered, id, function);
+    }
+    Ok(())
+}
+
+fn attach_binding(lowered: &mut LoweredModule, id: FunctionId, function: &FnDecl) {
+    match &function.implementation {
+        CallableImplementation::Native(binding) => {
+            lowered
+                .native_functions
+                .insert(id, NativeBinding::Entry(binding.clone()));
+        }
+        CallableImplementation::NativeDefault(application) => {
+            lowered
+                .native_functions
+                .insert(id, NativeBinding::Default(application.clone()));
+        }
+        _ => {}
+    }
+    lowered.method_policies.insert(id, function.method_policy);
+}
+
+fn attach_dependencies(
+    definition: &ModuleDecl,
+    providers: &[Arc<ModuleDecl>],
+    lowered: &mut LoweredModule,
+    cancel: &CancellationToken,
+) -> Result<(), DeclarationError> {
+    let mut imports = HashSet::new();
+    let referenced: HashSet<_> = lowered
         .module
-        .exports
+        .body
+        .types
         .iter()
-        .map(|export| export.name.clone())
+        .filter_map(|(_, ty)| match &ty.kind {
+            TypeKind::Named(name) | TypeKind::Generic { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    for provider in providers
+        .iter()
+        .filter(|provider| provider.identity != definition.identity)
+    {
+        for ty in &provider.types {
+            let alias = if provider.identity == language::module_identity() {
+                format!("{}::language::{}", language::SOURCE_PACKAGE, ty.name)
+            } else {
+                format!("{}::{}", provider.identity, ty.name)
+            };
+            if !referenced.contains(alias.as_str()) {
+                continue;
+            }
+            let kind = match ty.kind {
+                TypeDefKind::Native(NativeTypeConstructor::Enum(_)) => DefinitionKind::Enum,
+                _ => DefinitionKind::AssociatedType,
+            };
+            imports.insert(provider.definition(kind, &ty.name));
+        }
+    }
+    definition
+        .visit_definitions(
+            &mut |id: &DefinitionPath| {
+                if id.module != definition.identity
+                    && id.path.len() == 1
+                    && matches!(
+                        id.path[0].kind,
+                        DefinitionKind::Trait
+                            | DefinitionKind::AssociatedType
+                            | DefinitionKind::Enum
+                            | DefinitionKind::Struct
+                    )
+                {
+                    imports.insert(id.clone());
+                }
+                Ok(())
+            },
+            cancel,
+        )
+        .map_err(|error| DeclarationError(error.to_string()))?;
+    for id in imports {
+        let path = format!("{}::{}", id.module, id.path[0].name);
+        let alias = if id.module == language::module_identity() {
+            format!(
+                "{}::language::{}",
+                language::SOURCE_PACKAGE,
+                id.path[0].name
+            )
+        } else {
+            path.clone()
+        };
+        lowered.module.imports.push(Import {
+            visibility: Visibility::Private,
+            alias,
+            path,
+            span: Span::default(),
+            glob: false,
+        });
+    }
+    let mut occupied: HashSet<_> = lowered
+        .module
+        .imports
+        .iter()
+        .map(|item| item.alias.clone())
+        .chain(lowered.module.exports.iter().map(|item| item.name.clone()))
         .chain(
-            definition
+            lowered
+                .module
                 .functions
                 .iter()
-                .map(|function| function.name.clone()),
-        )
-        .chain(
-            importer
-                .lowerer
-                .module
-                .imports
-                .iter()
-                .map(|import| import.alias.clone()),
+                .map(|item| item.name.clone()),
         )
         .collect();
     for (index, identity) in definition.dependencies.iter().enumerate() {
@@ -128,7 +352,7 @@ pub(crate) fn import_source(
         while !occupied.insert(alias.clone()) {
             alias.push('_');
         }
-        importer.lowerer.module.imports.push(Import {
+        lowered.module.imports.push(Import {
             visibility: Visibility::Private,
             alias,
             path: format!("{}::{}", identity.package.0, identity.path.join("::")),
@@ -136,774 +360,5 @@ pub(crate) fn import_source(
             glob: false,
         });
     }
-    let (module, source_map) = importer.lowerer.finish();
-    let attributes = lower_attributes(&parsed.syntax());
-    Ok((
-        parsed,
-        Arc::new(LoweredModule {
-            source,
-            module,
-            source_map,
-            attributes,
-            registered_native_api: true,
-            language_foundation: definition.identity == language::module_identity(),
-            native_package_alias: definition.package_alias.clone(),
-            registered_declarations: definition.native_declarations(),
-            native_types: importer.native_types,
-            native_enums: importer.native_enums,
-            native_functions: importer.native_functions,
-            method_policies: importer.method_policies,
-            native_attributes: HashSet::new(),
-        }),
-    ))
-}
-
-struct Importer<'a> {
-    definition: &'a ModuleDecl,
-    providers: &'a [Arc<ModuleDecl>],
-    generated: &'a DeclarationSource,
-    lowerer: Lowerer,
-    native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
-    native_enums: HashMap<EnumId, NativeTypeKind>,
-    native_functions: HashMap<FunctionId, NativeBinding>,
-    method_policies: HashMap<FunctionId, MethodPolicy>,
-    external_imports: HashSet<String>,
-}
-
-impl Importer<'_> {
-    fn import_types(&mut self) -> Result<(), DeclarationError> {
-        let definition = self.definition;
-        let generated = self.generated;
-        for ty in &definition.types {
-            let (constructor, layout) = match ty.kind {
-                TypeDefKind::Native(constructor) => (Some(constructor), None),
-                TypeDefKind::NativeStorage(layout) => (None, Some(layout)),
-                _ => return Err(DeclarationError("missing native representation".into())),
-            };
-            let owner = definition.definition(
-                constructor.map_or(
-                    DefinitionKind::AssociatedType,
-                    NativeTypeConstructor::declaration_kind,
-                ),
-                &ty.name,
-            );
-            let site = &generated.sites[&owner];
-            if let Some(NativeTypeConstructor::Enum(kind)) = constructor {
-                let id = self.lowerer.source_map.push_enum(site.span);
-                self.lowerer
-                    .source_map
-                    .insert_item_name(Item::Enum(id), site.name_span);
-                let generic_params = self.generics(&owner, &ty.generic_params);
-                let mut variants = vec![];
-                for (index, variant) in ty.variants.iter().enumerate() {
-                    let mut declaration = owner.clone();
-                    declaration.path.push(DefinitionPathSegment {
-                        kind: DefinitionKind::Variant,
-                        name: variant.name.clone(),
-                        occurrence: 0,
-                    });
-                    let site = &generated.sites[&declaration];
-                    let variant_id = VariantId::new(self.lowerer.source_map.arena(), id, index);
-                    self.lowerer
-                        .source_map
-                        .insert_variant(variant_id, site.name_span);
-                    if definition.variant_exports.contains(&ty.name) {
-                        self.lowerer.module.exports.push(Export {
-                            name: variant.name.clone(),
-                            item: ExportItem::Variant(variant_id),
-                        });
-                    }
-                    let payload = variant
-                        .payload
-                        .iter()
-                        .zip(&site.parameters)
-                        .map(|(ty, span)| self.ty(ty, *span))
-                        .collect::<Result<_, _>>()?;
-                    variants.push(Variant {
-                        id: variant_id,
-                        name: variant.name.clone(),
-                        payload,
-                    });
-                }
-                self.lowerer.module.enums.push(Enum {
-                    id,
-                    visibility: Visibility::Public,
-                    name: ty.name.clone(),
-                    generic_params,
-                    variants,
-                    methods: vec![],
-                    impls: vec![],
-                });
-                self.lowerer.module.items.push(Item::Enum(id));
-                self.lowerer.module.exports.push(Export {
-                    name: ty.name.clone(),
-                    item: ExportItem::Enum(id),
-                });
-                self.native_enums.insert(id, NativeTypeKind::Enum(kind));
-                continue;
-            }
-            let id = self.lowerer.source_map.push_opaque_type(site.span);
-            self.lowerer
-                .source_map
-                .insert_item_name(Item::OpaqueType(id), site.name_span);
-            let generic_params = self.generics(&owner, &ty.generic_params);
-            let bounds = self.bounds(&ty.bounds, &site.bounds)?;
-            self.lowerer.module.opaque_types.push(OpaqueType {
-                id,
-                visibility: Visibility::Public,
-                name: ty.name.clone(),
-                generic_params,
-                bounds,
-                trait_bounds: vec![],
-                definition: None,
-            });
-            self.lowerer.module.items.push(Item::OpaqueType(id));
-            self.lowerer.module.exports.push(Export {
-                name: ty.name.clone(),
-                item: ExportItem::OpaqueType(id),
-            });
-            self.native_types.insert(
-                id,
-                match (constructor, layout) {
-                    (None, Some(layout)) => NativeTypeKind::Storage {
-                        declaration: owner,
-                        arity: ty.generic_params.len(),
-                        layout,
-                    },
-                    (Some(NativeTypeConstructor::Array), _) => NativeTypeKind::ArrayList,
-                    (Some(NativeTypeConstructor::String), _) => NativeTypeKind::String,
-                    (Some(NativeTypeConstructor::Map), _) => NativeTypeKind::HashMap,
-                    (Some(NativeTypeConstructor::Set), _) => NativeTypeKind::HashSet,
-                    (Some(NativeTypeConstructor::Iter), _) => NativeTypeKind::Iter,
-                    (Some(NativeTypeConstructor::Range(kind)), _) => NativeTypeKind::Range(kind),
-                    (Some(NativeTypeConstructor::Enum(_)), _) => {
-                        unreachable!("enum imported separately")
-                    }
-                    (None, None) => unreachable!("validated native representation"),
-                },
-            );
-        }
-        Ok(())
-    }
-
-    fn import_traits(&mut self, parsed: &Parse) -> Result<(), DeclarationError> {
-        let definition = self.definition;
-        let generated = self.generated;
-        for item in &definition.traits {
-            let owner = definition.definition(DefinitionKind::Trait, &item.name);
-            if definition.identity == language::module_identity()
-                && Protocol::from_id(&owner)
-                    .and_then(LangRole::from_protocol)
-                    .is_some()
-            {
-                let source = parsed
-                    .syntax()
-                    .items()
-                    .find_map(|item| match item {
-                        AstItem::TraitDef(item)
-                            if item.name_text().as_deref() == Some(owner.path[0].name.as_str()) =>
-                        {
-                            Some(item)
-                        }
-                        _ => None,
-                    })
-                    .ok_or_else(|| DeclarationError("missing core language trait source".into()))?;
-                let item = self.lowerer.lower_trait(&source);
-                self.lowerer.module.items.push(Item::Trait(item.id));
-                self.lowerer.module.exports.push(Export {
-                    name: item.name.clone(),
-                    item: ExportItem::Trait(item.id),
-                });
-                self.lowerer.module.traits.push(item);
-                continue;
-            }
-            let site = &generated.sites[&owner];
-            let id = self.lowerer.source_map.push_trait(site.span);
-            self.lowerer
-                .source_map
-                .insert_item_name(Item::Trait(id), site.name_span);
-            let generic_params = self.generics(&owner, &item.generic_params);
-            let supertraits = item
-                .supertraits
-                .iter()
-                .map(|ty| {
-                    self.nominal_type(ty, site.name_span)
-                        .map(|ty| TraitRef { ty })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let mut associated_types = vec![];
-            for member in &item.associated_types {
-                let site = &generated.sites[&member.declaration];
-                let name = member
-                    .declaration
-                    .path
-                    .last()
-                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
-                    .name
-                    .clone();
-                let name_ref = self.lowerer.alloc_type(
-                    site.name_span,
-                    TypeData {
-                        kind: TypeKind::Named(name.clone()),
-                    },
-                );
-                let bounds = member
-                    .bounds
-                    .iter()
-                    .zip(&site.bounds[0].constraints)
-                    .map(|(constraint, span)| self.constraint_ref(constraint, *span))
-                    .collect::<Result<_, _>>()?;
-                associated_types.push(AssociatedType {
-                    name,
-                    name_ref,
-                    ty: None,
-                    bounds,
-                    generic_params: vec![],
-                    parameter_bounds: vec![],
-                });
-            }
-            let mut methods = vec![];
-            for method in &item.methods {
-                let method_owner = ModuleDecl::method_id(&owner, &method.name);
-                let mut method_generics = generic_params.clone();
-                method_generics.extend(self.generics(&method_owner, &method.generic_params));
-                let function = self.function(
-                    &method_owner,
-                    method,
-                    FunctionKind::TraitMethod,
-                    method_generics,
-                    None,
-                )?;
-                let method_id = self
-                    .lowerer
-                    .source_map
-                    .push_trait_method(generated.sites[&method_owner].span);
-                methods.push(TraitMethod {
-                    id: method_id,
-                    name: method.name.clone(),
-                    receiver: ReceiverKind::Value,
-                    function,
-                    has_default: matches!(
-                        method.implementation,
-                        CallableImplementation::NativeDefault(_)
-                    ),
-                });
-            }
-            self.lowerer.module.traits.push(TraitDef {
-                id,
-                visibility: Visibility::Public,
-                name: item.name.clone(),
-                generic_params,
-                supertraits,
-                methods,
-                associated_types,
-                associated_consts: vec![],
-            });
-            self.lowerer.module.items.push(Item::Trait(id));
-            self.lowerer.module.exports.push(Export {
-                name: item.name.clone(),
-                item: ExportItem::Trait(id),
-            });
-        }
-        Ok(())
-    }
-
-    fn import_implementations(&mut self) -> Result<(), DeclarationError> {
-        let definition = self.definition;
-        let generated = self.generated;
-        for (index, implementation) in definition.implementations.iter().enumerate() {
-            let owner = definition.implementation_id(index);
-            let site = &generated.sites[&owner];
-            let id = self.lowerer.source_map.push_impl(site.span);
-            let generic_params = self.generics(&owner, &implementation.generic_params);
-            let for_type = self.ty(&implementation.for_type, site.name_span)?;
-            let trait_ref = implementation
-                .trait_type
-                .as_ref()
-                .map(|ty| {
-                    let mut header = ty.clone();
-                    header.associated_types.clear();
-                    self.nominal_type(&header, site.name_span)
-                        .map(|ty| TraitRef { ty })
-                })
-                .transpose()?;
-            let mut associated_types = vec![];
-            if let Some(trait_type) = &implementation.trait_type {
-                for (member, value) in &trait_type.associated_types {
-                    let name = member
-                        .path
-                        .last()
-                        .ok_or_else(|| DeclarationError("missing associated name".into()))?
-                        .name
-                        .clone();
-                    let site = &generated.sites[&associated_type_id(&owner, &name)];
-                    let name_ref = self.lowerer.alloc_type(
-                        site.name_span,
-                        TypeData {
-                            kind: TypeKind::Named(name.clone()),
-                        },
-                    );
-                    associated_types.push(AssociatedType {
-                        name,
-                        name_ref,
-                        ty: Some(self.ty(value, site.parameters[0])?),
-                        bounds: vec![],
-                        generic_params: vec![],
-                        parameter_bounds: vec![],
-                    });
-                }
-            }
-            let mut methods = vec![];
-            for method in &implementation.methods {
-                let method_owner = ModuleDecl::method_id(&owner, &method.name);
-                let own = &method.generic_params[implementation.generic_params.len()..];
-                let mut method_generics = generic_params.clone();
-                method_generics.extend(self.generics(&method_owner, own));
-                let function = self.function(
-                    &method_owner,
-                    method,
-                    FunctionKind::ImplMethod,
-                    method_generics,
-                    Some(for_type),
-                )?;
-                methods.push(ImplMethod {
-                    name: method.name.clone(),
-                    function,
-                });
-            }
-            let bounds = self.bounds(&implementation.bounds, &site.bounds)?;
-            self.lowerer.module.impls.push(Impl {
-                id,
-                generic_params,
-                trait_ref,
-                for_type: Some(for_type),
-                bounds,
-                methods,
-                associated_types,
-                associated_consts: vec![],
-            });
-            self.lowerer.module.items.push(Item::Impl(id));
-        }
-        Ok(())
-    }
-
-    fn import_functions(&mut self) -> Result<(), DeclarationError> {
-        let definition = self.definition;
-        for function in &definition.functions {
-            let owner = definition.definition(DefinitionKind::Function, &function.name);
-            let generic_params = self.generics(&owner, &function.generic_params);
-            let id = self.function(&owner, function, FunctionKind::User, generic_params, None)?;
-            self.lowerer.module.items.push(Item::Function(id));
-            if !definition.private_functions.contains(&owner) {
-                self.lowerer.module.exports.push(Export {
-                    name: function.name.clone(),
-                    item: ExportItem::Function(id),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    fn generics(
-        &mut self,
-        owner: &DefinitionPath,
-        params: &[ContractGenericParam],
-    ) -> Vec<GenericParam> {
-        params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                let span = self.generated.sites[owner].generics[index];
-                GenericParam {
-                    id: self.lowerer.source_map.push_generic_param(span),
-                    name: parameter_spelling(&param.owner, param.position),
-                    bounds: vec![],
-                }
-            })
-            .collect()
-    }
-
-    fn function(
-        &mut self,
-        owner: &DefinitionPath,
-        function: &FnDecl,
-        kind: FunctionKind,
-        generic_params: Vec<GenericParam>,
-        receiver: Option<TypeRefId>,
-    ) -> Result<FunctionId, DeclarationError> {
-        let site = &self.generated.sites[owner];
-        let id = self.lowerer.source_map.push_function(site.span);
-        self.lowerer
-            .source_map
-            .insert_item_name(Item::Function(id), site.name_span);
-        let old = self
-            .lowerer
-            .source_map
-            .set_owner(HirOwner::Body(BodyOwner::Function(id)));
-        let mut params = vec![];
-        for (index, param) in function.params.iter().enumerate() {
-            let span = site.parameters[index];
-            let ty = if let Some(receiver) = receiver.filter(|_| param.name == "self") {
-                receiver
-            } else {
-                self.ty(&param.ty, span)?
-            };
-            params.push(Param {
-                id: self.lowerer.source_map.push_param(span),
-                name: param.name.clone(),
-                ty,
-                writeability: if param.mutable {
-                    Writeability::Var
-                } else {
-                    Writeability::Val
-                },
-            });
-        }
-        let return_type = Some(self.ty(&function.return_type, site.name_span)?);
-        let bounds = self.bounds(&function.bounds, &site.bounds)?;
-        self.lowerer.source_map.set_owner(old);
-        match &function.implementation {
-            CallableImplementation::Native(binding) => {
-                self.native_functions
-                    .insert(id, NativeBinding::Entry(binding.clone()));
-            }
-            CallableImplementation::NativeDefault(application) => {
-                self.native_functions
-                    .insert(id, NativeBinding::Default(application.clone()));
-            }
-            _ => {}
-        }
-        self.method_policies.insert(id, function.method_policy);
-        self.lowerer.module.functions.push(Function {
-            id,
-            kind,
-            visibility: if kind == FunctionKind::TraitMethod
-                || self.definition.private_functions.contains(owner)
-            {
-                Visibility::Private
-            } else {
-                Visibility::Public
-            },
-            name: function.name.clone(),
-            generic_params,
-            bounds,
-            params,
-            return_type,
-            body: None,
-        });
-        Ok(id)
-    }
-
-    fn bounds(
-        &mut self,
-        bounds: &[GenericBound],
-        sites: &[NativeBoundSite],
-    ) -> Result<Vec<TraitBound>, DeclarationError> {
-        let mut result = vec![];
-        for (bound, site) in bounds.iter().zip(sites) {
-            let target_ref = self.ty(&bound.ty, site.target)?;
-            let traits = bound
-                .constraints
-                .iter()
-                .zip(&site.constraints)
-                .map(|(constraint, span)| self.constraint_ref(constraint, *span))
-                .collect::<Result<_, _>>()?;
-            result.push(TraitBound {
-                target: match &bound.ty {
-                    Ty::Parameter { owner, position } => parameter_spelling(owner, *position),
-                    _ => String::new(),
-                },
-                target_ref,
-                traits,
-            });
-        }
-        Ok(result)
-    }
-
-    fn constraint_ref(
-        &mut self,
-        constraint: &Constraint,
-        span: Span,
-    ) -> Result<TraitRef, DeclarationError> {
-        let ty = match constraint {
-            Constraint::Trait(trait_type) => self.nominal_type(trait_type, span)?,
-            Constraint::Standard(kind) => {
-                let name = kind
-                    .source_bound_name()
-                    .ok_or_else(|| DeclarationError("native bound has no source name".into()))?;
-                self.lowerer.alloc_type(
-                    span,
-                    TypeData {
-                        kind: TypeKind::Named(name.into()),
-                    },
-                )
-            }
-        };
-        Ok(TraitRef { ty })
-    }
-
-    fn nominal_type(
-        &mut self,
-        nominal: &NominalTy,
-        span: Span,
-    ) -> Result<TypeRefId, DeclarationError> {
-        let name = nominal
-            .declaration
-            .path
-            .last()
-            .ok_or_else(|| DeclarationError("missing nominal name".into()))?;
-        let name = if nominal.declaration.module == self.definition.identity {
-            name.name.clone()
-        } else {
-            let module = &nominal.declaration.module;
-            format!(
-                "{}::{}::{}",
-                module.package.0,
-                module.path.join("::"),
-                name.name
-            )
-        };
-        if nominal.declaration.module != self.definition.identity
-            && self.external_imports.insert(name.clone())
-        {
-            // Registered references establish normal checked dependencies. The
-            // complete path stays the name of the direct record; generated text
-            // is not parsed to infer an import or authorize a declaration.
-            self.lowerer.module.imports.push(Import {
-                visibility: Visibility::Private,
-                alias: name.clone(),
-                path: name.clone(),
-                span,
-                glob: false,
-            });
-        }
-        let args = nominal
-            .arguments
-            .iter()
-            .map(|ty| self.ty(ty, span))
-            .collect::<Result<_, _>>()?;
-        let bindings = nominal
-            .associated_types
-            .iter()
-            .map(|(id, ty)| {
-                let name = id
-                    .path
-                    .last()
-                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
-                    .name
-                    .clone();
-                Ok((name, self.ty(ty, span)?))
-            })
-            .collect::<Result<_, DeclarationError>>()?;
-        if nominal.arguments.is_empty() && nominal.associated_types.is_empty() {
-            return Ok(self.lowerer.alloc_type(
-                span,
-                TypeData {
-                    kind: TypeKind::Named(name),
-                },
-            ));
-        }
-        Ok(self.lowerer.alloc_type(
-            span,
-            TypeData {
-                kind: TypeKind::Generic {
-                    name,
-                    args,
-                    bindings,
-                    positional_after_binding: false,
-                    callable_syntax: false,
-                },
-            },
-        ))
-    }
-
-    fn ty(&mut self, ty: &Ty, span: Span) -> Result<TypeRefId, DeclarationError> {
-        let kind = match ty {
-            Ty::Builtin(BuiltinType::String) => TypeKind::Named(self.representation_name(
-                NativeTypeConstructor::String,
-                "String",
-                span,
-            )?),
-            Ty::Builtin(kind) => TypeKind::Named(
-                builtin_type_spec(*kind)
-                    .ok_or_else(|| DeclarationError("unknown native scalar".into()))?
-                    .name
-                    .into(),
-            ),
-            Ty::Parameter { owner, position } => {
-                TypeKind::Named(parameter_spelling(owner, *position))
-            }
-            Ty::SelfType(_) => TypeKind::Named("Self".into()),
-            Ty::Trait(ty) | Ty::NativeObject(ty) => return self.nominal_type(ty, span),
-            Ty::Projection {
-                receiver,
-                interface,
-                member,
-                arguments,
-            } => TypeKind::Projection {
-                arguments: arguments
-                    .iter()
-                    .map(|ty| self.ty(ty, span))
-                    .collect::<Result<_, _>>()?,
-                receiver: self.ty(receiver, span)?,
-                trait_ref: self.nominal_type(interface, span)?,
-                member: member
-                    .path
-                    .last()
-                    .ok_or_else(|| DeclarationError("missing associated name".into()))?
-                    .name
-                    .clone(),
-            },
-            Ty::Array(item, access) => {
-                let arg = self.ty(item, span)?;
-                if *access == CollectionAccess::ReadOnly {
-                    TypeKind::Array(arg)
-                } else {
-                    let name =
-                        self.representation_name(NativeTypeConstructor::Array, "ArrayList", span)?;
-                    TypeKind::Generic {
-                        name,
-                        args: [arg].into_iter().collect(),
-                        bindings: vec![],
-                        positional_after_binding: false,
-                        callable_syntax: false,
-                    }
-                }
-            }
-            Ty::Map {
-                key,
-                value,
-                access: CollectionAccess::Mutable,
-            } => TypeKind::Generic {
-                name: self.representation_name(NativeTypeConstructor::Map, "HashMap", span)?,
-                args: [self.ty(key, span)?, self.ty(value, span)?]
-                    .into_iter()
-                    .collect(),
-                bindings: vec![],
-                positional_after_binding: false,
-                callable_syntax: false,
-            },
-            Ty::Set(item, CollectionAccess::Mutable) => TypeKind::Generic {
-                name: self.representation_name(NativeTypeConstructor::Set, "HashSet", span)?,
-                args: [self.ty(item, span)?].into_iter().collect(),
-                bindings: vec![],
-                positional_after_binding: false,
-                callable_syntax: false,
-            },
-            Ty::Function { params, result } => TypeKind::Function {
-                params: params
-                    .iter()
-                    .map(|ty| self.ty(ty, span))
-                    .collect::<Result<_, _>>()?,
-                result: self.ty(result, span)?,
-            },
-            Ty::Iter(item) => TypeKind::Generic {
-                name: self.representation_name(NativeTypeConstructor::Iter, "Iter", span)?,
-                args: [self.ty(item, span)?].into_iter().collect(),
-                bindings: vec![],
-                positional_after_binding: false,
-                callable_syntax: false,
-            },
-            Ty::Tuple(items) => TypeKind::Tuple(
-                items
-                    .iter()
-                    .map(|ty| self.ty(ty, span))
-                    .collect::<Result<_, _>>()?,
-            ),
-            Ty::StandardEnum { kind, args } if args.is_empty() => {
-                TypeKind::Named(self.representation_name(
-                    NativeTypeConstructor::Enum(*kind),
-                    &format!("{kind:?}"),
-                    span,
-                )?)
-            }
-            Ty::StandardEnum { kind, args } => TypeKind::Generic {
-                name: self.representation_name(
-                    NativeTypeConstructor::Enum(*kind),
-                    &format!("{kind:?}"),
-                    span,
-                )?,
-                args: args
-                    .iter()
-                    .map(|ty| self.ty(ty, span))
-                    .collect::<Result<_, _>>()?,
-                bindings: vec![],
-                positional_after_binding: false,
-                callable_syntax: false,
-            },
-            Ty::Range(item, kind) => {
-                let name = self.representation_name(
-                    NativeTypeConstructor::Range(*kind),
-                    kind.name(),
-                    span,
-                )?;
-                if NativeTypeConstructor::Range(*kind).arity() == 0 {
-                    TypeKind::Named(name)
-                } else {
-                    TypeKind::Generic {
-                        name,
-                        args: [self.ty(item, span)?].into_iter().collect(),
-                        bindings: vec![],
-                        positional_after_binding: false,
-                        callable_syntax: false,
-                    }
-                }
-            }
-            _ => return Err(DeclarationError("unsupported native HIR type".into())),
-        };
-        Ok(self.lowerer.alloc_type(span, TypeData { kind }))
-    }
-
-    fn representation_name(
-        &mut self,
-        constructor: NativeTypeConstructor,
-        fallback: &str,
-        span: Span,
-    ) -> Result<String, DeclarationError> {
-        if let Some(owned) = self
-            .definition
-            .types
-            .iter()
-            .find(|ty| ty.kind == TypeDefKind::Native(constructor))
-        {
-            return Ok(owned.name.clone());
-        }
-        let candidates: Vec<_> = self
-            .providers
-            .iter()
-            .flat_map(|module| {
-                module
-                    .types
-                    .iter()
-                    .filter(move |ty| ty.kind == TypeDefKind::Native(constructor))
-                    .map(move |ty| (module, ty))
-            })
-            .collect();
-        let preferred: Vec<_> = candidates
-            .iter()
-            .copied()
-            .filter(|(_, ty)| ty.name == fallback)
-            .collect();
-        let candidates = if preferred.is_empty() {
-            &candidates
-        } else {
-            &preferred
-        };
-        let [(module, ty)] = candidates.as_slice() else {
-            return Err(DeclarationError(
-                "missing or ambiguous native representation declaration".into(),
-            ));
-        };
-        let name = format!("{}::{}", module.identity, ty.name);
-        if self.external_imports.insert(name.clone()) {
-            self.lowerer.module.imports.push(Import {
-                visibility: Visibility::Private,
-                alias: name.clone(),
-                path: name.clone(),
-                span,
-                glob: false,
-            });
-        }
-        Ok(name)
-    }
+    Ok(())
 }

@@ -147,6 +147,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitSignature<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(TraitSignature {
+            storage_access: self.storage_access,
+            conversion_adapter: self
+                .conversion_adapter
+                .as_ref()
+                .map(|adapter| adapter.map_identities(mapper))
+                .transpose()?,
             associated_type_parameters: map_entries(
                 self.associated_type_parameters.len(),
                 self.associated_type_parameters.iter().map(|(key, value)| {
@@ -193,6 +199,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitSignature<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        if let Some(adapter) = &self.conversion_adapter {
+            adapter.visit_definitions(visit, cancel)?;
+        }
         for (key0, value0) in &self.associated_type_parameters {
             check_cancel(cancel)?;
             visit(key0)?;

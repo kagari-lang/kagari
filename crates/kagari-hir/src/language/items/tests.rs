@@ -12,7 +12,7 @@ use kagari_common::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use std::sync::Arc;
+use std::{slice, sync::Arc};
 
 fn check_core(mutate: impl FnOnce(&mut String)) -> DiagnosticBuffer {
     let cancel = CancellationToken::default();
@@ -21,7 +21,7 @@ fn check_core(mutate: impl FnOnce(&mut String)) -> DiagnosticBuffer {
     mutate(&mut generated.text);
     let (_, lowered) = api::import_source(
         &module,
-        &[module.clone()],
+        slice::from_ref(&module),
         &generated,
         Default::default(),
         &cancel,

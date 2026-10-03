@@ -797,7 +797,14 @@ pub(super) fn verify(
                                 {
                                     return Err(invalid());
                                 }
-                            } else if abi::is_collection_interface(&interface.declaration) {
+                            } else if abi::trait_contract(
+                                &owner.identity,
+                                &owner.public_items,
+                                &owner.trait_contracts,
+                                &interface.declaration,
+                            )
+                            .is_some_and(|declaration| declaration.storage_access.is_some())
+                            {
                                 return Err(invalid());
                             }
                             for (value, expected) in facts.iter().skip(1).zip(params.iter().skip(1))
