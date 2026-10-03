@@ -40,6 +40,7 @@ pub struct FunctionDecl {
     pub(crate) params: Vec<ParameterAbi>,
     pub(crate) result: Type,
 }
+
 impl FunctionDecl {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
@@ -49,10 +50,12 @@ impl FunctionDecl {
             result: Type::unit(),
         }
     }
+
     pub fn documentation(mut self, text: impl Into<String>) -> Self {
         self.documentation = Some(text.into());
         self
     }
+
     pub fn parameter(mut self, name: impl Into<String>, ty: Type) -> Self {
         self.params.push(ParameterAbi {
             name: name.into(),
@@ -61,10 +64,12 @@ impl FunctionDecl {
         });
         self
     }
+
     pub fn returns(mut self, ty: Type) -> Self {
         self.result = ty;
         self
     }
+
     pub(crate) fn lower(self, implementation: CallableImplementation) -> FunctionAbi {
         FunctionAbi {
             name: self.name,
@@ -83,6 +88,7 @@ pub struct MethodDecl {
     pub(crate) signature: FunctionDecl,
     pub(crate) instance: bool,
 }
+
 impl MethodDecl {
     pub fn instance(name: impl Into<String>) -> Self {
         Self {
@@ -90,20 +96,24 @@ impl MethodDecl {
             instance: true,
         }
     }
+
     pub fn static_method(name: impl Into<String>) -> Self {
         Self {
             signature: FunctionDecl::new(name),
             instance: false,
         }
     }
+
     pub fn parameter(mut self, name: impl Into<String>, ty: Type) -> Self {
         self.signature = self.signature.parameter(name, ty);
         self
     }
+
     pub fn returns(mut self, ty: Type) -> Self {
         self.signature = self.signature.returns(ty);
         self
     }
+
     pub(crate) fn lower(mut self, receiver: Type) -> FunctionAbi {
         if self.instance {
             self.signature.params.insert(
@@ -123,11 +133,13 @@ impl MethodDecl {
 pub struct CallableRequirement {
     pub(crate) requirement: NativeCallableRequirement,
 }
+
 impl CallableRequirement {
     pub fn arguments(mut self, arguments: impl IntoIterator<Item = Type>) -> Self {
         self.requirement.arguments = arguments.into_iter().map(|ty| ty.0).collect();
         self
     }
+
     pub fn method(receiver: Type, method: MethodRef) -> Self {
         Self {
             requirement: NativeCallableRequirement {
@@ -138,6 +150,7 @@ impl CallableRequirement {
             },
         }
     }
+
     pub fn applied_method(
         receiver: Type,
         interface: AppliedTrait,
@@ -171,6 +184,7 @@ pub struct FunctionBuilder<'a> {
     pub(crate) requirements: &'a mut Vec<NativeCallableRequirement>,
     pub(crate) names: &'a mut Vec<String>,
 }
+
 impl FunctionBuilder<'_> {
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
         let name = name.into();
@@ -187,6 +201,7 @@ impl FunctionBuilder<'_> {
             ty: Type(parameter.as_type()),
         })
     }
+
     pub fn parameter(&mut self, name: impl Into<String>, ty: Type) {
         self.signature.params.push(ParameterAbi {
             name: name.into(),
@@ -194,20 +209,24 @@ impl FunctionBuilder<'_> {
             mutable: false,
         });
     }
+
     pub fn returns(&mut self, ty: Type) {
         self.signature.return_type = ty.0;
     }
+
     /// The Rust body produces this concrete type; the exported return remains an interface.
     /// Compilation selects and verifies the interface construction table.
     pub fn produces(&mut self, ty: Type) {
         self.concrete_results.insert(self.id.clone(), ty.0);
     }
+
     pub fn bound(&mut self, ty: Type, contract: AppliedTrait) {
         self.signature.bounds.push(GenericBoundAbi {
             ty: ty.0,
             constraints: vec![ConstraintAbi::Trait(contract.ty)],
         });
     }
+
     pub fn requires(&mut self, requirement: CallableRequirement) -> SelectedCall {
         let slot = self.requirements.len();
         self.requirements.push(requirement.requirement);
