@@ -129,9 +129,9 @@ time or interpreter fallback measurements.
 The two process medians independently show the same large VM gap. For arithmetic,
 VM/Lua is 231.63 in the forward process and 212.42 in the reverse process. Arrays
 show more noise: 132.77 and 104.27 respectively. The pooled ratios summarize
-this run; they are not estimates for all Kagari or Lua applications. No CPU
-profile was collected, so this comparison does not attribute the gap to a
-specific interpreter routine or justify removing runtime checks.
+this run; they are not estimates for all Kagari or Lua applications. BP01 did
+not collect a CPU profile. The subsequent BP02 diagnosis below investigates
+interpreter costs separately and does not justify removing runtime checks.
 
 Separate setup medians for the arithmetic fixture, six samples each:
 
@@ -161,3 +161,114 @@ test, strict workspace/all-target Clippy, formatting, the structure checker
 (658 Rust files, zero violations/exceptions), diff checks and the eight production
 dependency boundaries plus the ABI build graph. Lua remains confined to the
 benchmark package. The unchanged language conformance matrix was not rerun.
+
+## Interpreter diagnosis (BP02), 2026-10-03
+
+Reproduce on x64 Windows with 64-bit Python:
+
+```powershell
+uv run python scripts/profile_lua_comparison.py arithmetic branches calls fibonacci arrays maps
+```
+
+The driver builds the existing release profile with the child-process override
+`CARGO_PROFILE_RELEASE_DEBUG=2`, retaining optimization level 3 and adding private
+Rust PDB symbols. It saves the matching executable/PDB under
+`target/lua-comparison/profile/symbol-bin`; `--no-build` reuses that pair. The
+workspace profile and production sources are unchanged. This is a diagnostic
+build, and its execution durations are not pooled into the BP01 speed ratios.
+The first symbol build took 106.228 seconds; the recorded final invocation reused
+those products and rebuilt the diagnostic harness in 3.158 seconds. Build and
+setup costs are outside every sampling window.
+
+After three checked warm calls, each fresh process repeatedly executes one VM
+workload for ten seconds. No observer or Lua hook is enabled during this window.
+The sampler selects the target thread with the highest accumulated CPU cycles,
+briefly suspends it, reads its instruction pointer and always resumes it before
+symbol resolution. Intervals have deterministic 1.5–2.5 ms jitter. Local PDBs
+resolve optimized Rust symbols without ETW/system profiling privileges. Windows
+CPU recording was unavailable (`wpr -start CPU -filemode`, policy error
+`0xc5585011`); no system recording was active or left running.
+
+The machine, Rust/Cargo versions, features, default Cargo parallelism and cache
+conditions match BP01. Workload processes run sequentially, with no concurrent
+agent-started build/test. CPU affinity/frequency/background activity remain
+uncontrolled. The final sample has zero thread-context errors in all six cases.
+These are instruction-pointer sample shares, not exact exclusive CPU times or
+call stacks. Inlining folds some work into callers, brief suspension perturbs
+execution, and C/system libraries without private PDBs can resolve to a nearby
+export (for example `_NLG_Return2`); those labels are not evidence of unwinding.
+An initial run with minimal release symbols was discarded because private Rust
+functions also resolved to misleading adjacent public symbols.
+
+| Workload | Samples | Frame access/checks | Termination state | Instruction fetch/clone | Dispatch/loop/report | Slots/value copies | Allocator exports |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 4,249 | 23.21% | 10.03% | 12.10% | 22.33% | 13.70% | 0.00% |
+| branches | 4,269 | 22.75% | 9.53% | 12.56% | 22.00% | 12.60% | 0.00% |
+| calls | 4,250 | 22.19% | 10.54% | 10.66% | 17.81% | 11.13% | 4.45% |
+| fibonacci | 4,250 | 17.34% | 7.15% | 12.07% | 16.56% | 10.71% | 8.07% |
+| arrays | 4,242 | 18.95% | 8.77% | 11.36% | 19.52% | 13.55% | 4.76% |
+| maps | 4,231 | 17.06% | 6.85% | 8.53% | 14.13% | 9.60% | 11.84% |
+
+Buckets are disjoint resolved symbol families; unlisted symbols account for the
+remainder. Frame access includes `ExecutionStack::{validate_top,current,current_mut}`;
+termination is `ResourceState::termination`; fetch is `ExecutionFrame::next_instruction`;
+dispatch includes `Executor::{run,dispatch_instruction,report_operation}` and any
+inlined handlers, so it is not all dispatch overhead. Slots include frame local/
+register reads/writes, `RootSet::set`, and `Value` clone/drop. Allocator exports
+are `RtlAllocateHeap`/`RtlFreeHeap`, without caller attribution. The ordinary
+no-observer `Runtime::observe_execution` path additionally accounts for
+2.20–3.01% of samples.
+
+Independent counting passes use a Kagari execution observer and a Lua instruction
+hook, outside the sampling window. Counts include the entry and script callees;
+different opcode semantics prevent treating them as equivalent units of work.
+GC counts and allocations come from the uninstrumented window, normalized by
+complete calls. The live-object counter is adjusted by reclaimed objects to
+recover total GC-heap object allocations; it does not count Rust allocations.
+
+| Workload | Kagari instructions/call | Lua instructions/call | GC collections/call | GC-heap allocations/call |
+| --- | ---: | ---: | ---: | ---: |
+| arithmetic | 750,014 | 250,007 | 0 | 0 |
+| branches | 960,016 | 309,968 | 0 | 0 |
+| calls | 240,014 | 110,007 | 0 | 0 |
+| fibonacci | 262,691 | 120,400 | 0 | 0 |
+| arrays | 96,030 | 42,012 | 2 | 1 |
+| maps | 81,030 | 24,012 | 5 | 2,001 |
+
+The shared bottleneck is the per-instruction runtime protocol. The loop in
+[`executor/mod.rs`](../../crates/kagari-vm/src/executor/mod.rs) accesses the current
+frame repeatedly, and operand handlers access it again. Each access validates
+execution state, active-session identity and the top frame scope in
+[`frame.rs`](../../crates/kagari-runtime/src/frame.rs). Register writes also
+validate the value's heap ownership through root slots. `next_instruction`
+clones a bytecode enum on every dispatch; the measured x64 sizes are 264 bytes
+per `BytecodeInstruction` and 104 bytes per `Value`. Even scalar slot operations
+use the general value/root representation. Arithmetic alone performs 250,003
+`LoadLocal`, 100,002 `StoreLocal` and 100,003 `LoadConst` instructions, in addition
+to 200,001 binary operations and loop branches/jumps.
+
+Calls/recursion add frame/root allocation costs. Map lookup also constructs
+heap-backed `Option` results: [`map_get`](../../crates/kagari-runtime/src/native/foundation/hash.rs)
+calls [`option`](../../crates/kagari-runtime/src/native/foundation.rs), which
+allocates an enum object. This fixture performs 2,000 gets plus one map allocation,
+matching the measured 2,001 allocations and five collections per call. The zero
+GC collections in scalar/call workloads exclude GC pauses as the cause of their
+large gaps. Both container workloads still spend substantial samples in the same
+frame/check/fetch paths.
+
+Measured priorities for a subsequent optimization are to consolidate repeated
+frame/session access within safe execution boundaries, avoid cloning whole
+instructions, and reduce redundant local/constant moves in verified bytecode.
+Compact scalar/root storage and heap-backed `Option` results deserve separate
+evaluation after that. Preserve cancellation, observer program points, host
+reentry, generation checks, roots and trap cleanup. This checkpoint changes
+diagnostic tooling only; no speedup is claimed.
+
+Raw files are `target/lua-comparison/profile/{workload}/samples.json` and
+`execution.log`, plus `metadata.json`, binary/PDB/source hashes and build logs.
+The final six windows contain 25,491 samples and validate every returned checksum.
+The diagnostic CLI and ordinary benchmark regression are checked independently.
+Strict workspace/all-target Clippy, formatting, structure (659 files, zero
+violations/exceptions), empty/single-element regression, all fifteen ordinary
+release smoke routes, Python syntax/document links and diff checks pass. No
+production source changed, and the full language-contract matrix was not rerun.

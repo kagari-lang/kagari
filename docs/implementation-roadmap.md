@@ -1,5 +1,38 @@
 # Kagari Implementation Roadmap
 
+## Kagari/Lua execution diagnosis (completed, 2026-10-03)
+
+BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,
+execution-only sampling mode, independent Kagari/Lua instruction counting and
+GC statistics. Keep production semantics and implementations unchanged; runtime
+optimization belongs to a subsequent authorized task. Commit with
+`Roadmap-Step: BP02`.
+
+- [x] Profile all six nontrivial fixtures with optimized private Rust symbols.
+- [x] Separate sampling, instruction-count hooks, setup and compilation.
+- [x] Record dominant paths, object/instruction counts and sampling limitations.
+- [x] Accept strict Clippy, formatting, structure, benchmark regression and diff checks.
+
+Ledger: starts from clean a07da95c. The release/debug=2 diagnostic build preserves
+optimization level 3; the driver sets only its child build environment and saves
+an executable/PDB pair. Six ten-second windows yield 25,491 instruction-pointer
+samples, zero context errors and checked results. Arithmetic spends 23.21% of
+samples in frame access/checks, 10.03% in termination-state lookup and 12.10% in
+instruction fetch/clone. Its 750,014 instructions compare with Lua's 250,007;
+no GC occurs in scalar or call fixtures. Maps allocate 2,001 GC objects per
+call, including 2,000 Option results, and collect five times. See the
+[diagnostic methodology/results](../benchmarks/lua-comparison/README.md#interpreter-diagnosis-bp02-2026-10-03).
+System CPU recording was unavailable; local target-thread sampling needs no ETW
+privileges. An initial minimal-symbol run was discarded after detecting adjacent
+public-symbol misattribution; private Rust PDBs resolve the reported hot paths.
+No recorded speedup or production optimization belongs to this checkpoint.
+Strict workspace/all-target Clippy, formatting, structure (659 Rust files, zero
+violations/exceptions), the empty/single-element regression, ordinary release
+smoke checks across all fifteen routes, Python syntax/document links and diff
+checks pass. The initial diagnostic sort-style Clippy finding is resolved; no
+compilation or validation error is carried. Production behavior is unchanged,
+so the full language-contract matrix is not rerun.
+
 ## Matched Kagari/Lua benchmark (completed, 2026-10-03)
 
 BP01 owns a reproducible comparison requested by the user: standard Lua 5.4

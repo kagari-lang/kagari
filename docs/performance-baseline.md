@@ -18,6 +18,16 @@ container/safety differences and reproduction commands. These numbers describe
 this finite suite rather than an overall language ratio; no CPU profile or
 production optimization is part of BP01.
 
+The subsequent [BP02 execution diagnosis](../benchmarks/lua-comparison/README.md#interpreter-diagnosis-bp02-2026-10-03)
+samples optimized VM execution in six fixtures and counts instructions separately.
+Arithmetic spends 23.21% of instruction-pointer samples in frame access/checks,
+10.03% in termination-state lookup and 12.10% in instruction fetch/clone. It
+executes 750,014 Kagari instructions versus 250,007 Lua instructions and performs
+no GC collections. Map lookup constructs heap-backed Option results: this fixture
+allocates 2,001 GC objects and collects five times per complete call. The report
+records symbol-resolution and sampling limitations; runtime checks remain intact.
+
+
 ## Verified preparation reuse (TO02), 2026-10-03
 
 TO02 retains immutable bytecode verification across SDK native preparation and

@@ -1,4 +1,5 @@
 //! Matched Lua/Kagari execution with setup separated and every checksum verified.
+mod profile;
 mod workloads;
 
 use std::{env, hint::black_box, time::Instant};
@@ -19,6 +20,7 @@ struct Options {
     warmups: usize,
     setup_samples: usize,
     reverse: bool,
+    profile: Option<String>,
 }
 
 impl Options {
@@ -28,6 +30,7 @@ impl Options {
             warmups: 3,
             setup_samples: 3,
             reverse: false,
+            profile: None,
         };
         for argument in env::args().skip(1) {
             match argument.as_str() {
@@ -37,7 +40,13 @@ impl Options {
                     options.setup_samples = 1;
                 }
                 "--reverse" => options.reverse = true,
-                _ => panic!("unknown argument: {argument}; supported: --check, --reverse"),
+                _ if argument.starts_with("--profile=") => {
+                    options.profile = Some(argument["--profile=".len()..].to_owned());
+                    options.setup_samples = 1;
+                }
+                _ => panic!(
+                    "unknown argument: {argument}; supported: --check, --reverse, --profile=WORKLOAD"
+                ),
             }
         }
         options
@@ -118,6 +127,16 @@ impl ExecutionRoutes {
 
     fn measure(&mut self, workload: &Workload, options: &Options) {
         let expected = (workload.reference)(workload.size);
+        if options.profile.is_some() {
+            profile::run(
+                &mut self.runtime,
+                &self.module,
+                &self.context,
+                workload.name,
+                expected,
+            );
+            return;
+        }
         let mut engines = vec!["kagari_vm", "lua54"];
         if matches!(self.native, PreparedNativeEntry::Native(_)) {
             engines.push("kagari_jit");
@@ -215,6 +234,9 @@ fn run(workload: &Workload, options: &Options) {
         };
         record.emit(phase, "kagari_jit", 1, elapsed, 0);
         if sample + 1 == options.setup_samples {
+            if options.profile.is_some() {
+                profile::count_lua(&lua, &lua_entry, (workload.reference)(workload.size));
+            }
             ExecutionRoutes {
                 runtime,
                 module,
@@ -230,6 +252,14 @@ fn run(workload: &Workload, options: &Options) {
 fn main() {
     let options = Options::parse();
     println!("phase,workload,engine,size,batch,sample,ns,checksum");
+    if let Some(name) = &options.profile {
+        let workload = WORKLOADS
+            .iter()
+            .find(|workload| workload.name == name)
+            .expect("unknown workload");
+        run(workload, &options);
+        return;
+    }
     if options.reverse {
         for workload in WORKLOADS.iter().rev() {
             run(workload, &options);
@@ -252,6 +282,7 @@ mod tests {
             warmups: 0,
             setup_samples: 1,
             reverse: false,
+            profile: None,
         };
         for size in [0, 1] {
             for workload in WORKLOADS {
