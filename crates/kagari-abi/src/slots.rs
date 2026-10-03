@@ -9,6 +9,7 @@ use crate::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use std::collections::BTreeMap;
+
 /// Semantic contracts supplement the physical frame layout.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SemanticSlots {

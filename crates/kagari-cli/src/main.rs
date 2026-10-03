@@ -622,6 +622,7 @@ mod tests {
 
         fs::remove_dir_all(dir).expect("temp dir should be removed");
     }
+
     #[test]
     fn returned_errors_report_the_original_site_from_source_and_artifact() {
         let unique = SystemTime::now()

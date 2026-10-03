@@ -89,6 +89,7 @@ impl HostDeclarations {
     pub(crate) fn type_declarations(&self) -> &[HostTypeDeclaration] {
         &self.interface.types
     }
+
     pub fn trait_type(implementation: &HostTraitImplementationDeclaration) -> NominalType {
         NominalType {
             declaration: implementation.trait_id.clone(),
@@ -118,6 +119,7 @@ impl HostDeclarations {
             .iter()
             .find(|implementation| Self::matches_trait_application(implementation, trait_type))
     }
+
     fn matches_trait_application(
         implementation: &HostTraitImplementationDeclaration,
         trait_type: &NominalType,
@@ -547,9 +549,11 @@ impl HostDeclarations {
     pub fn resolve(&self, path: &str) -> Option<HostFunctionId> {
         self.paths.get(path).copied()
     }
+
     pub fn method(&self, owner: &DefinitionId, name: &str) -> Option<HostFunctionId> {
         self.methods.get(&(owner.clone(), name.to_owned())).copied()
     }
+
     pub fn module(&self, path: &str) -> Option<HostModuleId> {
         self.modules
             .binary_search_by(|candidate| candidate.as_str().cmp(path))
@@ -559,6 +563,7 @@ impl HostDeclarations {
                 index,
             })
     }
+
     pub(crate) fn members_of_module(&self, module: HostModuleId) -> Vec<(String, ResolvedName)> {
         if module.revision != self.revision {
             return Vec::new();
@@ -585,6 +590,7 @@ impl HostDeclarations {
         }
         members.into_iter().collect()
     }
+
     pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.functions.get(id.index))
@@ -604,17 +610,20 @@ impl HostDeclarations {
     pub fn origin(&self, id: &DefinitionId) -> Option<&HostDeclarationOrigin> {
         self.origins.get(id)
     }
+
     pub(crate) fn resolve_name_in(&self, module: HostModuleId, path: &str) -> Option<ResolvedName> {
         if module.revision != self.revision {
             return None;
         }
         self.resolve_name(&format!("{}::{path}", self.modules.get(module.index)?))
     }
+
     pub(crate) fn resolve_name(&self, path: &str) -> Option<ResolvedName> {
         self.resolve(path)
             .map(ResolvedName::HostFunction)
             .or_else(|| self.resolve_type(path).map(ResolvedName::HostType))
     }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -659,14 +668,17 @@ impl HostDeclarations {
     pub fn resolve_type(&self, path: &str) -> Option<HostTypeId> {
         self.type_paths.get(path).copied()
     }
+
     pub fn nominal_type(&self, declaration: &DefinitionId) -> Option<HostTypeId> {
         self.type_identities.get(declaration).copied()
     }
+
     pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.types.get(id.index))
             .flatten()
     }
+
     pub fn field(&self, id: &DefinitionId) -> Option<&HostFieldDeclaration> {
         let mut owner = id.clone();
         owner.path.pop()?;

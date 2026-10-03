@@ -109,6 +109,7 @@ impl HostFunctionDeclaration {
         owner.path.pop();
         Some(owner)
     }
+
     pub fn matches_binding(&self, actual: &Self) -> bool {
         self.id == actual.id
             && self.symbol == actual.symbol
@@ -116,6 +117,7 @@ impl HostFunctionDeclaration {
             && self.return_type == actual.return_type
             && self.effects == actual.effects
     }
+
     /// The application host namespace is a logical package. Providers can replace
     /// `id` with their own package/module declaration before publishing the interface.
     pub fn new(
@@ -346,6 +348,7 @@ impl HostInterface {
         }
         Ok(())
     }
+
     pub fn to_bytes(&self) -> Result<Vec<u8>, HostInterfaceError> {
         self.validate()?;
         // Canonical declaration order is independent of registration order.
@@ -369,6 +372,7 @@ impl HostInterface {
             .serialize(&(MAGIC, VERSION, types, functions, paths))
             .map_err(|_| HostInterfaceError::Encoding)
     }
+
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, HostInterfaceError> {
         if bytes.len() as u64 > MAX_BYTES {
             return Err(HostInterfaceError::TooLarge);
@@ -431,6 +435,7 @@ pub fn standard_log() -> HostFunctionDeclaration {
     declaration.documentation = "Write a message to the host log.".into();
     declaration
 }
+
 fn hash(bytes: impl IntoIterator<Item = u8>) -> u64 {
     bytes.into_iter().fold(0xcbf29ce484222325, |h, byte| {
         (h ^ u64::from(byte)).wrapping_mul(0x100000001b3)

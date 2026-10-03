@@ -128,6 +128,7 @@ impl AggregateCatalog {
         }
         Ok(result)
     }
+
     pub fn traits(&self) -> impl Iterator<Item = &TraitSignature> {
         self.traits.values().map(AsRef::as_ref)
     }

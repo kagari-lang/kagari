@@ -15,10 +15,12 @@ pub struct Register(u16);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EnumId(u32);
+
 impl EnumId {
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("enum slot overflow"))
     }
+
     pub fn index(self) -> usize {
         self.0 as usize
     }
@@ -26,10 +28,12 @@ impl EnumId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct InterfaceTableRef(u32);
+
 impl InterfaceTableRef {
     pub fn new(index: usize) -> Self {
         Self(u32::try_from(index).expect("interface table slot overflow"))
     }
+
     pub fn index(self) -> usize {
         self.0 as usize
     }
@@ -121,10 +125,12 @@ impl PathId {
 /// Index of a concrete engine binding resolved when the module is linked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NativeImportId(u32);
+
 impl NativeImportId {
     pub fn new(index: usize) -> Self {
         Self(index as u32)
     }
+
     pub fn index(self) -> usize {
         self.0 as usize
     }

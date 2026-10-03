@@ -19,9 +19,11 @@ pub struct RangeValue {
     start: u64,
     end: u64,
 }
+
 fn invalid() -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid range value")
 }
+
 impl RangeValue {
     pub fn new(
         ty: &AbiType,
@@ -54,6 +56,7 @@ impl RangeValue {
                 .unwrap_or(0) as u64,
         })
     }
+
     pub fn bound(
         &self,
         gc: &GcHeap,
@@ -84,9 +87,11 @@ impl RangeValue {
         )
         .map(Value::Enum)
     }
+
     pub(crate) fn matches(&self, ty: &AbiType) -> bool {
         matches!(ty, AbiType::Range(item, kind) if *kind == self.kind && **item == AbiType::Builtin(self.item))
     }
+
     fn endpoint(&self, bits: u64) -> i128 {
         if self.item.integer_layout().is_some_and(|(_, signed)| signed) {
             bits as i64 as i128
@@ -94,6 +99,7 @@ impl RangeValue {
             bits as i128
         }
     }
+
     pub(crate) fn at(&self, offset: u128) -> Result<Option<Value>, RuntimeError> {
         if !self.kind.has_start() {
             return Err(invalid());
@@ -116,6 +122,7 @@ impl RangeValue {
         Ok(Some(integer_value(self.item, n)))
     }
 }
+
 pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
     match ty {
         BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(n as i32),
@@ -146,6 +153,7 @@ pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn integer_endpoints_preserve_full_domain_and_validate_shapes() {
         // Range storage must not enlarge every VM value to hold optional i128s.

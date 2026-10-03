@@ -44,6 +44,7 @@ impl ExecutionContext {
             record_host_calls: self.tracing_enabled,
         }
     }
+
     pub(crate) fn validate_for_execute(&self, entry: &str) -> RunResult<()> {
         if self.jit_policy != JitPolicy::Disabled {
             return Err(EmbeddingError::runtime(

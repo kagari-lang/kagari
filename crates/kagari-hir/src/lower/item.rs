@@ -234,6 +234,7 @@ impl Lowerer {
             glob,
         });
     }
+
     fn lower_trait(&mut self, trait_def: &AstTraitDef) -> TraitDef {
         let id = self.source_map.push_trait(syntax_span(trait_def));
         if let Some(name) = trait_def.name() {

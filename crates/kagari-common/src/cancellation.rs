@@ -12,12 +12,14 @@ impl PartialEq for CancellationToken {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
+
 impl Eq for CancellationToken {}
 
 impl CancellationToken {
     pub fn cancel(&self) {
         self.0.store(true, Ordering::Relaxed);
     }
+
     pub fn check(&self) -> Result<(), Cancelled> {
         if self.0.load(Ordering::Relaxed) {
             Err(Cancelled)

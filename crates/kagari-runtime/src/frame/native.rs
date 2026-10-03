@@ -23,6 +23,7 @@ impl ExecutionStack {
         }
         Ok(())
     }
+
     pub fn start_native_entry(
         &self,
         runtime: &Runtime,
@@ -89,6 +90,7 @@ impl ExecutionStack {
         frame.native_entry = NativeEntryState::Complete;
         Ok(())
     }
+
     pub fn invoke_native(
         &self,
         runtime: &Runtime,
@@ -118,6 +120,7 @@ impl ExecutionStack {
         }
         Ok(())
     }
+
     pub fn finish_return(
         &self,
         runtime: &Runtime,

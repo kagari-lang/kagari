@@ -46,6 +46,7 @@ struct CancelAt {
     at: usize,
     token: CancellationToken,
 }
+
 impl ExecutionObserver for CancelAt {
     fn observe(
         &self,
@@ -146,6 +147,7 @@ impl<'a> Case<'a> {
             array: None,
         }
     }
+
     fn effects(
         mut self,
         calls: &'static [&'static str],
@@ -160,14 +162,17 @@ impl<'a> Case<'a> {
         self.array = Some((initial, expected));
         self
     }
+
     fn modules(mut self, modules: &'a [(&'a str, &'a str)]) -> Self {
         self.modules = modules;
         self
     }
+
     fn native(mut self) -> Self {
         self.require_native = true;
         self
     }
+
     fn reflection(mut self) -> Self {
         self.reflection = true;
         self

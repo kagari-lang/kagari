@@ -19,6 +19,7 @@ use kagari_common::{
 };
 use smallvec::SmallVec;
 use std::collections::HashMap;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ConstVisitState {
     Visiting,

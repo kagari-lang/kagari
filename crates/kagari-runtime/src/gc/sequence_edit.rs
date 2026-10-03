@@ -20,6 +20,7 @@ struct StorageLease<'heap> {
     // protect reference values independently of those transient storage slots.
     _roots: Option<RootSet>,
 }
+
 impl Drop for StorageLease<'_> {
     fn drop(&mut self) {
         let restored = (|| {
@@ -43,6 +44,7 @@ impl Drop for StorageLease<'_> {
         }
     }
 }
+
 impl GcHeap {
     // SequenceMutHandle retains the receiver's argument root. No heap borrow
     // spans the callback; only the receiver's detached slots are inaccessible.
@@ -108,6 +110,7 @@ impl GcHeap {
         result
     }
 }
+
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("invalid sequence edit receiver")
 }

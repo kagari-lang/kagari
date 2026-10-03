@@ -3,6 +3,7 @@ use crate::{
     representation::ValueType,
     standard::RuntimePrimitive as Intrinsic,
 };
+
 pub(super) fn verify(
     dst: Option<ValueType>,
     intrinsic: Intrinsic,

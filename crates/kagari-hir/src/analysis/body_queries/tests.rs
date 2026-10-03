@@ -28,6 +28,7 @@ fn owner(
     };
     id.clone()
 }
+
 fn query(
     db: &mut AnalysisDatabase,
     sources: &SourceDatabase,

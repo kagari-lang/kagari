@@ -11,6 +11,7 @@ use kagari_abi::standard::RuntimePrimitive;
 use std::cmp::Ordering;
 #[cfg(test)]
 mod tests;
+
 pub fn invoke(
     gc: &GcHeap,
     primitive: RuntimePrimitive,
@@ -71,6 +72,7 @@ pub fn invoke(
         RuntimePrimitive::Assert => debug_assert(args),
     }
 }
+
 fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Array(handle), Value::Str(separator)] = args else {
         return Err(BuiltinError::new(
@@ -107,6 +109,7 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     })
     .ok_or_else(|| BuiltinError::new("array.join expects a valid array handle"))?
 }
+
 fn debug_assert(args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Bool(condition), Value::Str(message)] = args else {
         return Err(BuiltinError::new(
@@ -119,12 +122,15 @@ fn debug_assert(args: &[Value]) -> Result<Value, BuiltinError> {
         Err(BuiltinError::new(format!("debug.assert failed: {message}")))
     }
 }
+
 fn option_some(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
     enum_value(gc, EnumTag::OptionSome, vec![value])
 }
+
 fn option_none(gc: &GcHeap) -> Result<Value, BuiltinError> {
     enum_value(gc, EnumTag::OptionNone, Vec::new())
 }
+
 fn enum_value(gc: &GcHeap, tag: EnumTag, fields: Vec<Value>) -> Result<Value, BuiltinError> {
     gc.alloc_enum(tag, fields)
         .map(Value::Enum)

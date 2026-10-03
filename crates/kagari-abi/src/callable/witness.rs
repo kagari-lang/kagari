@@ -196,6 +196,7 @@ impl NativeCallableRequirement {
                     })
                 })
     }
+
     /// Instantiate a member declaration with a raw constrained receiver, rather
     /// than the boxed interface receiver used by ordinary interface dispatch.
     pub fn signature(

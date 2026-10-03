@@ -19,6 +19,7 @@ pub struct PassOptions {
     /// MIR verification/analysis additionally enforces its own resource bounds.
     pub max_work: usize,
 }
+
 impl Default for PassOptions {
     fn default() -> Self {
         Self {
@@ -84,6 +85,7 @@ struct Work<'a> {
     limit: usize,
     cancel: &'a CancellationToken,
 }
+
 impl Work<'_> {
     fn charge(&mut self, count: usize) -> Result<(), MirVerificationError> {
         let error = |kind| MirVerificationError {

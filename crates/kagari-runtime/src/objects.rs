@@ -39,6 +39,7 @@ impl Runtime {
         self.validate_heap_payloads(&elements)?;
         self.gc.alloc_array(owner, element, elements)
     }
+
     pub fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,

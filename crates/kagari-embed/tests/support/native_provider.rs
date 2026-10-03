@@ -70,20 +70,24 @@ struct Handler {
     callback: StoredCallable,
     drops: Rc<Cell<usize>>,
 }
+
 impl NativePayload for Handler {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         visit(&self.value);
         self.callback.trace(visit);
     }
+
     fn units(&self) -> usize {
         2
     }
 }
+
 impl Drop for Handler {
     fn drop(&mut self) {
         self.drops.set(self.drops.get() + 1);
     }
 }
+
 fn register_handler(module: &mut ModuleBuilder, drops: Rc<Cell<usize>>) -> NativeResult<()> {
     let mut declaration = module.define_type("Handler");
     declaration.type_parameter("T")?;

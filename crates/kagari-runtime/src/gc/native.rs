@@ -15,6 +15,7 @@ use kagari_abi::types::AbiType;
 use std::cell::Cell;
 
 struct NativeBorrow<'heap>(&'heap Cell<usize>);
+
 impl Drop for NativeBorrow<'_> {
     fn drop(&mut self) {
         self.0.set(self.0.get() - 1);
@@ -41,6 +42,7 @@ impl GcHeap {
             _ => None,
         }
     }
+
     pub(crate) fn native_type_name(&self, id: HeapObjectId) -> Option<String> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
@@ -51,6 +53,7 @@ impl GcHeap {
         };
         Some(nominal.declaration.path.last()?.name.clone())
     }
+
     pub(crate) fn ensure_no_native_borrow(&self) -> NativeResult<()> {
         if self.native_borrows.get() != 0 {
             return Err(RuntimeError::module_validation(
@@ -59,6 +62,7 @@ impl GcHeap {
         }
         Ok(())
     }
+
     pub(crate) fn alloc_native(&self, object: NativeObject) -> NativeResult<HeapObjectId> {
         self.ensure_no_native_borrow()?;
         self.ensure_execution_allowed()?;
@@ -68,6 +72,7 @@ impl GcHeap {
             .ok_or_else(|| self.resource_limit("native object size"))?;
         self.alloc_object(HeapObject::Native(object))
     }
+
     pub(crate) fn with_native<S: NativePayload, R>(
         &self,
         id: HeapObjectId,
@@ -96,6 +101,7 @@ impl GcHeap {
         let _borrow = NativeBorrow(&self.native_borrows);
         access(payload)
     }
+
     pub(crate) fn sequence_push(
         &self,
         id: HeapObjectId,
@@ -138,6 +144,7 @@ impl GcHeap {
         growth.commit();
         Ok(())
     }
+
     pub(crate) fn with_sequence_mut<E: NativeElement, R>(
         &self,
         id: HeapObjectId,

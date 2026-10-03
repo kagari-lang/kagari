@@ -14,6 +14,7 @@ pub(crate) struct StorageType {
     pub(crate) owner: LoadedModule,
     scope: Option<TypeArgument>,
 }
+
 impl StorageType {
     pub(crate) fn prepare(ty: AbiType, owner: &LoadedModule) -> Result<Self, RuntimeError> {
         Self::checked(Self {

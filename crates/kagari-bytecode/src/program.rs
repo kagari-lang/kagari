@@ -22,10 +22,12 @@ use std::{
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModuleRef(u32);
+
 impl ModuleRef {
     pub fn new(index: usize) -> Self {
         Self(index as u32)
     }
+
     pub fn index(self) -> usize {
         self.0 as usize
     }

@@ -10,6 +10,7 @@ use std::collections::HashSet;
 fn invalid() -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid iterator resource")
 }
+
 impl GcHeap {
     pub fn begin_collection_iteration(
         &self,

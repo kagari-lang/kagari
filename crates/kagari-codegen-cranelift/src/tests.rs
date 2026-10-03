@@ -22,6 +22,7 @@ fn mir(source: &str) -> VerifiedMirProgram {
         .unwrap();
     lower_program_to_mir(checked.program(), &Default::default()).unwrap()
 }
+
 fn root(program: &VerifiedMirProgram) -> &VerifiedMirModule {
     program
         .modules()
@@ -29,6 +30,7 @@ fn root(program: &VerifiedMirProgram) -> &VerifiedMirModule {
         .find(|module| &module.identity == program.root())
         .unwrap()
 }
+
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
@@ -37,6 +39,7 @@ fn runtime() -> Runtime {
         ..Default::default()
     })
 }
+
 fn compile(
     backend: &mut CraneliftBackend,
     mir: &VerifiedMirProgram,

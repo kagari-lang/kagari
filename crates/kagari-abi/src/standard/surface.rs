@@ -107,6 +107,7 @@ impl StandardVariant {
             Self::Ok | Self::Err => StandardEnum::Result,
         }
     }
+
     pub fn index(self) -> usize {
         match self {
             Self::ParseEmpty => 0,
@@ -125,6 +126,7 @@ impl StandardVariant {
             Self::None | Self::Err => 1,
         }
     }
+
     pub fn payload(self) -> Option<usize> {
         match self {
             Self::ParseEmpty

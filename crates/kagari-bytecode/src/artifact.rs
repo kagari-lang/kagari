@@ -64,6 +64,7 @@ pub fn validate_program_resource_limits(
     }
     Ok(())
 }
+
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str =
     concat!("kagari-compiler/", env!("CARGO_PKG_VERSION"));
@@ -430,6 +431,7 @@ impl ArtifactFingerprint {
                 .collect::<Vec<_>>(),
         ))
     }
+
     pub fn empty() -> Self {
         Self(0)
     }
@@ -438,6 +440,7 @@ impl ArtifactFingerprint {
     /// This is a compatibility fingerprint, not authentication or a signature.
     pub fn of_serialized(value: &impl Serialize) -> Self {
         struct Sink(u64);
+
         impl Write for Sink {
             fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
                 for byte in bytes {
@@ -445,6 +448,7 @@ impl ArtifactFingerprint {
                 }
                 Ok(bytes.len())
             }
+
             fn flush(&mut self) -> io::Result<()> {
                 Ok(())
             }
@@ -535,6 +539,7 @@ impl ArtifactTables {
             debug_names: Vec::new(),
         }
     }
+
     fn with_metadata(
         program: &BytecodeProgram,
         debug: Option<&DebugMetadata>,
@@ -639,6 +644,7 @@ impl VerificationMetadata {
         verify_program(program).map_err(ArtifactValidationError::Bytecode)?;
         Ok(Self::build(program, options))
     }
+
     fn build(program: &BytecodeProgram, options: &ArtifactBuildOptions) -> Self {
         let module = &program.modules[program.root.index()];
         let typed_path_fingerprints = module

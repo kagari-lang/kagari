@@ -24,6 +24,7 @@ use kagari_common::{
 };
 use smallvec::SmallVec;
 use std::iter;
+
 pub(super) fn validate_trait_surface(
     lowered: &LoweredModule,
     declarations: &Declarations,

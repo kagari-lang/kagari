@@ -43,6 +43,7 @@ impl ReloadDependencySnapshot {
         snapshot.dependency_fingerprints = program.dependency_fingerprints();
         snapshot
     }
+
     pub fn from_bytecode(module: &BytecodeModule) -> Self {
         Self {
             module_fingerprint: ArtifactFingerprint::of_serialized(module),

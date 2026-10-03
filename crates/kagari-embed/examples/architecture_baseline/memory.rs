@@ -5,6 +5,7 @@ use std::{
 };
 
 pub struct CountingAllocator;
+
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 
 // SAFETY: all pointer/layout operations are forwarded unchanged to System; only
@@ -17,6 +18,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
         }
         pointer
     }
+
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc_zeroed(layout) };
         if !pointer.is_null() {
@@ -24,10 +26,12 @@ unsafe impl GlobalAlloc for CountingAllocator {
         }
         pointer
     }
+
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         unsafe { System.dealloc(pointer, layout) };
         LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
     }
+
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         let result = unsafe { System.realloc(pointer, layout, size) };
         if !result.is_null() {

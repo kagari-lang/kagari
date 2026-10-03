@@ -10,29 +10,35 @@ use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct NativeCursor(Rc<Cursor>);
+
 #[derive(Debug)]
 struct Cursor {
     value: Value,
     ty: AbiType,
 }
+
 impl NativePayload for NativeCursor {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         visit(&self.0.value);
     }
+
     fn units(&self) -> usize {
         1
     }
 }
+
 impl NativeCursor {
     pub fn next(&self, cx: &CallContext<'_>) -> NativeResult<Option<Value>> {
         cx.heap().next_iter_item(&self.0.value, &self.0.ty)
     }
+
     pub fn close(&self, cx: &CallContext<'_>) -> NativeResult<()> {
         cx.heap()
             .advance_iter(&self.0.value, &self.0.ty, IterOp::Close)
             .map(|_| ())
     }
 }
+
 impl CallContext<'_> {
     /// Create a shared cursor over a declared ArrayList argument. Store it in a
     /// native payload and visit it in iteration_sources for for-scope cleanup.

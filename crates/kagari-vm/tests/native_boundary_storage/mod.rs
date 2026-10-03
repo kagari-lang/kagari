@@ -212,6 +212,7 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
 
     assert_eq!(heap.trace_roots().unwrap(), vec![array, record]);
 }
+
 #[test]
 fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() {
     let (mut vm, loaded) = compile(
@@ -264,6 +265,7 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
     assert!(heap.set_remove(set, &Value::I32(1)).is_err());
     assert!(heap.set_clear(set).is_err());
 }
+
 fn sorted_map(mut entries: Vec<(Value, Value)>) -> Vec<(Value, Value)> {
     entries.sort_by(|(a, _), (b, _)| match (a, b) {
         (Value::Str(a), Value::Str(b)) => a.cmp(b),
@@ -271,6 +273,7 @@ fn sorted_map(mut entries: Vec<(Value, Value)>) -> Vec<(Value, Value)> {
     });
     entries
 }
+
 fn sorted_set(mut entries: Vec<Value>) -> Vec<Value> {
     entries.sort_by(|a, b| match (a, b) {
         (Value::Str(a), Value::Str(b)) => a.cmp(b),

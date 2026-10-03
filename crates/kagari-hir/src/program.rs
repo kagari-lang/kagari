@@ -45,13 +45,16 @@ impl CheckedProgram {
     pub fn root(&self) -> &CheckedAnalysis {
         &self.modules[self.by_file[&self.root]]
     }
+
     /// Deterministic order. Diamonds and cycles contain each module once.
     pub fn modules(&self) -> &[CheckedAnalysis] {
         &self.modules
     }
+
     pub fn dependencies(&self, module: &ModuleIdentity) -> Option<&[ModuleIdentity]> {
         self.dependencies.get(module).map(Vec::as_slice)
     }
+
     pub fn source_function(
         &self,
         id: SourceFunctionId,

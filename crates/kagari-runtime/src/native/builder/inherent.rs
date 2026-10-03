@@ -19,6 +19,7 @@ pub struct InherentMethodsBuilder {
     pub(crate) methods: BTreeMap<DefinitionId, FunctionAbi>,
     pub(crate) bindings: BTreeMap<DefinitionId, NativeBinding>,
 }
+
 impl InherentMethodsBuilder {
     pub fn define_method(&mut self, declaration: MethodDecl) -> NativeResult<FunctionRef> {
         let mut signature = declaration.lower(self.receiver.clone());
@@ -32,6 +33,7 @@ impl InherentMethodsBuilder {
         self.methods.insert(id.clone(), signature);
         Ok(FunctionRef { id })
     }
+
     pub fn bind<A, R>(
         &mut self,
         method: FunctionRef,
@@ -39,6 +41,7 @@ impl InherentMethodsBuilder {
     ) -> NativeResult<()> {
         self.bind_with(method, entry.binding())
     }
+
     pub fn bind_with(&mut self, method: FunctionRef, binding: NativeBinding) -> NativeResult<()> {
         let signature = self.methods.get(&method.id).ok_or_else(|| {
             RuntimeError::metadata_conflict("unknown inherent method declaration")

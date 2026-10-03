@@ -18,6 +18,7 @@ fn invalid() -> RuntimeError {
         "hash storage type or selected key protocol mismatch",
     )
 }
+
 impl GcHeap {
     pub fn map_len(&self, id: HeapObjectId) -> Option<usize> {
         self.with_map(id, |entries| entries.len())
@@ -211,6 +212,7 @@ impl GcHeap {
             payload.builtin_keys,
         ))
     }
+
     pub(crate) fn set_contract(&self, id: HeapObjectId) -> Option<(Rc<StorageType>, bool)> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
@@ -222,9 +224,11 @@ impl GcHeap {
         let payload = object.payload::<SetPayload>().ok()?;
         Some((payload.element.clone(), payload.builtin_keys))
     }
+
     pub(super) fn valid_storage_value(&self, value: &Value, contract: &StorageType) -> bool {
         self.valid_payload(value) && contract.accepts_value(self, value)
     }
+
     pub(super) fn with_map<R>(
         &self,
         id: HeapObjectId,
@@ -239,6 +243,7 @@ impl GcHeap {
         }
         Some(f(&object.payload::<MapPayload>().ok()?.entries))
     }
+
     pub(super) fn with_map_mut<R>(
         &self,
         id: HeapObjectId,
@@ -260,6 +265,7 @@ impl GcHeap {
         }
         Some(result)
     }
+
     pub(super) fn with_set<R>(
         &self,
         id: HeapObjectId,
@@ -274,6 +280,7 @@ impl GcHeap {
         }
         Some(f(&object.payload::<SetPayload>().ok()?.entries))
     }
+
     pub(super) fn with_set_mut<R>(
         &self,
         id: HeapObjectId,

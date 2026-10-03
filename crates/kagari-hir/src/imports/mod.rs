@@ -203,6 +203,7 @@ impl ModuleGraph {
     pub fn node(&self, module: &ModuleIdentity) -> Option<&ModuleNode> {
         self.nodes.get(module)
     }
+
     pub fn modules(&self) -> impl Iterator<Item = (&ModuleIdentity, &ModuleNode)> {
         self.nodes.iter()
     }

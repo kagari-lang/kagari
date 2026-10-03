@@ -244,6 +244,7 @@ impl BytecodeLoweringContext<'_> {
                 .expect("verified struct layout"),
         )
     }
+
     fn field_ref(&self, field: &AggregateFieldRef) -> FieldRef {
         FieldRef {
             structure: self.structure_id(&field.owner),

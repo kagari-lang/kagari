@@ -37,6 +37,7 @@ pub enum Codec {
     Iterator,
     Callable,
 }
+
 impl Codec {
     /// A group selects the sequence storage family. Individual methods select
     /// read or write access; check() still checks that access against the actual
@@ -51,6 +52,7 @@ impl Codec {
                 )
             )
     }
+
     pub(crate) fn accepts(&self, ty: &AbiType, catalog: &DeclarationCatalog) -> bool {
         let layout = match ty {
             AbiType::NativeObject(nominal) => {
@@ -102,6 +104,7 @@ pub struct NativeBinding {
     pub(crate) entry: Rc<NativeEntry>,
     pub(crate) converted_result: bool,
 }
+
 impl fmt::Debug for NativeBinding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeBinding")
@@ -110,6 +113,7 @@ impl fmt::Debug for NativeBinding {
             .finish_non_exhaustive()
     }
 }
+
 impl NativeBinding {
     /// Explicit low-level conversion contract. The body remains trusted Rust;
     /// dynamic values are checked at the return boundary.
@@ -125,6 +129,7 @@ impl NativeBinding {
             converted_result: false,
         }
     }
+
     pub(crate) fn check(
         &self,
         signature: &NativeSignature,
@@ -154,6 +159,7 @@ pub struct LinkedNativeFunction {
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,
 }
+
 impl LinkedNativeFunction {
     pub(crate) fn apply(
         &self,
@@ -216,6 +222,7 @@ impl LinkedNativeFunction {
                 .into_boxed_slice(),
         })
     }
+
     pub(crate) fn invoke(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
         if context.arguments.len() != self.signature.params.len() {
             return Err(RuntimeError::module_validation(

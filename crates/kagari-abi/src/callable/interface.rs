@@ -45,6 +45,7 @@ impl InterfaceMethodSignature {
     ) -> bool {
         types_in_scope(self.params.iter().chain([&self.result]), parameters, cancel)
     }
+
     pub fn physical_types(
         &self,
         parameters: &[GenericParameterAbi],
@@ -74,6 +75,7 @@ impl InterfaceCallContract {
             .ok_or(TypeTransformError::InvalidContract)?;
         self.signature(contract, cancel)
     }
+
     /// Apply a validated declaration without resolving any implementation. A
     /// shared caller may forward its own parameters; check() verifies their scope
     /// and required bounds independently of this substitution.

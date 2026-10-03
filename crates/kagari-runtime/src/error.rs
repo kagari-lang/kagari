@@ -1,5 +1,6 @@
 use crate::error_trace::ErrorTrace;
 use std::sync::Arc;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {
     Cancelled,
@@ -140,6 +141,7 @@ impl RuntimeError {
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
         self.trace.as_ref()
     }
+
     pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {
         if self
             .trace
@@ -150,6 +152,7 @@ impl RuntimeError {
         }
         self
     }
+
     pub fn kind(&self) -> RuntimeErrorKind {
         self.kind
     }

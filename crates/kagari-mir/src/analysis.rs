@@ -67,14 +67,17 @@ impl PointAnalysis {
     pub fn live(&self) -> &SlotSet {
         &self.live
     }
+
     pub fn roots(&self) -> &SlotSet {
         &self.roots
     }
+
     /// Definitely initialized locals whose lexical scopes contain this point.
     /// Unreachable code has no available values; temporaries are never exposed.
     pub fn debug_available(&self) -> &SlotSet {
         &self.debug_available
     }
+
     pub fn safepoint(&self) -> SafepointKind {
         self.safepoint
     }
@@ -91,12 +94,15 @@ impl BlockAnalysis {
     pub fn start_offset(&self) -> usize {
         self.points[0].logical_offset
     }
+
     pub fn reachable(&self) -> bool {
         self.reachable
     }
+
     pub fn instruction(&self, index: usize) -> Option<&PointAnalysis> {
         self.points.get(..self.points.len() - 1)?.get(index)
     }
+
     pub fn terminator(&self) -> &PointAnalysis {
         self.points.last().expect("verified block has a terminator")
     }

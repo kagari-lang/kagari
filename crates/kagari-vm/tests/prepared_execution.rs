@@ -43,6 +43,7 @@ fn compile(source: &str, optimize: bool) -> BytecodeProgram {
     .unwrap();
     lower_program_to_bytecode(&mir).unwrap()
 }
+
 fn setup(bytecode: BytecodeProgram) -> (Vm, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
@@ -53,9 +54,12 @@ fn setup(bytecode: BytecodeProgram) -> (Vm, LoadedModule) {
     let loaded = runtime.load_program("test", bytecode).unwrap();
     (Vm::new(runtime), loaded)
 }
+
 #[derive(Debug)]
 struct StaticCode;
+
 impl NativeCodeOwner for StaticCode {}
+
 unsafe extern "C" fn native_unit(runtime: *const c_void, result: *mut JitValue) -> i32 {
     for offset in 0..2 {
         let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
@@ -68,6 +72,7 @@ unsafe extern "C" fn native_unit(runtime: *const c_void, result: *mut JitValue) 
     }
     JIT_STATUS_OK
 }
+
 unsafe extern "C" fn native_trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
     let status = unsafe { jit_poll_execution(runtime.cast(), 0) };
     if status == JIT_STATUS_OK {
@@ -76,6 +81,7 @@ unsafe extern "C" fn native_trap(runtime: *const c_void, _: *mut JitValue) -> i3
         status
     }
 }
+
 fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> PreparedNativeEntry {
     let mut artifact = ExecutableFunctionArtifact::new(
         BackendId::new("fixture"),

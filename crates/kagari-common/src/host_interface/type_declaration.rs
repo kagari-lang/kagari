@@ -18,18 +18,21 @@ pub enum HostTypeOwnership {
     Owned,
     HostRoot,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostReflectionPolicy {
     Hidden,
     TypeNameOnly,
     Metadata,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PathAccess {
     None,
     ReadOnly,
     ReadWrite,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Visibility {
     Private,
@@ -62,6 +65,7 @@ impl HostFieldDeclaration {
             documentation: String::new(),
         }
     }
+
     pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
         self.ty.validate()?;
         let mut abi = self.clone();
@@ -142,6 +146,7 @@ impl HostMethodDeclaration {
             documentation: String::new(),
         }
     }
+
     pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
         super::validate_signature(&self.params, &self.return_type)?;
         let mut abi = self.clone();
@@ -196,6 +201,7 @@ impl HostTypeDeclaration {
         function.validate()?;
         Ok(function)
     }
+
     pub fn new(symbol: impl Into<String>) -> Self {
         let symbol = symbol.into();
         Self {
@@ -210,6 +216,7 @@ impl HostTypeDeclaration {
             documentation: String::new(),
         }
     }
+
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
         validate_host_type_identity(&self.id)?;
         if self.fields.len() > decode_limits::MAX_MEMBERS
@@ -329,6 +336,7 @@ impl HostTypeDeclaration {
         }
         Ok(())
     }
+
     pub fn value_types(&self) -> impl Iterator<Item = &HostValueType> {
         self.fields
             .iter()
@@ -356,6 +364,7 @@ impl HostTypeDeclaration {
                     }),
             )
     }
+
     pub fn clear_documentation(&mut self) {
         self.documentation.clear();
         for implementation in &mut self.trait_implementations {
@@ -368,12 +377,14 @@ impl HostTypeDeclaration {
             method.documentation.clear();
         }
     }
+
     pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
         self.validate()?;
         let mut abi = self.clone();
         abi.clear_documentation();
         fingerprint(b"kagari-host-type-v1\0", &abi)
     }
+
     pub fn matches_binding(&self, actual: &Self) -> bool {
         let mut required = self.clone();
         let mut actual = actual.clone();
@@ -392,6 +403,7 @@ fn member_id(owner: &DefinitionId, kind: DefinitionKind, name: &str) -> Definiti
     });
     id
 }
+
 fn validate_member(
     owner: &DefinitionId,
     id: &DefinitionId,
@@ -407,6 +419,7 @@ fn validate_member(
         Ok(())
     }
 }
+
 fn fingerprint(domain: &[u8], value: &impl Serialize) -> Result<u64, HostInterfaceError> {
     let bytes = codec()
         .serialize(value)

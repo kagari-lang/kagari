@@ -22,6 +22,7 @@ pub(crate) struct MapPayload {
     pub(crate) builtin_keys: bool,
     pub(crate) entries: HashMapStorage,
 }
+
 impl NativePayload for MapPayload {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         for (key, value) in self.entries.iter() {
@@ -29,26 +30,31 @@ impl NativePayload for MapPayload {
             visit(value);
         }
     }
+
     fn units(&self) -> usize {
         self.entries.len()
     }
 }
+
 #[derive(Debug)]
 pub(crate) struct SetPayload {
     pub(crate) element: Rc<StorageType>,
     pub(crate) builtin_keys: bool,
     pub(crate) entries: HashSetStorage,
 }
+
 impl NativePayload for SetPayload {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         for key in self.entries.iter() {
             visit(key.value());
         }
     }
+
     fn units(&self) -> usize {
         self.entries.len()
     }
 }
+
 fn builtin_keys(context: &StorageContext<'_>, key: &AbiType) -> NativeResult<bool> {
     let hash = context.selected(0)?;
     let equal = context.selected(1)?;
@@ -61,6 +67,7 @@ fn builtin_keys(context: &StorageContext<'_>, key: &AbiType) -> NativeResult<boo
     Ok(hash.primitive == Some(RuntimePrimitive::ValueHash)
         && equal.primitive == Some(RuntimePrimitive::ValueEq))
 }
+
 impl NativeStorage {
     pub(crate) fn map(key: usize, value: usize) -> Self {
         Self::with_layout(NativeStorageLayout::Map { key, value }, move |context| {
@@ -75,6 +82,7 @@ impl NativeStorage {
             })
         })
     }
+
     pub(crate) fn set(element: usize) -> Self {
         Self::with_layout(NativeStorageLayout::Set { element }, move |context| {
             let contract = context.element_contract(element)?;

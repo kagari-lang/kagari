@@ -99,6 +99,7 @@ impl BodyChecker<'_> {
             }
         }
     }
+
     pub(super) fn infer_binary_operator(
         &mut self,
         expr_id: ExprId,
@@ -198,6 +199,7 @@ impl BodyChecker<'_> {
             self.infer_binary_type(*op, *rhs, lhs_ty, rhs_completes.then_some(rhs_ty), env)
         }
     }
+
     pub(super) fn infer_index_operator(
         &mut self,
         expr_id: ExprId,

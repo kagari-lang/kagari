@@ -38,6 +38,7 @@ impl BodyReuse<'_> {
                 &environment(current, self.new_text),
             )
     }
+
     pub(crate) fn restore(
         &self,
         current: &LoweredModule,

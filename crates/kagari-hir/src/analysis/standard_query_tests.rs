@@ -315,6 +315,7 @@ mod trait_tests {
     use super::*;
     use crate::analysis::AnalysisDatabase;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
+
     #[test]
     fn registered_defaults_navigate_to_source_and_expose_checked_signatures() {
         let text = "use demo::native::NativeRead; struct Reader {} impl NativeRead for Reader {} fn main() { val value = Reader {}; value.read(); value.fixed(); }";
@@ -355,6 +356,7 @@ mod trait_tests {
             );
         }
     }
+
     #[test]
     fn standard_trait_members_keep_source_identity_without_user_shadowing() {
         let mut sources = SourceDatabase::default();
@@ -522,6 +524,7 @@ mod collection_access_tests {
     use super::*;
 
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
+
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
         use kagari_abi::language::Protocol as S;
@@ -661,6 +664,7 @@ mod collection_access_tests {
             );
         }
     }
+
     #[test]
     fn readonly_member_completion_excludes_mutators() {
         for (annotation, constructor, mutable, write) in [
@@ -695,6 +699,7 @@ mod collection_access_tests {
             assert_eq!(candidates.iter().any(|item| item.name == write), mutable);
         }
     }
+
     #[test]
     fn registered_string_calls_navigate_to_documented_declarations() {
         let text = "use demo::native::echo; fn main() { val text = \"hello\"; echo(text); }";
@@ -721,6 +726,7 @@ mod collection_access_tests {
             "echo"
         );
     }
+
     #[test]
     fn extension_completion_filters_total_order_requirement() {
         for (element, value, ordered) in [("i32", "1", true), ("f64", "1.0", false)] {

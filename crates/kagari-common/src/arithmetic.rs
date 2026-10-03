@@ -49,13 +49,16 @@ macro_rules! integer_ops {
             }
             .ok_or(ArithmeticError::Overflow)
         }
+
         pub fn $neg(value: $ty) -> Result<$ty, ArithmeticError> {
             value.checked_neg().ok_or(ArithmeticError::Overflow)
         }
+
         pub fn $abs(value: $ty) -> Result<$ty, ArithmeticError> {
             value.checked_abs().ok_or(ArithmeticError::Overflow)
         }
     };
 }
+
 integer_ops!(i32_binary, i32_neg, i32_abs, i32);
 integer_ops!(i64_binary, i64_neg, i64_abs, i64);

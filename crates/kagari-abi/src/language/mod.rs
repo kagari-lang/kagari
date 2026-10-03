@@ -113,6 +113,7 @@ impl Protocol {
         Self::Sum,
         Self::Product,
     ];
+
     pub fn name(self) -> &'static str {
         match self {
             Self::List => "List",
@@ -155,12 +156,14 @@ impl Protocol {
             Self::Product => "Product",
         }
     }
+
     pub fn from_id(id: &DefinitionId) -> Option<Self> {
         if id.module != module_identity() || id.path.len() != 1 {
             return None;
         }
         Self::ALL.into_iter().find(|kind| identity(*kind) == *id)
     }
+
     pub fn conversion(self) -> bool {
         matches!(
             self,
@@ -180,6 +183,7 @@ impl Protocol {
     pub fn dynamic(self) -> bool {
         self.collection() || matches!(self, Self::Index | Self::Iterable | Self::Iterator)
     }
+
     pub fn collection(self) -> bool {
         matches!(
             self,
@@ -191,9 +195,11 @@ impl Protocol {
                 | Self::MutableSet
         )
     }
+
     pub fn iteration(self) -> bool {
         matches!(self, Self::Iterator | Self::Iterable)
     }
+
     pub fn binary_operator(self) -> bool {
         matches!(
             self,
@@ -209,12 +215,15 @@ impl Protocol {
                 | Self::Shr
         )
     }
+
     pub fn operator(self) -> bool {
         self.binary_operator() || matches!(self, Self::Neg | Self::Not | Self::Index | Self::Fn)
     }
+
     pub fn host_implementable(self) -> bool {
         matches!(self, Self::Debug | Self::Display)
     }
+
     pub fn equality_protocol(self) -> bool {
         matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
     }

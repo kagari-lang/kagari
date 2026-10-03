@@ -34,6 +34,7 @@ pub struct ModuleBuilder {
     pub(crate) storage: BTreeMap<DefinitionId, NativeStorage>,
     function_parameters: BTreeMap<DefinitionId, Vec<String>>,
 }
+
 impl ModuleBuilder {
     pub fn new(identity: &str, language: &LanguageContracts) -> Self {
         let mut path = identity.split("::");
@@ -52,11 +53,13 @@ impl ModuleBuilder {
             function_parameters: BTreeMap::new(),
         }
     }
+
     pub fn with_modules(mut self, modules: &[&NativeModule]) -> NativeResult<Self> {
         self.providers
             .merge(&DeclarationCatalog::from_modules(modules)?)?;
         Ok(self)
     }
+
     pub fn define_function(&mut self, mut declaration: FunctionDecl) -> NativeResult<FunctionRef> {
         if self
             .declaration
@@ -80,6 +83,7 @@ impl ModuleBuilder {
         self.declaration.functions.push(function);
         Ok(FunctionRef { id })
     }
+
     pub fn function<T>(
         &mut self,
         function: &FunctionRef,
@@ -113,6 +117,7 @@ impl ModuleBuilder {
         normalize_bounds(signature);
         Ok(result)
     }
+
     pub fn bind<A, R>(
         &mut self,
         function: FunctionRef,
@@ -120,6 +125,7 @@ impl ModuleBuilder {
     ) -> NativeResult<()> {
         self.bind_with(function, entry.binding())
     }
+
     pub fn bind_with(&mut self, function: FunctionRef, binding: NativeBinding) -> NativeResult<()> {
         let declaration = self
             .declaration
@@ -150,6 +156,7 @@ impl ModuleBuilder {
         self.bindings.insert(function.id, binding);
         Ok(())
     }
+
     pub fn finish(self) -> NativeResult<NativeModule> {
         NativeModule::checked(
             self.declaration,
@@ -158,12 +165,15 @@ impl ModuleBuilder {
             &self.providers,
         )
     }
+
     pub fn define_trait(&mut self, name: impl Into<String>) -> TraitBuilder<'_> {
         TraitBuilder::new(self, name.into())
     }
+
     pub fn define_type(&mut self, name: impl Into<String>) -> TypeBuilder<'_> {
         TypeBuilder::new(self, name.into())
     }
+
     pub fn implement<T>(
         &mut self,
         receiver: impl Into<Receiver>,

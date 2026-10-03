@@ -42,6 +42,7 @@ pub struct VerifiedMirModule {
 
 impl Deref for VerifiedMirModule {
     type Target = MirModule;
+
     fn deref(&self) -> &MirModule {
         &self.module
     }
@@ -278,11 +279,13 @@ impl Context<'_> {
             kind,
         }
     }
+
     fn check_cancel(self) -> Result<(), MirVerificationError> {
         self.cancel
             .check()
             .map_err(|_| self.error(MirVerificationErrorKind::Cancelled))
     }
+
     fn limit(
         self,
         count: usize,
@@ -295,6 +298,7 @@ impl Context<'_> {
             Ok(())
         }
     }
+
     fn expect(
         self,
         found: ValueType,
@@ -304,6 +308,7 @@ impl Context<'_> {
         contracts::expect_type(found, expected, label)
             .map_err(|e| self.error(MirVerificationErrorKind::Contract(e)))
     }
+
     fn value(self, function: &MirFunction, value: MirValue) -> Result<(), MirVerificationError> {
         let ty = function
             .temps
@@ -312,6 +317,7 @@ impl Context<'_> {
             .ty;
         self.expect(value.ty, ty, "temporary annotation")
     }
+
     fn local(
         self,
         function: &MirFunction,

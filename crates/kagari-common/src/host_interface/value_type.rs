@@ -47,6 +47,7 @@ impl HostValueType {
             b"kagari-host-value-v1\0".iter().copied().chain(bytes),
         ))
     }
+
     pub fn nominal_references(&self) -> Vec<&DefinitionId> {
         let mut pending = vec![self];
         let mut declarations = Vec::new();
@@ -163,11 +164,14 @@ impl Serialize for HostValueType {
 impl<'de> Deserialize<'de> for HostValueType {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct TypeVisitor;
+
         impl<'de> Visitor<'de> for TypeVisitor {
             type Value = HostValueType;
+
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a bounded preorder host type")
             }
+
             fn visit_seq<A: SeqAccess<'de>>(
                 self,
                 mut sequence: A,

@@ -17,12 +17,15 @@ impl QualifiedType {
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
+
     pub fn receiver(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
+
     pub fn trait_ref(&self) -> Option<TraitRef> {
         support::child(self.syntax())
     }
+
     pub fn member(&self) -> Option<Name> {
         support::child(self.syntax())
     }
@@ -32,6 +35,7 @@ impl TypeRef {
     pub fn qualified_type(&self) -> Option<QualifiedType> {
         support::child(self.syntax())
     }
+
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }

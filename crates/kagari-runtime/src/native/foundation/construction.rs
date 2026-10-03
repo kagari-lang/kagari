@@ -72,6 +72,7 @@ fn parse(target: BuiltinType, text: &str) -> NativeResult<Result<Value, u8>> {
             }
         };
     }
+
     integers!(I8:i8,I16:i16,I32:i32,I64:i64,ISize:isize,U8:u8,U16:u16,U32:u32,U64:u64,USize:usize)
 }
 
@@ -91,6 +92,7 @@ pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 pub(super) fn sum(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     aggregate(cx, false)
 }
+
 pub(super) fn product(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     aggregate(cx, true)
 }
@@ -225,5 +227,6 @@ fn scalar_array_aggregate(
             }
         };
     }
+
     integers!(I8:i8,I16:i16,I32:i32,I64:i64,ISize:isize,U8:u8,U16:u16,U32:u32,U64:u64,USize:usize)
 }

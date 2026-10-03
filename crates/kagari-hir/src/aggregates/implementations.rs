@@ -326,9 +326,11 @@ impl AggregateCatalog {
         budget.depth -= 1;
         result
     }
+
     pub fn implementation_signature(&self, id: &DefinitionId) -> Option<&ImplementationSignature> {
         self.implementations.get(id).map(AsRef::as_ref)
     }
+
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
@@ -412,6 +414,7 @@ impl AggregateCatalog {
             matches.next().is_none().then_some(result)
         })
     }
+
     pub fn implementations(&self) -> impl Iterator<Item = &ImplementationSignature> {
         self.implementations.values().map(AsRef::as_ref)
     }

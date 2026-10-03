@@ -31,6 +31,7 @@ impl fmt::Display for DeclarationError {
         write!(f, "native API: {}", self.0)
     }
 }
+
 impl Error for DeclarationError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]

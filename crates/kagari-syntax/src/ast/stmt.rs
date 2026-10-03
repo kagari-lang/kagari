@@ -144,6 +144,7 @@ impl AssignStmt {
                 )
             })
     }
+
     pub fn target(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }

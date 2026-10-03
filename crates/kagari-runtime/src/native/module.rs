@@ -28,6 +28,7 @@ pub struct NativeModule {
     required: DeclarationCatalog,
     storage: Rc<BTreeMap<DefinitionId, NativeStorage>>,
 }
+
 impl NativeModule {
     pub(crate) fn checked(
         declaration: ModuleDecl,
@@ -117,20 +118,25 @@ impl NativeModule {
             storage: Rc::new(storage),
         })
     }
+
     pub fn declaration(&self) -> &Arc<ModuleDecl> {
         &self.declaration
     }
+
     pub fn declaration_source(&self) -> DeclarationSource {
         self.declaration
             .declaration_source()
             .expect("checked module presentation")
     }
+
     pub fn catalog(&self) -> DeclarationCatalog {
         self.catalog.clone()
     }
+
     pub fn install(&self, runtime: &mut Runtime) -> NativeResult<()> {
         self.install_into(&mut runtime.native_entries)
     }
+
     pub(crate) fn install_into(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
         let mut staged = registry.clone();
         if !self.required.satisfied_by(&staged.catalog) {
@@ -164,6 +170,7 @@ impl NativeModule {
         *registry = staged;
         Ok(())
     }
+
     pub fn trait_id(&self, name: &str) -> NativeResult<DefinitionId> {
         self.declaration
             .traits

@@ -3,6 +3,7 @@ use crate::{
     line_index::{LineIndex, Position, PositionEncoding},
     span::Span,
 };
+
 #[derive(Debug, Clone)]
 pub struct SourceFile {
     id: FileId,

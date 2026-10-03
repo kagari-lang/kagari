@@ -31,21 +31,26 @@ impl TypeSubstitution {
     pub fn insert_receiver(&mut self, owner: DefinitionId, receiver: TypeId) {
         self.receivers.insert(owner, receiver);
     }
+
     pub fn receiver(&self, owner: &DefinitionId) -> Option<&TypeId> {
         self.receivers.get(owner)
     }
 }
+
 impl Deref for TypeSubstitution {
     type Target = HashMap<GenericParameterType, TypeId>;
+
     fn deref(&self) -> &Self::Target {
         &self.parameters
     }
 }
+
 impl DerefMut for TypeSubstitution {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.parameters
     }
 }
+
 impl FromIterator<(GenericParameterType, TypeId)> for TypeSubstitution {
     fn from_iter<T: IntoIterator<Item = (GenericParameterType, TypeId)>>(iter: T) -> Self {
         Self {
@@ -100,7 +105,9 @@ impl PartialEq for GenericParameterType {
         self.owner == other.owner && self.position == other.position
     }
 }
+
 impl Eq for GenericParameterType {}
+
 impl Hash for GenericParameterType {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.owner.hash(state);
@@ -124,6 +131,7 @@ impl NominalType {
                 .iter()
                 .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
     }
+
     pub fn instantiate(&self, substitution: &TypeSubstitution) -> Self {
         Self {
             declaration: self.declaration.clone(),
@@ -197,6 +205,7 @@ impl TypeId {
     pub fn is_never(&self) -> bool {
         matches!(self, Self::Builtin(BuiltinType::Never))
     }
+
     /// Canonical read-only interface for a native collection or collection view.
     pub fn collection_view(&self) -> Option<Self> {
         let (kind, arguments) = match self {
@@ -221,10 +230,12 @@ impl TypeId {
         interface.arguments = arguments;
         Some(Self::Trait(interface))
     }
+
     pub fn same_collection_family(&self, other: &Self) -> bool {
         self.collection_view()
             .is_some_and(|view| other.collection_view().as_ref() == Some(&view))
     }
+
     /// The element type exposed by a standard list interface.
     pub fn list_item(&self) -> Option<&TypeId> {
         let Self::Trait(interface) = self else {
@@ -237,6 +248,7 @@ impl TypeId {
         .then(|| interface.arguments.first())
         .flatten()
     }
+
     pub fn writable_list(&self) -> bool {
         matches!(self, Self::Trait(interface) if Protocol::from_id(&interface.declaration) == Some(Protocol::MutableList))
     }
@@ -298,6 +310,7 @@ impl TypeId {
         }
         false
     }
+
     pub fn with_associated_types(&self, interface: &NominalType) -> Self {
         associated::normalize(self, &|projected, _, member, arguments| {
             (arguments.is_empty() && projected.declaration == interface.declaration)
@@ -305,6 +318,7 @@ impl TypeId {
                 .flatten()
         })
     }
+
     pub fn contains_host_value(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -651,12 +665,14 @@ impl TypeId {
         }
         true
     }
+
     pub fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
         self.substitute_once(|ty| match ty {
             Self::SelfType(id) if id == owner => Some(replacement),
             _ => None,
         })
     }
+
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
@@ -674,6 +690,7 @@ impl TypeId {
             )
         )
     }
+
     pub fn supports_equality(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -963,6 +980,7 @@ impl TypeId {
             Type(&'a TypeId),
             Text(&'a str),
         }
+
         fn sequence<'a>(
             pending: &mut Vec<Part<'a>>,
             args: &'a [TypeId],

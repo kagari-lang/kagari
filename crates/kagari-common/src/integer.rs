@@ -110,12 +110,14 @@ impl IntegerMethod {
                 | Self::CheckedRem
         )
     }
+
     pub fn overflowing(self) -> bool {
         matches!(
             self,
             Self::OverflowingAdd | Self::OverflowingSub | Self::OverflowingMul
         )
     }
+
     pub fn allocates(self) -> bool {
         self.checked() || self.overflowing()
     }
@@ -187,6 +189,7 @@ pub fn arithmetic_method(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn explicit_policies_match_rust_at_every_width_boundary() {
         macro_rules! compare {
@@ -258,6 +261,7 @@ mod tests {
                 }
             }};
         }
+
         compare!(i8, true);
         compare!(i16, true);
         compare!(i32, true);

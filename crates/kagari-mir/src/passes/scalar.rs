@@ -23,6 +23,7 @@ pub(super) enum Scalar {
     I64(i64),
     U64(u64),
 }
+
 impl Scalar {
     pub(super) fn from_constant(value: &Constant) -> Option<Self> {
         Some(match value {
@@ -34,6 +35,7 @@ impl Scalar {
             _ => return None,
         })
     }
+
     pub(super) fn constant(self) -> Constant {
         match self {
             Self::Unit => Constant::Unit,
@@ -43,6 +45,7 @@ impl Scalar {
             Self::U64(value) => Constant::U64(value),
         }
     }
+
     fn integer(self) -> Option<i128> {
         match self {
             Self::I32(value) => Some(value.into()),
@@ -51,6 +54,7 @@ impl Scalar {
             _ => None,
         }
     }
+
     pub(super) fn fits(self, ty: Option<&AbiType>) -> bool {
         match (ty, self.integer()) {
             (Some(AbiType::Builtin(kind)), Some(value)) => kind
@@ -59,6 +63,7 @@ impl Scalar {
             _ => true,
         }
     }
+
     pub(super) fn unary(self, op: UnaryOp) -> Option<Self> {
         match (op, self) {
             (UnaryOp::Not, Self::Bool(value)) => Some(Self::Bool(!value)),
@@ -67,6 +72,7 @@ impl Scalar {
             _ => None,
         }
     }
+
     pub(super) fn binary(self, op: BinaryOp, rhs: Self) -> Option<Self> {
         if let BinaryOp::Numeric(operation) = op {
             return self.numeric(operation, Some(rhs));
@@ -127,6 +133,7 @@ impl Scalar {
             _ => None,
         }
     }
+
     pub(super) fn numeric(self, operation: NumericOperation, rhs: Option<Self>) -> Option<Self> {
         operation.contract()?;
         let lhs = self.read_integer(operation.input)?;
@@ -144,6 +151,7 @@ impl Scalar {
             _ => return None,
         })
     }
+
     fn read_integer(self, kind: BuiltinType) -> Option<i128> {
         let representation = match self {
             Self::I32(_) => ValueType::I32,

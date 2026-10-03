@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+
 macro_rules! id_newtype {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -19,6 +20,7 @@ macro_rules! id_newtype {
 id_newtype!(BlockId);
 id_newtype!(InstanceId);
 id_newtype!(LocalId);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModuleSlotId(u32);
 
@@ -27,4 +29,5 @@ impl ModuleSlotId {
         self.0 as usize
     }
 }
+
 id_newtype!(TempId);

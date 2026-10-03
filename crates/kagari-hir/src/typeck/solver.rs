@@ -47,6 +47,7 @@ impl Solver {
         });
         self.resolve(&TypeId::Inference(id))
     }
+
     pub fn numeric_variable(&mut self, site: ExprId, fallback: BuiltinType) -> TypeId {
         let variable = self.variable(site, 1);
         let TypeId::Inference(id) = variable else {
@@ -72,6 +73,7 @@ impl Solver {
         }
         self.revision != before
     }
+
     pub fn variable(&mut self, site: ExprId, slot: usize) -> TypeId {
         let next = self.bindings.len() as u32;
         let id = *self.variables.entry((site, slot)).or_insert_with(|| {

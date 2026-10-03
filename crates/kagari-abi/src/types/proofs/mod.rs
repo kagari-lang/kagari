@@ -50,6 +50,7 @@ struct Budget<'a> {
     left: Cell<usize>,
     cancel: &'a CancellationToken,
 }
+
 impl<'a> Budget<'a> {
     fn new(cancel: &'a CancellationToken) -> Self {
         Self {
@@ -57,6 +58,7 @@ impl<'a> Budget<'a> {
             cancel,
         }
     }
+
     fn step(&self, depth: usize) -> Result<(), TypeTransformError> {
         self.cancel
             .check()

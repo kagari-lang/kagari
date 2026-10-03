@@ -60,12 +60,15 @@ impl VerifiedMirProgram {
     pub fn root(&self) -> &ModuleIdentity {
         &self.root
     }
+
     pub fn modules(&self) -> &[VerifiedMirModule] {
         &self.modules
     }
+
     pub fn function(&self, instance: &ConcreteFunctionIdentity) -> Option<ProgramFunctionRef> {
         self.bindings.get(instance).copied()
     }
+
     pub fn into_unverified(self) -> Vec<MirModule> {
         self.modules
             .into_iter()

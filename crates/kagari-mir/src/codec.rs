@@ -39,6 +39,7 @@ struct Header {
     runtime_abi: String,
     helper_abi: String,
 }
+
 impl Header {
     fn current() -> Self {
         Self {
@@ -48,6 +49,7 @@ impl Header {
             helper_abi: KAGARI_RUNTIME_HELPER_ABI_VERSION.into(),
         }
     }
+
     fn validate(&self) -> Result<(), MirCodecError> {
         if self.magic != MIR_MAGIC
             || self.version != MIR_FORMAT_VERSION
@@ -65,6 +67,7 @@ struct ProgramRef<'a> {
     root: &'a ModuleIdentity,
     modules: Vec<&'a MirModule>,
 }
+
 #[derive(Deserialize)]
 struct RawProgram {
     root: ModuleIdentity,
@@ -78,9 +81,11 @@ fn options() -> impl Options {
         .with_little_endian()
         .with_limit(MAX_MIR_BYTES as u64)
 }
+
 fn check_cancel(cancel: &CancellationToken) -> Result<(), MirCodecError> {
     cancel.check().map_err(|_| MirCodecError::Cancelled)
 }
+
 fn encoding(error: impl ToString, cancel: &CancellationToken) -> MirCodecError {
     if cancel.check().is_err() {
         MirCodecError::Cancelled
@@ -223,6 +228,7 @@ struct CancellableReader<'a> {
     bytes: &'a [u8],
     cancel: &'a CancellationToken,
 }
+
 impl Read for CancellableReader<'_> {
     fn read(&mut self, target: &mut [u8]) -> io::Result<usize> {
         self.cancel
@@ -231,10 +237,12 @@ impl Read for CancellableReader<'_> {
         self.bytes.read(target)
     }
 }
+
 struct CancellableWriter<'a> {
     bytes: Vec<u8>,
     cancel: &'a CancellationToken,
 }
+
 impl Write for CancellableWriter<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.cancel
@@ -246,6 +254,7 @@ impl Write for CancellableWriter<'_> {
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
+
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }

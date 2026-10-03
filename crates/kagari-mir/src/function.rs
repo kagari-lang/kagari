@@ -130,6 +130,7 @@ impl MirModule {
                     }),
             )
     }
+
     pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {
         self.native_targets.iter().chain(
             self.functions
@@ -145,6 +146,7 @@ impl MirModule {
                 }),
         )
     }
+
     pub fn structure(&self, instance: &NominalAbiType) -> Option<Cow<'_, StructLayout>> {
         self.structures
             .iter()

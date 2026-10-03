@@ -270,6 +270,7 @@ impl Importer<'_> {
         }
         Ok(())
     }
+
     fn import_traits(&mut self) -> Result<(), DeclarationError> {
         let definition = self.definition;
         let generated = self.generated;
@@ -365,6 +366,7 @@ impl Importer<'_> {
         }
         Ok(())
     }
+
     fn import_implementations(&mut self) -> Result<(), DeclarationError> {
         let definition = self.definition;
         let generated = self.generated;
@@ -443,6 +445,7 @@ impl Importer<'_> {
         }
         Ok(())
     }
+
     fn import_functions(&mut self) -> Result<(), DeclarationError> {
         let definition = self.definition;
         for function in &definition.functions {
@@ -478,6 +481,7 @@ impl Importer<'_> {
             })
             .collect()
     }
+
     fn function(
         &mut self,
         owner: &DefinitionId,
@@ -548,6 +552,7 @@ impl Importer<'_> {
         });
         Ok(id)
     }
+
     fn bounds(
         &mut self,
         bounds: &[GenericBoundAbi],
@@ -670,6 +675,7 @@ impl Importer<'_> {
             },
         ))
     }
+
     fn ty(&mut self, ty: &AbiType, span: Span) -> Result<TypeRefId, DeclarationError> {
         let kind = match ty {
             AbiType::Builtin(BuiltinType::String) => TypeKind::Named(self.representation_name(

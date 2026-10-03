@@ -413,6 +413,7 @@ pub(super) fn resolve_type_in(
     );
     resolved
 }
+
 pub(super) fn display_type(module: &Module, ty: TypeRefId) -> String {
     match &module.type_ref(ty).kind {
         TypeKind::Named(name) => name.clone(),

@@ -27,10 +27,12 @@ impl AssociatedTypeBinding {
     pub fn name_text(&self) -> Option<String> {
         support::child::<Name>(self.syntax()).and_then(|name| name.text())
     }
+
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }
+
 ast_node!(WhereClause, WhereClause);
 ast_node!(WherePredicate, WherePredicate);
 ast_node!(TraitBoundList, TraitBoundList);
@@ -114,6 +116,7 @@ impl GenericArgList {
         }
         false
     }
+
     pub fn args(&self) -> impl Iterator<Item = TypeRef> {
         support::children(self.syntax())
     }
@@ -129,6 +132,7 @@ impl WherePredicate {
     pub fn target_type(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
+
     pub fn name(&self) -> Option<Name> {
         self.target_type()
             .and_then(|ty| ty.path())
@@ -154,6 +158,7 @@ impl TraitRef {
     pub fn callable_inputs(&self) -> Option<TypeList> {
         support::child(self.syntax())
     }
+
     pub fn callable_output(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }

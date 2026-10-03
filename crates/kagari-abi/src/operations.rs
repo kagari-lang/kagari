@@ -7,6 +7,7 @@ use crate::{
 };
 use kagari_common::range::RangeKind;
 use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOp {
     Neg,
@@ -185,6 +186,7 @@ impl StringIterKind {
             Self::Whitespace | Self::Lines | Self::Bytes | Self::CharIndices => vec![string],
         })
     }
+
     pub fn item_type(self) -> AbiType {
         match self {
             Self::Bytes => AbiType::Builtin(BuiltinType::U8),
@@ -195,6 +197,7 @@ impl StringIterKind {
             _ => AbiType::Builtin(BuiltinType::String),
         }
     }
+
     pub fn valid_source(self, ty: &AbiType) -> bool {
         *ty == self.source_type()
     }

@@ -20,11 +20,14 @@ where
     V: Deserialize<'de>,
 {
     struct BoundedMap<K, V>(PhantomData<(K, V)>);
+
     impl<'de, K: Deserialize<'de> + Ord, V: Deserialize<'de>> Visitor<'de> for BoundedMap<K, V> {
         type Value = BTreeMap<K, V>;
+
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             formatter.write_str("a bounded unique associated type map")
         }
+
         fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
             if map
                 .size_hint()
@@ -58,11 +61,14 @@ where
         label: &'static str,
         marker: PhantomData<T>,
     }
+
     impl<'de, T: Deserialize<'de>> Visitor<'de> for Bounded<T> {
         type Value = Vec<T>;
+
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(formatter, "at most {} {}", self.limit, self.label)
         }
+
         fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
             if sequence.size_hint().is_some_and(|count| count > self.limit) {
                 return Err(Error::custom(format!(

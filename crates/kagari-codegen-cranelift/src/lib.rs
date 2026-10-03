@@ -66,6 +66,7 @@ unsafe impl CodegenBackend for CraneliftBackend {
     fn configuration(&self) -> BackendConfiguration {
         self.configuration.clone()
     }
+
     fn compile_function(
         &mut self,
         input: BackendFunctionInput<'_>,
@@ -79,6 +80,7 @@ unsafe impl CodegenBackend for CraneliftBackend {
 pub struct CraneliftBackendError {
     message: String,
 }
+
 impl CraneliftBackendError {
     pub fn message(&self) -> &str {
         &self.message

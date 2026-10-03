@@ -20,6 +20,7 @@ struct MutationFixture {
     loaded: LoadedModule,
     retained: Rc<RefCell<Option<RootedValue>>>,
 }
+
 impl MutationFixture {
     fn new(source: &str, policy: RuntimeLimits) -> Self {
         let retained: Rc<RefCell<Option<RootedValue>>> = Rc::default();
@@ -61,9 +62,11 @@ impl MutationFixture {
             retained,
         }
     }
+
     fn value(&self) -> Value {
         self.retained.borrow().as_ref().unwrap().value()
     }
+
     fn contents(&self) -> Vec<Value> {
         let heap = self.vm.runtime().gc();
         match self.value() {

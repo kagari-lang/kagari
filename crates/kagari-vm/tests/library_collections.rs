@@ -40,6 +40,7 @@ fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     lower_program_to_bytecode(&mir).unwrap()
 }
+
 fn run(text: &str) -> Value {
     let library = collections::module().unwrap();
     let mut config = RuntimeConfig::default();
@@ -99,6 +100,7 @@ struct Probe {
     retained: Rc<RefCell<Option<RootedValue>>>,
     calls: Rc<Cell<usize>>,
 }
+
 impl Probe {
     fn new() -> Self {
         let mut module = ModuleBuilder::new("test::probe", &LanguageContracts::default());

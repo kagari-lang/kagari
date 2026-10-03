@@ -20,11 +20,14 @@ where
         label: &'static str,
         marker: PhantomData<T>,
     }
+
     impl<'de, T: Deserialize<'de>> Visitor<'de> for Bounded<T> {
         type Value = Vec<T>;
+
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(formatter, "at most {} {}", self.limit, self.label)
         }
+
         fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
             if sequence.size_hint().is_some_and(|count| count > self.limit) {
                 return Err(DecodeError::custom(format!(

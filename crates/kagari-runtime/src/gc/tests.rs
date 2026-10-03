@@ -77,9 +77,11 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
             .contains(&old)
     );
 }
+
 fn layout(name: &str, field: &str, ty: AbiType) -> crate::module::StructLayoutRef {
     crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
 }
+
 use super::*;
 use {
     crate::{

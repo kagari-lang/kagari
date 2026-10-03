@@ -44,6 +44,7 @@ fn forged(root: &ModuleIdentity, modules: &[MirModule]) -> Vec<u8> {
         ))
         .unwrap()
 }
+
 fn assert_same_bytecode(before: &VerifiedMirProgram, after: &VerifiedMirProgram) {
     assert_eq!(
         bincode::serialize(&lower_program_to_bytecode(before).unwrap()).unwrap(),

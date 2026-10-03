@@ -162,9 +162,11 @@ impl PathExpr {
     pub fn qualified_type(&self) -> Option<TypeRef> {
         self.syntax().children().find_map(TypeRef::cast)
     }
+
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
+
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
@@ -304,6 +306,7 @@ impl CallExpr {
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
+
     pub fn callee(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
@@ -383,6 +386,7 @@ impl StructExpr {
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
+
     pub fn path(&self) -> Option<PathExpr> {
         self.syntax().children().filter_map(PathExpr::cast).next()
     }
@@ -585,6 +589,7 @@ impl Interpolation {
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
+
     pub fn debug(&self) -> bool {
         self.syntax()
             .children_with_tokens()
@@ -596,6 +601,7 @@ impl CastExpr {
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
+
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }

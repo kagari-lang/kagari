@@ -29,9 +29,11 @@ use std::{
 /// scripts or retain a reference past tracing. Rust Drop owns payload destruction.
 pub trait NativePayload: Any + Debug {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value));
+
     /// Managed iterators used by this payload. These are also GC edges. A for
     /// scope keeps their sources protected and releases them on every exit.
     fn iteration_sources<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
+
     /// Logical heap units retained by the payload, excluding its object header.
     fn units(&self) -> usize;
 }
@@ -43,10 +45,12 @@ pub struct StorageContext<'call> {
     pub(crate) scope: Option<&'call TypeArgument>,
     pub(crate) selected: &'call [LinkedOperation],
 }
+
 impl<'call> StorageContext<'call> {
     pub fn heap(&self) -> &'call GcHeap {
         self.runtime.gc()
     }
+
     pub fn resolve_type(&self, ty: &AbiType) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
@@ -67,6 +71,7 @@ impl<'call> StorageContext<'call> {
             .alloc_array_with_contract(contract, elements)
             .map(Value::Array)
     }
+
     pub fn type_parameter(&self, index: usize) -> NativeResult<TypeArgument> {
         match self.scope {
             Some(scope) => scope.parameter(self.runtime, self.owner, index),
@@ -90,6 +95,7 @@ impl<'call> StorageContext<'call> {
     pub fn owner(&self) -> &'call LoadedModule {
         self.owner
     }
+
     pub fn selected(&self, slot: usize) -> NativeResult<&'call LinkedCallable> {
         self.selected
             .get(slot)
@@ -98,6 +104,7 @@ impl<'call> StorageContext<'call> {
                 RuntimeError::module_validation("native storage requires a prepared callable slot")
             })
     }
+
     pub fn ty(&self) -> &'call AbiType {
         self.ty
     }
@@ -121,6 +128,7 @@ struct StorageEntries {
 pub struct NativeStorage {
     entries: Rc<StorageEntries>,
 }
+
 impl Debug for NativeStorage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeStorage")
@@ -129,12 +137,14 @@ impl Debug for NativeStorage {
             .finish_non_exhaustive()
     }
 }
+
 impl NativeStorage {
     pub fn new<S: NativePayload>(
         factory: impl for<'call> Fn(&StorageContext<'call>) -> NativeResult<S> + 'static,
     ) -> Self {
         Self::with_layout(NativeStorageLayout::Opaque, factory)
     }
+
     pub(crate) fn with_layout<S: NativePayload>(
         layout: NativeStorageLayout,
         factory: impl for<'call> Fn(&StorageContext<'call>) -> NativeResult<S> + 'static,
@@ -146,14 +156,17 @@ impl NativeStorage {
             })),
         )
     }
+
     /// Register a payload that native constructors explicitly provide. There is
     /// no default factory for objects whose state depends on constructor inputs.
     pub fn payload<S: NativePayload>() -> Self {
         Self::provided_with_layout::<S>(NativeStorageLayout::Opaque)
     }
+
     pub(crate) fn provided_with_layout<S: NativePayload>(layout: NativeStorageLayout) -> Self {
         Self::entries::<S>(layout, None)
     }
+
     fn entries<S: NativePayload>(
         layout: NativeStorageLayout,
         factory: Option<Box<Factory>>,
@@ -184,9 +197,11 @@ impl NativeStorage {
             }),
         }
     }
+
     pub fn layout(&self) -> NativeStorageLayout {
         self.entries.layout
     }
+
     pub(crate) fn create(&self, context: &StorageContext<'_>) -> NativeResult<NativeObject> {
         let factory = self.entries.factory.as_ref().ok_or_else(|| {
             RuntimeError::module_validation(
@@ -200,6 +215,7 @@ impl NativeStorage {
                 object
             })
     }
+
     pub(crate) fn prepare_payload<S: NativePayload>(
         &self,
         heap: &GcHeap,
@@ -214,6 +230,7 @@ impl NativeStorage {
         }
         self.object(heap, ty, Box::new(payload), owner)
     }
+
     fn object(
         &self,
         heap: &GcHeap,
@@ -253,6 +270,7 @@ pub(crate) struct NativeObject {
     _owner: LoadedModule,
     pub(crate) scope: Option<TypeArgument>,
 }
+
 impl Debug for NativeObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeObject")
@@ -261,6 +279,7 @@ impl Debug for NativeObject {
             .finish_non_exhaustive()
     }
 }
+
 impl NativeObject {
     // Linking compares every native storage contract with its installed owner.
     // Installation forbids replacing that owner while its heap objects exist.
@@ -276,19 +295,23 @@ impl NativeObject {
         };
         actual.compatible(TypeView::new(ty, owner, environment))
     }
+
     pub(crate) fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         (self.storage.entries.trace)(self.payload.as_ref(), visit);
         self.iteration_sources(visit);
     }
+
     pub(crate) fn iteration_sources<'payload>(
         &'payload self,
         visit: &mut dyn FnMut(&'payload Value),
     ) {
         (self.storage.entries.iteration_sources)(self.payload.as_ref(), visit);
     }
+
     pub(crate) fn units(&self) -> usize {
         (self.storage.entries.units)(self.payload.as_ref())
     }
+
     pub(crate) fn replaced_payload<S: NativePayload>(&self, payload: S) -> NativeResult<Self> {
         if self.storage.entries.rust_type != TypeId::of::<S>() {
             return Err(RuntimeError::module_validation(
@@ -303,6 +326,7 @@ impl NativeObject {
             scope: self.scope.clone(),
         })
     }
+
     pub(crate) fn payload<S: NativePayload>(&self) -> NativeResult<&S> {
         self.payload.downcast_ref().ok_or_else(|| {
             RuntimeError::module_validation(
@@ -310,6 +334,7 @@ impl NativeObject {
             )
         })
     }
+
     pub(crate) fn payload_mut<S: NativePayload>(&mut self) -> NativeResult<&mut S> {
         self.payload.downcast_mut().ok_or_else(|| {
             RuntimeError::module_validation(

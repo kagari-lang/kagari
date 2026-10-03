@@ -130,33 +130,40 @@ fn build() -> NativeResult<NativeModule> {
         &DeclarationCatalog::default(),
     )
 }
+
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("invalid foundation receiver")
 }
+
 fn array(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
     let Value::Array(id) = cx.argument(0)? else {
         return Err(invalid());
     };
     Ok(id)
 }
+
 fn index(cx: &CallContext<'_>, slot: usize) -> NativeResult<usize> {
     usize::decode(cx.argument(slot)?)
 }
+
 fn list_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.allocate_result()
 }
+
 fn list_len(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .array_len(array(cx)?)
         .map(NativeScalar::encode)
         .ok_or_else(invalid)
 }
+
 fn list_is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .array_len(array(cx)?)
         .map(|len| Value::Bool(len == 0))
         .ok_or_else(invalid)
 }
+
 pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult<Value> {
     let tag = if value.is_some() {
         EnumTag::OptionSome
@@ -167,10 +174,12 @@ pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult
         .alloc_enum(tag, value.into_iter().collect())
         .map(Value::Enum)
 }
+
 fn list_get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let value = cx.heap().array_get(array(cx)?, index(cx, 1)?);
     option(cx, value)
 }
+
 fn list_index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .array_get(array(cx)?, index(cx, 1)?)
@@ -181,14 +190,17 @@ fn list_index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
             )
         })
 }
+
 fn list_push(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap().array_push(array(cx)?, cx.argument(1)?)?;
     Ok(Value::Unit)
 }
+
 fn list_push_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     list_push(cx)?;
     cx.argument(0)
 }
+
 fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     cx.heap().ensure_structure_mutable(id)?;
@@ -202,15 +214,18 @@ fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap().array_pop(id)?;
     Ok(result)
 }
+
 fn list_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .array_insert(array(cx)?, index(cx, 1)?, cx.argument(2)?)?;
     Ok(Value::Unit)
 }
+
 fn list_insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     list_insert(cx)?;
     cx.argument(0)
 }
+
 fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     let index = index(cx, 1)?;
@@ -219,35 +234,44 @@ fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap().array_remove(id, index)?;
     Ok(result)
 }
+
 fn list_clear(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap().array_clear(array(cx)?)?;
     Ok(Value::Unit)
 }
+
 fn list_clear_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     list_clear(cx)?;
     cx.argument(0)
 }
+
 fn list_set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .array_set(array(cx)?, index(cx, 1)?, cx.argument(2)?)?;
     Ok(Value::Unit)
 }
+
 fn list_set_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     list_set(cx)?;
     cx.argument(0)
 }
+
 fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.iter_operation(0, IterOp::New)
 }
+
 fn next(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.iter_operation(0, IterOp::Next)
 }
+
 fn start_bound(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     range_bound(cx, false)
 }
+
 fn end_bound(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     range_bound(cx, true)
 }
+
 fn range_bound(cx: &mut CallContext<'_>, upper: bool) -> NativeResult<Value> {
     let Value::Range(range) = cx.argument(0)? else {
         return Err(invalid());

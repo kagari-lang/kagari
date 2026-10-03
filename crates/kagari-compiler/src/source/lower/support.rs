@@ -256,6 +256,7 @@ impl FunctionLowerer<'_, '_> {
             .ok_or(MirLoweringError::MissingExprType(id))?;
         self.nominal_instance(&ty)
     }
+
     pub(crate) fn place_root(&self, place_id: PlaceId) -> PlaceId {
         match &self.analyzed.lowered.module.place(place_id).kind {
             PlaceKind::Name(_) | PlaceKind::Expr(_) => place_id,

@@ -108,6 +108,7 @@ impl AggregateCatalog {
     pub fn native_type(&self, id: &DefinitionId) -> Option<&NativeTypeSignature> {
         self.native_types.get(id).map(Arc::as_ref)
     }
+
     pub fn intrinsic_implementation(
         &self,
         interface: &NominalType,
@@ -132,15 +133,19 @@ impl AggregateCatalog {
                     .and_then(|member| member.initializer.as_ref())
             })
     }
+
     pub fn inherent_methods(&self) -> impl Iterator<Item = &InherentMethodSignature> {
         self.inherent_methods.values().map(AsRef::as_ref)
     }
+
     pub fn enumerations(&self) -> impl Iterator<Item = &EnumSignature> {
         self.enumerations.values().map(AsRef::as_ref)
     }
+
     pub fn enumeration(&self, id: &DefinitionId) -> Option<&EnumSignature> {
         self.enumerations.get(id).map(AsRef::as_ref)
     }
+
     pub fn variant(&self, id: &DefinitionId) -> Option<&VariantSignature> {
         let (owner, slot) = self.variants.get(id)?;
         self.enumeration(owner)?.variants.get(*slot)
@@ -149,9 +154,11 @@ impl AggregateCatalog {
     pub fn structures(&self) -> impl Iterator<Item = &StructSignature> {
         self.structures.values().map(AsRef::as_ref)
     }
+
     pub fn structure(&self, id: &DefinitionId) -> Option<&StructSignature> {
         self.structures.get(id).map(AsRef::as_ref)
     }
+
     pub fn field(&self, id: &DefinitionId) -> Option<&FieldSignature> {
         let (owner, slot) = self.fields.get(id)?;
         self.structure(owner)?.fields.get(*slot)

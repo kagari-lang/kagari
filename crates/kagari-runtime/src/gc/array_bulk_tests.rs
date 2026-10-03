@@ -38,6 +38,7 @@ fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
     heap.array_fill(array, Value::I32(7)).unwrap();
     assert_eq!(heap.stats().current_heap_units, before);
 }
+
 #[test]
 fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
     use std::ops::Bound::{Excluded, Included, Unbounded};

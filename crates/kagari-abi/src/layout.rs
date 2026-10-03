@@ -363,6 +363,7 @@ pub enum LayoutValidationError {
     },
     Cancelled,
 }
+
 pub fn validate_layouts(
     layouts: &[StructLayout],
     cancel: &CancellationToken,

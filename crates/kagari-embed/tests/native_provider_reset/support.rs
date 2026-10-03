@@ -14,6 +14,7 @@ pub struct CancelAt {
     pub at: usize,
     pub token: CancellationToken,
 }
+
 impl ExecutionObserver for CancelAt {
     fn observe(
         &self,

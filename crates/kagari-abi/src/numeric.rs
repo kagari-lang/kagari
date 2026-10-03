@@ -42,6 +42,7 @@ pub struct NumericConversion {
     pub source: BuiltinType,
     pub target: BuiltinType,
 }
+
 impl NumericConversion {
     pub fn contract(self) -> Option<(AbiType, AbiType)> {
         if self.checked {

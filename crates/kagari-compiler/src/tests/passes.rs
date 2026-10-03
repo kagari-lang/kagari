@@ -14,6 +14,7 @@ use kagari_mir::{
 fn checked(source: &str) -> VerifiedMirModule {
     lower_to_mir(&common::analyze_ok(source), &Default::default()).unwrap()
 }
+
 fn optimized(module: VerifiedMirModule) -> PassResult {
     optimize(module, &Default::default(), &Default::default()).unwrap()
 }

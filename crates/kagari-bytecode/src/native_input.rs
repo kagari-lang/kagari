@@ -18,6 +18,7 @@ pub struct PortableMir {
 
 fn decode_bytes<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
     struct BoundedBytes;
+
     impl<'de> Visitor<'de> for BoundedBytes {
         type Value = Vec<u8>;
 

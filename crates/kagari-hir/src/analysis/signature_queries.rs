@@ -82,15 +82,19 @@ impl FileSignatures {
     pub fn source(&self) -> &SourceFile {
         self.declaration.source()
     }
+
     pub fn declarations(&self) -> &Declarations {
         &self.prepared.declarations
     }
+
     pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
         &self.prepared.signatures
     }
+
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
+
     /// Whether construction reused checked signature facts from an earlier query.
     pub fn reused(&self) -> bool {
         self.prepared.signatures_reused
@@ -135,15 +139,19 @@ impl SignatureSnapshot {
     pub fn revision(&self) -> Revision {
         self.declarations.revision()
     }
+
     pub fn host_revision(&self) -> u64 {
         self.declarations.host_revision()
     }
+
     pub fn file(&self, id: FileId) -> Option<&Arc<FileSignatures>> {
         self.files.get(&id)
     }
+
     pub fn declaration_snapshot(&self) -> &DeclarationSnapshot {
         &self.declarations
     }
+
     pub fn module_graph(&self) -> &ModuleGraph {
         self.declarations.module_graph()
     }

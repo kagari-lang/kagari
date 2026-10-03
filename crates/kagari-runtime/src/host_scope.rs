@@ -53,6 +53,7 @@ impl<'a> HostResourceScope<'a> {
     pub fn runtime(&self) -> &'a Runtime {
         self.runtime
     }
+
     pub fn borrows(&self) -> &HostCallGuard {
         &self.state.borrows
     }

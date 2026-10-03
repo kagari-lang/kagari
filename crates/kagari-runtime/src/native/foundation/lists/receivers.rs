@@ -16,6 +16,7 @@ pub(super) struct ReceiverCalls<'call> {
     next: &'call LinkedCallable,
     write: Option<&'call LinkedCallable>,
 }
+
 impl<'call> ReceiverCalls<'call> {
     pub(super) fn prepare(
         cx: &CallContext<'call>,
@@ -30,6 +31,7 @@ impl<'call> ReceiverCalls<'call> {
                 .transpose()?,
         })
     }
+
     pub(super) fn snapshot(&self, cx: &mut CallContext<'_>) -> NativeResult<HeapObjectId> {
         let owner = self.next.owner(cx.owner)?;
         let result_type = match &self.next.scoped_signature {
@@ -67,6 +69,7 @@ impl<'call> ReceiverCalls<'call> {
             }
         }
     }
+
     pub(super) fn set(
         &self,
         cx: &mut CallContext<'_>,
@@ -79,6 +82,7 @@ impl<'call> ReceiverCalls<'call> {
         )?;
         Ok(())
     }
+
     pub(super) fn remove(&self, cx: &mut CallContext<'_>, index: usize) -> NativeResult<()> {
         cx.call_values(
             self.write.ok_or_else(invalid)?,

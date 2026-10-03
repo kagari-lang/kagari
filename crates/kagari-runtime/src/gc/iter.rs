@@ -44,6 +44,7 @@ pub(super) struct IterationLease {
     active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     id: Option<HeapObjectId>,
 }
+
 impl Drop for IterationLease {
     fn drop(&mut self) {
         if let Some(id) = self.id {
@@ -56,6 +57,7 @@ impl Drop for IterationLease {
         }
     }
 }
+
 impl NativePayload for NativeIter {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         visit(&self.source);
@@ -63,6 +65,7 @@ impl NativePayload for NativeIter {
             visit(key.value());
         }
     }
+
     fn units(&self) -> usize {
         1 + self.keys.len()
     }
@@ -106,6 +109,7 @@ impl GcHeap {
             id,
         })
     }
+
     /// Reopening an indexed adapter must validate and protect its retained source.
     pub fn resume_iter(&self, value: &Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -176,6 +180,7 @@ impl GcHeap {
         iter.guard = None;
         Ok(())
     }
+
     pub(super) fn collection_revision(&self, source: &Value) -> Option<u64> {
         match source {
             Value::Str(_) | Value::Range(_) => Some(0),
@@ -187,6 +192,7 @@ impl GcHeap {
             _ => None,
         }
     }
+
     pub(crate) fn matches_iter_type(
         &self,
         id: HeapObjectId,
@@ -211,6 +217,7 @@ impl GcHeap {
         };
         self.new_iter_with(source, ty.ty(), None, owner, Some(scope))
     }
+
     fn new_iter_with(
         &self,
         source: &Value,
@@ -307,6 +314,7 @@ impl GcHeap {
         session.iter_guards.borrow_mut().insert(id);
         Ok(Value::GcHandle(id))
     }
+
     pub(crate) fn new_string_iter(
         &self,
         source: &Value,
@@ -355,6 +363,7 @@ impl GcHeap {
                 .map(Value::Enum)
         })
     }
+
     pub(crate) fn next_iter_item(
         &self,
         value: &Value,
@@ -362,6 +371,7 @@ impl GcHeap {
     ) -> Result<Option<Value>, RuntimeError> {
         self.advance_iter_with(value, ty, Ok)
     }
+
     fn advance_iter_with<R>(
         &self,
         value: &Value,
@@ -478,6 +488,7 @@ impl GcHeap {
         }
         Ok(result)
     }
+
     pub(crate) fn release_iter_guards(&self, session: &Rc<SessionState>) {
         let mut objects = self.objects.borrow_mut();
         for id in session.iter_guards.borrow_mut().drain() {

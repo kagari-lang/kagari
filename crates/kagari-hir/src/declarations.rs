@@ -97,9 +97,11 @@ impl Declarations {
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
         self.native_types.get(&id).cloned()
     }
+
     pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind> {
         self.native_enums.get(&id).cloned()
     }
+
     pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionId> {
         self.impl_identities.get(&id)
     }
@@ -163,12 +165,14 @@ impl Declarations {
     pub fn imported_types(&self) -> &ImportedTypes {
         &self.imported_types
     }
+
     pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
         match &self.target(name)?.id {
             DeclarationId::Definition(id) => Some(id),
             _ => None,
         }
     }
+
     pub fn definition_target(&self, id: &DefinitionId) -> Option<ResolvedName> {
         match self
             .identities
@@ -178,6 +182,7 @@ impl Declarations {
             _ => None,
         }
     }
+
     pub(crate) fn generic_type(&self, id: GenericParamId) -> Option<GenericParameterType> {
         let declaration = self.generic_parameter(id)?;
         let DeclarationId::GenericParameter { owner, position } = &declaration.id else {
@@ -189,6 +194,7 @@ impl Declarations {
             name: declaration.name.clone(),
         })
     }
+
     pub fn analysis_id(&self) -> AnalysisId {
         self.analysis
     }
@@ -226,6 +232,7 @@ impl Declarations {
     pub fn field(&self, field: FieldId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Field(field))
     }
+
     pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::GenericParameter(id))
     }
@@ -599,6 +606,7 @@ impl Builder<'_> {
             position += 1;
         }
     }
+
     fn identity(
         &mut self,
         parent: &[DefinitionPathSegment],

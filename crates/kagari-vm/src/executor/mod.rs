@@ -60,6 +60,7 @@ impl<'a> Executor<'a> {
         self.run_inner()
             .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))
     }
+
     fn run_inner(&mut self) -> Result<Value, VmError> {
         loop {
             let native_return = self.current_frame()?.native_return();
@@ -134,6 +135,7 @@ impl<'a> Executor<'a> {
     pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
         Ok(self.current_frame()?.loaded().clone())
     }
+
     pub(crate) fn current_frame(&self) -> Result<Ref<'_, ExecutionFrame>, VmError> {
         Ok(self.stack.current()?)
     }

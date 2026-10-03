@@ -107,6 +107,7 @@ impl FileAnalysis {
             });
         expressions.chain(places).next()
     }
+
     /// Whether this result's signature query reused earlier checked facts.
     /// An unchanged file shares its existing result and this original statistic.
     pub fn signatures_reused(&self) -> bool {
@@ -244,6 +245,7 @@ impl FileAnalysis {
                     })
             })
     }
+
     /// Portable host documentation has no synthetic source-file location.
     pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
         let facts = self.result.facts();
@@ -293,12 +295,15 @@ impl FileAnalysis {
                 facts.names.hosts.type_declaration(id)
             })
     }
+
     pub fn syntax(&self) -> AstSourceFile {
         self.parsed.syntax()
     }
+
     pub fn source(&self) -> &SourceFile {
         &self.source
     }
+
     pub fn result(&self) -> &AnalysisResult<AnalyzedModule> {
         &self.result
     }
@@ -736,6 +741,7 @@ impl AnalysisDatabase {
         self.body_cache.clear();
         self.files.clear();
     }
+
     pub fn set_max_semantic_diagnostics(&mut self, limit: usize) {
         if self.max_semantic_diagnostics != limit {
             self.max_semantic_diagnostics = limit;
@@ -769,6 +775,7 @@ impl AnalysisDatabase {
     pub fn set_host_declarations(&mut self, hosts: Arc<HostDeclarations>) {
         self.hosts = hosts;
     }
+
     pub fn snapshot(
         &mut self,
         source: SourceSnapshot,
@@ -983,15 +990,19 @@ impl AnalysisSnapshot {
         };
         file.result.facts().declarations.target(resolved)
     }
+
     pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph
     }
+
     pub fn host_revision(&self) -> u64 {
         self.host_revision
     }
+
     pub fn revision(&self) -> Revision {
         self.revision
     }
+
     pub fn file(&self, id: FileId) -> Option<&Arc<FileAnalysis>> {
         self.files.get(&id)
     }

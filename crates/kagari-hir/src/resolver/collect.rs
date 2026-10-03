@@ -37,6 +37,7 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
         diagnostics: declarations.diagnostics,
     }
 }
+
 pub(crate) fn collect_declarations(
     lowered: &LoweredModule,
     hosts: Arc<HostDeclarations>,

@@ -15,6 +15,7 @@ use kagari_mir::{
     instruction::{Instruction, Terminator},
 };
 use std::collections::HashMap;
+
 pub(super) fn collect_debug_metadata(
     function: &MirFunction,
     analysis: &FunctionAnalysis,

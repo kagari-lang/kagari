@@ -15,6 +15,7 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     iter,
 };
+
 #[derive(Debug)]
 pub enum SourceProgramError {
     Lowering {
@@ -23,11 +24,13 @@ pub enum SourceProgramError {
     },
     Verification(ProgramError),
 }
+
 impl From<ProgramError> for SourceProgramError {
     fn from(error: ProgramError) -> Self {
         Self::Verification(error)
     }
 }
+
 pub fn lower_program_to_mir(
     program: &CheckedProgram,
     options: &MirLoweringOptions,

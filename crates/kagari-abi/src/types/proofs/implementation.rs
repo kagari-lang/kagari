@@ -35,24 +35,28 @@ impl<'a> Implementation<'a> {
             Self::Native { declaration, .. } => declaration,
         }
     }
+
     pub(super) fn parameters(&self) -> &'a [GenericParameterAbi] {
         match self {
             Self::Interface(table) => &table.generic_params,
             Self::Native { implementation, .. } => &implementation.generic_params,
         }
     }
+
     pub(super) fn bounds(&self) -> &'a [GenericBoundAbi] {
         match self {
             Self::Interface(table) => &table.bounds,
             Self::Native { implementation, .. } => &implementation.bounds,
         }
     }
+
     pub(super) fn receiver(&self) -> &'a AbiType {
         match self {
             Self::Interface(table) => &table.for_type,
             Self::Native { implementation, .. } => &implementation.for_type,
         }
     }
+
     pub(super) fn interface(&self) -> Option<&'a NominalAbiType> {
         match self {
             Self::Interface(table) => match &table.trait_type {
@@ -62,6 +66,7 @@ impl<'a> Implementation<'a> {
             Self::Native { implementation, .. } => implementation.trait_type.as_ref(),
         }
     }
+
     pub(super) fn pattern(&self) -> Option<ImplementationPattern<'a>> {
         Some(ImplementationPattern {
             parameters: self.parameters(),
@@ -69,12 +74,14 @@ impl<'a> Implementation<'a> {
             interface: self.interface()?,
         })
     }
+
     pub(super) fn families(&self) -> &'a [AssociatedTypeFamilyAbi] {
         match self {
             Self::Interface(table) => &table.associated_type_families,
             Self::Native { .. } => &[],
         }
     }
+
     pub(super) fn is_bridge(&self) -> bool {
         matches!(self, Self::Interface(table) if table.host_bridge)
     }

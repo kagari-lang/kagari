@@ -54,49 +54,62 @@ impl FunctionAnalysis {
                 && offset <= scope.span.end
         })
     }
+
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         self.contains(offset)
             .then(|| super::type_at_in(self.lowered(), self.type_table(), offset))
             .flatten()
     }
+
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
         self.contains(offset)
             .then(|| super::member_receiver_type_in(self.lowered(), self.type_table(), offset))
             .flatten()
     }
+
     pub fn owner(&self) -> &DefinitionId {
         &self.owner
     }
+
     pub fn source(&self) -> &SourceFile {
         self.file.source()
     }
+
     pub fn signature_snapshot(&self) -> &SignatureSnapshot {
         &self.signatures
     }
+
     /// Local IDs are interpreted only against this result's lowering and facts.
     pub fn lowered(&self) -> &LoweredModule {
         &self.file.prepared.lowered
     }
+
     pub fn function(&self) -> FunctionId {
         self.function
     }
+
     pub fn names(&self) -> &ResolvedNames {
         &self.names
     }
+
     pub fn declarations(&self) -> &Declarations {
         &self.declarations
     }
+
     pub fn type_table(&self) -> &TypeTable {
         &self.typed.facts.type_table
     }
+
     /// Body diagnostics and module-constant prerequisites. Header diagnostics are
     /// available separately through the retained signature snapshot.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         self.typed.diagnostics()
     }
+
     pub fn checked_bodies(&self) -> usize {
         self.typed.facts.checked_bodies
     }
+
     pub fn reused_bodies(&self) -> usize {
         self.typed.facts.reused_bodies
     }

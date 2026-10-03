@@ -30,10 +30,12 @@ pub struct InstalledNativeFunction {
     module: LoadedModule,
     _retention: Rc<NativeRetention>,
 }
+
 impl InstalledNativeFunction {
     pub fn artifact(&self) -> &ExecutableFunctionArtifact {
         &self.product.artifact
     }
+
     pub fn module(&self) -> &LoadedModule {
         &self.module
     }
@@ -53,6 +55,7 @@ struct NativeRetention {
     store: ModuleStore,
     members: Vec<ModuleKey>,
 }
+
 impl Drop for NativeRetention {
     fn drop(&mut self) {
         for &member in &self.members {

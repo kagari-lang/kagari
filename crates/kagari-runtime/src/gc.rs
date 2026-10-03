@@ -90,6 +90,7 @@ impl HeapObjectId {
     pub fn index(self) -> usize {
         self.slot
     }
+
     pub fn generation(self) -> u64 {
         self.generation
     }
@@ -101,10 +102,12 @@ impl HeapObjectId {
 pub struct RootedValue {
     roots: RootSet,
 }
+
 impl RootedValue {
     pub fn value(&self) -> Value {
         self.roots.get(0).expect("single root")
     }
+
     pub fn set(&self, heap: &GcHeap, value: Value) -> Option<()> {
         if !value.is_storable() {
             return None;
@@ -120,22 +123,27 @@ pub struct RootSet {
     owner: u64,
     values: Rc<RefCell<Vec<Value>>>,
 }
+
 impl PartialEq for RootSet {
     fn eq(&self, other: &Self) -> bool {
         self.owner == other.owner && Rc::ptr_eq(&self.values, &other.values)
     }
 }
+
 impl RootSet {
     pub(crate) fn contains_slot(&self, index: usize) -> bool {
         index < self.values.borrow().len()
     }
+
     pub fn get(&self, index: usize) -> Option<Value> {
         self.values.borrow().get(index).cloned()
     }
+
     pub(crate) fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
         let values = self.values.try_borrow().ok()?;
         values.get(index).map(read)
     }
+
     pub fn set(&self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
         if self.owner != heap.owner || !heap.validate_value(&value) {
             return None;
@@ -317,6 +325,7 @@ pub struct CollectionIteration {
     id: Option<HeapObjectId>,
     _root: RootedValue,
 }
+
 impl Drop for CollectionIteration {
     fn drop(&mut self) {
         for loops in &self.iter_loops {
@@ -359,6 +368,7 @@ impl GcHeap {
     pub(crate) fn resource_limit(&self, name: &'static str) -> RuntimeError {
         self.resources.limit(name)
     }
+
     pub(crate) fn commit_host_write(&self, commit: impl FnOnce()) -> Result<(), RuntimeError> {
         self.resources.commit_host_write(commit)
     }
@@ -371,6 +381,7 @@ impl GcHeap {
         self.ensure_no_native_borrow()?;
         self.resources.ensure_execution_allowed()
     }
+
     pub fn new(config: GcHeapConfig, resources: Rc<ResourceState>) -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         let owner = NEXT_OWNER
@@ -486,6 +497,7 @@ impl GcHeap {
             _ => None,
         }
     }
+
     pub(crate) fn map_result_error(
         &self,
         original: &Value,
@@ -601,12 +613,15 @@ impl GcHeap {
     pub fn struct_layout(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
         self.with_struct(id, |layout, _| layout.clone())
     }
+
     pub fn struct_name(&self, id: HeapObjectId) -> Option<String> {
         self.with_struct(id, |layout, _| layout.layout().name().to_owned())
     }
+
     pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
         self.with_enum(id, Clone::clone)
     }
+
     pub fn struct_snapshot(&self, id: HeapObjectId) -> Option<(String, Vec<StructValueField>)> {
         self.with_struct(id, |layout, fields| {
             (
@@ -622,6 +637,7 @@ impl GcHeap {
             )
         })
     }
+
     pub fn struct_get_slot(
         &self,
         id: HeapObjectId,
@@ -636,6 +652,7 @@ impl GcHeap {
         })
         .flatten()
     }
+
     pub fn struct_set_slot(
         &self,
         id: HeapObjectId,
@@ -1061,6 +1078,7 @@ impl GcHeap {
         }
         slot.object.as_ref()
     }
+
     // Script-visible reads are isolated; collector traversal uses object_ref directly.
     fn readable_object<'a>(
         &self,

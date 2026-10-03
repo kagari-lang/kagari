@@ -60,6 +60,7 @@ impl CheckedModule {
     pub fn module_identity(&self) -> &ModuleIdentity {
         self.program.root().lowered.source.module_identity()
     }
+
     pub fn program(&self) -> &CheckedProgram {
         &self.program
     }
@@ -109,6 +110,7 @@ impl KagariEngine {
             .set_host_declarations(declarations);
         Ok(())
     }
+
     pub fn compile_source(&self, source: SourceFile) -> CompileResult<CheckedModule> {
         let id = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
         self.compile_snapshot(self.source_snapshot(), id, &CancellationToken::default())

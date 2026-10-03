@@ -40,6 +40,7 @@ fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     .unwrap();
     db.set(&path, text.into(), SourceLayer::Base).unwrap()
 }
+
 fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
     AnalysisDatabase::default()
         .snapshot(db.snapshot(), &Default::default())
@@ -234,6 +235,7 @@ fn public_generic_abi_ignores_binder_spelling_and_constraint_source_order() {
     }
     assert_eq!(items[0], items[1]);
 }
+
 fn fixture() -> CheckedProgram {
     let mut db = SourceDatabase::default();
     insert(

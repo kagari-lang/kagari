@@ -25,6 +25,7 @@ enum Algorithm {
     Dedup,
     Distinct,
 }
+
 impl Algorithm {
     fn comparison(self) -> bool {
         matches!(
@@ -45,6 +46,7 @@ macro_rules! entries {
         $(fn $name(cx: &mut CallContext<'_>) -> NativeResult<Value> { run(cx, Algorithm::$algorithm, $copy) })+
     };
 }
+
 entries!(
     sorted: Sort, true, "__default_List_sorted",
     sorted_by: SortBy, true, "__default_List_sorted_by",
@@ -169,6 +171,7 @@ fn edit_custom(
     }
     Ok(Value::Unit)
 }
+
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("list algorithm contract")
 }

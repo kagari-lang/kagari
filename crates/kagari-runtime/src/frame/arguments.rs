@@ -8,6 +8,7 @@ pub(crate) struct FrameArguments<'args> {
     explicit: &'args [Value],
     count: usize,
 }
+
 impl<'args> FrameArguments<'args> {
     pub(crate) fn plain(explicit: &'args [Value]) -> Self {
         Self {
@@ -16,6 +17,7 @@ impl<'args> FrameArguments<'args> {
             count: explicit.len(),
         }
     }
+
     pub(crate) fn captured(
         captures: &'args [Value],
         explicit: &'args [Value],
@@ -30,9 +32,11 @@ impl<'args> FrameArguments<'args> {
             count,
         })
     }
+
     pub(crate) fn len(self) -> usize {
         self.count
     }
+
     pub(crate) fn iter(self) -> impl Iterator<Item = &'args Value> + Clone {
         let captures: slice::Iter<'args, Value> = self.captures.iter();
         captures.chain(self.explicit.iter())

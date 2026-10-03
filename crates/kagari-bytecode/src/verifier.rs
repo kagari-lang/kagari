@@ -749,6 +749,7 @@ fn verify_call_dst(
     let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
     contracts::verify_call_dst(dst, return_type).map_err(|error| contract_error(function, error))
 }
+
 fn function_ref_exists(module: &BytecodeModule, target: FunctionRef) -> bool {
     target.index() < module.functions.len() && target.index() < module.function_table.len()
 }

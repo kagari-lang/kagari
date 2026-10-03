@@ -24,6 +24,7 @@ impl BuiltinError {
     pub fn message(&self) -> &str {
         self.error.message()
     }
+
     pub fn into_runtime_error(self) -> RuntimeError {
         self.error
     }

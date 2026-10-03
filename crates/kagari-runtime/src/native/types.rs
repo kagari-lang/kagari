@@ -13,40 +13,51 @@ use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Type(pub(crate) AbiType);
+
 impl Type {
     pub fn scalar(kind: BuiltinType) -> Self {
         Self(AbiType::Builtin(kind))
     }
+
     pub fn unit() -> Self {
         Self::scalar(BuiltinType::Unit)
     }
+
     pub fn bool() -> Self {
         Self::scalar(BuiltinType::Bool)
     }
+
     pub fn i32() -> Self {
         Self::scalar(BuiltinType::I32)
     }
+
     pub fn i64() -> Self {
         Self::scalar(BuiltinType::I64)
     }
+
     pub fn usize() -> Self {
         Self::scalar(BuiltinType::USize)
     }
+
     pub fn u64() -> Self {
         Self::scalar(BuiltinType::U64)
     }
+
     pub fn f64() -> Self {
         Self::scalar(BuiltinType::F64)
     }
+
     pub fn tuple(items: impl IntoIterator<Item = Type>) -> Self {
         Self(AbiType::Tuple(items.into_iter().map(|ty| ty.0).collect()))
     }
+
     pub fn function(params: impl IntoIterator<Item = Type>, result: Type) -> Self {
         Self(AbiType::Function {
             params: params.into_iter().map(|ty| ty.0).collect(),
             result: Box::new(result.0),
         })
     }
+
     pub fn abi(&self) -> &AbiType {
         &self.0
     }
@@ -63,13 +74,16 @@ pub struct TypeRef {
     pub(crate) declaration: Arc<TypeAbi>,
     pub(crate) parameter_names: Vec<String>,
 }
+
 impl TypeRef {
     pub fn id(&self) -> &DefinitionId {
         &self.id
     }
+
     pub fn codec(&self) -> Codec {
         Codec::Object(self.id.clone())
     }
+
     pub fn apply(&self, arguments: impl IntoIterator<Item = Type>) -> NativeResult<Type> {
         let arguments: Vec<_> = arguments.into_iter().map(|ty| ty.0).collect();
         if arguments.len() != self.declaration.generic_params.len() {
@@ -90,16 +104,19 @@ pub enum Receiver {
     Concrete(Type),
     Declaration(TypeRef),
 }
+
 impl From<Type> for Receiver {
     fn from(ty: Type) -> Self {
         Self::Concrete(ty)
     }
 }
+
 impl From<TypeRef> for Receiver {
     fn from(ty: TypeRef) -> Self {
         Self::Declaration(ty)
     }
 }
+
 impl ParameterRef {
     pub fn ty(&self) -> Type {
         self.ty.clone()
@@ -111,6 +128,7 @@ pub struct TraitRef {
     pub(crate) id: DefinitionId,
     pub(crate) contract: Arc<TraitAbi>,
 }
+
 impl TraitRef {
     pub fn apply(&self, arguments: impl IntoIterator<Item = Type>) -> AppliedTrait {
         AppliedTrait {
@@ -122,6 +140,7 @@ impl TraitRef {
             },
         }
     }
+
     pub fn method(&self, name: &str) -> NativeResult<MethodRef> {
         if !self
             .contract
@@ -138,9 +157,11 @@ impl TraitRef {
             id: kagari_method_id(&self.id, name),
         })
     }
+
     pub fn receiver(&self) -> Type {
         Type(AbiType::SelfType(self.id.clone()))
     }
+
     pub fn id(&self) -> &DefinitionId {
         &self.id
     }
@@ -155,6 +176,7 @@ pub struct AppliedTrait {
     pub(crate) contract: TraitRef,
     pub(crate) ty: NominalAbiType,
 }
+
 impl AppliedTrait {
     pub fn associated(mut self, name: &str, ty: Type) -> NativeResult<Self> {
         let id = associated_type_id(&self.contract.id, name);
@@ -172,6 +194,7 @@ impl AppliedTrait {
         }
         Ok(self)
     }
+
     pub fn ty(&self) -> Type {
         Type(AbiType::Trait(self.ty.clone()))
     }
@@ -187,6 +210,7 @@ pub struct MethodRef {
 pub struct FunctionRef {
     pub(crate) id: DefinitionId,
 }
+
 impl FunctionRef {
     pub fn id(&self) -> &DefinitionId {
         &self.id

@@ -34,13 +34,16 @@ use kagari_mir::{
 use std::{fmt, rc::Rc, sync::Arc};
 
 struct CodeMemory(Option<JITModule>);
+
 impl fmt::Debug for CodeMemory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CraneliftCodeMemory")
             .finish_non_exhaustive()
     }
 }
+
 impl NativeCodeOwner for CodeMemory {}
+
 impl Drop for CodeMemory {
     fn drop(&mut self) {
         if let Some(module) = self.0.take() {

@@ -17,6 +17,7 @@ fn codec() -> impl Options {
         .with_fixint_encoding()
         .with_little_endian()
 }
+
 fn owner(
     module: &ModuleIdentity,
     parent: &[DefinitionPathSegment],
@@ -34,6 +35,7 @@ fn owner(
         path,
     }
 }
+
 #[test]
 fn interface_tables_require_distinct_local_impl_identities() {
     let original = bytecode_ok(

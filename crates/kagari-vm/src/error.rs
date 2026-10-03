@@ -62,6 +62,7 @@ impl VmError {
             _ => self,
         }
     }
+
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
         match self {
             Self::Traced { trace, .. } => Some(trace),
@@ -70,6 +71,7 @@ impl VmError {
             _ => None,
         }
     }
+
     pub(crate) fn with_trace(self, trace: Arc<ErrorTrace>) -> Self {
         if self
             .trace()

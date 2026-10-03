@@ -22,6 +22,7 @@ impl Body {
     pub fn arena(&self) -> HirArenaId {
         self.arena
     }
+
     pub fn expressions(&self) -> impl Iterator<Item = (ExprId, &ExprData)> {
         self.exprs
             .iter()
@@ -35,6 +36,7 @@ impl Body {
             .enumerate()
             .map(|(index, (owner, place))| (PlaceId::new(self.arena, *owner, index), place))
     }
+
     pub fn statements(&self) -> impl Iterator<Item = (StmtId, &StmtData)> {
         self.stmts
             .iter()
@@ -48,6 +50,7 @@ impl Body {
             .enumerate()
             .map(|(index, (owner, block))| (BlockId::new(self.arena, *owner, index), block))
     }
+
     pub fn block(&self, id: BlockId) -> &BlockData {
         assert_eq!(id.arena(), self.arena, "foreign HIR block");
         let (owner, node) = &self.blocks[id.index()];

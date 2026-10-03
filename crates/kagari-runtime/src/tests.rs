@@ -154,6 +154,7 @@ fn artifact_with_loader_fingerprints() -> KbcArtifact {
     )
     .unwrap()
 }
+
 fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
     ArtifactCompatibility {
         module_identity: Some(artifact.header.module_identity.clone()),

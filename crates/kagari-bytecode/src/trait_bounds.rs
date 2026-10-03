@@ -187,6 +187,7 @@ enum LinkedValidationError {
     InterfaceTable,
     Contract,
 }
+
 impl From<TypeTransformError> for LinkedValidationError {
     fn from(_: TypeTransformError) -> Self {
         Self::Contract

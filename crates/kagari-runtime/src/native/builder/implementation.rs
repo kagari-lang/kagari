@@ -22,6 +22,7 @@ pub struct ImplementationBuilder<'module> {
     parameters: Vec<GenericParameterAbi>,
     parameter_names: Vec<String>,
 }
+
 impl<'module> ImplementationBuilder<'module> {
     pub fn inherent_impl<T>(
         &mut self,
@@ -93,6 +94,7 @@ impl<'module> ImplementationBuilder<'module> {
         self.module.bindings.extend(methods.bindings);
         Ok(result)
     }
+
     pub(crate) fn new(
         module: &'module mut ModuleBuilder,
         receiver: Receiver,
@@ -128,9 +130,11 @@ impl<'module> ImplementationBuilder<'module> {
             parameter_names,
         })
     }
+
     pub fn receiver(&self) -> Type {
         self.receiver.clone()
     }
+
     pub fn parameter(&self, name: &str) -> NativeResult<ParameterRef> {
         let index = self
             .parameter_names
@@ -141,6 +145,7 @@ impl<'module> ImplementationBuilder<'module> {
             ty: Type(self.parameters[index].as_type()),
         })
     }
+
     pub fn receiver_codec(&mut self, codec: Codec) -> NativeResult<()> {
         if !codec.accepts(self.receiver.abi(), &self.module.providers) {
             return Err(RuntimeError::metadata_conflict(
@@ -150,6 +155,7 @@ impl<'module> ImplementationBuilder<'module> {
         self.receiver_codec = Some(codec);
         Ok(())
     }
+
     pub fn trait_impl<T>(
         &mut self,
         applied: AppliedTrait,
@@ -228,14 +234,17 @@ pub struct MethodsBuilder {
     receiver_codec: Option<Codec>,
     bindings: BTreeMap<String, NativeBinding>,
 }
+
 impl MethodsBuilder {
     pub fn associated_type(&mut self, name: &str, ty: Type) -> NativeResult<()> {
         self.applied = self.applied.clone().associated(name, ty)?;
         Ok(())
     }
+
     pub fn bind<A, R>(&mut self, name: &str, entry: impl NativeFunction<A, R>) -> NativeResult<()> {
         self.bind_with(name, entry.binding())
     }
+
     pub fn bind_with(&mut self, name: &str, binding: NativeBinding) -> NativeResult<()> {
         let method = self
             .applied

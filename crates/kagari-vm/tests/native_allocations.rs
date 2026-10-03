@@ -94,6 +94,7 @@ struct CallSite {
     arguments: Vec<Register>,
     destination: Option<Register>,
 }
+
 impl CallSite {
     fn find(loaded: &LoadedModule, name: &str) -> Self {
         let function = loaded

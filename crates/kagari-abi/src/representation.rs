@@ -29,6 +29,7 @@ impl ValueType {
     pub fn may_contain_gc_reference(self) -> bool {
         matches!(self, Self::HeapObject | Self::Generic)
     }
+
     pub fn from_host_type(ty: &HostValueType) -> Self {
         match ty {
             HostValueType::Unit => Self::Unit,
@@ -47,6 +48,7 @@ impl ValueType {
             | HostValueType::Result { .. } => Self::HeapObject,
         }
     }
+
     /// Physical slots preserve the existing numeric representation policy.
     pub fn from_builtin_type(ty: BuiltinType) -> Self {
         match ty {

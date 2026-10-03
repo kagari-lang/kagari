@@ -22,6 +22,7 @@ impl ExecutionState {
         self.0.set(Phase::Quarantined(reason));
         RuntimeError::new(RuntimeErrorKind::EngineFault, reason)
     }
+
     pub(crate) fn ensure_allowed(&self) -> Result<(), RuntimeError> {
         match self.0.get() {
             Phase::Ready => Ok(()),

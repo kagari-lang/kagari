@@ -18,6 +18,7 @@ fn invalid() -> RuntimeError {
         "invalid array target or payload",
     )
 }
+
 impl GcHeap {
     pub(crate) fn alloc_array(
         &self,
@@ -51,6 +52,7 @@ impl GcHeap {
         )?;
         self.alloc_native(object)
     }
+
     pub(crate) fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,
@@ -104,6 +106,7 @@ impl GcHeap {
         )?;
         self.alloc_native(object)
     }
+
     pub(super) fn alloc_array_from(
         &self,
         source: HeapObjectId,
@@ -130,21 +133,26 @@ impl GcHeap {
         };
         self.alloc_native(object)
     }
+
     pub(crate) fn clone_array(&self, source: HeapObjectId) -> Result<HeapObjectId, RuntimeError> {
         let values = self
             .with_array(source, |values| values.copy_range(0, values.len()))
             .ok_or_else(invalid)??;
         self.alloc_array_from(source, values)
     }
+
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
         self.with_array(id, SequenceStorage::len)
     }
+
     pub fn array_snapshot(&self, id: HeapObjectId) -> Option<Vec<Value>> {
         self.with_array(id, SequenceStorage::snapshot)
     }
+
     pub fn array_get(&self, id: HeapObjectId, index: usize) -> Option<Value> {
         self.with_array(id, |values| values.get(index)).flatten()
     }
+
     pub(crate) fn array_contract(&self, id: HeapObjectId) -> Option<Rc<StorageType>> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
@@ -155,6 +163,7 @@ impl GcHeap {
         }
         Some(object.payload::<SequencePayload>().ok()?.contract.clone())
     }
+
     fn validate_array_value(&self, id: HeapObjectId, value: &Value) -> Result<(), RuntimeError> {
         let contract = self.array_contract(id).ok_or_else(invalid)?;
         if self.valid_payload(value) && contract.accepts_value(self, value) {
@@ -163,6 +172,7 @@ impl GcHeap {
             Err(invalid())
         }
     }
+
     pub(super) fn prepare_array_values(
         &self,
         contract: &StorageType,
@@ -180,6 +190,7 @@ impl GcHeap {
         }
         Ok(values)
     }
+
     pub fn array_push(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
@@ -195,6 +206,7 @@ impl GcHeap {
         growth.commit();
         Ok(())
     }
+
     pub fn array_pop(&self, id: HeapObjectId) -> Result<Option<Value>, RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
@@ -206,6 +218,7 @@ impl GcHeap {
         }
         Ok(value)
     }
+
     pub fn array_insert(
         &self,
         id: HeapObjectId,
@@ -229,6 +242,7 @@ impl GcHeap {
         growth.commit();
         Ok(())
     }
+
     pub fn array_remove(
         &self,
         id: HeapObjectId,
@@ -244,6 +258,7 @@ impl GcHeap {
         }
         Ok(value)
     }
+
     pub fn array_clear(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
@@ -257,6 +272,7 @@ impl GcHeap {
         self.release_heap_units(removed);
         Ok(())
     }
+
     pub fn array_fill(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(id)?;
@@ -277,6 +293,7 @@ impl GcHeap {
         self.with_array_mut(id, |values| *values = prepared)
             .ok_or_else(invalid)
     }
+
     pub fn array_copy_from(
         &self,
         target: HeapObjectId,
@@ -305,6 +322,7 @@ impl GcHeap {
         self.with_array_mut(target, |values| *values = prepared)
             .ok_or_else(invalid)
     }
+
     pub fn array_copy_within(
         &self,
         target: HeapObjectId,
@@ -357,6 +375,7 @@ impl GcHeap {
         self.with_array_mut(id, |values| values.set(index, value))
             .ok_or_else(invalid)?
     }
+
     pub(crate) fn with_array<R>(
         &self,
         id: HeapObjectId,
@@ -375,6 +394,7 @@ impl GcHeap {
         }
         Some(f(&sequence.values))
     }
+
     pub(super) fn with_array_mut<R>(
         &self,
         id: HeapObjectId,

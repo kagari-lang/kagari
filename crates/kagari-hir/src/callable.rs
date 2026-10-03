@@ -22,8 +22,11 @@ pub struct AppliedCallSignature {
 
 pub trait CallableSignature {
     fn name(&self) -> &str;
+
     fn implementation(&self) -> FunctionImplementation;
+
     fn parameters(&self) -> impl ExactSizeIterator<Item = (&str, &TypeId)>;
+
     fn return_type(&self) -> &TypeId;
 
     fn generic_params(&self) -> &[GenericParameterType] {

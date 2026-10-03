@@ -145,6 +145,7 @@ impl Executor<'_> {
             _ => Err(VmError::TypeMismatch("read_field expects struct value")),
         }
     }
+
     pub(crate) fn read_index(&self, base: Register, index: Register) -> Result<Value, VmError> {
         let base = self.current_frame()?.read_register(base)?;
         let index = self.current_frame()?.read_register(index)?;

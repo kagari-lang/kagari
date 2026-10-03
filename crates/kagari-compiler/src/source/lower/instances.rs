@@ -212,15 +212,18 @@ impl<'a> InstancePlanner<'a> {
     pub fn origin(&self, instance: &Instance) -> &'a AnalyzedModule {
         self.modules[&instance.origin]
     }
+
     pub fn aggregate_catalog(&self, declaration: &DefinitionId) -> &'a AggregateCatalog {
         self.modules
             .get(&declaration.module)
             .map(|module| &module.aggregates)
             .unwrap_or(self.catalog)
     }
+
     pub fn owner(&self) -> &'a AnalyzedModule {
         self.module
     }
+
     pub fn enqueue_protocol(
         &mut self,
         parent: &Instance,
@@ -315,6 +318,7 @@ impl<'a> InstancePlanner<'a> {
         self.record_layout_root(ty, &Default::default(), span)?;
         Ok(id)
     }
+
     pub fn native_function(&self, declaration: &DefinitionId) -> Option<&TypedFunction> {
         let module = self.modules.get(&declaration.module)?;
         let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {

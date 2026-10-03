@@ -12,6 +12,7 @@ use kagari_common::cancellation::CancellationToken;
 use std::collections::HashSet;
 
 type ProofKey = (NominalAbiType, AbiType);
+
 #[derive(Default)]
 pub(super) struct Search {
     visiting: HashSet<ProofKey>,

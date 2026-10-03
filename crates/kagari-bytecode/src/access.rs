@@ -21,6 +21,7 @@ struct Fact {
     ty: Option<AbiType>,
     access: Option<Access>,
 }
+
 impl Fact {
     fn typed(ty: AbiType) -> Self {
         let access = ty.collection_access();
@@ -30,6 +31,7 @@ impl Fact {
         }
     }
 }
+
 fn flows(source: &Fact, target: &AbiType) -> bool {
     if source.access == Some(Access::ReadOnly)
         && target.collection_access() == Some(Access::Mutable)
@@ -41,6 +43,7 @@ fn flows(source: &Fact, target: &AbiType) -> bool {
         None => true,
     }
 }
+
 fn merge(slot: &mut Option<Fact>, value: Fact) -> bool {
     if slot.as_ref() == Some(&value) {
         return false;

@@ -299,12 +299,15 @@ impl ExecutionSession {
                 dropped_host_calls: self.state.dropped_host_calls.get(),
             })
     }
+
     pub fn host_scope_count(&self) -> usize {
         self.state.host_scopes.borrow().len()
     }
+
     pub fn root(&self) -> &LoadedModule {
         &self.state.root
     }
+
     pub fn counters(&self) -> ExecutionCounters {
         let counters = self.resources.counters();
         ExecutionCounters {
@@ -349,6 +352,7 @@ pub struct CandidateSession<'candidate> {
     pub(crate) previous: Option<Rc<SessionState>>,
     pub(crate) resources: Rc<ResourceState>,
 }
+
 impl Drop for CandidateSession<'_> {
     fn drop(&mut self) {
         if let Some(execution) = &self.execution

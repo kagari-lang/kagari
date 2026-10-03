@@ -1,11 +1,13 @@
 //! Numeric casts shared by compile-time and runtime evaluation.
 use crate::integer;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Number {
     Integer(i128),
     F32(f32),
     F64(f64),
 }
+
 #[derive(Debug, Clone, Copy)]
 pub enum NumberType {
     Integer { bits: u32, signed: bool },
@@ -45,6 +47,7 @@ pub fn cast(value: Number, target: NumberType) -> Number {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn float_cast_boundaries_match_rust() {
         macro_rules! check {
@@ -81,6 +84,7 @@ mod tests {
                 }
             }};
         }
+
         check!(i8, true);
         check!(i16, true);
         check!(i32, true);

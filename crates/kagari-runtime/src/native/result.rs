@@ -18,6 +18,7 @@ pub(crate) struct LinkedResultAdapter {
     arguments: Vec<AbiType>,
     applied: Option<Vec<TypeArgument>>,
 }
+
 impl LinkedResultAdapter {
     pub(crate) fn link(
         import: &NativeImport,
@@ -40,6 +41,7 @@ impl LinkedResultAdapter {
             applied: None,
         }))
     }
+
     pub(crate) fn apply(
         &self,
         runtime: &Runtime,
@@ -51,6 +53,7 @@ impl LinkedResultAdapter {
             ..self.clone()
         })
     }
+
     pub(crate) fn convert(
         &self,
         runtime: &Runtime,

@@ -20,6 +20,7 @@ pub struct TypeBuilder<'module> {
     parameters: Vec<GenericParameterAbi>,
     storage: Option<NativeStorage>,
 }
+
 impl<'module> TypeBuilder<'module> {
     pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> Self {
         let id = module
@@ -34,6 +35,7 @@ impl<'module> TypeBuilder<'module> {
             storage: None,
         }
     }
+
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
         let name = name.into();
         if self.parameter_names.contains(&name) {
@@ -51,6 +53,7 @@ impl<'module> TypeBuilder<'module> {
             ty: Type(parameter.as_type()),
         })
     }
+
     pub fn sequence_storage(&mut self, element: &ParameterRef) -> NativeResult<()> {
         let AbiType::Parameter { owner, position } = element.ty.abi() else {
             return Err(RuntimeError::metadata_conflict(
@@ -64,6 +67,7 @@ impl<'module> TypeBuilder<'module> {
         }
         self.native_storage(NativeStorage::sequence(*position))
     }
+
     pub fn native_storage(&mut self, storage: NativeStorage) -> NativeResult<()> {
         if self.storage.is_some() {
             return Err(RuntimeError::metadata_conflict(
@@ -73,6 +77,7 @@ impl<'module> TypeBuilder<'module> {
         self.storage = Some(storage);
         Ok(())
     }
+
     /// All native storage objects have shared reference semantics.
     pub fn finish(self) -> NativeResult<TypeRef> {
         let storage = self

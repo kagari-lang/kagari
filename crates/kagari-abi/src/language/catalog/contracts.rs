@@ -86,15 +86,19 @@ pub(super) fn method(name: &str, params: Vec<AbiType>, result: AbiType) -> Funct
 pub(super) fn enum_type(kind: StandardEnum, args: Vec<AbiType>) -> AbiType {
     AbiType::StandardEnum { kind, args }
 }
+
 pub(super) fn option(item: AbiType) -> AbiType {
     enum_type(StandardEnum::Option, vec![item])
 }
+
 pub(super) fn unit() -> AbiType {
     AbiType::Builtin(BuiltinType::Unit)
 }
+
 pub(super) fn usize_type() -> AbiType {
     AbiType::Builtin(BuiltinType::USize)
 }
+
 pub(super) fn boolean() -> AbiType {
     AbiType::Builtin(BuiltinType::Bool)
 }

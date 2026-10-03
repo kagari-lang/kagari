@@ -9,6 +9,7 @@ use std::{
 pub struct RuntimeLimits {
     pub max_call_depth: Option<u32>,
 }
+
 impl Default for RuntimeLimits {
     fn default() -> Self {
         Self {
@@ -46,11 +47,13 @@ pub(crate) struct TemporaryHeap<'a> {
     resources: &'a ResourceState,
     units: usize,
 }
+
 impl Drop for TemporaryHeap<'_> {
     fn drop(&mut self) {
         self.resources.release_heap_units(self.units);
     }
 }
+
 impl HeapGrowth<'_> {
     pub(crate) fn commit(mut self) {
         self.counters.current_heap_units = self.live;

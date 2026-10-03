@@ -25,6 +25,7 @@ pub(super) fn unsupported() -> PreparedNativeEntry {
 
 #[derive(Debug)]
 struct StaticCode;
+
 impl NativeCodeOwner for StaticCode {}
 
 unsafe extern "C" fn constant_i32<const VALUE: i32>(

@@ -39,21 +39,27 @@ impl AssociatedType {
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
+
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
+
     pub fn where_clause(&self) -> Option<WhereClause> {
         support::child(self.syntax())
     }
+
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
+
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
+
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
+
     pub fn bounds(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
@@ -266,12 +272,15 @@ impl TraitDef {
     pub fn associated_consts(&self) -> impl Iterator<Item = ConstDef> {
         support::children(self.syntax())
     }
+
     pub fn supertraits(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
+
     pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
         support::children(self.syntax())
     }
+
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -297,9 +306,11 @@ impl ImplBlock {
     pub fn associated_consts(&self) -> impl Iterator<Item = ConstDef> {
         support::children(self.syntax())
     }
+
     pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
         support::children(self.syntax())
     }
+
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }

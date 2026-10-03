@@ -23,6 +23,7 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
         .unwrap();
     sources.set(name, text.into(), SourceLayer::Base).unwrap()
 }
+
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     if db.native_modules.is_empty() {
         db.set_native_modules(vec![fixture::module()]);

@@ -188,8 +188,11 @@ mod native {
 
     #[derive(Debug)]
     struct StaticCode;
+
     impl NativeCodeOwner for StaticCode {}
+
     struct Backend;
+
     unsafe extern "C" fn forty_two(runtime: *const c_void, result: *mut JitValue) -> i32 {
         for offset in 0..2 {
             let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
@@ -202,6 +205,7 @@ mod native {
         }
         JIT_STATUS_OK
     }
+
     // SAFETY: only the exact two-point constant function is accepted; the process-
     // lifetime C-ABI fixture preserves its charges and result without heap access.
     unsafe impl CodegenBackend for Backend {
@@ -212,6 +216,7 @@ mod native {
                 options: vec![],
             }
         }
+
         fn compile_function(
             &mut self,
             input: BackendFunctionInput<'_>,
@@ -247,6 +252,7 @@ mod native {
             })
         }
     }
+
     #[test]
     fn native_artifact_preparation_and_execution_need_no_frontend() {
         let program =

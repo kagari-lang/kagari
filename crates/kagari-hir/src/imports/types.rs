@@ -67,6 +67,7 @@ impl ImportedTypes {
     pub fn get(&self, name: &str) -> Option<&ImportedType> {
         self.types.get(name)
     }
+
     pub fn target(&self, id: SourceTypeId) -> Option<&ImportedType> {
         self.resolutions.values().find(|ty| ty.id == id)
     }

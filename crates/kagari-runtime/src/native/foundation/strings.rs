@@ -42,36 +42,44 @@ fn string<R>(
         })
         .ok_or_else(invalid)?
 }
+
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("String argument")
 }
+
 fn len(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| Ok(text.len().encode()))
 }
+
 fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| Ok(Value::Bool(text.is_empty())))
 }
+
 fn contains(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| {
         string(cx, 1, |pattern| Ok(Value::Bool(text.contains(pattern))))
     })
 }
+
 fn starts_with(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| {
         string(cx, 1, |pattern| Ok(Value::Bool(text.starts_with(pattern))))
     })
 }
+
 fn ends_with(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| {
         string(cx, 1, |pattern| Ok(Value::Bool(text.ends_with(pattern))))
     })
 }
+
 fn find(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let found = string(cx, 0, |text| {
         string(cx, 1, |pattern| Ok(text.find(pattern)))
     })?;
     option(cx, found.map(NativeScalar::encode))
 }
+
 fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let start = index(cx, 1)?;
     let end = index(cx, 2)?;
@@ -82,15 +90,19 @@ fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         ))
     })
 }
+
 fn trim(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| Ok(Value::Str(text.trim().to_owned())))
 }
+
 fn trim_start(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| Ok(Value::Str(text.trim_start().to_owned())))
 }
+
 fn trim_end(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| Ok(Value::Str(text.trim_end().to_owned())))
 }
+
 fn replace(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     string(cx, 0, |text| {
         string(cx, 1, |from| {
@@ -98,6 +110,7 @@ fn replace(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         })
     })
 }
+
 fn split(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let fields = string(cx, 0, |text| {
         string(cx, 1, |separator| {

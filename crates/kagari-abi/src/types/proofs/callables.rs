@@ -63,6 +63,7 @@ impl ProofCatalog<'_> {
         }
         Ok(true)
     }
+
     pub fn shared_method_matches(
         &self,
         selected: &SharedMethodWitness,
@@ -137,6 +138,7 @@ impl ProofCatalog<'_> {
                     })
             })
     }
+
     pub fn select_callable(
         &self,
         requirement: &NativeCallableRequirement,

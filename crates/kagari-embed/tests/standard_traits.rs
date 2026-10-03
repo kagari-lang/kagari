@@ -79,6 +79,7 @@ fn main()->i32 {
 "#,
     );
 }
+
 #[test]
 fn explicit_formatting_uses_normal_static_dispatch() {
     execute(
@@ -95,6 +96,7 @@ fn main()->i32 {
 "#,
     );
 }
+
 #[test]
 fn structural_and_identity_keys_execute_through_artifacts() {
     execute(

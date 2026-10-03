@@ -12,6 +12,7 @@ use crate::{
 
 use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {
     ReplaceArray,

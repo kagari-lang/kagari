@@ -81,6 +81,7 @@ impl GcHeap {
         }
         Ok(())
     }
+
     pub fn array_reverse(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
@@ -105,6 +106,7 @@ impl GcHeap {
         }
         Ok(())
     }
+
     pub fn array_truncate(&self, id: HeapObjectId, length: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
@@ -116,6 +118,7 @@ impl GcHeap {
         self.release_heap_units(removed);
         Ok(())
     }
+
     pub fn array_swap_remove(
         &self,
         id: HeapObjectId,
@@ -131,6 +134,7 @@ impl GcHeap {
         }
         Ok(value)
     }
+
     pub fn array_extend(
         &self,
         target: HeapObjectId,

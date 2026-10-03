@@ -9,6 +9,7 @@ pub struct NativeResultAdapter {
     pub receiver: AbiType,
     pub implementation: ConcreteFunctionIdentity,
 }
+
 impl NativeResultAdapter {
     pub fn structurally_valid(&self, parameters: &[GenericParameterAbi]) -> bool {
         self.implementation.declaration.within_path_limit()

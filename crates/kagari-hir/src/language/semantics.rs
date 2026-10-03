@@ -20,8 +20,10 @@ use std::collections::{BTreeMap, HashSet};
 
 pub trait ProtocolSemantics {
     fn nominal(self) -> NominalType;
+
     fn intrinsic_view(self, receiver: &TypeId) -> NominalType;
 }
+
 impl ProtocolSemantics for Protocol {
     fn nominal(self) -> NominalType {
         NominalType {

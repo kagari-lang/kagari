@@ -35,12 +35,15 @@ use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 
 #[derive(Debug)]
 struct Owner(Arc<AtomicUsize>);
+
 impl NativeCodeOwner for Owner {}
+
 impl Drop for Owner {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 unsafe extern "C" fn unit(runtime: *const c_void, result: *mut JitValue) -> i32 {
     for offset in 0..2 {
         let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
@@ -53,6 +56,7 @@ unsafe extern "C" fn unit(runtime: *const c_void, result: *mut JitValue) -> i32 
     }
     JIT_STATUS_OK
 }
+
 #[derive(Default)]
 struct Backend {
     calls: usize,
@@ -61,6 +65,7 @@ struct Backend {
     dropped: Arc<AtomicUsize>,
     cancel_during_compile: Option<CancellationToken>,
 }
+
 // SAFETY: the success path accepts exactly the two-point unit function and returns
 // a process-lifetime ABI fixture implementing its charges and result. Other modes
 // return errors and never executable products.
@@ -75,6 +80,7 @@ unsafe impl CodegenBackend for Backend {
             ],
         }
     }
+
     fn compile_function(
         &mut self,
         input: BackendFunctionInput<'_>,
@@ -128,11 +134,13 @@ unsafe impl CodegenBackend for Backend {
         })
     }
 }
+
 fn context() -> ExecutionContext {
     ExecutionContext {
         ..Default::default()
     }
 }
+
 fn prepare(engine: &KagariEngine, native: NativeInputExport) -> PreparedProgram {
     let artifact = engine
         .compile_to_artifact(
@@ -145,6 +153,7 @@ fn prepare(engine: &KagariEngine, native: NativeInputExport) -> PreparedProgram 
         .unwrap();
     PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
+
 #[test]
 fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
     let engine = KagariEngine::default();
@@ -187,6 +196,7 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
     drop(alternate);
     assert_eq!(dropped.load(Ordering::SeqCst), 2);
 }
+
 #[test]
 fn rejects_equal_but_distinct_versions_before_compiling() {
     let engine = KagariEngine::default();
@@ -201,6 +211,7 @@ fn rejects_equal_but_distinct_versions_before_compiling() {
     ));
     assert_eq!(backend.calls, 0);
 }
+
 #[test]
 fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not() {
     let engine = KagariEngine::default();
@@ -250,6 +261,7 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
     }
     assert_eq!(backend.calls, 3);
 }
+
 #[test]
 fn cancellation_discards_compilation_results_and_can_be_retried() {
     let engine = KagariEngine::default();
@@ -272,6 +284,7 @@ fn cancellation_discards_compilation_results_and_can_be_retried() {
         .unwrap();
     assert_eq!(backend.calls, 2);
 }
+
 #[test]
 fn mismatched_artifact_native_input_is_rejected_before_loading() {
     let engine = KagariEngine::default();

@@ -246,11 +246,14 @@ impl Serialize for AbiType {
 impl<'de> Deserialize<'de> for AbiType {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct TypeVisitor;
+
         impl<'de> Visitor<'de> for TypeVisitor {
             type Value = AbiType;
+
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a bounded preorder ABI type")
             }
+
             fn visit_seq<A: SeqAccess<'de>>(
                 self,
                 mut sequence: A,

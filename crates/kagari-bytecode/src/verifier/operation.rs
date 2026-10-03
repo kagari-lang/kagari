@@ -15,6 +15,7 @@ use kagari_abi::{
     representation::ValueType,
     types::{AbiType, PublicAbiItem, verify::types_in_scope},
 };
+
 pub(super) fn verify_instruction(
     module: &BytecodeModule,
     function: &BytecodeFunction,

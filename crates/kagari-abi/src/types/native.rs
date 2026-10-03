@@ -15,6 +15,7 @@ pub enum NativeStorageLayout {
     Set { element: usize },
     Iterator { item: usize },
 }
+
 impl NativeStorageLayout {
     pub fn valid_parameters(self, arity: usize) -> bool {
         match self {

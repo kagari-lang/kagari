@@ -22,6 +22,7 @@ use kagari_common::{
     host_interface::{HostInterface, path::HostPathSegmentDeclaration, value_type::HostValueType},
     identity::DefinitionId,
 };
+
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
     lengths
         .into_iter()

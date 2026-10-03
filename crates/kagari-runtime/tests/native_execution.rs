@@ -36,7 +36,9 @@ use kagari_runtime::{
 
 #[derive(Debug)]
 struct Owner(Arc<AtomicUsize>);
+
 impl NativeCodeOwner for Owner {}
+
 impl Drop for Owner {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
@@ -51,6 +53,7 @@ fn runtime() -> Runtime {
         ..Default::default()
     })
 }
+
 fn program() -> BytecodeProgram {
     let function = BytecodeFunction {
         name: "main".into(),
@@ -82,6 +85,7 @@ fn program() -> BytecodeProgram {
         }],
     }
 }
+
 unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i32 {
     for offset in 0..2 {
         let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
@@ -94,6 +98,7 @@ unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i
     }
     JIT_STATUS_OK
 }
+
 unsafe extern "C" fn trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
     let status = unsafe { jit_poll_execution(runtime.cast(), 0) };
     if status == JIT_STATUS_OK {
@@ -102,6 +107,7 @@ unsafe extern "C" fn trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
         status
     }
 }
+
 unsafe extern "C" fn bad_result(runtime: *const c_void, result: *mut JitValue) -> i32 {
     let status = unsafe { execute(runtime, result) };
     if status == JIT_STATUS_OK {
@@ -111,6 +117,7 @@ unsafe extern "C" fn bad_result(runtime: *const c_void, result: *mut JitValue) -
     }
     status
 }
+
 fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Rc<NativeCompilationProduct> {
     let mut artifact = ExecutableFunctionArtifact::new(
         BackendId::new("fixture"),
@@ -126,12 +133,14 @@ fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Rc<NativeCo
         owner: Rc::new(Owner(dropped)),
     })
 }
+
 fn install(runtime: &mut Runtime, entry: JitCompiledFunction) -> InstalledNativeFunction {
     let module = runtime.load_program("native", program()).unwrap();
     // Static fixtures implement the current ABI; fault probes intentionally test
     // malformed status/results without violating Rust memory safety.
     unsafe { runtime.install_native_function(&module, product(entry, Arc::default())) }.unwrap()
 }
+
 fn assert_clean(runtime: &Runtime) {
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
@@ -493,8 +502,10 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
         frame::ExecutionFrame,
         session::{ExecutionEvent, ExecutionObserver},
     };
+
     #[derive(Debug)]
     struct Observer;
+
     impl ExecutionObserver for Observer {
         fn observe(
             &self,

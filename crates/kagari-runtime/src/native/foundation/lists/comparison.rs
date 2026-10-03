@@ -20,6 +20,7 @@ pub(super) struct Comparison<'call> {
     callback: Option<CallableHandle<'call>>,
     algorithm: Algorithm,
 }
+
 impl<'call> Comparison<'call> {
     pub(super) fn prepare(cx: &CallContext<'call>, algorithm: Algorithm) -> NativeResult<Self> {
         Ok(Self {
@@ -36,6 +37,7 @@ impl<'call> Comparison<'call> {
             algorithm,
         })
     }
+
     pub(super) fn keep(&self, cx: &mut CallContext<'_>, value: Value) -> NativeResult<bool> {
         bool::decode(
             self.callback
@@ -44,6 +46,7 @@ impl<'call> Comparison<'call> {
                 .call_values(cx, &[value])?,
         )
     }
+
     pub(super) fn equal(&self, cx: &mut CallContext<'_>, a: Value, b: Value) -> NativeResult<bool> {
         cx.poll()?;
         let operation = self.operation.ok_or_else(invalid)?;
@@ -52,6 +55,7 @@ impl<'call> Comparison<'call> {
         }
         bool::decode(cx.call_values(operation, &[a, b])?)
     }
+
     pub(super) fn order(
         &self,
         cx: &mut CallContext<'_>,
@@ -83,6 +87,7 @@ impl<'call> Comparison<'call> {
         let result = cx.call_values(operation, &[a, b])?;
         decode_ordering(cx, result)
     }
+
     pub(super) fn sort_scalars(&self, values: &mut SequenceEdit<'_>) -> NativeResult<bool> {
         let operation = self.operation.ok_or_else(invalid)?;
         if operation.primitive != Some(RuntimePrimitive::ValueCmp) {
@@ -94,10 +99,12 @@ impl<'call> Comparison<'call> {
                 _ => return Ok(false),
             } };
         }
+
         scalars!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64, ISize:isize, U8:u8, U16:u16, U32:u32, U64:u64, USize:usize);
         Ok(true)
     }
 }
+
 fn decode_ordering(cx: &CallContext<'_>, value: Value) -> NativeResult<Ordering> {
     let Value::Enum(id) = value else {
         return Err(invalid());

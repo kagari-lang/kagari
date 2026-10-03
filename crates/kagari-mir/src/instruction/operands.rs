@@ -28,6 +28,7 @@ impl Terminator {
         }
     }
 }
+
 impl Instruction {
     /// Temporary uses for dataflow analysis; this order is not evaluation order.
     pub fn inputs(&self) -> SmallVec<[MirValue; 4]> {

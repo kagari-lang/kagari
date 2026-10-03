@@ -23,18 +23,23 @@ struct Mapped {
     mapper: StoredCallable,
     active: Rc<Cell<bool>>,
 }
+
 impl NativePayload for Mapped {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         self.mapper.trace(visit);
     }
+
     fn iteration_sources<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         self.source.trace(visit);
     }
+
     fn units(&self) -> usize {
         2
     }
 }
+
 struct Active(Rc<Cell<bool>>);
+
 impl Drop for Active {
     fn drop(&mut self) {
         self.0.set(false);
@@ -83,6 +88,7 @@ pub(super) fn register(
         },
     )
 }
+
 fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Value> {
     let (source, mapper, active) = receiver.with_payload::<Mapped, _>(|mapped| {
         Ok((

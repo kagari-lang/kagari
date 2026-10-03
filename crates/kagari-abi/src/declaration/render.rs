@@ -413,11 +413,13 @@ impl Renderer<'_> {
             }
         }
     }
+
     fn name(&mut self, name: &str) -> Span {
         let start = self.text.len();
         self.text.push_str(name);
         Span::new(start, self.text.len())
     }
+
     fn generics(&mut self, parameters: &[GenericParameterAbi]) -> Vec<Span> {
         if parameters.is_empty() {
             return vec![];
@@ -433,6 +435,7 @@ impl Renderer<'_> {
         self.text.push('>');
         spans
     }
+
     fn site(
         &mut self,
         id: DefinitionId,
@@ -452,6 +455,7 @@ impl Renderer<'_> {
             },
         );
     }
+
     fn function(
         &mut self,
         id: DefinitionId,

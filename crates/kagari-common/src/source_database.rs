@@ -36,9 +36,11 @@ impl SourceSnapshot {
     pub fn revision(&self) -> Revision {
         self.revision
     }
+
     pub fn file(&self, file: FileId) -> Option<&Arc<SourceFile>> {
         self.files.get(&file)
     }
+
     pub fn files(&self) -> impl Iterator<Item = &Arc<SourceFile>> {
         self.files.values()
     }
@@ -48,6 +50,7 @@ impl SourceSnapshot {
             .values()
             .find(|file| file.module_identity() == identity)
     }
+
     pub fn contains(&self, span: FileSpan) -> bool {
         self.file(span.file)
             .is_some_and(|file| file.revision() == span.revision && file.span(span.range).is_some())

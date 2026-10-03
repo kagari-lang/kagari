@@ -16,6 +16,7 @@ pub(crate) struct KeyLookupGuard<'roots> {
     active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     id: HeapObjectId,
 }
+
 impl Drop for KeyLookupGuard<'_> {
     fn drop(&mut self) {
         let mut active = self.active.borrow_mut();

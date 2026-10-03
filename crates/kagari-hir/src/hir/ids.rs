@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
+
 macro_rules! id_newtype {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39,6 +40,7 @@ macro_rules! local_id_newtype {
             owner: HirOwner,
             index: u32,
         }
+
         impl $name {
             pub(crate) fn new(arena: HirArenaId, owner: HirOwner, index: usize) -> Self {
                 Self {
@@ -47,12 +49,15 @@ macro_rules! local_id_newtype {
                     index: u32::try_from(index).expect("HIR arena capacity exhausted"),
                 }
             }
+
             pub fn arena(self) -> HirArenaId {
                 self.arena
             }
+
             pub fn owner(self) -> HirOwner {
                 self.owner
             }
+
             pub fn index(self) -> usize {
                 self.index as usize
             }
@@ -113,6 +118,7 @@ macro_rules! member_id {
             owner: $owner,
             slot: u32,
         }
+
         impl $name {
             pub(crate) fn new(arena: HirArenaId, owner: $owner, slot: usize) -> Self {
                 Self {
@@ -121,17 +127,21 @@ macro_rules! member_id {
                     slot: u32::try_from(slot).expect("HIR member capacity exhausted"),
                 }
             }
+
             pub fn arena(self) -> HirArenaId {
                 self.arena
             }
+
             pub fn owner(self) -> $owner {
                 self.owner
             }
+
             pub fn slot(self) -> usize {
                 self.slot as usize
             }
         }
     };
 }
+
 member_id!(FieldId, StructId);
 member_id!(VariantId, EnumId);

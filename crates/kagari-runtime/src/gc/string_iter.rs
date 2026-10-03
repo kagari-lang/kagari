@@ -16,6 +16,7 @@ pub(super) struct StringTraversal {
     limit: u64,
     pub(super) cursor: Cursor,
 }
+
 impl StringTraversal {
     pub(super) fn new(kind: StringIterKind, fields: &[Value]) -> Result<Self, RuntimeError> {
         let (limit, separator) = match (kind, fields) {

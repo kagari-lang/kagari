@@ -81,20 +81,25 @@ impl DeclarationSnapshot {
     pub fn revision(&self) -> Revision {
         self.revision
     }
+
     pub fn host_revision(&self) -> u64 {
         self.host_revision
     }
+
     pub fn file(&self, id: FileId) -> Option<&Arc<FileDeclarations>> {
         self.files.get(&id)
     }
+
     /// Enumerate the snapshot's user, inline-module and installed package files.
     /// Source identities and declarations remain owned by this snapshot.
     pub fn files(&self) -> impl Iterator<Item = &FileDeclarations> {
         self.files.values().map(AsRef::as_ref)
     }
+
     pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph
     }
+
     pub fn declaration(&self, id: &DeclarationId) -> Option<&Declaration> {
         self.files
             .values()

@@ -321,6 +321,7 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
     assert!(local.host_scope(&[local_view]).is_ok());
     assert!(local.host_scope(&[foreign_view]).is_err());
 }
+
 #[test]
 fn path_fields_are_derived_from_nominal_declarations() {
     use kagari_common::host_interface::type_declaration::{
@@ -421,6 +422,7 @@ fn path_fields_are_derived_from_nominal_declarations() {
         }]
     );
 }
+
 #[test]
 fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
     use kagari_common::host_interface::type_declaration::{
@@ -480,6 +482,7 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
     assert_ne!(base, fingerprint(0, "", false, 1, HostValueType::I32));
     assert_ne!(base, fingerprint(0, "", false, 0, HostValueType::I64));
 }
+
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {
     use kagari_runtime::{

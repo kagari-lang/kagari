@@ -188,9 +188,11 @@ impl TypeTable {
     pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
         self.host_place_paths.keys().copied()
     }
+
     pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration> {
         self.iterations.get(&id)
     }
+
     pub fn insert_iteration(&mut self, id: ExprId, fact: ResolvedIteration) {
         self.iterations.insert(id, fact);
     }
@@ -198,6 +200,7 @@ impl TypeTable {
     pub fn protocol_receiver(&self, id: ExprId) -> Option<&TypeId> {
         self.protocol_receivers.get(&id)
     }
+
     pub fn insert_protocol_receiver(&mut self, id: ExprId, ty: TypeId) {
         self.protocol_receivers.insert(id, ty);
     }
@@ -205,6 +208,7 @@ impl TypeTable {
     pub fn place_index(&self, id: PlaceId) -> Option<&NominalType> {
         self.place_indexes.get(&id)
     }
+
     pub(crate) fn insert_place_index(&mut self, id: PlaceId, interface: NominalType) {
         self.place_indexes.insert(id, interface);
     }
@@ -215,12 +219,15 @@ impl TypeTable {
     ) -> Option<&AssociatedTypeParameters> {
         self.associated_type_parameters.get(member)
     }
+
     pub fn associated_type_family(&self, member: &DefinitionId) -> Option<&AssociatedTypeFamily> {
         self.associated_type_families.get(member)
     }
+
     pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst> {
         self.associated_consts.get(&expr)
     }
+
     pub(crate) fn insert_associated_const(&mut self, expr: ExprId, fact: ResolvedAssociatedConst) {
         self.associated_consts.insert(expr, fact);
     }
@@ -228,15 +235,19 @@ impl TypeTable {
     pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath> {
         self.host_place_paths.get(&place)
     }
+
     pub(crate) fn insert_host_place_path(&mut self, place: PlaceId, path: ResolvedHostPlacePath) {
         self.host_place_paths.insert(place, path);
     }
+
     pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath> {
         self.host_paths.get(&expr)
     }
+
     pub(crate) fn insert_host_path(&mut self, expr: ExprId, path: ResolvedHostPath) {
         self.host_paths.insert(expr, path);
     }
+
     #[cfg(test)]
     pub(crate) fn assert_same_source_facts(
         &self,
@@ -264,6 +275,7 @@ impl TypeTable {
                     }).collect();
                 )+};
             }
+
             keys!(iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_variants: PatternId,
@@ -292,6 +304,7 @@ impl TypeTable {
             }
             result
         }
+
         assert_eq!(
             normalized(self, arena, other_arena),
             normalized(other, other_arena, other_arena)
@@ -321,6 +334,7 @@ impl TypeTable {
             .collect::<Option<_>>()?;
         Some(result)
     }
+
     pub(crate) fn insert_implementation(
         &mut self,
         declaration: DefinitionId,
@@ -339,6 +353,7 @@ impl TypeTable {
                 methods,
             });
     }
+
     pub(crate) fn implementation_entries(
         &self,
     ) -> impl Iterator<
@@ -364,9 +379,11 @@ impl TypeTable {
                 )
             })
     }
+
     pub fn implements(&self, trait_type: &NominalType, ty: &TypeId) -> bool {
         self.implements_with_guard(trait_type, ty, &mut HashSet::new())
     }
+
     pub fn implementation_method(
         &self,
         method: &DefinitionId,
@@ -395,6 +412,7 @@ impl TypeTable {
                 Some((function, arguments))
             })
     }
+
     fn implements_with_guard(
         &self,
         trait_type: &NominalType,
@@ -429,6 +447,7 @@ impl TypeTable {
         visiting.remove(&key);
         found
     }
+
     fn implementation_bounds_hold(
         &self,
         implementation: &TraitImplementation,
@@ -456,45 +475,59 @@ impl TypeTable {
                 })
             })
     }
+
     pub(crate) fn insert_constraint(&mut self, id: TypeRefId, target: Option<ConstraintTarget>) {
         self.constraints.insert(id, target);
     }
+
     pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget> {
         self.constraints.get(&id).cloned().flatten()
     }
+
     pub(crate) fn has_constraint(&self, id: TypeRefId) -> bool {
         self.constraints.contains_key(&id)
     }
+
     pub(crate) fn insert_type_ref(&mut self, id: TypeRefId, resolved: ResolvedTypeRef) {
         self.type_refs.insert(id, resolved);
     }
+
     pub fn type_ref(&self, id: TypeRefId) -> Option<&ResolvedTypeRef> {
         self.type_refs.get(&id)
     }
+
     pub(crate) fn insert_field_type(&mut self, field: FieldId, ty: TypeId) {
         self.field_types.insert(field, ty);
     }
+
     pub(crate) fn insert_expr_field(&mut self, expr: ExprId, field: DefinitionId) {
         self.expr_fields.insert(expr, field);
     }
+
     pub(crate) fn insert_place_field(&mut self, place: PlaceId, field: DefinitionId) {
         self.place_fields.insert(place, field);
     }
+
     pub(crate) fn insert_struct_init(&mut self, expr: ExprId, target: ResolvedStructInit) {
         self.struct_inits.insert(expr, target);
     }
+
     pub fn field_type(&self, field: FieldId) -> Option<TypeId> {
         self.field_types.get(&field).cloned()
     }
+
     pub fn expr_field(&self, expr: ExprId) -> Option<&DefinitionId> {
         self.expr_fields.get(&expr)
     }
+
     pub fn place_field(&self, place: PlaceId) -> Option<&DefinitionId> {
         self.place_fields.get(&place)
     }
+
     pub fn struct_init(&self, expr: ExprId) -> Option<&ResolvedStructInit> {
         self.struct_inits.get(&expr)
     }
+
     pub(crate) fn restore_function(
         &mut self,
         old: &Self,
@@ -728,6 +761,7 @@ impl TypeTable {
         }
         true
     }
+
     pub(crate) fn insert_expr(&mut self, id: ExprId, ty: TypeId) {
         self.exprs.insert(id, ty);
     }
@@ -743,12 +777,15 @@ impl TypeTable {
     pub(crate) fn insert_scalar(&mut self, id: ExprId, value: ScalarValue) {
         self.scalars.insert(id, value);
     }
+
     pub(crate) fn insert_pattern_scalar(&mut self, id: PatternId, value: ScalarValue) {
         self.pattern_scalars.insert(id, value);
     }
+
     pub fn scalar_value(&self, id: ExprId) -> Option<&ScalarValue> {
         self.scalars.get(&id)
     }
+
     pub fn pattern_scalar_value(&self, id: PatternId) -> Option<&ScalarValue> {
         self.pattern_scalars.get(&id)
     }
@@ -834,6 +871,7 @@ impl TypeTable {
     pub fn callable_coercion(&self, id: ExprId) -> Option<&(TypeId, NominalType)> {
         self.callable_coercions.get(&id)
     }
+
     pub(crate) fn insert_callable_coercion(
         &mut self,
         id: ExprId,
@@ -842,6 +880,7 @@ impl TypeTable {
     ) {
         self.callable_coercions.insert(id, (receiver, interface));
     }
+
     pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion> {
         self.interface_coercions.get(&id)
     }

@@ -6,6 +6,7 @@ use crate::{
 };
 use kagari_abi::language::Protocol;
 use kagari_common::identity::associated_type_id;
+
 impl BodyChecker<'_> {
     pub(super) fn infer_iteration(
         &mut self,

@@ -81,6 +81,7 @@ fn main()->i32 {
 "#,
     );
 }
+
 #[test]
 fn unordered_custom_comparisons_are_false_for_all_operators() {
     execute(
@@ -92,6 +93,7 @@ fn main()->i32 {val a=Unknown{}; if !(a<a) && !(a<=a) && !(a>a) && !(a>=a) && a.
 "#,
     );
 }
+
 #[test]
 fn invalid_ordering_contracts_are_diagnostics() {
     for source in [
@@ -135,6 +137,7 @@ fn main()->i32 {
 "#,
     );
 }
+
 #[test]
 fn generic_arithmetic_impls_forward_operator_bounds() {
     execute(
@@ -176,6 +179,7 @@ fn main()->i32 {
 "#,
     );
 }
+
 #[test]
 fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
     for tail in ["b[0]=Item{value:1};", "b[0].value=1;"] {
@@ -206,6 +210,7 @@ fn main()->i32 {val nan=0.0/0.0; if nan.partial_cmp(nan) == None && !(nan<nan) &
 "#,
     );
 }
+
 #[test]
 fn operator_operands_and_index_getters_evaluate_once_in_order() {
     execute(
@@ -230,6 +235,7 @@ fn main()->i32 {
 "#,
     );
 }
+
 #[test]
 fn invalid_operator_signatures_bounds_and_writes_are_diagnostics() {
     for source in [

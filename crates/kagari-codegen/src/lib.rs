@@ -14,6 +14,7 @@ pub struct BackendFunctionInput<'a> {
     function: InstanceId,
     links: &'a NativeLinkDescription,
 }
+
 impl<'a> BackendFunctionInput<'a> {
     pub fn new(
         module: &'a VerifiedMirModule,
@@ -27,20 +28,25 @@ impl<'a> BackendFunctionInput<'a> {
             links,
         })
     }
+
     pub fn module(&self) -> &'a VerifiedMirModule {
         self.module
     }
+
     pub fn function(&self) -> &'a MirFunction {
         &self.module.functions[self.function.index()]
     }
+
     pub fn analysis(&self) -> &'a FunctionAnalysis {
         self.module
             .analysis(self.function)
             .expect("sealed function facts")
     }
+
     pub fn function_ref(&self) -> InstanceId {
         self.function
     }
+
     pub fn links(&self) -> &'a NativeLinkDescription {
         self.links
     }
@@ -70,6 +76,7 @@ pub struct BackendConfiguration {
 /// the declared backend, target, function and current runtime/helper ABI.
 pub unsafe trait CodegenBackend {
     fn configuration(&self) -> BackendConfiguration;
+
     fn compile_function(
         &mut self,
         input: BackendFunctionInput<'_>,

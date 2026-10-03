@@ -14,6 +14,7 @@ use kagari_runtime::{Runtime, value::Value};
 fn add(_cx: &mut CallContext<'_>, left: i32, right: i32) -> NativeResult<i32> {
     Ok(left + right)
 }
+
 fn count(_cx: &mut CallContext<'_>) -> NativeResult<u64> {
     Ok(1)
 }
@@ -243,8 +244,10 @@ fn missing_or_unknown_trait_member_is_rejected() {
 
 #[derive(Debug)]
 struct EmptyPayload;
+
 impl NativePayload for EmptyPayload {
     fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
+
     fn units(&self) -> usize {
         0
     }

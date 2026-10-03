@@ -203,6 +203,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
     use kagari_bytecode::artifact::KbcArtifact;
     use std::{cell::RefCell, rc::Rc};
+
     fn assert_reentry(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
         let scope = call

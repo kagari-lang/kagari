@@ -60,6 +60,7 @@ impl ModuleSignatures {
     pub fn type_bounds(&self, id: &DefinitionId) -> Option<&GenericBounds> {
         self.type_bounds.get(id)
     }
+
     #[cfg(test)]
     pub(crate) fn assert_same_source_facts(
         &self,
@@ -84,9 +85,11 @@ impl ModuleSignatures {
         self.type_table
             .assert_same_source_facts(&other.type_table, arena, other_arena);
     }
+
     pub fn functions(&self) -> &[TypedFunction] {
         &self.functions
     }
+
     pub fn type_table(&self) -> &TypeTable {
         &self.type_table
     }

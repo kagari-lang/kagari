@@ -20,12 +20,15 @@ impl ReflectionError {
     pub fn message(&self) -> &str {
         self.error.message()
     }
+
     pub fn kind(&self) -> RuntimeErrorKind {
         self.error.kind()
     }
+
     pub fn into_runtime_error(self) -> RuntimeError {
         self.error
     }
+
     pub(crate) fn into_write_error(self) -> RuntimeError {
         if matches!(
             self.error.kind(),
@@ -37,6 +40,7 @@ impl ReflectionError {
         }
     }
 }
+
 impl From<RuntimeError> for ReflectionError {
     fn from(error: RuntimeError) -> Self {
         Self { error }

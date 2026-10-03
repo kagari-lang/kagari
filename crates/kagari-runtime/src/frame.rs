@@ -537,6 +537,7 @@ impl ExecutionFrame {
             .push((value.clone(), self.heap.begin_collection_mutation(value)?));
         Ok(())
     }
+
     pub fn end_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
         if !self
             .mutations
@@ -551,6 +552,7 @@ impl ExecutionFrame {
         self.mutations.pop();
         Ok(())
     }
+
     pub fn begin_iteration(&mut self, collection: Register) -> Result<(), RuntimeError> {
         let value = self.read_register(collection)?;
         self.iterations
@@ -577,6 +579,7 @@ impl ExecutionFrame {
     pub fn target(&self) -> CallableTarget {
         self.target
     }
+
     pub fn function(&self) -> Option<&BytecodeFunction> {
         match self.target {
             CallableTarget::Script(function) => {
@@ -585,23 +588,28 @@ impl ExecutionFrame {
             CallableTarget::Native(_) => None,
         }
     }
+
     pub fn native_return(&self) -> Option<Value> {
         matches!(self.native_entry, NativeEntryState::Complete)
             .then(|| self.slots.get(0))
             .flatten()
     }
+
     pub fn has_pending_native_entry(&self) -> bool {
         matches!(self.native_entry, NativeEntryState::Pending)
     }
+
     pub fn register_type(&self, register: Register) -> Result<ValueType, RuntimeError> {
         self.function()
             .and_then(|function| function.metadata.registers.get(register.index()))
             .copied()
             .ok_or_else(|| self.resources.quarantine("invalid frame register type"))
     }
+
     pub fn module(&self) -> ModuleRef {
         self.loaded.slot()
     }
+
     pub fn loaded(&self) -> &LoadedModule {
         &self.loaded
     }
@@ -622,6 +630,7 @@ impl ExecutionFrame {
         self.executing = Some(offset);
         Ok(())
     }
+
     pub fn instruction_offset(&self) -> usize {
         self.executing.unwrap_or(self.ip)
     }

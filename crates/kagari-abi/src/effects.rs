@@ -1,5 +1,6 @@
 use crate::standard::RuntimePrimitive;
 use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectSet {
     pub reads_local: bool,
@@ -29,6 +30,7 @@ impl EffectSet {
             ..Self::runtime_call()
         }
     }
+
     pub fn union(self, other: Self) -> Self {
         Self {
             reads_local: self.reads_local || other.reads_local,

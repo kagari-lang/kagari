@@ -22,6 +22,7 @@ pub struct ValueHandle<'call> {
     slot: usize,
     ty: &'call AbiType,
 }
+
 impl<'call> ValueHandle<'call> {
     pub(crate) fn from_argument(cx: &CallContext<'call>, slot: usize) -> NativeResult<Self> {
         if !cx.arguments().contains(slot) {
@@ -34,9 +35,11 @@ impl<'call> ValueHandle<'call> {
             ty: cx.argument_type(slot)?,
         })
     }
+
     pub fn declared_type(&self) -> &'call AbiType {
         self.ty
     }
+
     /// This copy remains protected by the argument only while that argument is
     /// alive. Root it before retaining it beyond the call or mutable reentry.
     pub fn value(&self) -> Value {
@@ -44,6 +47,7 @@ impl<'call> ValueHandle<'call> {
             .get(self.slot)
             .expect("checked native argument slot")
     }
+
     pub fn scalar<S: NativeScalar>(&self) -> NativeResult<S> {
         if self.ty != &S::abi_type() {
             return Err(RuntimeError::module_validation(
@@ -52,12 +56,14 @@ impl<'call> ValueHandle<'call> {
         }
         S::decode(self.value())
     }
+
     pub fn root(&self) -> NativeResult<RootedValue> {
         self.heap.ensure_no_native_borrow()?;
         self.heap
             .root_value(self.value())
             .ok_or_else(|| RuntimeError::module_validation("native owning value root"))
     }
+
     pub fn with_payload<S: NativePayload, R>(
         &self,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
@@ -78,6 +84,7 @@ pub struct SequenceHandle<'call> {
     ty: &'call AbiType,
     _arguments: ArgumentView<'call>,
 }
+
 impl<'call> SequenceHandle<'call> {
     pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
         let id = match cx.argument(index)? {
@@ -91,16 +98,20 @@ impl<'call> SequenceHandle<'call> {
             _arguments: cx.arguments(),
         })
     }
+
     pub fn declared_type(&self) -> &'call AbiType {
         self.ty
     }
+
     pub fn len(&self) -> NativeResult<usize> {
         self.heap
             .with_native::<SequencePayload, _>(self.id, |sequence| Ok(sequence.values.len()))
     }
+
     pub fn is_empty(&self) -> NativeResult<bool> {
         self.len().map(|length| length == 0)
     }
+
     /// Selects the exact scalar layout once, then exposes contiguous Rust values.
     /// Neither references nor mutable payload borrows can escape the closure.
     pub fn with_slice<E: NativeElement, R>(
@@ -119,10 +130,12 @@ impl<'call> SequenceHandle<'call> {
 /// A binding accepts this view only for a mutable sequence declaration.
 /// Fixed-length scalar writes preserve the declared element layout and tracing.
 pub struct SequenceMutHandle<'call>(SequenceHandle<'call>);
+
 impl<'call> SequenceMutHandle<'call> {
     pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
         SequenceHandle::from_argument(cx, index).map(Self)
     }
+
     /// Edit the actual storage under an exclusive slot lease. Callbacks may use
     /// unrelated values, but cannot access this receiver's slots until the edit
     /// ends. Completed edits survive errors; traced elements remain rooted.
@@ -132,9 +145,11 @@ impl<'call> SequenceMutHandle<'call> {
     ) -> NativeResult<R> {
         self.0.heap.edit_sequence(self.0.id, edit)
     }
+
     pub fn read(&self) -> &SequenceHandle<'call> {
         &self.0
     }
+
     pub fn with_slice_mut<E: NativeElement, R>(
         &mut self,
         access: impl for<'slice> FnOnce(&'slice mut [E]) -> NativeResult<R>,

@@ -45,9 +45,11 @@ impl ImportedFunctions {
                 .find(|function| function.declaration == *id)
         })
     }
+
     pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction> {
         self.functions.get(&name)
     }
+
     pub(crate) fn include_inherent_methods(&mut self, aggregates: &AggregateCatalog) {
         for method in aggregates.inherent_methods() {
             self.methods.insert(

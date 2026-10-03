@@ -1,4 +1,5 @@
 use kagari_common::{integer, numeric::NumberType};
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -53,6 +54,7 @@ impl BuiltinType {
                 .map(|(bits, signed)| NumberType::Integer { bits, signed }),
         }
     }
+
     pub fn can_cast_to(self, target: Self) -> bool {
         (self.number_type().is_some() && target.number_type().is_some())
             || (self == Self::Bool && target.integer_layout().is_some())

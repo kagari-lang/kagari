@@ -1,5 +1,21 @@
 # Kagari Implementation Roadmap
 
+## Workspace item spacing (completed, 2026-10-03)
+
+- [x] Separate adjacent Rust functions, type definitions and implementation blocks throughout the repository.
+- [x] Preserve attributes, documentation attachment, macro tokens and embedded source literals.
+- [x] Accept formatting, structure and whitespace-only diff checks.
+
+Ledger: the user expanded the declaration readability cleanup from one file to
+the entire project. Starting from clean 8e3d5195, syntax-aware inspection of all
+656 Rust files inserts 1,195 blank separators in 224 files, including tests,
+examples, review tools and macro bodies. Every edited source retains identical
+syntax leaf tokens and nonblank lines; a second spacing scan finds no remaining
+candidate. `cargo fmt --all -- --check`, the structure checker (656 files, zero
+violations/exceptions) and `git diff --check` pass. The Rust diff disappears with
+`--ignore-blank-lines`. No compilation or behavioral test rerun is needed for
+this whitespace-only checkpoint; no error is carried.
+
 ## Verified preparation reuse (completed, 2026-10-03)
 
 TO02 owns R6's measured repeated bytecode verification. Introduce an immutable,

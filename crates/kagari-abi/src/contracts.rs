@@ -200,6 +200,7 @@ fn numeric(ty: ValueType) -> bool {
         ValueType::I32 | ValueType::I64 | ValueType::U64 | ValueType::F32 | ValueType::F64
     )
 }
+
 /// Validate the physical operands actually consumed by an engine operation.
 /// Ordinary native calls additionally validate their carried semantic signature.
 pub fn verify_intrinsic(

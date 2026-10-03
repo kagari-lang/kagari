@@ -16,6 +16,7 @@ fn id(kind: DefinitionKind, name: &str) -> DefinitionId {
         }],
     }
 }
+
 fn applied(name: &str) -> NominalAbiType {
     NominalAbiType {
         declaration: id(DefinitionKind::Trait, name),
@@ -23,6 +24,7 @@ fn applied(name: &str) -> NominalAbiType {
         associated_types: Default::default(),
     }
 }
+
 fn record(name: &str) -> TraitAbi {
     TraitAbi {
         name: name.into(),
@@ -34,6 +36,7 @@ fn record(name: &str) -> TraitAbi {
         supertraits: vec![],
     }
 }
+
 fn table(name: &str, interface: NominalAbiType) -> InterfaceTableAbi {
     InterfaceTableAbi {
         declaration: id(DefinitionKind::Impl, name),
@@ -48,6 +51,7 @@ fn table(name: &str, interface: NominalAbiType) -> InterfaceTableAbi {
         host_bridge: false,
     }
 }
+
 fn module(items: Vec<PublicAbiItem>) -> BytecodeModule {
     BytecodeModule {
         identity: ModuleIdentity::single_file("linked.kgr"),

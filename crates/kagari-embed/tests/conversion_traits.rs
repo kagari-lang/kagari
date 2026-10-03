@@ -88,6 +88,7 @@ fn main()->i32 {val a=Count{value:42};match identity(a){Err(b)=>if a===b {match 
 "#,
     );
 }
+
 #[test]
 fn invalid_conversion_implementations_are_diagnostics() {
     for source in [

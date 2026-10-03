@@ -16,6 +16,7 @@ pub struct HostPathDeclaration {
     pub access: PathAccess,
     pub schema_epoch: u64,
 }
+
 impl HostPathDeclaration {
     pub fn contract(
         &self,
@@ -89,6 +90,7 @@ pub enum HostPathInput {
         name: String,
     },
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathSegmentContract {
     pub input: HostPathInput,
@@ -96,6 +98,7 @@ pub struct HostPathSegmentContract {
     pub access: PathAccess,
     pub member_fingerprint: u64,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathContract {
     pub root_fingerprint: u64,
@@ -105,6 +108,7 @@ pub struct HostPathContract {
 
     pub segments: Vec<HostPathSegmentContract>,
 }
+
 impl HostPathContract {
     pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
         if self.segments.is_empty()
@@ -160,6 +164,7 @@ impl HostPathContract {
         Ok(encoded.0)
     }
 }
+
 impl HostInterface {
     /// Resolve the complete path without invoking runtime bindings.
     pub fn path_contract(
@@ -169,6 +174,7 @@ impl HostInterface {
         self.validate()?;
         self.resolve_path(declaration)
     }
+
     pub(super) fn resolve_path(
         &self,
         declaration: &HostPathDeclaration,
@@ -291,6 +297,7 @@ impl HostInterface {
         })
     }
 }
+
 fn allows(available: PathAccess, requested: PathAccess) -> bool {
     matches!(
         (available, requested),
@@ -303,20 +310,24 @@ fn allows(available: PathAccess, requested: PathAccess) -> bool {
 
 // FNV-1a 64; all counts and integers are u64 little-endian, tags are bytes.
 struct Fingerprint(u64);
+
 impl Fingerprint {
     fn new() -> Self {
         let mut result = Self(0xcbf29ce484222325);
         result.bytes(b"kagari-host-path-v1\0");
         result
     }
+
     fn bytes(&mut self, bytes: &[u8]) {
         for byte in bytes {
             self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
         }
     }
+
     fn number(&mut self, value: u64) {
         self.bytes(&value.to_le_bytes());
     }
+
     fn access(&mut self, access: PathAccess) {
         self.bytes(&[match access {
             PathAccess::None => 0,

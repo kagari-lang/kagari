@@ -13,10 +13,13 @@ pub(super) struct Counts {
     deallocations: usize,
     pub(super) requested_bytes: usize,
 }
+
 thread_local! {
     static ACTIVE: Cell<Option<Counts>> = const { Cell::new(None) };
 }
+
 struct Allocator;
+
 #[global_allocator]
 static ALLOCATOR: Allocator = Allocator;
 
@@ -28,6 +31,7 @@ fn record(update: impl FnOnce(&mut Counts)) {
         }
     });
 }
+
 // SAFETY: this wrapper forwards the exact pointer/layout contracts to System;
 // counters use const-initialized thread-local cells and never allocate or reenter it.
 unsafe impl GlobalAlloc for Allocator {
@@ -38,6 +42,7 @@ unsafe impl GlobalAlloc for Allocator {
         });
         unsafe { System.alloc(layout) }
     }
+
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         record(|counts| {
             counts.allocations += 1;
@@ -45,6 +50,7 @@ unsafe impl GlobalAlloc for Allocator {
         });
         unsafe { System.alloc_zeroed(layout) }
     }
+
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         record(|counts| {
             counts.reallocations += 1;
@@ -52,17 +58,21 @@ unsafe impl GlobalAlloc for Allocator {
         });
         unsafe { System.realloc(ptr, layout, size) }
     }
+
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         record(|counts| counts.deallocations += 1);
         unsafe { System.dealloc(ptr, layout) };
     }
 }
+
 struct Reset;
+
 impl Drop for Reset {
     fn drop(&mut self) {
         ACTIVE.with(|active| active.set(None));
     }
 }
+
 pub(super) fn measured(body: impl FnOnce()) -> (Counts, Duration) {
     let reset = Reset;
     ACTIVE.with(|active| {

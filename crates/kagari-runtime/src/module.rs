@@ -167,6 +167,7 @@ struct LinkedProgram {
     fingerprint: ArtifactFingerprint,
     modules: Vec<LinkedModule>,
 }
+
 /// Immutable executable data, exposed only through a shared loaded handle.
 #[derive(Debug)]
 pub struct LinkedModule {
@@ -189,6 +190,7 @@ pub(crate) struct LinkedHostBindings {
 
 impl Deref for LoadedModule {
     type Target = LinkedModule;
+
     fn deref(&self) -> &LinkedModule {
         &self.program.modules[self.slot.index()]
     }
@@ -206,6 +208,7 @@ impl LoadedModule {
     pub fn slot(&self) -> ModuleRef {
         self.slot
     }
+
     pub fn member(&self, slot: ModuleRef) -> Option<Self> {
         self.program.modules.get(slot.index())?;
         Some(Self {
@@ -213,24 +216,29 @@ impl LoadedModule {
             slot,
         })
     }
+
     pub fn member_data(&self, slot: ModuleRef) -> Option<&LinkedModule> {
         self.program.modules.get(slot.index())
     }
+
     pub fn members(&self) -> impl Iterator<Item = Self> + '_ {
         (0..self.program.modules.len()).map(|index| Self {
             program: self.program.clone(),
             slot: ModuleRef::new(index),
         })
     }
+
     pub fn program_root(&self) -> Self {
         Self {
             program: self.program.clone(),
             slot: self.program.root,
         }
     }
+
     fn program_key(&self) -> ModuleKey {
         self.program_root().key()
     }
+
     pub fn struct_layout(&self, id: StructId) -> Option<StructLayoutRef> {
         let layout = self.bytecode.structures.get(id.index())?;
         self.applied_struct_layout(id, &layout.arguments)
@@ -240,6 +248,7 @@ impl LoadedModule {
         let layout = self.bytecode.enumerations.get(id.index())?;
         self.applied_enum_variant(id, &layout.arguments, variant)
     }
+
     /// Registry entries are resolved once for this immutable program generation.
     pub fn native_binding(&self, import: NativeImportId) -> Option<Rc<LinkedNativeFunction>> {
         self.native_bindings.get(import.index()).cloned()
@@ -252,6 +261,7 @@ impl LoadedModule {
     pub(crate) fn belongs_to(&self, owner: HostRegistryId) -> bool {
         self.registry_owner == owner
     }
+
     pub fn key(&self) -> ModuleKey {
         ModuleKey {
             id: self.id,
@@ -274,14 +284,17 @@ impl EnumVariantRef {
     pub(crate) fn registry_owner(&self) -> HostRegistryId {
         self.module.registry_owner
     }
+
     pub fn layout(&self) -> &EnumLayout {
         self.applied
             .as_deref()
             .unwrap_or(&self.module.bytecode.enumerations[self.id.index()])
     }
+
     pub fn variant(&self) -> &EnumVariantLayout {
         &self.layout().variants[self.variant as usize]
     }
+
     pub fn module(&self) -> &LoadedModule {
         &self.module
     }
@@ -311,9 +324,11 @@ impl StructLayoutRef {
             .as_deref()
             .unwrap_or(&self.module.bytecode.structures[self.id.index()])
     }
+
     pub fn module(&self) -> &LoadedModule {
         &self.module
     }
+
     pub(crate) fn matches(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
             && ((self.environment.is_none()
@@ -454,6 +469,7 @@ impl ModuleStore {
             members,
         })
     }
+
     pub(crate) fn new(resources: Rc<ResourceState>) -> Self {
         Self {
             resources,
@@ -469,6 +485,7 @@ impl ModuleStore {
             .flat_map(|instance| instance.module_slots.iter().cloned())
             .collect()
     }
+
     pub(crate) fn stage_verified_program(
         &self,
         name: impl Into<String>,
@@ -543,6 +560,7 @@ impl ModuleStore {
             module: loaded,
         })
     }
+
     pub fn loaded(&self, key: ModuleKey) -> Option<LoadedModule> {
         self.inner.borrow().loaded.get(&key).cloned()
     }
@@ -667,6 +685,7 @@ fn live_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
         .filter_map(|key| inner.loaded.get(&key).map(LoadedModule::program_key))
         .collect()
 }
+
 #[cfg(test)]
 mod tests {
     use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind};

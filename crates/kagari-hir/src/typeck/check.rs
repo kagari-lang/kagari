@@ -820,9 +820,13 @@ pub(super) fn interface_method_compatible<'a>(
 
 pub(super) trait MethodSignatureView {
     fn generic_params(&self) -> &[GenericParameterType];
+
     fn bounds(&self) -> &super::GenericBounds;
+
     fn params_len(&self) -> usize;
+
     fn param(&self, index: usize) -> (&str, Writeability, &TypeId);
+
     fn return_type(&self) -> &TypeId;
 }
 
@@ -830,16 +834,20 @@ impl MethodSignatureView for TypedFunction {
     fn generic_params(&self) -> &[GenericParameterType] {
         &self.generic_params
     }
+
     fn bounds(&self) -> &super::GenericBounds {
         &self.bounds
     }
+
     fn params_len(&self) -> usize {
         self.params.len()
     }
+
     fn param(&self, index: usize) -> (&str, Writeability, &TypeId) {
         let param = &self.params[index];
         (&param.name, param.writeability, &param.ty)
     }
+
     fn return_type(&self) -> &TypeId {
         &self.return_type
     }
@@ -849,16 +857,20 @@ impl MethodSignatureView for MethodSignature {
     fn generic_params(&self) -> &[GenericParameterType] {
         &self.generic_params
     }
+
     fn bounds(&self) -> &super::GenericBounds {
         &self.bounds
     }
+
     fn params_len(&self) -> usize {
         self.params.len()
     }
+
     fn param(&self, index: usize) -> (&str, Writeability, &TypeId) {
         let param = &self.params[index];
         (&param.name, param.writeability, &param.ty)
     }
+
     fn return_type(&self) -> &TypeId {
         &self.return_type
     }

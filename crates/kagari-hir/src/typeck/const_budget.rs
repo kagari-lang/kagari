@@ -10,6 +10,7 @@ pub struct ConstLimits {
     pub max_steps: usize,
     pub max_depth: usize,
 }
+
 impl Default for ConstLimits {
     fn default() -> Self {
         Self {
@@ -25,6 +26,7 @@ pub(super) struct ConstBudget {
     depth: usize,
     pub exhausted: bool,
 }
+
 impl ConstBudget {
     pub fn new(limits: ConstLimits) -> Self {
         Self {
@@ -34,6 +36,7 @@ impl ConstBudget {
             exhausted: false,
         }
     }
+
     pub fn enter(&mut self, span: Span, diagnostics: &mut DiagnosticBuffer) -> bool {
         if self.exhausted {
             return false;
@@ -57,6 +60,7 @@ impl ConstBudget {
         self.depth += 1;
         true
     }
+
     pub fn leave(&mut self) {
         self.depth -= 1;
     }

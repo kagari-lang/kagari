@@ -25,10 +25,13 @@ struct Counts {
     frees: usize,
     bytes: usize,
 }
+
 thread_local! {
     static ACTIVE: Cell<Option<Counts>> = const { Cell::new(None) };
 }
+
 struct Allocator;
+
 #[global_allocator]
 static ALLOCATOR: Allocator = Allocator;
 
@@ -51,6 +54,7 @@ unsafe impl GlobalAlloc for Allocator {
         });
         unsafe { System.alloc(layout) }
     }
+
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         record(|counts| {
             counts.allocs += 1;
@@ -58,6 +62,7 @@ unsafe impl GlobalAlloc for Allocator {
         });
         unsafe { System.alloc_zeroed(layout) }
     }
+
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         record(|counts| {
             counts.reallocs += 1;
@@ -65,6 +70,7 @@ unsafe impl GlobalAlloc for Allocator {
         });
         unsafe { System.realloc(ptr, layout, size) }
     }
+
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         record(|counts| counts.frees += 1);
         unsafe { System.dealloc(ptr, layout) };
@@ -72,11 +78,13 @@ unsafe impl GlobalAlloc for Allocator {
 }
 
 struct Reset;
+
 impl Drop for Reset {
     fn drop(&mut self) {
         ACTIVE.with(|active| active.set(None));
     }
 }
+
 fn measured<T>(body: impl FnOnce() -> T) -> (T, Counts, Duration) {
     let reset = Reset;
     ACTIVE.with(|active| {

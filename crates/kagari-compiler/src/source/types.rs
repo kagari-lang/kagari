@@ -23,6 +23,7 @@ pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeAbiKind {
         NativeTypeKind::Enum(kind) => TypeAbiKind::Native(NativeTypeConstructor::Enum(kind)),
     }
 }
+
 pub(crate) fn lower_numeric_operation(
     op: BinaryOp,
     input: BuiltinType,

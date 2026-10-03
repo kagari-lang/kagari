@@ -292,6 +292,7 @@ impl Instruction {
             _ => None,
         }
     }
+
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),

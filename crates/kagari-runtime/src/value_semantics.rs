@@ -150,6 +150,7 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
         text: String,
         failed: bool,
     }
+
     impl Output {
         fn push_str(&mut self, text: &str) {
             if text.len() > 1_048_576usize.saturating_sub(self.text.len()) {
@@ -158,16 +159,19 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
                 self.text.push_str(text);
             }
         }
+
         fn push(&mut self, ch: char) {
             self.push_str(ch.encode_utf8(&mut [0; 4]));
         }
     }
+
     impl Write for Output {
         fn write_str(&mut self, text: &str) -> fmt::Result {
             self.push_str(text);
             if self.failed { Err(Error) } else { Ok(()) }
         }
     }
+
     fn render(
         gc: &GcHeap,
         value: &Value,

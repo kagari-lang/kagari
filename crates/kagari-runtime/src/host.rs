@@ -441,10 +441,12 @@ impl PreparedHostPathWrite {
     pub fn new(commit: impl FnOnce() + 'static) -> Self {
         Self(Box::new(commit))
     }
+
     fn commit(self) {
         (self.0)()
     }
 }
+
 pub type HostPathValidateCallback = dyn Fn(
         &HostCallContext<'_>,
         &HostPathContext,
@@ -756,6 +758,7 @@ struct HostBorrowState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct HostBorrowOwner(u64);
+
 impl Default for HostBorrowOwner {
     fn default() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -867,6 +870,7 @@ impl HostFunctionId {
         self.slot
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostTypeRegistration {
     pub declaration: HostTypeDeclaration,
@@ -907,6 +911,7 @@ impl HostError {
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
         self.trace.as_ref()
     }
+
     pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {
         if self
             .trace
@@ -934,18 +939,23 @@ impl<'a> HostCallContext<'a> {
             scope: runtime.host_scope(args)?,
         })
     }
+
     pub fn runtime(&self) -> &'a Runtime {
         self.scope.runtime()
     }
+
     pub fn borrows(&self) -> &HostCallGuard {
         self.scope.borrows()
     }
+
     pub fn retain_temporaries(&self, values: &[Value]) -> Result<(), RuntimeError> {
         self.scope.retain_values(values)
     }
+
     pub fn execution_time_millis(&self) -> Result<i64, RuntimeError> {
         self.runtime().execution_time_millis()
     }
+
     pub fn next_execution_random_u64(&self) -> Result<u64, RuntimeError> {
         self.runtime().next_execution_random_u64()
     }
@@ -985,6 +995,7 @@ impl HostFunction {
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         Ok(Self::new(declaration, handler))
     }
+
     pub fn new(
         declaration: HostFunctionDeclaration,
         handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static,
@@ -995,6 +1006,7 @@ impl HostFunction {
             handler: Rc::new(handler),
         }
     }
+
     pub fn id(&self) -> Option<HostFunctionId> {
         self.id
     }

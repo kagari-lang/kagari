@@ -9,6 +9,7 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use std::collections::HashSet;
+
 impl ProofCatalog<'_> {
     /// Whether native identity/structural equality would bypass a selected
     /// nominal PartialEq implementation in this value's tuple or enum payloads.

@@ -736,8 +736,10 @@ fn legacy_language_semantics_cannot_be_opted_into() {
 fn fingerprints_depend_on_serialized_values_not_rust_debug_names() {
     #[derive(Debug, Serialize)]
     struct First(u32);
+
     #[derive(Debug, Serialize)]
     struct Renamed(u32);
+
     assert_eq!(
         ArtifactFingerprint::of_serialized(&First(42)),
         ArtifactFingerprint::of_serialized(&Renamed(42))

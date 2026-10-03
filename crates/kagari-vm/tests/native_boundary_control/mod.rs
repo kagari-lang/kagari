@@ -53,6 +53,7 @@ fn module() -> NativeModule {
         .unwrap();
     module.finish().unwrap()
 }
+
 fn compile_test_bytecode(text: &str) -> BytecodeProgram {
     let native = module();
     let mut sources = SourceDatabase::default();
@@ -80,6 +81,7 @@ fn compile_test_bytecode(text: &str) -> BytecodeProgram {
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     lower_program_to_bytecode(&mir).unwrap()
 }
+
 fn runtime(limits: RuntimeLimits) -> Runtime {
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {

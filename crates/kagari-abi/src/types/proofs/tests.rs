@@ -21,6 +21,7 @@ fn id(kind: DefinitionKind, name: &str) -> DefinitionId {
         }],
     }
 }
+
 fn nominal(id: DefinitionId, arguments: Vec<AbiType>) -> NominalAbiType {
     NominalAbiType {
         declaration: id,
@@ -28,9 +29,11 @@ fn nominal(id: DefinitionId, arguments: Vec<AbiType>) -> NominalAbiType {
         associated_types: BTreeMap::new(),
     }
 }
+
 fn scalar() -> AbiType {
     AbiType::Builtin(BuiltinType::I32)
 }
+
 fn table(name: &str, interface: NominalAbiType, receiver: AbiType) -> InterfaceTableAbi {
     InterfaceTableAbi {
         declaration: id(DefinitionKind::Impl, name),
@@ -45,6 +48,7 @@ fn table(name: &str, interface: NominalAbiType, receiver: AbiType) -> InterfaceT
         host_bridge: false,
     }
 }
+
 fn bound(ty: AbiType, required: NominalAbiType) -> GenericBoundAbi {
     GenericBoundAbi {
         ty,

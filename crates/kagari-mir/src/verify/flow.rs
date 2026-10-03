@@ -167,9 +167,11 @@ pub(super) fn define(function: &MirFunction, instruction: &Instruction, state: &
         insert(state, function.temps.len() + local.index());
     }
 }
+
 pub(super) fn insert(state: &mut [u64], index: usize) {
     state[index / 64] |= 1 << (index % 64);
 }
+
 pub(super) fn contains(state: &[u64], index: usize) -> bool {
     state[index / 64] & (1 << (index % 64)) != 0
 }

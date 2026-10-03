@@ -240,14 +240,17 @@ struct TracedCounter {
     values: Value,
     dropped: Rc<Cell<usize>>,
 }
+
 impl NativePayload for TracedCounter {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         visit(&self.values);
     }
+
     fn units(&self) -> usize {
         1
     }
 }
+
 impl Drop for TracedCounter {
     fn drop(&mut self) {
         self.dropped.set(self.dropped.get() + 1);
@@ -706,6 +709,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
             ));
         }};
     }
+
     check!(Unit, (), (), "()");
     check!(Bool, bool, true, "true");
     check!(I8, i8, 1, "1 as i8");

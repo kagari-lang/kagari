@@ -31,6 +31,7 @@ pub struct TraitBuilder<'module> {
     defaults: BTreeMap<DefinitionId, NativeBinding>,
     concrete_results: BTreeMap<DefinitionId, AbiType>,
 }
+
 impl<'module> TraitBuilder<'module> {
     pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> Self {
         let id = module.declaration.definition(DefinitionKind::Trait, &name);
@@ -53,6 +54,7 @@ impl<'module> TraitBuilder<'module> {
             concrete_results: BTreeMap::new(),
         }
     }
+
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
         let name = name.into();
         if self.parameter_names.contains(&name) {
@@ -68,9 +70,11 @@ impl<'module> TraitBuilder<'module> {
             ty: Type(parameter.as_type()),
         })
     }
+
     pub fn receiver(&self) -> Type {
         Type(AbiType::SelfType(self.id.clone()))
     }
+
     /// Refer to an operation on this default body's actual receiver. The final
     /// declaration, including any later method edits, is checked at installation.
     pub fn operation(&self, method: &FunctionRef) -> NativeResult<CallableRequirement> {
@@ -102,9 +106,11 @@ impl<'module> TraitBuilder<'module> {
             },
         })
     }
+
     pub fn parent(&mut self, parent: AppliedTrait) {
         self.declaration.supertraits.push(parent.ty);
     }
+
     pub fn associated_type(
         &mut self,
         name: &str,
@@ -147,6 +153,7 @@ impl<'module> TraitBuilder<'module> {
             arguments: vec![],
         }))
     }
+
     pub fn define_method(&mut self, declaration: MethodDecl) -> NativeResult<FunctionRef> {
         if self
             .declaration
@@ -163,6 +170,7 @@ impl<'module> TraitBuilder<'module> {
         self.declaration.methods.push(declaration.lower(receiver));
         Ok(FunctionRef { id })
     }
+
     /// Configure method-local binders, bounds and the operations used by a default.
     pub fn method<T>(
         &mut self,
@@ -185,6 +193,7 @@ impl<'module> TraitBuilder<'module> {
         normalize_bounds(signature);
         Ok(result)
     }
+
     /// Bind a default body to the declared signature. The portable template is
     /// derived at finalization, so its binders cannot drift from the method.
     pub fn bind_default<A, R>(
@@ -194,6 +203,7 @@ impl<'module> TraitBuilder<'module> {
     ) -> NativeResult<()> {
         self.bind_default_with(method, entry.binding())
     }
+
     pub fn bind_default_with(
         &mut self,
         method: FunctionRef,
@@ -217,6 +227,7 @@ impl<'module> TraitBuilder<'module> {
         self.defaults.insert(method.id, binding);
         Ok(())
     }
+
     pub fn finish(mut self) -> NativeResult<TraitRef> {
         if self
             .module

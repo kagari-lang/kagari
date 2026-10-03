@@ -24,6 +24,7 @@ pub struct NativeCallableRequirement {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
 }
+
 impl NativeCallableRequirement {
     pub fn normalized(
         &self,
@@ -71,6 +72,7 @@ impl NativeCallableRequirement {
                 .collect::<Result<_, _>>()?,
         })
     }
+
     pub fn apply(
         &self,
         substitution: &TypeSubstitution<'_>,

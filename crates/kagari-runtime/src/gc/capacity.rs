@@ -9,6 +9,7 @@ use crate::{
 fn invalid() -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid capacity receiver")
 }
+
 impl GcHeap {
     pub fn collection_capacity(&self, value: &Value) -> Result<usize, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -20,6 +21,7 @@ impl GcHeap {
         }
         .ok_or_else(invalid)
     }
+
     pub fn reserve_collection(&self, value: &Value, additional: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         match value {

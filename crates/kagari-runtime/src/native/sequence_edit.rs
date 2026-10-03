@@ -17,18 +17,22 @@ use std::{
 pub struct SequenceEdit<'buffer> {
     pub(crate) values: &'buffer mut SequenceStorage,
 }
+
 impl SequenceEdit<'_> {
     pub fn len(&self) -> usize {
         self.values.len()
     }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
     pub fn get(&self, index: usize) -> NativeResult<Value> {
         self.values
             .get(index)
             .ok_or_else(|| RuntimeError::module_validation("sequence edit index"))
     }
+
     pub fn with_slice_mut<E: NativeElement, R>(
         &mut self,
         access: impl for<'slice> FnOnce(&'slice mut [E]) -> NativeResult<R>,
@@ -37,6 +41,7 @@ impl SequenceEdit<'_> {
             .ok_or_else(|| RuntimeError::module_validation("sequence edit scalar layout"))?;
         access(values)
     }
+
     pub fn reverse(&mut self) {
         self.values.reverse();
     }
@@ -53,6 +58,7 @@ macro_rules! edits {
                     SequenceStorage::Traced(values) => sort(values, compare),
                 }
             }
+
             /// Successful removals remain visible when a later predicate fails.
             pub fn retain(&mut self, mut keep: impl FnMut(Value) -> NativeResult<bool>) -> NativeResult<()> {
                 match self.values {
@@ -60,6 +66,7 @@ macro_rules! edits {
                     SequenceStorage::Traced(values) => retain(values, keep),
                 }
             }
+
             pub fn dedup_by(&mut self, mut equal: impl FnMut(Value, Value) -> NativeResult<bool>) -> NativeResult<()> {
                 match self.values {
                     $(SequenceStorage::$variant(values) => dedup(values, |a, b| equal(a.encode(), b.encode())),)+
@@ -69,6 +76,7 @@ macro_rules! edits {
         }
     };
 }
+
 edits!(
     Unit, Bool, I8, I16, I32, I64, ISize, U8, U16, U32, U64, USize, F32, F64
 );
@@ -102,6 +110,7 @@ fn sort<T: Clone>(
         )
     })
 }
+
 fn retain<T: Clone>(
     values: &mut Vec<T>,
     mut keep: impl FnMut(T) -> NativeResult<bool>,
@@ -121,6 +130,7 @@ fn retain<T: Clone>(
     });
     failure.map_or(Ok(()), Err)
 }
+
 fn dedup<T: Clone>(
     values: &mut Vec<T>,
     mut equal: impl FnMut(T, T) -> NativeResult<bool>,

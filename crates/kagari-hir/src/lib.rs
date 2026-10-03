@@ -70,9 +70,11 @@ impl<T> AnalysisResult<T> {
     pub fn facts(&self) -> &T {
         &self.facts
     }
+
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
+
     pub fn into_checked(self) -> Result<T, BoxedDiagnosticBuffer> {
         if self
             .diagnostics
@@ -93,6 +95,7 @@ pub struct CheckedAnalysis(AnalyzedModule);
 
 impl Deref for CheckedAnalysis {
     type Target = AnalyzedModule;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }

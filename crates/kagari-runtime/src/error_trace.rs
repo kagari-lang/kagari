@@ -36,6 +36,7 @@ pub struct ErrorFrame {
     pub line: Option<u32>,
     pub column: Option<u32>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ErrorTrace {
     /// Innermost frame first: the first frame is the failure's origin.
@@ -43,6 +44,7 @@ pub struct ErrorTrace {
     pub omitted_frames: usize,
     pub incomplete: bool,
 }
+
 impl ErrorTrace {
     pub(crate) fn capture(resources: &ResourceState) -> Arc<Self> {
         let Some(session) = resources.active_session() else {
@@ -53,6 +55,7 @@ impl ErrorTrace {
         };
         Self::capture_session(&session)
     }
+
     pub(crate) fn capture_session(session: &SessionState) -> Arc<Self> {
         let Ok(frames) = session.frames.try_borrow() else {
             return Arc::new(Self {
@@ -62,6 +65,7 @@ impl ErrorTrace {
         };
         Self::from_frames(&frames)
     }
+
     fn from_frames(frames: &[ExecutionFrame]) -> Arc<Self> {
         let count = frames.len().min(MAX_ERROR_FRAMES);
         let mut trace = Self {
@@ -148,6 +152,7 @@ impl ErrorTrace {
         Arc::new(trace)
     }
 }
+
 fn label(value: &str, incomplete: &mut bool) -> Option<String> {
     let mut end = value.len().min(MAX_LABEL_BYTES);
     while !value.is_char_boundary(end) {
@@ -159,6 +164,7 @@ fn label(value: &str, incomplete: &mut bool) -> Option<String> {
     result.push_str(&value[..end]);
     Some(result)
 }
+
 impl Display for ErrorTrace {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for frame in &self.frames {
@@ -179,6 +185,7 @@ impl Display for ErrorTrace {
         Ok(())
     }
 }
+
 impl Runtime {
     pub fn capture_error_trace(&self) -> Arc<ErrorTrace> {
         ErrorTrace::capture(&self.resources)
@@ -191,11 +198,13 @@ pub struct ResultFailure {
     pub message: String,
     pub trace: Arc<ErrorTrace>,
 }
+
 impl Display for ResultFailure {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.message, self.trace)
     }
 }
+
 impl Runtime {
     pub fn result_failure(&self, value: &Value) -> Option<ResultFailure> {
         let trace = self.gc.result_error_trace(value)?;
@@ -220,6 +229,7 @@ impl Runtime {
         };
         Some(ResultFailure { message, trace })
     }
+
     pub fn map_result_error(
         &self,
         owner: &LoadedModule,

@@ -64,6 +64,7 @@ impl EnumTag {
             }
         }
     }
+
     pub fn variant_name(&self) -> &str {
         match self {
             Self::BoundIncluded => "Included",
@@ -98,6 +99,7 @@ impl EnumTag {
             }
         }
     }
+
     /// Select the declared generic payload slot, distinguishing empty variants
     /// from a tag belonging to another enum family.
     pub(crate) fn standard_payload(&self, kind: StandardEnumKind) -> Option<Option<usize>> {
@@ -174,12 +176,14 @@ pub struct MapKey {
     value: Value,
     custom: Option<(i64, i64)>,
 }
+
 #[derive(Debug, Clone)]
 enum KeyParts {
     Empty,
     Single(KeyPart),
     Aggregate(Box<[KeyPart]>),
 }
+
 impl KeyParts {
     fn as_slice(&self) -> &[KeyPart] {
         match self {
@@ -189,6 +193,7 @@ impl KeyParts {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum KeyPart {
     Unit,
@@ -202,12 +207,15 @@ enum KeyPart {
     DeclaredEnum(HostRegistryId, DefinitionId, Vec<AbiType>, DefinitionId),
     Identity(u8, HeapObjectId),
 }
+
 impl PartialEq for MapKey {
     fn eq(&self, other: &Self) -> bool {
         self.custom == other.custom && self.parts.as_slice() == other.parts.as_slice()
     }
 }
+
 impl Eq for MapKey {}
+
 impl Hash for MapKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         if let Some((hash, _)) = self.custom {
@@ -217,6 +225,7 @@ impl Hash for MapKey {
         }
     }
 }
+
 impl MapKey {
     pub(crate) fn custom(hash: i64, token: i64, value: Value) -> Self {
         Self {
@@ -225,6 +234,7 @@ impl MapKey {
             custom: Some((hash, token)),
         }
     }
+
     pub(crate) fn custom_parts(&self) -> Option<(i64, i64)> {
         self.custom
     }
@@ -315,12 +325,15 @@ impl MapKey {
             value: value.clone(),
         })
     }
+
     pub fn to_value(&self) -> Value {
         self.value.clone()
     }
+
     pub(crate) fn value(&self) -> &Value {
         &self.value
     }
+
     pub fn script_hash(&self) -> i64 {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
@@ -391,6 +404,7 @@ impl Value {
                 )
         )
     }
+
     pub fn category(&self) -> ValueCategory {
         match self {
             Self::Unit => ValueCategory::Unit,

@@ -825,6 +825,7 @@ fn owner(
         path,
     }
 }
+
 fn parameters(
     declared: &[GenericParameterAbi],
     owner: &DefinitionId,
@@ -841,6 +842,7 @@ fn parameters(
     }
     Some(params)
 }
+
 fn bounds_valid(
     bounds: &[GenericBoundAbi],
     params: &Parameters,
@@ -848,6 +850,7 @@ fn bounds_valid(
 ) -> bool {
     bounds_valid_in(bounds, params, None, cancel)
 }
+
 fn bounds_valid_in(
     bounds: &[GenericBoundAbi],
     params: &Parameters,
@@ -955,6 +958,7 @@ fn function_valid(
             }
     })
 }
+
 fn signature_valid(
     function: &FunctionAbi,
     params: &Parameters,
@@ -968,6 +972,7 @@ fn signature_valid(
         .chain(iter::once(&function.return_type))
         .all(|ty| type_valid(ty, params, self_owner, cancel))
 }
+
 fn nominal_valid(id: &DefinitionId, kind: DefinitionKind) -> bool {
     !id.module.package.0.is_empty()
         && !id.module.path.is_empty()
@@ -977,6 +982,7 @@ fn nominal_valid(id: &DefinitionId, kind: DefinitionKind) -> bool {
             .last()
             .is_some_and(|part| part.kind == kind && !part.name.is_empty())
 }
+
 /// Check portable type expressions against an explicitly supplied binder scope.
 pub fn types_in_scope<'a>(
     types: impl IntoIterator<Item = &'a AbiType>,

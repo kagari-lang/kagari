@@ -61,12 +61,15 @@ impl SourceMap {
     pub fn opaque_type_span(&self, id: OpaqueTypeId) -> Span {
         self.opaque_type_spans[id.index()]
     }
+
     pub(crate) fn insert_variant(&mut self, id: VariantId, span: Span) {
         self.variant_spans.insert(id, span);
     }
+
     pub fn variant_span(&self, id: VariantId) -> Span {
         self.variant_spans[&id]
     }
+
     pub(crate) fn set_owner(&mut self, owner: HirOwner) -> HirOwner {
         mem::replace(&mut self.owner, owner)
     }
@@ -120,9 +123,11 @@ impl SourceMap {
         self.generic_param_spans.push(span);
         id
     }
+
     pub fn generic_param_span(&self, id: GenericParamId) -> Span {
         self.generic_param_spans[id.index()]
     }
+
     pub(crate) fn type_spans(&self) -> &[Span] {
         &self.type_spans
     }
@@ -150,6 +155,7 @@ impl SourceMap {
     pub fn type_name_span(&self, id: TypeRefId) -> Option<Span> {
         self.type_name_spans.get(&id).copied()
     }
+
     pub(crate) fn insert_field(&mut self, id: FieldId, span: Span) {
         self.field_spans.insert(id, span);
     }
@@ -174,15 +180,19 @@ impl SourceMap {
     pub(crate) fn pattern_spans(&self) -> &[Span] {
         &self.pattern_spans
     }
+
     pub(crate) fn expr_spans(&self) -> &[Span] {
         &self.expr_spans
     }
+
     pub(crate) fn local_spans(&self) -> &[Span] {
         &self.local_spans
     }
+
     pub(crate) fn place_spans(&self) -> &[Span] {
         &self.place_spans
     }
+
     pub(crate) fn push_function(&mut self, span: Span) -> FunctionId {
         let id = FunctionId::new(self.function_spans.len());
         self.function_spans.push(span);

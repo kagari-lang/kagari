@@ -33,6 +33,7 @@ pub(crate) struct DependencyClosure {
     pub(crate) catalog: DeclarationCatalog,
     seen: BTreeSet<Reference>,
 }
+
 impl References {
     fn nominal(&mut self, nominal: &NominalAbiType) -> Result<(), RuntimeError> {
         self.pending
@@ -46,6 +47,7 @@ impl References {
         }
         Ok(())
     }
+
     fn ty(&mut self, ty: &AbiType) -> Result<(), RuntimeError> {
         if !ty.within_wire_limits() {
             return Err(RuntimeError::metadata_conflict(
@@ -106,6 +108,7 @@ impl References {
         }
         Ok(())
     }
+
     fn constraints(&mut self, constraints: &[ConstraintAbi]) -> Result<(), RuntimeError> {
         for constraint in constraints {
             if let ConstraintAbi::Trait(nominal) = constraint {
@@ -114,6 +117,7 @@ impl References {
         }
         Ok(())
     }
+
     fn bounds(&mut self, bounds: &[GenericBoundAbi]) -> Result<(), RuntimeError> {
         for bound in bounds {
             self.ty(&bound.ty)?;
@@ -127,6 +131,7 @@ impl References {
         }
         Ok(())
     }
+
     fn function(&mut self, function: &FunctionAbi) -> Result<(), RuntimeError> {
         self.bounds(&function.bounds)?;
         for ty in function
@@ -146,6 +151,7 @@ impl References {
         }
         Ok(())
     }
+
     fn declaration(&mut self, declaration: &NativeDeclaration) -> Result<(), RuntimeError> {
         self.function(&declaration.function)?;
         if let Some(receiver) = &declaration.concrete_result {
