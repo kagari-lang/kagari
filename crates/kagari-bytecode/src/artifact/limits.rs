@@ -372,7 +372,7 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 && function_abi_identity_limit(function)
                 && function.params.iter().all(|param| valid(&param.ty))
                 && valid(&function.return_type)
-                && declaration.concrete_result.as_ref().is_none_or(&valid)
+                && declaration.concrete_result.as_ref().is_none_or(valid)
                 && declaration.callable_requirements.iter().all(|required| {
                     required.member.within_path_limit()
                         && valid(&required.receiver)

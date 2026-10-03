@@ -249,7 +249,7 @@ impl Declarations {
     ) -> Self {
         let analysis = AnalysisId(
             NEXT_ANALYSIS
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("analysis identity exhausted"),
         );
         let mut builder = Builder {
@@ -518,7 +518,7 @@ impl Declarations {
         // Cached named declarations do not extend the lifetime of local handles.
         self.analysis = AnalysisId(
             NEXT_ANALYSIS
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("analysis identity exhausted"),
         );
         let analysis = self.analysis;

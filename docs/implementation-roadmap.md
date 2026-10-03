@@ -1,5 +1,25 @@
 # Kagari Implementation Roadmap
 
+## Clippy maintenance (completed, 2026-10-03)
+
+Scope: resolve the current workspace/all-target warnings on rustc 1.99.0 without
+activating a queued architecture track. Replaced eight deprecated atomic
+`fetch_update` calls with `try_update`, retaining relaxed ordering, checked
+increments and exhaustion failures. Removed one unnecessary closure borrow in
+the native concrete-result artifact limit check; validation remains unchanged.
+
+Ledger: started from clean commit 478df5ff. Workspace/all-target Clippy with
+`-D warnings`, formatting and structure (653 Rust files, zero violations or
+exceptions) pass. An additional `cargo test --workspace` run was stopped after
+the embedding language-contract integration case ran for about seven minutes
+without completing; no assertion failure was reported, and full workspace
+acceptance is not claimed. `cargo test -p kagari-common -p kagari-hir
+-p kagari-runtime -p kagari-bytecode` passes 634 tests with zero failures or
+ignored cases. Diff checks pass. Logs are under ignored
+`target/clippy-maintenance-tests.log` and
+`target/clippy-maintenance-focused-tests.log`. No imports, visibility, module
+ownership, artifact versions or compatibility surface changed.
+
 ## Interface dispatch optimization (completed)
 
 The [interface dispatch plan](interface-dispatch-optimization.md) implements R3

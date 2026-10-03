@@ -25,7 +25,7 @@ impl Default for HirArenaId {
         static NEXT_ARENA: AtomicU64 = AtomicU64::new(1);
         Self(
             NEXT_ARENA
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("HIR arena identity exhausted"),
         )
     }

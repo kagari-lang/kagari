@@ -34,7 +34,7 @@ impl FileId {
     pub(crate) fn fresh() -> Self {
         Self(
             NEXT_FILE
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("source identity exhausted"),
         )
     }

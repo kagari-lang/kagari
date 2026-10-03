@@ -460,7 +460,7 @@ impl HostDeclarations {
         }
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let revision = NEXT
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .expect("host declaration revision exhausted");
         let paths: HashMap<_, _> = interface
             .functions

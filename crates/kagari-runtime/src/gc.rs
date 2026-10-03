@@ -374,7 +374,7 @@ impl GcHeap {
     pub fn new(config: GcHeapConfig, resources: Rc<ResourceState>) -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         let owner = NEXT_OWNER
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
                 next.checked_add(1)
             })
             .expect("heap identity exhausted");
