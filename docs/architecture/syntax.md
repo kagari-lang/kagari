@@ -24,9 +24,9 @@ compiled. A diagnostic-free syntax tree is not permission to execute code.
 flowchart LR
     Source["Caller-owned source file"] -->|"text, mode, limits, cancellation"| Syntax
     Syntax["kagari-syntax"] -->|"tree and diagnostics"| HIR["kagari-hir: analysis and tooling"]
-    Syntax -->|"declaration tree and diagnostics"| Stdlib["kagari-stdlib: installed package"]
+    Syntax -->|"declaration tree and diagnostics"| Foundation["HIR native views + handwritten core"]
     HIR -->|"checked source meaning"| Compiler["kagari-compiler"]
-    Stdlib -->|"parsed files, annotations and source metadata"| HIR
+    Foundation -->|"parsed files, annotations and source metadata"| HIR
 ```
 
 Arrows show data flow, not Cargo dependencies. The analysis owner prepares and
@@ -40,11 +40,12 @@ caches the installed package; executable runtime contracts do not invoke the par
 | Syntax diagnostics, recovery and parser limits | Deciding whether analysis is valid for code generation |
 | Structured access to syntax nodes | MIR, bytecode, execution, GC and hot reload |
 
-The crate has three direct production dependencies:
+The crate has four direct production dependencies:
 
 | Dependency | Responsibility |
 | --- | --- |
-| `kagari-common` | Source files, byte spans, diagnostics, cancellation and literal decoding |
+| `kagari-common` | Portable byte spans and cancellation |
+| `kagari-source` | Source files, diagnostics and literal decoding |
 | `rowan` | Syntax tree construction, immutable green storage and traversable node handles |
 | `smallvec` | Inline storage for small token and diagnostic buffers, with heap growth when needed |
 
@@ -53,7 +54,7 @@ recognition must remain independent of name resolution and executable state.
 
 ## 2. Inputs and outputs
 
-The caller supplies a `kagari_common::SourceFile`. Its text is already valid UTF-8
+The caller supplies a `kagari_source::source::SourceFile`. Its text is already valid UTF-8
 because it is a Rust string. No grammar or semantic validity is assumed.
 Token and diagnostic spans use byte offsets into that text. Syntax does not
 attach file/revision identities to its result; the caller keeps that association.

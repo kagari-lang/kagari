@@ -132,6 +132,7 @@ impl SourceFile {
                 .copies
                 .iter()
                 .any(|copy| local.start < copy.local.end && copy.local.start < local.end)
+            || source.id != source.origin
             || !source.copies.is_empty()
         {
             return Err("source copy must be exact, disjoint and directly authored");
@@ -209,6 +210,15 @@ mod tests {
             view.add_copy(Span::new(0, 4), original.clone(), Span::new(12, 15))
                 .is_err()
         );
+        let inline = Arc::new(SourceFile::inline_module(
+            &original,
+            "nested",
+            original.text().to_owned(),
+            FileId::fresh(),
+            authored,
+        ));
+        let mut other_view = SourceFile::new("other.kgr", view.text());
+        assert!(other_view.add_copy(local, inline, authored).is_err());
         let mut stale = location;
         stale.revision = Revision(1);
         assert!(view.local_range(stale).is_none());

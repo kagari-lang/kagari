@@ -36,14 +36,12 @@ decision that every trait needs a compiler language role.
 | Parsing | FromStr |
 | Construction and aggregation | FromIterator, Sum, Product |
 
-The [queued ownership cleanup](../architecture.md#contract-and-common-responsibility-cleanup)
-moves ordinary collection/library declarations to native-library ownership and
-keeps actual language dependencies explicit. Its
-[proposed partition](../architecture.md#proposed-core-trait-inventory) selects
-24 language items and 14 ordinary native-library traits, retaining mandatory
-availability of all 38. Core source and role collection are implemented; ordinary
-native declaration ingestion and collection-policy replacement are AC03 work. Algorithms and additional
-container implementations remain separate from trait declarations.
+The [ownership partition](../architecture.md#core-trait-inventory) has 24
+source-authored language items and 14 Rust-authored native-library traits,
+retaining mandatory availability of all 38. Parser/HIR analyzes both ordinary
+handwritten and generated declarations; checked role identities select syntax
+semantics, and library policy follows installed declaration/implementation records.
+Algorithms and additional containers remain separate from trait declarations.
 Try and FromResidual are not added; Option/Result `?` keeps its current semantics.
 
 ## Core Builtin Types

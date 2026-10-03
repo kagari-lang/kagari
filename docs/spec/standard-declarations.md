@@ -3,7 +3,8 @@
 Kagari declarations describe Kagari types, functions, traits and implementations.
 Rust entries implement those declarations. Registration is explicit: a Rust
 function's signature does not define a Kagari API, and no declaration attribute
-macro or compiled standard-library binary is involved.
+macro is involved. A bounded checked product of handwritten core trait source
+supplies the 24 language declarations to source-free consumers.
 
 ## Ownership and installation
 
@@ -113,7 +114,8 @@ factory and a non-sequence object with an inherent method and retained callback.
 
 ## Checked executable contracts
 
-Source analysis consumes registered declaration records directly. Lowering carries
+Source analysis parses native-generated declaration views through ordinary
+declaration analysis, then attaches checked registration metadata. Lowering carries
 provider-qualified native imports with concrete types, signatures, bounds and
 selected callable dependencies. Portable validation proves those facts against
 the executable dependency closure. Artifact loading checks the installed entry
@@ -196,7 +198,10 @@ and documentation. It is not executable source, a second signature authority or
 an installation trigger. The compiler parses/lowers this view through ordinary
 declaration machinery and checks non-trivia correspondence with registration
 before attaching native storage, bindings and default metadata. Declaration
-locations and docs come from the same records used by compilation. The generated views include library-owned types,
+locations and docs come from the same records used by compilation. Core traits
+and their docs originate in handwritten `library/core/language.kgr`; copied view
+fragments retain exact authored locations and snapshot-owned original text.
+Other generated views include library-owned types,
 inherent methods and trait impl methods, including MapIterator.next.
 
 Behavioral and tooling coverage lives in native_provider_reset,

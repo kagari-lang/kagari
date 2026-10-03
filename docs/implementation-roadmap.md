@@ -1,7 +1,8 @@
 # Kagari Implementation Roadmap
 
-This is the single queue and progress owner for pending work. AC01-AC05 are active
-under the continuous implementation goal. AC01-AC04 are complete; AC05 is in progress. Other queued proposals are outside this goal.
+This is the single queue and progress owner for pending work. AC01-AC05 are
+complete, including final replacement acceptance under the continuous goal.
+Other queued proposals remain outside that goal.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -14,14 +15,14 @@ and String APIs, scoped definition identities, installation-based access and
 cooperative cancellation are implemented. Physical ABI and semantic contracts are
 separate. Core trait source and checked language-role collection are implemented;
 native library ingestion and declaration-driven policy selection are implemented.
-Source/tooling ownership and installation checks are integrated; final replacement
-acceptance is AC05 work.
+Source/tooling ownership, installation checks and final replacement acceptance
+are complete.
 
 Immutable preparation, foundation registration reuse and shared interface metadata
 are implemented. Remaining measured costs and reproduction commands live in
 [performance measurements](performance-baseline.md). No carried build/test error
-is recorded by the last implementation checkpoint; this documentation edit does
-not rerun or renew that acceptance.
+remains after AC05 final integration. Performance changes from this cleanup
+have not been measured.
 
 ## Contract and common responsibility cleanup
 
@@ -29,14 +30,14 @@ Scope: narrow `kagari-abi` plus source-independent `kagari-contract`.
 Syntax-required traits enter ordinary source analysis with language-role bindings;
 collection and standard-library declarations remain Rust-authored native libraries
 generating `.kgr` for compiler/LSP analysis. Library catalogs belong to those owners,
-not generic compiler or executable models. The proposed partition is 24 core
+not generic compiler or executable models. The implemented partition is 24 core
 language items (21 syntax consumers plus Eq/Hash/Ord implicit value semantics)
 and 14 ordinary native-library traits; all 38 remain mandatory.
-The [architecture proposal](architecture.md#contract-and-common-responsibility-cleanup)
-defines the [trait inventory](architecture.md#proposed-core-trait-inventory),
+The [architecture](architecture.md#contract-and-common-responsibility-cleanup)
+defines the [trait inventory](architecture.md#core-trait-inventory),
 [ABI data inventory](architecture.md#narrow-abi-data-inventory), authority,
 analysis/registration flows, syntax bridges and dependency rules.
-Implementation is active; core source and language-role parser/HIR support are complete.
+AC01-AC05 implementation and acceptance are complete.
 
 Agreed priority: complete **AC01, the ABI/contract split, first**. Source-authored
 core traits and `#[lang]` handling follow in AC02; native-generated declaration
@@ -121,7 +122,7 @@ track; that scope does not require a separate approval for each phase:
   host storage restrictions. Review RuntimePrimitive entries as execution helpers,
   not trait definitions. Preserve interpreter/native backend behavior, roots,
   cancellation and generation-pinned reload. Do not add general downcast support.
-- [ ] **AC05: Final integration and replacement acceptance.** Resolve all carried
+- [x] **AC05: Final integration and replacement acceptance.** Resolve all carried
   errors, update affected artifacts once at a coherent checkpoint, remove retired
   catalogs/paths and verify native source/record and language product correspondence.
   Review handwritten imports, visibility, module ownership and effective LOC.
@@ -203,9 +204,9 @@ The AC01 module/consumer audit is:
 | Starting `language`, `language/catalog`, `language/primitive` | Contract core roles/product/implicit semantics; AC03 moves Rust registration catalog to `library/catalog` and library capabilities/adapters into checked records |
 | `declaration/render` | HIR tooling; no executable consumer or ABI dependency on generated source |
 | Common `identity` and its map/metadata/reference/table modules | Portable identity machinery stays common; FileId/Revision/FileSpan source records move to source ownership in AC04 |
-| Common `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Source/tooling ownership move in AC04; shared span coordinates remain available to executable debug metadata |
+| Common `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Source/tooling ownership moves to kagari-source in AC04; shared span coordinates remain available to executable debug metadata |
 | Common `arithmetic`, `integer`, `numeric`, `cancellation`, `decode_limits` | Shared mechanisms stay common; numeric behavior keeps one implementation |
-| Common `host_interface`, `collection`, `range` | Portable host schema/access and range shape facts stay source-independent; AC04 reviews host schema ownership with its executable consumers |
+| Common `host_interface`, `collection`, `range` | Portable host schema/access and range shape facts stay source-independent; AC04 confirms host schema ownership with its executable consumers |
 
 `ModuleDecl` owns authoring registrations (documentation, exports, implementation
 templates and callback requirements); `ModuleContract` owns the serialized checked
@@ -226,7 +227,7 @@ validation; CollectionAccess keeps readonly/writable host/reference checks;
 NativeStorageLayout keeps registered payload capabilities and parameter validation.
 NativeTypeConstructor and HIR NativeTypeKind currently also recognize default
 containers and cursor families; their generic library-policy consumers belong to
-AC03. RuntimePrimitive describes checked execution helpers, reviewed in AC04.
+AC03. RuntimePrimitive describes checked execution helpers, reviewed and retained in AC04.
 Relocation does not count as replacing these policy consumers.
 
 AC01 acceptance passes: workspace all-target compilation; nine production graphs
@@ -321,6 +322,42 @@ private-test owning-module mistake are resolved; no carried error remains.
 Command logs are under `target/ac-cleanup/ac04-*.log`. AC05 owns the complete
 workspace/behavior/feature/backend checks and coherent executable fixture updates.
 
+AC05 resolves the source-free SDK error boundary exposed by the standalone
+artifact-only consumer: source diagnostics, labels and the Diagnostics variant are
+available with `source`; executable/native error APIs remain independent of the
+frontend. SDK diagnostic mapping preserves authored provenance. Provenance checks reject mismatched revisions, inline/nonphysical origins,
+rewritten text and overlapping fragments. README, architecture and specifications now describe the implemented
+owners and the 24/14 inventory.
+
+Final acceptance passes on the final source state:
+
+- `cargo test --workspace`: 1637 tests pass across 95 target summaries, including
+  doc tests; zero failures. The one ignored test is the existing manual sorting
+  performance measurement, outside this functional acceptance.
+- The required complete language-contract matrix passes: role/product checks,
+  generics/associated members, conversions/numerics/formatting, native view
+  correspondence, collections/ranges, source-free linking/reload, conformance,
+  GC ownership, sessions and scoped host borrows. Native boundary covers 71 tests;
+  native/Cranelift preparation and backend tests preserve actual invocation checks.
+- `uv run python scripts/check_features.py`: all nine production boundaries and
+  ABI/contract build graphs pass. Independent artifact-only/source/native/
+  source+native consumers pass 6/7/8/9 tests; source-free Cranelift compilation
+  executes real native code. The disposable feature artifact is regenerated from
+  current source; no old reader or ordinary format/ABI version bump is introduced.
+- `cargo test -p kagari-cli --features jit`: all five tests pass.
+- Checked core source/product regeneration comparison, structure (733 Rust files,
+  zero violations/exceptions), formatting, workspace all-target strict Clippy,
+  local documentation targets and diff checks pass.
+
+The initial standalone SDK compile error is fixed. The first workspace run's SDK
+doctest E0463 occurred during dependency rebuilding on changing source; the final
+complete rerun passes, including that doc target. No carried build/test error or
+blocking issue remains. Final logs are under `target/ac-cleanup/ac05-*.log`; durable
+acceptance is this checkpoint and its `Roadmap-Step: AC05` commit. Existing scalar
+native support, explicit representation/syntax bridges and the finite library
+surface are preserved; broader backend/GC expansion and performance claims remain
+outside this goal.
+
 Acceptance includes both sides of the boundary: source-defined operator traits,
 native-generated library traits and application traits use the same record/selection
 machinery; malformed, duplicate, missing or counterfeit language roles are rejected;
@@ -377,19 +414,19 @@ the audit finds a conflict with the proposed trait partition or an unsupported
 adaptation requirement, document the evidence here before changing the design.
 Do not recover missing decisions by guessing what a previous conversation meant.
 
-Current code entrypoints, to be updated when their owners move:
+Current implementation entrypoints:
 
-| Work | Starting locations |
+| Work | Locations |
 | --- | --- |
 | ABI/contract model and verification | [Contract root](../crates/kagari-contract/src/lib.rs), `types/`, `callable/`, `layout.rs`, `slots.rs`, `contracts.rs`, `native_import/` under that crate |
 | Physical representation and native boundary | [Value representations](../crates/kagari-abi/src/representation.rs), [native calls](../crates/kagari-abi/src/native_call.rs), [native products](../crates/kagari-abi/src/native.rs) |
-| Existing foundation definitions and generated source | [Language catalog](../crates/kagari-contract/src/library/catalog/mod.rs), [native declarations](../crates/kagari-contract/src/declaration/mod.rs), [source renderer](../crates/kagari-hir/src/native/render.rs) |
+| Existing foundation definitions and generated source | [Native library catalog](../crates/kagari-contract/src/library/catalog/mod.rs), [native declarations](../crates/kagari-contract/src/declaration/mod.rs), [source renderer](../crates/kagari-hir/src/native/render.rs) |
 | Attribute analysis and language selection | [Syntax attributes](../crates/kagari-syntax/src/ast/item.rs), [HIR entry](../crates/kagari-hir/src/lib.rs), HIR `lower/`, `language/`, `typeck/` and compiler `source/lower/` |
-| Installation and executable consumers | Runtime `native/`, `loading.rs`, `backend.rs` and `backend/native.rs`; MIR, bytecode, VM, codegen and embed consumers of the old ABI model |
-| Common ownership and dependency validation | [Common root](../crates/kagari-common/src/lib.rs), workspace/crate manifests and [standalone feature checker](../scripts/check_features.py) |
+| Installation and executable consumers | Runtime `native/`, `loading.rs`, `backend.rs` and `backend/native.rs`; MIR, bytecode, VM, codegen and embed consumers of the checked contract model |
+| Common ownership and dependency validation | [Common root](../crates/kagari-common/src/lib.rs), [source root](../crates/kagari-source/src/lib.rs), workspace/crate manifests and [standalone feature checker](../scripts/check_features.py) |
 
-Extend check_features.py in AC01 to cover the new contract crate's production
-and build dependency boundaries, and reject an ABI-to-contract edge. A workspace
+check_features.py covers contract production/build dependency boundaries and
+rejects an ABI-to-contract edge. A workspace
 test can unify dev features; it does not alone prove a source-free consumer.
 
 Reuse existing focused coverage rather than inventing structural tests that only
@@ -423,8 +460,7 @@ The [feature fixture](../crates/kagari-embed/tests/fixtures/README.md) is dispos
 and can be recreated from checked-in source; the feature checker also regenerates
 it before its standalone matrix. Generate it before running source-free tests
 directly. Use the final commands in [verification policy](#execution-and-verification-policy)
-in addition to this matrix. These commands are future implementation checks,
-not a claim that they ran during documentation preparation.
+in addition to this matrix. The AC05 ledger records the actual final runs.
 
 A self-contained full-track goal request is:
 

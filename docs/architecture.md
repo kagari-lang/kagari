@@ -261,43 +261,29 @@ records those gates. See [JIT](spec/jit.md) and [backend contract](spec/codegen-
 
 ## Contract and common responsibility cleanup
 
-Status: queued design; implementation has not been activated. Retain narrow
-`kagari-abi` for binary interfaces and extract source-independent semantic contracts
-into `kagari-contract`. Separate language-required declarations from ordinary
-native libraries. This replaces the all-source foundation proposal; cleaning ABI
-does not require making every trait source-authored.
+AC01-AC05 implement and validate this partition.
+`kagari-abi` owns physical binary interfaces; `kagari-contract` owns portable
+semantic contracts. Core declarations come from handwritten language source,
+while ordinary native-library declarations and Rust implementations retain their
+own authority. Source/tooling utilities belong to `kagari-source`.
 
 ### Agreed implementation order
 
-Separate `kagari-contract` from `kagari-abi` first. This boundary and sequencing
-are agreed; implementation remains queued. AC01 owns the crate/data/import split
-and its affected consumers. It does not depend on implementing `#[lang]`, parsing
-foundation trait source or changing how native libraries generate declarations.
+The implemented checkpoints separate ABI/contract first (AC01), analyze source
+roles next (AC02), integrate native-generated views and declaration-driven library
+policy (AC03), then migrate loading/tooling/common ownership (AC04). The roadmap
+records final acceptance and phase commits.
 
-Contract owns the common structures for types, generic binders/bounds, trait/impl
-and function declarations, logical layouts, interface/call records and validation.
-ABI owns lowered representations and physical runtime/codegen interfaces. The
-dependency is `contract -> abi`; ABI must not resolve script types or know Add,
-List or ArrayList type arguments.
-
-A generic TraitDef record belongs to contract. The particular Add or List
-definition belongs to its language-foundation or native-library owner. During
-AC01 those definitions can keep their existing Rust authority and recognition
-behavior, outside ABI. Moving the data does not claim completion of the later
-compiler-wide library-recognition cleanup.
-
-After AC01 builds and passes its boundary checks, AC02 introduces source-authored
-core traits and language-role selection; AC03 integrates native-authored library
-declarations and replaces generic collection/conversion recognition. Common's
-broader ownership cleanup remains AC04 except for dependencies that must move to
-make the first split acyclic. No language behavior changes are required by AC01.
-When the full track is activated as a goal, continue through AC01-AC05 without
-phase-by-phase approval, with one validated commit per phase under the roadmap's
-[continuous execution policy](implementation-roadmap.md#continuous-goal-execution-and-phase-commits).
+Contract owns types, generic binders/bounds, trait/impl and function declarations,
+logical layouts, interface/call records and validation. ABI owns lowered
+representations and physical runtime/codegen interfaces. The dependency is
+`contract -> abi`; ABI never resolves script types or owns Add/List declarations.
+A generic TraitDef record belongs to contract; its particular Add or List
+definition belongs to language source or the native library respectively.
 
 ### Ownership boundaries
 
-| Responsibility | Proposed owner |
+| Responsibility | Implemented owner |
 | --- | --- |
 | Physical values, calling conventions, helper symbols/signatures, native entries and physical root locations | Narrow ABI; no semantic catalog, frontend or runtime implementation dependency |
 | Semantic types/declarations, logical layouts, imports, interface records and verification | Contract; source-independent, depending on ABI where physical facts are needed |
@@ -310,7 +296,7 @@ phase-by-phase approval, with one validated commit per phase under the roadmap's
 
 Use short, meaning-based names with module ownership, following rustc's distinction
 between types, declarations/definitions, signatures and physical calling data.
-Remove Abi prefixes/suffixes from semantic records during AC01. Do not replace
+AC01 removes Abi prefixes/suffixes from semantic records. Do not replace
 them with a blanket Contract prefix/suffix. Keep `kagari-abi` as the physical crate
 name; a crate name need not be repeated in every type it owns.
 
@@ -322,7 +308,7 @@ and [ArgAbi](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callco
 describe native argument passing. Borrow the naming distinctions, not rustc's
 interning, lifetimes, type system or record layouts.
 
-| Current name | Target name | Meaning |
+| Retired name | Implemented name | Meaning |
 | --- | --- | --- |
 | AbiType | Ty | Semantic type expression |
 | NominalAbiType | NominalTy | Applied nominal type, including its arguments and associated bindings |
@@ -341,11 +327,10 @@ interning, lifetimes, type system or record layouts.
 | ModuleAbi | ModuleContract | Executable module's carried declaration/verification metadata |
 
 ModuleContract names a specific responsibility, not a suffix applied to every
-semantic record. Reconcile it with native authoring's ModuleDecl before selecting
-the final representation; do not preserve two equivalent models just for these
-names. Keep ImplDecl and existing meaningful names such as TraitContract.
-PublicAbiItemBuffer is currently only a Vec alias; migrate uses to Vec<PublicItem>
-rather than carrying that alias forward.
+semantic record. ModuleDecl owns native authoring registrations, documentation and templates;
+ModuleContract carries the checked executable subset. Their responsibilities differ.
+ImplDecl and TraitContract retain their existing meaningful names;
+PublicAbiItemBuffer is removed in favor of Vec<PublicItem>.
 
 NominalTy is not renamed TraitRef because it also represents struct/enum instances
 and associated bindings. FnDecl is not FnSig because it carries names, binders,
@@ -357,8 +342,7 @@ This naming task does not introduce either new wrapper solely to imitate rustc.
 ABI keeps descriptive names such as NativeType, NativeHelperSignature, JitValue
 and ExecutableEntryPoint. Apply representation qualifiers where they distinguish
 actual contracts. Migrate direct consumers without forwarding aliases or broad
-re-exports. The table is the target for queued implementation; current code and
-implemented specifications may still use the old names until that migration.
+re-exports. The table records the completed migration; no compatibility aliases are retained.
 
 ### Language items and ordinary trait records
 
@@ -367,9 +351,9 @@ attribute; HIR collects a role-to-declaration ID and uses normal checked trait
 selection. Executable consumers use selected callable identities/signatures/witnesses.
 Ordinary library traits require no global protocol enum.
 
-#### Proposed core trait inventory
+#### Core trait inventory
 
-The proposed target retains 24 of the current 38 traits as language items:
+The installed foundation retains 24 of its 38 traits as language items:
 21 have direct syntax consumers and three support existing implicit value
 implementations. Their declarations are ordinary foundation source, analyzed
 through parser/HIR. Language roles select those declarations; builtin or native

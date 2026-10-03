@@ -8,13 +8,17 @@ use kagari_runtime::{
     reload::ReloadValidationError as RuntimeReloadValidationError,
 };
 #[cfg(feature = "source")]
-use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
-use kagari_source::{diagnostic::Severity, identity::FileSpan};
+use kagari_source::{
+    diagnostic::{Diagnostic, Severity},
+    identity::FileSpan,
+    source::SourceFile,
+};
 use kagari_vm::error::VmError;
 #[cfg(feature = "source")]
 use smallvec::SmallVec;
 use std::sync::Arc;
 
+#[cfg(feature = "source")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingDiagnostic {
     pub severity: Severity,
@@ -25,16 +29,10 @@ pub struct EmbeddingDiagnostic {
     pub labels: Vec<DiagnosticLabel>,
 }
 
+#[cfg(feature = "source")]
 impl EmbeddingDiagnostic {
-    #[cfg(feature = "source")]
     pub(crate) fn from_diagnostic(diagnostic: Diagnostic, source: &SourceFile) -> Self {
-        let span = diagnostic
-            .span
-            .and_then(|span| source.span(span))
-            .map(|mut span| {
-                span.file = source.origin_id();
-                span
-            });
+        let span = diagnostic.span.and_then(|span| source.span(span));
         Self {
             severity: diagnostic.severity,
             code: diagnostic.kind.code().to_owned(),
@@ -52,6 +50,7 @@ impl EmbeddingDiagnostic {
     }
 }
 
+#[cfg(feature = "source")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiagnosticLabel {
     pub span: FileSpan,
@@ -118,6 +117,7 @@ pub enum EmbeddingError {
         message: String,
     },
     Cancelled,
+    #[cfg(feature = "source")]
     Diagnostics {
         diagnostics: Vec<EmbeddingDiagnostic>,
     },
@@ -155,6 +155,7 @@ impl EmbeddingError {
         match self {
             Self::Source { .. } => "KG_SOURCE_INPUT".to_owned(),
             Self::Cancelled => "KG_ANALYSIS_CANCELLED".to_owned(),
+            #[cfg(feature = "source")]
             Self::Diagnostics { diagnostics } => diagnostics
                 .first()
                 .map(|diagnostic| diagnostic.code.clone())
