@@ -248,6 +248,31 @@ into `kagari-contract`. Separate language-required declarations from ordinary
 native libraries. This replaces the all-source foundation proposal; cleaning ABI
 does not require making every trait source-authored.
 
+### Agreed implementation order
+
+Separate `kagari-contract` from `kagari-abi` first. This boundary and sequencing
+are agreed; implementation remains queued. AC01 owns the crate/data/import split
+and its affected consumers. It does not depend on implementing `#[lang]`, parsing
+foundation trait source or changing how native libraries generate declarations.
+
+Contract owns the common structures for types, generic binders/bounds, trait/impl
+and function declarations, logical layouts, interface/call records and validation.
+ABI owns lowered representations and physical runtime/codegen interfaces. The
+dependency is `contract -> abi`; ABI must not resolve script types or know Add,
+List or ArrayList type arguments.
+
+A generic TraitDecl record belongs to contract. The particular Add or List
+definition belongs to its language-foundation or native-library owner. During
+AC01 those definitions can keep their existing Rust authority and recognition
+behavior, outside ABI. Moving the data does not claim completion of the later
+compiler-wide library-recognition cleanup.
+
+After AC01 builds and passes its boundary checks, AC02 introduces source-authored
+core traits and language-role selection; AC03 integrates native-authored library
+declarations and replaces generic collection/conversion recognition. Common's
+broader ownership cleanup remains AC04 except for dependencies that must move to
+make the first split acyclic. No language behavior changes are required by AC01.
+
 ### Ownership boundaries
 
 | Responsibility | Proposed owner |
@@ -413,6 +438,13 @@ method enum. Audit storage layouts, CollectionAccess, standard enums and
 RuntimePrimitive separately: they may carry required tracing/access/operation facts.
 Retain those at their consumer layer; do not erase host restrictions or replace
 every engine instruction merely to move declaration ownership.
+
+Existing range syntax remains supported, including `1..3`, `1..=3` and open-bound
+forms. `1..=3` constructs RangeInclusive<i32> under ordinary integer inference;
+its lazy iteration includes both endpoints through Iterable/Iterator. The compiler
+needs range construction/type bindings, while RangeBounds describes the resulting
+value's bounds through a registered implementation. Moving that trait to native
+library ownership neither removes range syntax nor requires a RangeBounds lang item.
 
 ### Declaration preparation and dependency direction
 

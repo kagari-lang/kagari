@@ -35,6 +35,12 @@ defines the [trait inventory](architecture.md#proposed-core-trait-inventory),
 analysis/registration flows, syntax bridges and dependency rules.
 Implementation remains queued; no new parser support is claimed.
 
+Agreed priority: complete **AC01, the ABI/contract split, first**. Source-authored
+core traits and `#[lang]` handling follow in AC02; native-generated declaration
+integration and collection-policy replacement follow in AC03. This documentation
+agreement does not activate Rust implementation. See the
+[implementation order](architecture.md#agreed-implementation-order).
+
 Finite scope: separate physical ABI from portable semantic contracts, replace
 compiler-wide library recognition with normal declaration/trait analysis, collect
 and validate actual language roles, connect generated native declarations to their
@@ -63,14 +69,24 @@ Proposed phases, in order, to be activated explicitly for implementation:
   Classify NativeTypeKind/NativeTypeConstructor,
   StandardEnum, CollectionAccess and storage layout consumers as actual syntax
   bridges, library policy or independently required representation/validation.
-  Record the bounded retained exceptions and their owners; do not remove every
-  representation tag or move an enum while keeping its generic consumer matches.
-- [ ] **AC02: Analyze syntax-required traits and collect language roles.**
+  Record bounded retained exceptions and their owners. Preserve independently
+  required representation tags; relocating an enum does not complete the later
+  replacement of its generic library-policy consumers.
+  AC01 acceptance: affected consumers build against the new owners; ABI imports
+  no semantic type/declaration model, foundation catalog or source renderer;
+  contract remains source-independent and all existing loading checks survive.
+  Retain current Rust-authored foundation definitions and language behavior outside
+  ABI until their owning later phase. Implementing `#[lang]`, moving traits into
+  source, replacing library recognition and broad common cleanup are not AC01
+  prerequisites. Carried library recognition must be recorded for AC02/AC03,
+  rather than reported as a completed policy migration.
+- [ ] **AC02: Analyze core language traits and collect language roles.**
   Parse/lower the new attribute; collect declaration IDs after headers are known,
   before semantic rules need them. Validate role uniqueness, origin, required
   declaration/member shapes and missing required roles. Collect headers before
   checking role-dependent bodies without injecting duplicate foundation records.
   The parser recognizes declarations/attributes; HIR owns semantic selection.
+  Cover both the 21 syntax roles and the three retained implicit-value roles.
   Exercise a source-declared addition trait, operator selection and a same-named
   application trait; add no second trait model or compiler-wide string matching.
 - [ ] **AC03: Analyze native-generated declarations and localize collection policy.**
@@ -123,6 +139,8 @@ construction/mutation failures. Ordinary library registration must not depend on
 matching a central collection enum. A checked signature must not be treated as proof
 of a trusted Rust body's effects. ABI must have no dependency on semantic type
 records, source generation or a generated trait catalog.
+Preserve existing `..`/`..=` range syntax, inclusive iteration and registered
+RangeBounds implementations independently of the trait's declaration owner.
 
 No new traits, containers, library algorithms, blanket standard-enum/storage
 instruction replacement, execution-policy redesign, general downcasting,
