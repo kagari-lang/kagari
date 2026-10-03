@@ -8,7 +8,7 @@ use crate::{
         reuse::BodyReuse,
     },
 };
-use kagari_common::source::SourceFile;
+use kagari_common::{identity::map::DefinitionContext, source::SourceFile};
 
 use kagari_syntax::parser::parse_module;
 
@@ -46,6 +46,7 @@ pub fn check_module(
             hosts: names.hosts.clone(),
             imports: names.imports.clone(),
         },
+        &DefinitionContext::new().unwrap(),
         &Default::default(),
     )
     .with_bindings(lowered, names, &Default::default());

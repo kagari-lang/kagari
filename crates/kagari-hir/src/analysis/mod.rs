@@ -31,7 +31,11 @@ use kagari_common::{
         HostFunctionDeclaration,
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
     },
-    identity::{FileId, Revision, map::DefinitionMap},
+    identity::{
+        FileId, Revision,
+        map::{DefinitionContext, DefinitionMap},
+        table::DefinitionTable,
+    },
     source::SourceFile,
     source_database::SourceSnapshot,
 };
@@ -696,6 +700,7 @@ fn member_receiver_type_in(
 
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    definitions: DefinitionContext,
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
@@ -714,6 +719,7 @@ pub struct AnalysisDatabase {
 impl Default for AnalysisDatabase {
     fn default() -> Self {
         Self {
+            definitions: DefinitionContext::new().expect("analysis definition context exhausted"),
             parse_limits: Default::default(),
             const_limits: Default::default(),
             max_semantic_diagnostics: 1_000,
@@ -873,6 +879,7 @@ impl AnalysisDatabase {
             self.files = files.clone();
         }
         Ok(AnalysisSnapshot {
+            definitions: self.definitions.snapshot(),
             signatures: signature_snapshot,
             revision: source.revision(),
             host_revision: self.hosts.revision(),
@@ -884,6 +891,7 @@ impl AnalysisDatabase {
 
 #[derive(Debug, Clone)]
 pub struct AnalysisSnapshot {
+    definitions: DefinitionTable,
     signatures: SignatureSnapshot,
     revision: Revision,
     host_revision: u64,
@@ -892,6 +900,12 @@ pub struct AnalysisSnapshot {
 }
 
 impl AnalysisSnapshot {
+    /// An immutable prefix of the database's explicit identity context.
+    /// Local handles additionally retain their analysis/arena ownership.
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+
     /// Select the innermost inline module at an editor position in a physical file.
     pub fn analysis_at(&self, file: FileId, offset: usize) -> Option<&Arc<FileAnalysis>> {
         let physical = self.file(file)?;

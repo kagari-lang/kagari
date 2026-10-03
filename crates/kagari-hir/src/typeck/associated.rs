@@ -804,7 +804,10 @@ mod tests {
     use super::*;
     use crate::{declare_analysis, host::HostDeclarations, lower::lower_module};
     use kagari_abi::language::{self as standard_traits, Protocol};
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    use kagari_common::{
+        identity::map::DefinitionContext,
+        source_database::{SourceDatabase, SourceLayer},
+    };
     use std::sync::Arc;
 
     #[test]
@@ -827,6 +830,7 @@ mod tests {
             lowered,
             HostDeclarations::empty(),
             Default::default(),
+            &DefinitionContext::new().unwrap(),
             &Default::default(),
         );
         let declaration = declared

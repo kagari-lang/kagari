@@ -20,7 +20,7 @@ use declarations::Declarations;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     diagnostic::{Diagnostic, DiagnosticKind, Severity},
-    identity::MAX_IDENTITY_PATH_SEGMENTS,
+    identity::{MAX_IDENTITY_PATH_SEGMENTS, map::DefinitionContext},
     source::SourceFile,
     source_database::SourceSnapshot,
     span::Span,
@@ -275,6 +275,7 @@ fn declare_analysis(
     lowered: Arc<lower::LoweredModule>,
     hosts: Arc<host::HostDeclarations>,
     imports: Arc<imports::ModuleImports>,
+    definitions: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> DeclaredAnalysis {
     let mut names = collect_declarations(&lowered, hosts, imports, cancel);
@@ -286,7 +287,8 @@ fn declare_analysis(
                 limit: MAX_IDENTITY_PATH_SEGMENTS,
             }));
     }
-    let declarations = Declarations::collect_named(&lowered.source, &lowered, &names.facts, cancel);
+    let declarations =
+        Declarations::collect_named(&lowered.source, &lowered, &names.facts, definitions, cancel);
     DeclaredAnalysis {
         lowered,
         names,

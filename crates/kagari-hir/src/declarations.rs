@@ -4,7 +4,8 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, FileSpan,
-        table::{DefinitionId, DefinitionTable, DefinitionTableBuilder},
+        map::DefinitionContext,
+        table::{DefinitionId, DefinitionTable},
     },
     source::SourceFile,
     span::Span,
@@ -74,6 +75,7 @@ pub struct Declarations {
     imports: Arc<ModuleImports>,
     analysis: AnalysisId,
     definitions: DefinitionTable,
+    context: DefinitionContext,
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
     sites: HashSet<DeclarationKey>,
@@ -260,6 +262,7 @@ impl Declarations {
         source: &SourceFile,
         lowered: &LoweredModule,
         names: &DeclarationNames,
+        context: &DefinitionContext,
         cancel: &CancellationToken,
     ) -> Self {
         let analysis = AnalysisId(
@@ -276,9 +279,8 @@ impl Declarations {
                 hosts: names.hosts.clone(),
                 imports: names.imports.clone(),
                 analysis,
-                definitions: DefinitionTableBuilder::new()
-                    .expect("definition table identity exhausted")
-                    .freeze(),
+                definitions: context.snapshot(),
+                context: context.clone(),
                 targets: HashMap::new(),
                 identities: HashMap::new(),
                 sites: HashSet::new(),
@@ -545,8 +547,7 @@ impl Declarations {
                 .expect("analysis identity exhausted"),
         );
         let analysis = self.analysis;
-        let mut definitions =
-            DefinitionTableBuilder::new().expect("definition table identity exhausted");
+        let definitions = self.context.clone();
         let map = &lowered.source_map;
         let mut builder = Builder {
             source: &lowered.source,
@@ -567,7 +568,7 @@ impl Declarations {
                 unreachable!("body owner is a definition")
             };
             let body = definitions
-                .intern_path(&body)
+                .intern(&body)
                 .expect("validated source definition path");
             for binding in &scope.bindings {
                 if cancel.check().is_err() {
@@ -591,7 +592,7 @@ impl Declarations {
                 );
             }
         }
-        builder.result.definitions = definitions.freeze();
+        builder.result.definitions = definitions.snapshot();
         builder.result
     }
 }

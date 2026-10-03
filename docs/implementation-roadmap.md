@@ -230,6 +230,16 @@ still retain authoring paths. Finish those boundaries before the final feature/b
 allocation/timing measurements. The parameterized authoring model is an explicit
 input boundary, not a second semantic implementation or a compatibility reader.
 
+ID02 analysis ownership checkpoint: each analysis database now owns an explicit
+append-only definition context. Declaration/body queries use that context, while
+published complete snapshots retain immutable checked prefixes. Source files in
+one analysis dependency closure share the scope; independent databases do not.
+Binding analysis IDs, arena ownership and revision/contract invalidation remain
+independent checks. The foreign-binding regression now uses an independent database
+rather than a sibling file in the same closure. All 401 HIR library tests and the
+HIR all-target check pass; structure checks still report 697 files and zero findings.
+This ownership seam does not yet compact named HIR/type records. No carried error.
+
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
 BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,

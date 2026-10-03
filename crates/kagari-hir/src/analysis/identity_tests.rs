@@ -416,14 +416,12 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         .declarations
         .definitions();
     assert_eq!(&definitions.resolve(binding.body).unwrap().to_path(), owner);
-    let foreign = first
-        .file(b)
-        .unwrap()
-        .result()
-        .facts()
-        .declarations
-        .definitions();
-    assert!(foreign.resolve(binding.body).is_err());
+    let independent = snapshot(&mut AnalysisDatabase::default(), &sources);
+    assert!(independent.definitions().resolve(binding.body).is_err());
+    assert_eq!(
+        first.definitions().resolve(binding.body).unwrap().to_path(),
+        *owner
+    );
     assert_eq!(first.declaration(&function_b.id).unwrap().location.file, b);
     let unchanged = snapshot(&mut db, &sources);
     assert_eq!(unchanged.declaration(&binding_a.id), Some(&binding_a));

@@ -231,7 +231,13 @@ impl AnalysisDatabase {
             let file = if let Some(old) = old {
                 old.clone()
             } else {
-                let declared = declare_analysis(lowered, self.hosts.clone(), imports, cancel);
+                let declared = declare_analysis(
+                    lowered,
+                    self.hosts.clone(),
+                    imports,
+                    &self.definitions,
+                    cancel,
+                );
                 let mut diagnostics = declared.names.diagnostics.clone();
                 diagnostics.extend(parsed.diagnostics().iter().cloned());
                 Arc::new(FileDeclarations {
