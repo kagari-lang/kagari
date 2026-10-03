@@ -67,7 +67,7 @@ pub(crate) struct NativeRegistry {
     pub(crate) catalog: DeclarationCatalog,
 }
 impl NativeRegistry {
-    pub(crate) fn install(&mut self, registration: BindingRegistration) -> NativeResult<()> {
+    pub(crate) fn install(&mut self, registration: Rc<BindingRegistration>) -> NativeResult<()> {
         let invalid = || RuntimeError::metadata_conflict("invalid or duplicate native binding");
         let declaration = registration.declarations.first().ok_or_else(invalid)?;
         let CallableImplementation::Native(binding) = &declaration.function.implementation else {
@@ -111,7 +111,7 @@ impl NativeRegistry {
             catalog.insert_declaration(declaration.clone())?;
         }
         self.catalog = catalog;
-        self.entries.insert(id, Rc::new(registration));
+        self.entries.insert(id, registration);
         Ok(())
     }
     pub(crate) fn link(

@@ -3,6 +3,55 @@
 These reproducible workloads establish a baseline for R18. The figures are
 observations on one machine, not performance guarantees.
 
+## Runtime construction optimization, 2026-10-03
+
+TO01 uses the diagnosis below as its baseline. It retains exact per-binding
+requirements while sharing a module-level dependency traversal, stores checked
+native registration/catalog/storage metadata by shared ownership, and reuses
+the two fixed foundation modules at host-thread lifetime. Runtime-local heap,
+host, resource and generation state and all installation/link checks remain.
+No test route or assertion was removed; no build profile or artifact version
+changed. SDK verification and serial test-matrix organization remain separate.
+
+Reproduce current construction timing with
+`cargo run -p kagari-runtime --example runtime_construction`. Its first sample
+includes cold thread-local module creation; the next five create fresh runtimes
+using those same immutable modules. The interval includes Runtime::new only,
+excluding runtime destruction, Rust compilation and reporting.
+
+Same Windows 11/i9-12900K/63.7 GiB/rustc 1.99.0/LLVM 23.1.1 environment as below,
+default target and Cargo parallelism, O1 with debug information, one measuring
+thread, warm Rust build caches and no concurrent agent build/test during timed
+execution. The new example uses the runtime's default features; the baseline
+SDK test uses source/native features, with the same production Runtime behavior.
+The preserved baseline executable was statically built from the diagnostic
+version of 1b975a36; it was rerun immediately before the optimized executable.
+Its internal stage-print overhead is included. Background host activity was not
+controlled; this is a bounded local observation, not a throughput guarantee.
+
+| Runtime construction | Rerun baseline | TO01 |
+| --- | ---: | ---: |
+| First runtime on the host thread | 1,124.628 ms | 481.447 ms |
+| Next five fresh runtimes, median | 1,079.989 ms | 76.996 ms |
+| Warm sample range | 1,025.102-1,097.108 ms | 65.530-79.082 ms |
+
+The warmed construction median is about 14 times faster in this comparison.
+The first construction still performs checked module authoring; later runtimes
+still pay installation checks. New host threads/processes pay their own cold
+setup. This does not claim the entire test suite or script execution is 14 times
+faster. Complete workspace regression passes 1,586 tests with zero failures and
+one existing ignored manual sorting measurement. The full language-contract
+matrix passes in 327.88 seconds; the baseline run was incomplete, so no whole-suite
+speedup is inferred. Rust compilation took about 69 seconds and test-target/
+doctest duration summaries sum to 843.23 seconds, excluding process/Cargo overhead.
+Format, structure and workspace/all-target Clippy with warnings denied pass.
+Independent artifact-only, source, native and source+native consumers pass,
+including eight production dependency boundaries and the ABI build graph. All
+five CLI jit-feature tests pass. Structure checks cover 655 Rust files with no
+violations/exceptions; diff and changed-document file-link checks pass. No carried
+error remains. Logs are under ignored target/runtime-construction; the committed
+example remains reproducible after those logs are removed.
+
 ## Test bottleneck diagnosis, 2026-10-03
 
 Baseline: clean `1b975a36`, Windows 11 Pro, Intel Core i9-12900K (16 cores,

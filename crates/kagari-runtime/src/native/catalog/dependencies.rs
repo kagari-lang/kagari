@@ -25,6 +25,14 @@ enum Reference {
 struct References {
     pending: Vec<Reference>,
 }
+
+/// A transitive closure over one immutable authoring catalog. Extending it keeps
+/// exact binding requirements while reusing already visited module references.
+#[derive(Clone, Default)]
+pub(crate) struct DependencyClosure {
+    pub(crate) catalog: DeclarationCatalog,
+    seen: BTreeSet<Reference>,
+}
 impl References {
     fn nominal(&mut self, nominal: &NominalAbiType) -> Result<(), RuntimeError> {
         self.pending
@@ -159,12 +167,12 @@ impl References {
 }
 
 impl DeclarationCatalog {
-    pub(crate) fn dependencies<'a>(
+    pub(crate) fn dependency_closure<'a>(
         &self,
         traits: impl IntoIterator<Item = &'a DefinitionId>,
         declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
-    ) -> Result<Self, RuntimeError> {
+    ) -> Result<DependencyClosure, RuntimeError> {
         let mut references = References::default();
         references
             .pending
@@ -184,10 +192,28 @@ impl DeclarationCatalog {
                 references.bounds(&implementation.bounds)?;
             }
         }
-        let mut result = Self::default();
-        let mut seen = BTreeSet::new();
+        self.resolve_dependencies(references, DependencyClosure::default())
+    }
+
+    pub(crate) fn binding_dependencies<'a>(
+        &self,
+        base: &DependencyClosure,
+        declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
+    ) -> Result<Self, RuntimeError> {
+        let mut references = References::default();
+        for declaration in declarations {
+            references.declaration(declaration)?;
+        }
+        Ok(self.resolve_dependencies(references, base.clone())?.catalog)
+    }
+
+    fn resolve_dependencies(
+        &self,
+        mut references: References,
+        mut closure: DependencyClosure,
+    ) -> Result<DependencyClosure, RuntimeError> {
         while let Some(reference) = references.pending.pop() {
-            if !seen.insert(reference.clone()) {
+            if !closure.seen.insert(reference.clone()) {
                 continue;
             }
             match reference {
@@ -236,7 +262,9 @@ impl DeclarationCatalog {
                                 &method.name,
                             )));
                     }
-                    result.insert_implementation(id, implementation.clone())?;
+                    closure
+                        .catalog
+                        .insert_implementation(id, implementation.clone())?;
                 }
                 Reference::Type(id) => {
                     let declaration = self.types.get(&id).ok_or_else(|| {
@@ -245,7 +273,7 @@ impl DeclarationCatalog {
                         )
                     })?;
                     references.bounds(&declaration.bounds)?;
-                    result.insert_type(id, declaration.clone())?;
+                    closure.catalog.insert_type(id, declaration.clone())?;
                 }
                 Reference::Trait(id) => {
                     let contract = self.get(&id).ok_or_else(|| {
@@ -267,7 +295,7 @@ impl DeclarationCatalog {
                     for method in &contract.methods {
                         references.function(method)?;
                     }
-                    result.insert(id, contract.clone())?;
+                    closure.catalog.insert(id, contract.clone())?;
                 }
                 Reference::Template(id) => {
                     let declaration = self.declarations.get(&id).ok_or_else(|| {
@@ -276,11 +304,11 @@ impl DeclarationCatalog {
                         )
                     })?;
                     references.declaration(declaration)?;
-                    result.insert_declaration(declaration.clone())?;
+                    closure.catalog.insert_declaration(declaration.clone())?;
                 }
             }
         }
-        Ok(result)
+        Ok(closure)
     }
 
     pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {

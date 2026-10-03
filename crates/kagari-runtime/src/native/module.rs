@@ -1,4 +1,6 @@
 //! Checked declarations and local Rust entries form one installable module.
+#[cfg(test)]
+mod tests;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -15,14 +17,16 @@ use kagari_abi::{
     types::TypeAbiKind,
 };
 use kagari_common::identity::{DefinitionId, DefinitionKind};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, iter, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     declaration: Arc<ModuleDecl>,
-    bindings: Vec<BindingRegistration>,
+    bindings: Rc<[Rc<BindingRegistration>]>,
+    owned: DeclarationCatalog,
+    catalog: DeclarationCatalog,
     required: DeclarationCatalog,
-    storage: BTreeMap<DefinitionId, NativeStorage>,
+    storage: Rc<BTreeMap<DefinitionId, NativeStorage>>,
 }
 impl NativeModule {
     pub(crate) fn checked(
@@ -61,11 +65,11 @@ impl NativeModule {
         }
         let mut available = owned.clone();
         available.merge(providers)?;
-        let dependencies = available.dependencies(
-            owned.traits.keys(),
-            owned.declarations.values(),
-            [&declaration],
-        )?;
+        // Owned traits and implementation bounds are common to every binding.
+        // A binding extends this closed seed only with its own signature/proofs.
+        let base =
+            available.dependency_closure(owned.traits.keys(), iter::empty(), [&declaration])?;
+        let dependencies = available.binding_dependencies(&base, owned.declarations.values())?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
         checked.check_implementations([&declaration])?;
@@ -76,13 +80,12 @@ impl NativeModule {
             let declarations = entries.remove(&id).ok_or_else(|| {
                 RuntimeError::metadata_conflict("unknown or duplicate native binding")
             })?;
-            let required_catalog =
-                checked.dependencies(owned.traits.keys(), &declarations, [&declaration])?;
-            let registration = BindingRegistration {
+            let required_catalog = checked.binding_dependencies(&base, &declarations)?;
+            let registration = Rc::new(BindingRegistration {
                 declarations,
                 binding,
                 required_catalog,
-            };
+            });
             registry.install(registration.clone())?;
             registrations.push(registration);
         }
@@ -107,9 +110,11 @@ impl NativeModule {
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         Ok(Self {
             declaration: Arc::new(declaration),
-            bindings: registrations,
+            bindings: registrations.into(),
+            owned,
+            catalog: checked,
             required,
-            storage,
+            storage: Rc::new(storage),
         })
     }
     pub fn declaration(&self) -> &Arc<ModuleDecl> {
@@ -121,12 +126,7 @@ impl NativeModule {
             .expect("checked module presentation")
     }
     pub fn catalog(&self) -> DeclarationCatalog {
-        let mut catalog = DeclarationCatalog::declared([self.declaration.as_ref()])
-            .expect("checked module declarations");
-        catalog
-            .merge(&self.required)
-            .expect("checked module dependencies");
-        catalog
+        self.catalog.clone()
     }
     pub fn install(&self, runtime: &mut Runtime) -> NativeResult<()> {
         self.install_into(&mut runtime.native_entries)
@@ -138,7 +138,7 @@ impl NativeModule {
                 "native module dependency is not installed",
             ));
         }
-        let owned = DeclarationCatalog::declared([self.declaration.as_ref()])?;
+        let owned = &self.owned;
         for id in owned.traits.keys() {
             if staged.catalog.get(id).is_some() {
                 return Err(RuntimeError::metadata_conflict(
@@ -146,18 +146,18 @@ impl NativeModule {
                 ));
             }
         }
-        for (id, storage) in &self.storage {
+        for (id, storage) in self.storage.iter() {
             if staged.storage.insert(id.clone(), storage.clone()).is_some() {
                 return Err(RuntimeError::metadata_conflict(
                     "duplicate native storage owner",
                 ));
             }
         }
-        staged.catalog.merge(&owned)?;
+        staged.catalog.merge(owned)?;
         staged
             .catalog
             .check_implementations([self.declaration.as_ref()])?;
-        for registration in &self.bindings {
+        for registration in self.bindings.iter() {
             staged.install(registration.clone())?;
         }
         staged.catalog.validate_callable_contracts()?;

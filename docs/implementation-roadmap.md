@@ -1,5 +1,50 @@
 # Kagari Implementation Roadmap
 
+## Runtime construction optimization (completed, 2026-10-03)
+
+TO01 owns the measured R4 bottleneck: reuse module-level dependency closure work,
+share immutable checked native registrations/catalogs and cache the fixed
+foundation/collection modules at host-thread lifetime. Keep fresh runtime heaps,
+hosts, resources and generations, and all atomic installation/link checks.
+No R6 verification change, test-route reduction, profile change, ABI migration
+or unrelated queued work is activated. Commit the completed checkpoint with
+`Roadmap-Step: TO01`.
+
+- [x] Share dependency closure work without broadening binding requirements.
+- [x] Reuse fixed checked modules without sharing runtime state.
+- [x] Measure cold/warm construction and retain isolation/rejection coverage.
+- [x] Accept workspace checks, feature consumers and CLI native tests.
+
+Ledger: started from clean c4d18af0. The user authorized optimization after the
+bounded diagnosis. Baseline construction is 931 ms warmed fresh-runtime median;
+639 ms is per-binding dependency traversal. No build/test failure is carried.
+
+TO01 implementation: module-level visited references/catalogs are reused when
+calculating exact binding dependencies. NativeModule clones share immutable
+registrations/storage and retained owned/full catalogs. Fixed foundation and
+collection modules use thread-local OnceCell results; no unsafe Send/Sync or
+runtime-state cache is added. Installations still stage and validate their own
+registry, and linking still checks program facts and selected entries.
+
+Three focused regressions pass: all foundation binding requirements match fresh
+closure traversal; foreign requirements remain binding-specific and missing
+dependencies reject atomically; shared registrations retain independent runtime
+installations and roll back earlier entries in a failed batch. Structure checks
+pass for 655 Rust files with zero violations/exceptions. Same-machine isolated
+timing reports 1,079.989 -> 76.996 ms warmed medians (five samples) and
+1,124.628 -> 481.447 ms first construction. Complete workspace regression passes
+1,586 tests with zero failures and one existing ignored manual measurement.
+The previously incomplete language-contract matrix passes in 327.88 seconds.
+Workspace/all-target Clippy with -D warnings, structure, formatting and diff
+checks pass. Independent artifact-only, source, native and source+native
+consumers pass, with eight production dependency boundaries and the ABI build
+graph checked. CLI jit-feature tests pass all five cases. Changed-document
+file links pass. TO01 is accepted; no error or structural exception is carried.
+Raw logs are under ignored target/runtime-construction. New host threads still
+pay cold checked authoring; installation checks, source/SDK verification and the
+serial language-contract matrix remain real costs. No whole-suite speedup is
+claimed against the incomplete baseline, and no R6/test restructuring is activated.
+
 ## Test bottleneck diagnosis (completed, 2026-10-03)
 
 The [performance record](performance-baseline.md#test-bottleneck-diagnosis-2026-10-03)

@@ -39,6 +39,11 @@ There is no native declaration macro crate or separate standard-library crate.
 ModuleBuilder::finish produces a validated NativeModule. Installation checks its
 binding/storage closure atomically. Runtime construction installs the foundation
 and bundled collection algorithms unconditionally, including source-free execution.
+Fixed foundation/collection modules reuse checked immutable registrations within
+the owning host thread. Native modules share declaration catalogs, binding records
+and storage descriptors; each runtime still performs atomic installation and owns
+its own heap, host registry, resources and generations. Authoring computes common
+module dependency closures once and extends them with exact per-binding facts.
 Engine construction supplies their declarations to source analysis and installs
 only explicit application modules afterward. There is no foundation opt-out.
 List/MutableList declare sorting, reversal and filtering as native default methods;

@@ -17,11 +17,20 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_abi::{callable::CallableImplementation, language::catalog, operations::IterOp};
-use std::collections::BTreeMap;
+use std::{cell::OnceCell, collections::BTreeMap};
 
 type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
 
+thread_local! {
+    // Bindings contain Rc handlers; share only within the owning host thread.
+    static MODULE: OnceCell<NativeResult<NativeModule>> = const { OnceCell::new() };
+}
+
 pub fn module() -> NativeResult<NativeModule> {
+    MODULE.with(|module| module.get_or_init(build).clone())
+}
+
+fn build() -> NativeResult<NativeModule> {
     let declaration = catalog::declarations();
     let mut bindings = BTreeMap::new();
     for function in declaration.native_declarations() {
