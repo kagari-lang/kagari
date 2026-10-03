@@ -4,14 +4,13 @@ This document defines the production architecture for Kagari.
 It describes the intended system shape that implementation work must converge on.
 When existing code conflicts with the specifications, the specifications are authoritative.
 
-The active [foundation API completion plan](foundation-api-completion.md) owns
-the migration to always-present common APIs, collection default trait
-methods and built-in String inherent methods. The approved follow-up includes
-generic interface methods with checked type/constraint argument passing for both
-script and native implementations, and nontransactional in-place collection
-operations without rollback-only buffering. The bounded API scope is accepted;
-foundation assembly is now mandatory. FA03 is migrating trait methods on top of
-the direct scoped sequence-edit path described below.
+The [foundation API completion plan](foundation-api-completion.md) records the
+always-present common APIs, collection default trait methods and built-in String
+inherent methods. Generic interface methods pass checked type/constraint arguments
+to shared script or native entries; static calls retain specialization. In-place
+collection operations preserve completed mutations on failure without rollback-only
+buffering. Foundation assembly is mandatory, and ArrayList overrides use the direct
+scoped sequence-edit path described below.
 
 The completed [native collections reset plan](native-provider-refactor.md) records
 the baseline implementation and acceptance ledger. Phases 1-3 replaced the

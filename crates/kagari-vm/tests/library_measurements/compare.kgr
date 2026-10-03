@@ -3,7 +3,10 @@
 trait Run {
     fn primitive(self, values: ArrayList<i32>, calls: ArrayList<usize>);
     fn callback(self, values: ArrayList<i32>, calls: ArrayList<usize>);
+    fn interface_primitive(self, values: MutableList<i32>, calls: ArrayList<usize>);
+    fn interface_callback(self, values: MutableList<i32>, calls: ArrayList<usize>);
     fn script(self, values: ArrayList<i32>, calls: ArrayList<usize>);
+    fn view(self, values: ArrayList<i32>) -> MutableList<i32>;
 }
 struct Runner {}
 impl Run for Runner {
@@ -11,9 +14,16 @@ impl Run for Runner {
     fn callback(self, values: ArrayList<i32>, calls: ArrayList<usize>) {
         values.sort_by(|a,b| { calls[0] += 1usize; a.cmp(b) });
     }
+    fn interface_primitive(self, values: MutableList<i32>, calls: ArrayList<usize>) {
+        values.sort();
+    }
+    fn interface_callback(self, values: MutableList<i32>, calls: ArrayList<usize>) {
+        values.sort_by(|a,b| { calls[0] += 1usize; a.cmp(b) });
+    }
     fn script(self, values: ArrayList<i32>, calls: ArrayList<usize>) {
         merge_sort(values, |a,b| { calls[0] += 1usize; a.cmp(b) });
     }
+    fn view(self, values: ArrayList<i32>) -> MutableList<i32> { values }
 }
 fn runner() -> Run { Runner {} }
 fn merge_sort(values: ArrayList<i32>, compare: fn(i32,i32) -> Ordering) {

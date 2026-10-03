@@ -343,8 +343,12 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     let mut artifact = artifact();
     let mut changed = false;
     contracts::alter_bindings(&mut artifact, |id| {
-        if id.path.last().is_some_and(|part| part.name == "sort") {
-            id.path.last_mut().unwrap().name = "sort_by".into();
+        if id
+            .path
+            .last()
+            .is_some_and(|part| part.name == "$foundation_list_sort")
+        {
+            id.path.last_mut().unwrap().name = "$foundation_list_sort_by".into();
         }
     });
     for module in &artifact.program.modules {
@@ -353,7 +357,7 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
                 .binding
                 .path
                 .last()
-                .is_some_and(|part| part.name == "sort_by")
+                .is_some_and(|part| part.name == "$foundation_list_sort_by")
                 && import.signature.params.len() == 1
         });
     }

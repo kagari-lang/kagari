@@ -221,7 +221,8 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     let checked = snapshot.check_program(root.unwrap(), &Default::default());
     if let Expected::Diagnostic(code) = case.expected {
         let Err(kagari_hir::program::ProgramCheckError::Diagnostics(diagnostics)) = checked else {
-            panic!("{}: expected diagnostic {code}, got {checked:?}", case.name);
+            let outcome = checked.map(|_| "checked successfully");
+            panic!("{}: expected diagnostic {code}, got {outcome:?}", case.name);
         };
         assert!(
             diagnostics.iter().any(|d| d.diagnostic.kind.code() == code),
@@ -859,7 +860,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("generic-missing-bound", "trait Get { fn get(self) -> i32; } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> i32 { read(1) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("duplicate-field-declarations", "struct P { val x: i32, var x: i32 } fn main() {}", Expected::Diagnostic("KG_RESOLVE_DUPLICATE_FIELD")),
         Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
-        Case::new("reject-obsolete-string-len", "fn main() { \"text\".len(); }", Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME")),
+        Case::new("string-len-counts-utf8-bytes", "fn main() -> usize { \"aé文\".len() }", Expected::Value(Value::U64(6))),
         Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }", Expected::Value(Value::Tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)]))),
         Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = [7]; val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)]))),
         Case::new("user-print-is-direct-call", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }", Expected::Value(Value::I32(42))),

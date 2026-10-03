@@ -1,8 +1,8 @@
 # Foundation API Completion
 
-Status: active, 2026-10-02. The user authorized implementation of this plan,
+Status: completed, 2026-10-03. The user authorized implementation of this plan,
 including the bounded API inventory and approved generic-interface/mutation rules.
-FA01–FA04 are accepted; FA05 final integration is in progress. This plan fills the gaps left by the completed native collections
+FA01–FA05 are accepted. This plan fills the gaps left by the completed native collections
 reset and execution-policy simplification. It does not resume the historical full
 standard-library restoration checklist.
 
@@ -37,7 +37,10 @@ Do not add Deref, extension-function syntax, inherent impls on interface types,
 runtime method-name lookup, or a second algorithm implementation in Kagari.
 Declaring a method in the foundation does not make it a dedicated opcode.
 
-## Current implementation and concrete gaps
+## Starting baseline
+
+This section records the implementation at plan activation. The phase records
+below describe the delivered changes.
 
 The authoritative portable foundation declarations currently live in
 `kagari-abi/src/language/catalog`; HIR consumes these contracts. Runtime foundation
@@ -410,7 +413,7 @@ binary regeneration or compatibility reader belongs here.
 - [x] FA02 Always-present foundation assembly.
 - [x] FA03 List algorithms and scoped mutation.
 - [x] FA04 String foundation methods.
-- [ ] FA05 Integration and acceptance.
+- [x] FA05 Integration and acceptance.
 
 ### FA01 execution record
 
@@ -683,3 +686,144 @@ Current specifications and the portable feature source cover the delivered Strin
 surface. Disposable feature bytes will be regenerated once during FA05, together
 with the final four-route check. No carried build/test failure remains. The phase
 checkpoint uses Roadmap-Step: FA04.
+
+
+### FA05 execution record
+
+2026-10-03: Final integration started after FA04 commit 4ec10310. The four-route
+feature script regenerated the disposable artifact from the current source. Its
+first artifact-only run passed five execution/rejection cases but failed the
+binding-mismatch fixture's `changed` assertion: the test still searched for the
+removed free-function binding `sort`. It now targets `$foundation_list_sort` and
+forges `$foundation_list_sort_by`, preserving the structurally-valid/load-rejected
+boundary assertion. The rerun passes all four standalone routes (artifact-only,
+source, native, source/native), all eight production dependency boundaries and
+the ABI build dependency boundary. No production validation was weakened.
+
+The full workspace test sweep (`cargo test --workspace --no-fail-fast`) is running,
+followed by workspace all-target Clippy. Logs and command exit states are under
+`target/fa05/`; these pending runs are not acceptance evidence yet. The existing
+sorting measurement harness now includes both concrete and MutableList-interface
+primitive/callback calls so the final samples can separate per-call adaptation
+from comparator work. Measurements have not run yet and no speed claim is made.
+Toolchain/machine capture is available in `target/fa05/measurement-environment.log`.
+No FA05 phase commit has been made. Remaining work is the original final checks,
+resolution of their failures, the existing supported backend matrix and bounded
+performance evidence; the plan's finite scope is unchanged.
+
+The workspace sweep found two superseded assertions: compiler lowering expected
+every native default to be a direct entry, and the language matrix still rejected
+String.len. The first now compares the complete NativeDefault application and its
+focused rerun passes. The second now checks multibyte UTF-8 byte length; the full
+language matrix rerun passes. Failed-diagnostic output also avoids dumping a whole successful
+CheckedProgram. Both changes preserve behavioral validation.
+
+A new serialized-artifact reload test passes for shared generic script defaults
+and explicit overrides. A retained closure captures script-owned Rank values and
+their Ord operation; after replacing that implementation and collecting garbage,
+the old closure still uses the old comparison while a new closure uses the new
+one. Dropping both roots releases all heap values and the old runtime generation
+retention. Existing external native-boundary tests cover generic native defaults,
+overrides, local bounds and forged witness rejection. Structure checks pass for
+647 Rust files with no exceptions.
+
+The HIR workspace suite found a third stale assertion: default container witnesses
+were counted as required trait methods only. The test now includes the explicit
+algorithm overrides and compares their parameter/result signatures after mapping
+method-level generic binders. The focused six-interface witness check passes;
+all other 399 HIR unit tests passed in the sweep. The measurement setup no longer
+injects an unused collection module declaration: sorting uses compiler-owned
+foundation declarations directly.
+
+2026-10-03: FA05 accepted. The full workspace sweep completed 88 suites: 1,576
+tests passed, three superseded assertions failed, and the manual measurement was
+ignored as intended. All three failures described above pass their focused
+reruns. The new generic reload test also passes, giving coverage of 1,580 passing
+ordinary tests across the sweep and focused runs. The manual measurement passes
+separately. The original sweep's exit 101 is retained in its log; this acceptance
+uses its successful results plus the corrected-target reruns, rather than claiming
+that initial command exited successfully or repeating unchanged successful suites.
+
+Coverage includes all 45 examples through source and serialized artifacts, all
+32 default-method tests, 18 collection behavior tests, 71 external/native boundary
+tests, 107 VM unit tests and the warmed zero-allocation native-call check. Existing
+Cranelift execution, prepared execution and interpreter fallback tests pass.
+Managed/shared calls that the backend cannot compile still use validated fallback;
+this delivery does not claim a JIT implementation of every collection operation.
+
+Final checks passed:
+
+- `cargo clippy --workspace --all-targets -- -D warnings`; the measurement target
+  also passes focused Clippy after separating interface construction from sorting.
+- `uv run python scripts/check_features.py`: all four standalone feature routes,
+  all eight production dependency boundaries and the independent ABI build graph.
+- `uv run --locked scripts/check_structure.py`: 647 Rust files, zero violations
+  and zero exceptions; affected imports, module ownership and public surfaces
+  were also reviewed manually.
+- `cargo fmt --all -- --check`, `git diff --check` and changed-document local links.
+- The complete workspace sweep and corrected compiler/HIR/language matrix reruns
+  described above; serialized generic reload and the manual sorting target.
+
+No build/test failure or structural debt remains. No production workaround,
+compatibility entrypoint, version bump or tracked binary was introduced in FA05.
+Architecture and roadmap now describe the delivered model. The phase checkpoint
+uses `Roadmap-Step: FA05`. Contract/common naming, wider algorithms and additional
+backend optimization remain separate work, with no added phase or activation.
+
+#### Bounded sorting evidence
+
+Reproduce with `cargo test -p kagari-vm --test library_measurements -- --ignored
+--nocapture --test-threads=1`. Environment: rustc 1.98.1 (48a229cea, LLVM 22.1.8),
+aarch64-apple-darwin, macOS 26.6.2 (25G83), Apple M1 Max, 10 logical CPUs, 32 GiB RAM.
+The repository's default features and O1 dev/test profile were used, with Cargo's
+default build parallelism. Execution used one test thread, warm build caches, one
+warm execution and three measured executions per case/size. No other repository
+build or test command was running during samples. Source compilation and loading
+took 1.091 s in the final run and were excluded from sort timing, as were input
+construction, explicit roots and interface view construction.
+
+Inputs are compact i32 arrays of lengths 16 and 4,096, populated by
+`(index * 1543 + 71) % 997`. Every result is checked against Rust's stable sort;
+the final heap must be empty after releasing roots. GC threshold is 4,096. The
+per-thread allocator counts allocations, reallocations and cumulative requested
+bytes, not resident memory. The Kagari cases enter through the same Run interface
+harness; concrete cases then call ArrayList directly, while interface cases sort
+an already-created MutableList view. The script merge implementation remains a
+measurement reference, not a second production algorithm.
+
+At length 4,096, medians and counters were:
+
+| Route | Median | Comparator calls | New GC objects | Allocations / reallocations | Requested bytes |
+| --- | --- | --- | --- | --- | --- |
+| Direct Rust sort | 78.291 us | 0 script | 0 | 1 / 0 | 16,384 |
+| Concrete native sort | 105.208 us | 0 script | 0 | 532 / 2 | 59,512 |
+| Existing-interface native sort | 156.000 us | 0 script | 0 | 1,852 / 10 | 170,851 |
+| Direct Rust counted sort_by | 208.042 us | 53,392 Rust | 0 | 1 / 0 | 16,384 |
+| Concrete native sort_by | 159.662 ms | 53,392 script | 53,393 | 641,646 / 51 | 95,224,675 |
+| Existing-interface native sort_by | 159.655 ms | 53,392 script | 53,393 | 642,792 / 56 | 95,324,605 |
+| Script merge sort | 529.179 ms | 44,534 script | 89,071 | 1,117,076 / 70 | 97,972,919 |
+
+At length 16, concrete/interface primitive medians were 22.666/77.292 us, with
+507/1,851 allocations and 0/10 reallocations; both allocated zero GC objects.
+Concrete/interface callback medians were 225.625/271.125 us, both with 69 script
+comparisons and 70 GC objects. The similar primitive time difference at both
+lengths and matching comparator counts show no added per-comparison dispatch work
+in this sample. Code selects operations once outside the Rust sorting loop.
+This is bounded evidence, not a universal asymptotic or speedup guarantee.
+
+Interface adaptation is not free: the separate host-to-VM `view` call, including
+its Run dispatch and validation, had medians of 87.896/193.354 us for lengths
+16/4,096 and 2,051/2,071 allocations. Earlier samples that constructed views inside
+the sorting interval consequently reported a higher interface total (289.834 us
+for 4,096 primitive elements). The final harness reports construction separately
+and roots all inputs across those separate VM calls. An initial split-harness run
+omitted the counter's root across view construction and failed with an invalid
+interface argument after GC; adding the required caller-owned roots fixed the
+harness without changing production validation.
+
+Fixed interface entry/validation cost and script callback allocation remain visible
+optimization opportunities. They are not described as zero-cost abstractions or
+hidden by comparison with pure Rust. These are interpreter measurements; they do
+not forecast LLVM/JIT performance or justify enlarging this delivery. Raw final
+samples are in `target/fa05/measurements-separated.log`; the committed harness,
+environment and durable results above allow reproduction after cache cleanup.

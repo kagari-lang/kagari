@@ -571,14 +571,8 @@ mod collection_access_tests {
                     ty.with_self(&contract.id, &receiver)
                         .instantiate(&substitution)
                 };
-                assert_eq!(
-                    implementation.methods.len(),
-                    contract
-                        .methods
-                        .iter()
-                        .filter(|method| method.default.is_none())
-                        .count()
-                );
+                // Default containers explicitly override the algorithm defaults too.
+                assert_eq!(implementation.methods.len(), contract.methods.len());
                 for (trait_method, target) in &implementation.methods {
                     let declared = catalog.trait_method(trait_method).unwrap();
                     let declaration = snapshot
@@ -600,11 +594,23 @@ mod collection_access_tests {
                         .iter()
                         .find(|method| method.id == function)
                         .unwrap();
+                    let declared_parameters =
+                        &declared.generic_params[contract.generic_params.len()..];
+                    let implementation_parameters =
+                        &method.generic_params[implementation.generic_params.len()..];
+                    assert_eq!(implementation_parameters.len(), declared_parameters.len());
+                    let mut method_arguments = arguments.clone();
+                    method_arguments.extend(
+                        implementation_parameters
+                            .iter()
+                            .cloned()
+                            .zip(declared_parameters.iter().cloned().map(TypeId::Generic)),
+                    );
                     assert_eq!(
                         method
                             .params
                             .iter()
-                            .map(|p| p.ty.instantiate(&arguments))
+                            .map(|p| p.ty.instantiate(&method_arguments))
                             .collect::<Vec<_>>(),
                         declared
                             .params
@@ -613,7 +619,7 @@ mod collection_access_tests {
                             .collect::<Vec<_>>()
                     );
                     assert_eq!(
-                        method.return_type.instantiate(&arguments),
+                        method.return_type.instantiate(&method_arguments),
                         instantiate(&declared.return_type)
                     );
                 }

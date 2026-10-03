@@ -8,15 +8,12 @@ use kagari_common::{
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{
-    Runtime, RuntimeConfig, library::collections, module::LoadedModule, value::Value,
-};
+use kagari_runtime::{Runtime, RuntimeConfig, module::LoadedModule, value::Value};
 use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
 use std::{hint::black_box, time::Instant};
 
 fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
-    let library = collections::module().unwrap();
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -26,7 +23,6 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![library.declaration().clone()]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -43,9 +39,16 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
         .iter()
         .find(|contract| contract.abi.name == "Run")
         .unwrap();
-    let methods = ["primitive", "callback", "script"]
-        .map(|name| ModuleDecl::method_id(&contract.declaration, name))
-        .to_vec();
+    let methods = [
+        "primitive",
+        "callback",
+        "interface_primitive",
+        "interface_callback",
+        "script",
+        "view",
+    ]
+    .map(|name| ModuleDecl::method_id(&contract.declaration, name))
+    .to_vec();
     let mut vm = Vm::new(runtime);
     let runner = vm.execute(&loaded, "runner").unwrap().return_value;
     (vm, loaded, runner, methods)
@@ -65,9 +68,15 @@ fn compare_rust_native_and_script_stable_sorting() {
             .collect();
         let mut expected = input.clone();
         expected.sort();
-        for (case, method) in ["native_primitive", "native_callback", "script_merge"]
-            .into_iter()
-            .zip(&methods)
+        for (case, method) in [
+            "native_primitive",
+            "native_callback",
+            "interface_primitive",
+            "interface_callback",
+            "script_merge",
+        ]
+        .into_iter()
+        .zip(&methods)
         {
             // One warm execution per shape, then three independently reset samples.
             for sample in 0..4 {
@@ -79,6 +88,7 @@ fn compare_rust_native_and_script_stable_sorting() {
                         input.iter().copied().map(Value::I32).collect(),
                     )
                     .unwrap();
+                let array_root = vm.runtime().root_value(Value::Array(array)).unwrap();
                 let counter = vm
                     .runtime()
                     .alloc_array(
@@ -87,13 +97,39 @@ fn compare_rust_native_and_script_stable_sorting() {
                         vec![Value::U64(0)],
                     )
                     .unwrap();
+                let counter_root = vm.runtime().root_value(Value::Array(counter)).unwrap();
+                // Prepare interface views outside the sort interval, and report
+                // their construction separately from repeated dispatch.
+                let values = if case.starts_with("interface_") {
+                    let mut result = None;
+                    let (allocations, duration) = measured(|| {
+                        result = Some(
+                            vm.invoke_interface_method(
+                                &runner,
+                                methods.last().unwrap(),
+                                &[Value::Array(array)],
+                            )
+                            .unwrap(),
+                        );
+                    });
+                    if sample > 0 {
+                        println!(
+                            "interface_view,n={length},sample={sample},ns={},allocations={allocations:?}",
+                            duration.as_nanos()
+                        );
+                    }
+                    result.unwrap()
+                } else {
+                    Value::Array(array)
+                };
+                let values_root = vm.runtime().root_value(values.clone()).unwrap();
                 let before = vm.runtime().gc().stats();
                 let (allocations, duration) = measured(|| {
                     black_box(
                         vm.invoke_interface_method(
                             &runner,
                             method,
-                            &[Value::Array(array), Value::Array(counter)],
+                            &[values, Value::Array(counter)],
                         )
                         .unwrap(),
                     );
@@ -113,6 +149,7 @@ fn compare_rust_native_and_script_stable_sorting() {
                             - before.reclaimed_objects
                     );
                 }
+                drop((array_root, counter_root, values_root));
                 vm.runtime().collect_garbage().unwrap();
             }
         }
