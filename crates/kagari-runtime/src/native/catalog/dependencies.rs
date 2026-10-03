@@ -30,7 +30,7 @@ struct References {
 /// exact binding requirements while reusing already visited module references.
 #[derive(Clone, Default)]
 pub(crate) struct DependencyClosure {
-    pub(crate) catalog: DeclarationCatalog,
+    pub(crate) catalog: DeclarationCatalog<DefinitionPath>,
     seen: BTreeSet<Reference>,
 }
 
@@ -172,7 +172,7 @@ impl References {
     }
 }
 
-impl DeclarationCatalog {
+impl DeclarationCatalog<DefinitionPath> {
     pub(crate) fn dependency_closure<'a>(
         &self,
         traits: impl IntoIterator<Item = DefinitionPath>,

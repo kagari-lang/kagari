@@ -16,12 +16,20 @@ use kagari_abi::{
     declaration::{ModuleDecl, render::DeclarationSource},
     types::TypeAbiKind,
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, map::DefinitionMap};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind, DefinitionPath,
+        map::DefinitionMap,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 use std::{collections::BTreeMap, iter, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct NativeModule {
-    declaration: Arc<ModuleDecl>,
+    declaration: Arc<DefinitionMetadata<ModuleDecl<DefinitionId>>>,
     bindings: Rc<[Rc<BindingRegistration>]>,
     owned: DeclarationCatalog,
     catalog: DeclarationCatalog,
@@ -70,7 +78,7 @@ impl NativeModule {
         // A binding extends this closed seed only with its own signature/proofs.
         let base =
             available.dependency_closure(owned.traits.keys(), iter::empty(), [&declaration])?;
-        let dependencies = available.binding_dependencies(&base, owned.declarations.values())?;
+        let dependencies = available.binding_dependencies(&base, entries.values().flatten())?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
         checked.check_implementations([&declaration])?;
@@ -82,11 +90,11 @@ impl NativeModule {
                 RuntimeError::metadata_conflict("unknown or duplicate native binding")
             })?;
             let required_catalog = checked.binding_dependencies(&base, &declarations)?;
-            let registration = Rc::new(BindingRegistration {
+            let registration = Rc::new(BindingRegistration::checked(
                 declarations,
                 binding,
                 required_catalog,
-            });
+            )?);
             registry.install(registration.clone())?;
             registrations.push(registration);
         }
@@ -115,6 +123,13 @@ impl NativeModule {
                 .insert(id, storage)
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
+        let records = checked.scope(&declaration)?;
+        let declaration = DefinitionMetadata::checked(
+            checked.definitions(),
+            records,
+            &CancellationToken::default(),
+        )
+        .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
         Ok(Self {
             declaration: Arc::new(declaration),
             bindings: registrations.into(),
@@ -125,12 +140,24 @@ impl NativeModule {
         })
     }
 
-    pub fn declaration(&self) -> &Arc<ModuleDecl> {
-        &self.declaration
+    pub fn declaration(&self) -> &ModuleDecl<DefinitionId> {
+        self.declaration.records()
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        self.declaration.definitions()
+    }
+
+    /// Explicit source-authoring projection; installed modules retain short IDs.
+    pub fn to_declaration(&self) -> NativeResult<ModuleDecl> {
+        self.declaration
+            .to_paths(&CancellationToken::default())
+            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))
     }
 
     pub fn declaration_source(&self) -> DeclarationSource {
-        self.declaration
+        self.to_declaration()
+            .expect("checked module identity ownership")
             .declaration_source()
             .expect("checked module presentation")
     }
@@ -173,7 +200,7 @@ impl NativeModule {
         staged.catalog.merge(owned)?;
         staged
             .catalog
-            .check_implementations([self.declaration.as_ref()])?;
+            .check_implementations([&self.to_declaration()?])?;
         for registration in self.bindings.iter() {
             staged.install(registration.clone())?;
         }
@@ -183,11 +210,14 @@ impl NativeModule {
     }
 
     pub fn trait_id(&self, name: &str) -> NativeResult<DefinitionPath> {
-        self.declaration
+        self.declaration()
             .traits
             .iter()
             .any(|contract| contract.name == name)
-            .then(|| self.declaration.definition(DefinitionKind::Trait, name))
+            .then(|| {
+                ModuleDecl::new(self.declaration().identity.clone())
+                    .definition(DefinitionKind::Trait, name)
+            })
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown native trait"))
     }
 }

@@ -179,22 +179,6 @@ impl VerifiedProgram {
             .map_err(|error| RuntimeError::module_validation(error.to_string()))
     }
 
-    pub(crate) fn scope<T: DefinitionRecord<DefinitionPath>>(
-        &self,
-        record: &T,
-    ) -> Result<T::Rebind<DefinitionId>, RuntimeError> {
-        record
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |path| {
-                    self.definitions
-                        .lookup(path)
-                        .ok_or(DefinitionMappingError::InvalidContract)
-                },
-                &CancellationToken::default(),
-            ))
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))
-    }
-
     pub fn root(&self) -> ModuleRef {
         self.root
     }

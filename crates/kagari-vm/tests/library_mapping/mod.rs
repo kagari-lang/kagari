@@ -11,6 +11,7 @@ use kagari_runtime::{
     value::{EnumTag, Value},
 };
 use kagari_vm::vm::Vm;
+use std::sync::Arc;
 
 #[test]
 fn map_is_lazy_and_aliases_share_cursor_progress_and_gc_captures() {
@@ -232,7 +233,7 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         .set("completion.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![library.declaration().clone()]);
+    analysis.set_native_modules(vec![Arc::new(library.to_declaration().unwrap())]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

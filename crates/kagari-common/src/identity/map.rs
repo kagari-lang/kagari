@@ -6,8 +6,12 @@ use crate::identity::{
         DefinitionTableError,
     },
 };
+use crate::{
+    cancellation::CancellationToken,
+    identity::mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -75,6 +79,21 @@ impl<T> Default for DefinitionMap<T> {
 }
 
 impl<T> DefinitionMap<T> {
+    /// Transform record representation while retaining this explicit index context.
+    pub fn map_values<U, E>(
+        &self,
+        mut transform: impl FnMut(&T) -> Result<U, E>,
+    ) -> Result<DefinitionMap<U>, E> {
+        let entries = self
+            .entries
+            .iter()
+            .map(|(id, value)| Ok((*id, transform(value)?)))
+            .collect::<Result<_, E>>()?;
+        Ok(DefinitionMap {
+            context: self.context.clone(),
+            entries,
+        })
+    }
     pub fn new(context: DefinitionContext) -> Self {
         Self {
             context,
@@ -136,6 +155,10 @@ impl<T> DefinitionMap<T> {
 
     pub fn ids(&self) -> impl Iterator<Item = DefinitionId> + '_ {
         self.entries.keys().copied()
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = (DefinitionId, &T)> + '_ {
+        self.entries.iter().map(|(id, value)| (*id, value))
     }
 
     pub fn keys(&self) -> impl Iterator<Item = DefinitionPath> + '_ {
@@ -226,9 +249,51 @@ impl<T> DefinitionMap<T> {
     }
 }
 
+impl<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T> + Clone> DefinitionMap<T> {
+    /// Import both keys and every value reference once. Key-only import is not
+    /// sufficient for metadata whose binders and nominal members are scoped IDs.
+    pub fn import_records(
+        &self,
+        context: &DefinitionContext,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        let definitions = self.context.snapshot();
+        let mut references = self.ids().collect::<HashSet<_>>();
+        for record in self.values() {
+            record.visit_definitions(
+                &mut |id| {
+                    references.insert(*id);
+                    Ok(())
+                },
+                cancel,
+            )?;
+        }
+        let remap = context.import(&definitions, references)?;
+        let entries = self
+            .entries
+            .iter()
+            .map(|(id, value)| {
+                let value = value.map_identities(&mut DefinitionMapper::new(
+                    &mut |id| remap.map(*id).map_err(Into::into),
+                    cancel,
+                ))?;
+                Ok((remap.map(*id)?, value))
+            })
+            .collect::<Result<_, DefinitionMappingError>>()?;
+        Ok(Self {
+            context: context.clone(),
+            entries,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host_interface::value_type::HostValueType;
     use crate::identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity};
 
     fn path(name: &str) -> DefinitionPath {
@@ -289,5 +354,53 @@ mod tests {
         assert!(branch.get_id(different).is_none());
         drop(first);
         assert_eq!(branch.get_id(next), Some(&20));
+    }
+
+    #[test]
+    fn record_import_remaps_values_and_rejects_foreign_references_and_cancellation() {
+        let mut source = DefinitionMap::default();
+        let original = source.context().intern(&path("Player")).unwrap();
+        source
+            .insert(
+                path("run"),
+                HostValueType::Tuple(vec![
+                    HostValueType::Opaque(original),
+                    HostValueType::Opaque(original),
+                ]),
+            )
+            .unwrap();
+        let target = DefinitionContext::new().unwrap();
+        target.intern(&path("unrelated")).unwrap();
+        let cancel = CancellationToken::default();
+        let imported = source.import_records(&target, &cancel).unwrap();
+        let mapped = target.lookup(&path("Player")).unwrap();
+        assert_ne!(original, mapped);
+        assert_eq!(
+            imported.get(&path("run")),
+            Some(&HostValueType::Tuple(vec![
+                HostValueType::Opaque(mapped),
+                HostValueType::Opaque(mapped),
+            ]))
+        );
+        assert!(imported.get_id(source.ids().next().unwrap()).is_none());
+        assert_eq!(
+            target.snapshot().resolve(mapped).unwrap().to_path(),
+            path("Player")
+        );
+        source
+            .insert(path("invalid"), HostValueType::Opaque(mapped))
+            .unwrap();
+        assert!(matches!(
+            source.import_records(&target, &cancel),
+            Err(DefinitionMappingError::Identity(
+                DefinitionTableError::ForeignTable
+            ))
+        ));
+        cancel.cancel();
+        let empty: DefinitionMap<HostValueType<DefinitionId>> = DefinitionMap::default();
+        assert!(matches!(
+            empty.import_records(&target, &cancel),
+            Err(DefinitionMappingError::Cancelled)
+        ));
     }
 }

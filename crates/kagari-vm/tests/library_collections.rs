@@ -1,3 +1,4 @@
+use std::sync::Arc;
 mod library_mapping;
 mod list_failures;
 use kagari_bytecode::program::BytecodeProgram;
@@ -30,7 +31,7 @@ fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
     analysis.set_native_modules(
         modules
             .iter()
-            .map(|module| module.declaration().clone())
+            .map(|module| Arc::new(module.to_declaration().unwrap()))
             .collect(),
     );
     let snapshot = analysis
@@ -281,7 +282,7 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![library.declaration().clone()]);
+    analysis.set_native_modules(vec![Arc::new(library.to_declaration().unwrap())]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -301,7 +302,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         .set("tooling.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![library.declaration().clone()]);
+    analysis.set_native_modules(vec![Arc::new(library.to_declaration().unwrap())]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

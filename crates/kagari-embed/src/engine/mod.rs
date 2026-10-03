@@ -6,7 +6,7 @@ use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, runtime::KagariRuntime,
 };
 
-use kagari_abi::declaration::{ModuleDecl, render::DeclarationSource};
+use kagari_abi::declaration::render::DeclarationSource;
 #[cfg(feature = "source")]
 use kagari_common::source_database::SourceDatabase;
 #[cfg(feature = "source")]
@@ -15,8 +15,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig, error::RuntimeError, library::collections, native::module::NativeModule,
 };
 #[cfg(feature = "source")]
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
 #[derive(Debug, Clone, Default)]
 pub struct EngineConfig {
@@ -27,7 +26,7 @@ pub struct EngineConfig {
 pub struct KagariEngine {
     config: EngineConfig,
     native_modules: Vec<NativeModule>,
-    foundation_declaration: Arc<ModuleDecl>,
+    foundation: NativeModule,
     #[cfg(feature = "source")]
     sources: RefCell<SourceDatabase>,
     #[cfg(feature = "source")]
@@ -52,28 +51,25 @@ impl KagariEngine {
         native_modules: Vec<NativeModule>,
     ) -> Result<Self, RuntimeError> {
         let mut validation = Runtime::new(config.default_runtime.clone());
-        let foundation_declaration = collections::module()?.declaration().clone();
+        let foundation = collections::module()?;
         for module in &native_modules {
             module.install(&mut validation)?;
         }
         #[cfg(feature = "source")]
         let analysis = {
             let mut analysis = AnalysisDatabase::default();
-            let modules = [foundation_declaration.clone()]
+            let modules = [&foundation]
                 .into_iter()
-                .chain(
-                    native_modules
-                        .iter()
-                        .map(|module| module.declaration().clone()),
-                )
-                .collect();
+                .chain(&native_modules)
+                .map(|module| module.to_declaration().map(Arc::new))
+                .collect::<Result<Vec<_>, _>>()?;
             analysis.set_native_modules(modules);
             RefCell::new(analysis)
         };
         Ok(Self {
             config,
             native_modules,
-            foundation_declaration,
+            foundation,
             #[cfg(feature = "source")]
             sources: RefCell::default(),
             #[cfg(feature = "source")]
@@ -82,17 +78,14 @@ impl KagariEngine {
     }
 
     pub fn native_declaration_sources(&self) -> Vec<DeclarationSource> {
-        [self
-            .foundation_declaration
-            .declaration_source()
-            .expect("checked foundation declarations")]
-        .into_iter()
-        .chain(
-            self.native_modules
-                .iter()
-                .map(NativeModule::declaration_source),
-        )
-        .collect()
+        [self.foundation.declaration_source()]
+            .into_iter()
+            .chain(
+                self.native_modules
+                    .iter()
+                    .map(NativeModule::declaration_source),
+            )
+            .collect()
     }
 
     pub fn config(&self) -> &EngineConfig {

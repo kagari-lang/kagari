@@ -12,8 +12,16 @@ use crate::{
     },
     value::Value,
 };
+use kagari_common::identity::DefinitionPath;
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
+    assert_path_catalog_eq(&left.to_paths().unwrap(), &right.to_paths().unwrap());
+}
+
+fn assert_path_catalog_eq(
+    left: &DeclarationCatalog<DefinitionPath>,
+    right: &DeclarationCatalog<DefinitionPath>,
+) {
     assert_eq!(left.types, right.types);
     assert_eq!(left.traits, right.traits);
     assert_eq!(left.declarations, right.declarations);
@@ -24,15 +32,23 @@ fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
 fn reused_closures_preserve_exact_foundation_binding_requirements() {
     let module = foundation::module().unwrap();
     for registration in module.bindings.iter() {
+        let declarations = registration
+            .declarations
+            .to_paths(&Default::default())
+            .unwrap();
+        let module_declaration = module.to_declaration().unwrap();
         let fresh = module
             .catalog
             .dependency_closure(
                 module.owned.traits.keys(),
-                &registration.declarations,
-                [module.declaration.as_ref()],
+                &declarations,
+                [&module_declaration],
             )
             .unwrap();
-        assert_catalog_eq(&registration.required_catalog, &fresh.catalog);
+        assert_path_catalog_eq(
+            &registration.required_catalog.to_paths().unwrap(),
+            &fresh.catalog,
+        );
     }
 }
 
@@ -67,7 +83,12 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
         .unwrap();
     let module = consumer.finish().unwrap();
     for registration in module.bindings.iter() {
-        let declaration = &registration.declarations[0];
+        let declarations = registration
+            .declarations
+            .to_paths(&Default::default())
+            .unwrap();
+        let module_declaration = module.to_declaration().unwrap();
+        let declaration = &declarations[0];
         let name = declaration.declaration.path.last().unwrap().name.as_str();
         assert_eq!(
             registration.required_catalog.traits.len(),
@@ -77,11 +98,14 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
             .catalog
             .dependency_closure(
                 module.owned.traits.keys(),
-                &registration.declarations,
-                [module.declaration.as_ref()],
+                &declarations,
+                [&module_declaration],
             )
             .unwrap();
-        assert_catalog_eq(&registration.required_catalog, &fresh.catalog);
+        assert_path_catalog_eq(
+            &registration.required_catalog.to_paths().unwrap(),
+            &fresh.catalog,
+        );
     }
     let mut runtime = Runtime::default();
     let before = runtime.native_entries.catalog.clone();
@@ -135,4 +159,42 @@ fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
     );
     assert_eq!(first.gc().active_roots(), 0);
     assert_eq!(second.gc().active_roots(), 0);
+}
+
+#[test]
+fn independently_scoped_catalogs_match_complete_contracts_after_import() {
+    let first = application(&["value"]);
+    let second = application(&["value"]);
+    let first_id = first.declaration().functions[0].implementation.clone();
+    let second_id = second.declaration().functions[0].implementation.clone();
+    assert_ne!(first_id, second_id);
+    let expected = first.to_declaration().unwrap();
+    let merged = DeclarationCatalog::from_modules(&[&first, &second]).unwrap();
+    assert_eq!(merged.declarations.len(), 1);
+    assert!(first.catalog().satisfied_by(&merged).unwrap());
+    assert!(second.catalog().satisfied_by(&merged).unwrap());
+    let retained = merged.to_paths().unwrap();
+    assert_eq!(
+        retained.declarations.values().next().unwrap(),
+        &expected.native_declarations()[0]
+    );
+    drop(first);
+    drop(second);
+    assert_eq!(
+        merged
+            .to_paths()
+            .unwrap()
+            .declarations
+            .values()
+            .next()
+            .unwrap(),
+        &expected.native_declarations()[0]
+    );
+    let mut incompatible = expected;
+    incompatible.functions[0].return_type = Type::bool().abi().clone();
+    let incompatible = DeclarationCatalog::declared([&incompatible]).unwrap();
+    assert!(!incompatible.satisfied_by(&merged).unwrap());
+    let mut rejected = merged.clone();
+    assert!(rejected.merge(&incompatible).is_err());
+    assert_catalog_eq(&rejected, &merged);
 }

@@ -30,6 +30,7 @@ use kagari_vm::{
     reentry::reenter,
     vm::Vm,
 };
+use std::sync::Arc;
 use std::{cell::RefCell, rc::Rc};
 
 fn module() -> NativeModule {
@@ -65,7 +66,7 @@ fn compile_test_bytecode(text: &str) -> BytecodeProgram {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![native.declaration().clone()]);
+    analysis.set_native_modules(vec![Arc::new(native.to_declaration().unwrap())]);
     analysis.set_host_declarations(
         HostDeclarations::new(HostInterface {
             paths: vec![],

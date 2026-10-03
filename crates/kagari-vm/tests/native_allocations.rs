@@ -1,4 +1,5 @@
 //! Allocation accounting isolates prepared native invocation from frame setup and compilation.
+use std::sync::Arc;
 mod native_allocations_counter;
 
 use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
@@ -75,7 +76,7 @@ fn load() -> (Runtime, LoadedModule) {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![module.declaration().clone()]);
+    analysis.set_native_modules(vec![Arc::new(module.to_declaration().unwrap())]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

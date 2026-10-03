@@ -1,3 +1,4 @@
+use std::sync::Arc;
 mod native_boundary_artifacts;
 mod native_boundary_callbacks;
 mod native_boundary_control;
@@ -43,7 +44,7 @@ fn compile_program(text: &str, module: Option<&NativeModule>) -> BytecodeProgram
     analysis.set_native_modules(
         module
             .into_iter()
-            .map(|module| module.declaration().clone())
+            .map(|module| Arc::new(module.to_declaration().unwrap()))
             .collect(),
     );
     let snapshot = analysis

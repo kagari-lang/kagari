@@ -203,9 +203,30 @@ retention assertion selected an empty native module; selecting a module containi
 a script function fixes that test setup, and the focused rerun passes. The initial
 compiler interface diagnostics are resolved; no carried build/test error remains.
 
-ID02-ID05 are still not accepted: named/generic HIR ownership and native catalog
-value metadata still retain authoring paths. Finish those
-ownership boundaries before the final feature/backend matrix and metadata/artifact/
+ID02/ID04 native ownership checkpoint: native module declarations, catalog values
+and binding registrations now retain compact records with explicit table ownership.
+Independent catalog merges and installation normalize both index keys and every
+value reference, including binders. Preparation compares the installed compact
+requirements directly against the normalized program in the same runtime scope;
+borrowed table views locate owners without allocating paths. Source-authoring,
+Rust registration inputs and full declaration-proof checks explicitly project the
+same parameterized model at their boundaries. No expanded catalog or module copy
+is retained alongside the installed compact records, and obsolete path merge/
+subset helpers and runtime scope adapters are removed.
+
+Workspace/all-target checking and strict Clippy pass. Runtime library, native builder
+and native execution regressions pass (56/13/16 tests before the new catalog test).
+The four catalog tests and three common index tests pass separately, including new
+complete-contract matching across independent scopes, conflict rejection, retained
+names, value remapping, foreign-reference rejection and cancellation. VM collection,
+allocation and native-boundary regressions pass (18/1/71), along with embed native
+preparation/provider-reset regressions (8/17). Structure covers 697 Rust files with
+zero violations/exceptions. The only strict Clippy finding was a redundant borrow
+at compact implementation comparison and is resolved. No carried build or test
+error remains; whole-workspace/feature acceptance and measured costs remain ID05.
+
+ID02-ID05 are still not accepted: named/generic HIR and source-analysis ownership
+still retain authoring paths. Finish those boundaries before the final feature/backend matrix and metadata/artifact/
 allocation/timing measurements. The parameterized authoring model is an explicit
 input boundary, not a second semantic implementation or a compatibility reader.
 

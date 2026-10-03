@@ -1,6 +1,7 @@
 //! Immutable native contracts used for cross-package authoring and installation.
 mod dependencies;
-use crate::{error::RuntimeError, native::module::NativeModule};
+mod ownership;
+use crate::error::RuntimeError;
 use kagari_abi::{
     declaration::{ImplDecl, ModuleDecl},
     types::{NativeDeclaration, TraitAbi, TypeAbi, TypeAbiKind},
@@ -8,20 +9,21 @@ use kagari_abi::{
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath,
     map::{DefinitionContext, DefinitionMap},
-    table::DefinitionTableError,
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTableError},
 };
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone)]
-pub struct DeclarationCatalog {
-    pub(crate) types: Arc<DefinitionMap<TypeAbi>>,
-    pub(crate) traits: Arc<DefinitionMap<TraitAbi>>,
-    pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration>>,
-    pub(crate) implementations: Arc<DefinitionMap<ImplDecl>>,
+pub struct DeclarationCatalog<I = DefinitionId> {
+    pub(crate) types: Arc<DefinitionMap<TypeAbi<I>>>,
+    pub(crate) traits: Arc<DefinitionMap<TraitAbi<I>>>,
+    pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration<I>>>,
+    pub(crate) implementations: Arc<DefinitionMap<ImplDecl<I>>>,
 }
 
-impl Default for DeclarationCatalog {
+impl<I> Default for DeclarationCatalog<I> {
     fn default() -> Self {
         let context = DefinitionContext::new().expect("definition context identity exhausted");
         Self {
@@ -33,16 +35,8 @@ impl Default for DeclarationCatalog {
     }
 }
 
-impl DeclarationCatalog {
-    pub fn from_modules(modules: &[&NativeModule]) -> Result<Self, RuntimeError> {
-        let mut result = Self::default();
-        for module in modules {
-            result.merge(&module.catalog())?;
-        }
-        Ok(result)
-    }
-
-    pub(crate) fn declared<'a>(
+impl DeclarationCatalog<DefinitionPath> {
+    pub(crate) fn collect_authoring<'a>(
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<Self, RuntimeError> {
         let mut result = Self::default();
@@ -118,40 +112,6 @@ impl DeclarationCatalog {
         Ok(())
     }
 
-    pub(crate) fn merge(&mut self, other: &Self) -> Result<(), RuntimeError> {
-        if self
-            .implementations
-            .union_len(&other.implementations)
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
-            > 4096
-        {
-            return Err(RuntimeError::metadata_conflict(
-                "native implementation catalog exceeds proof limits",
-            ));
-        }
-        merge_index(
-            &mut self.types,
-            &other.types,
-            "conflicting native storage type contracts",
-        )?;
-        merge_index(
-            &mut self.traits,
-            &other.traits,
-            "conflicting native trait contracts",
-        )?;
-        merge_index(
-            &mut self.declarations,
-            &other.declarations,
-            "conflicting native template declarations",
-        )?;
-        merge_index(
-            &mut self.implementations,
-            &other.implementations,
-            "conflicting native implementation contracts",
-        )?;
-        Ok(())
-    }
-
     pub(crate) fn insert_implementation(
         &mut self,
         id: DefinitionPath,
@@ -195,35 +155,6 @@ impl DeclarationCatalog {
         Ok(())
     }
 
-    pub(crate) fn satisfied_by(&self, installed: &Self) -> Result<bool, RuntimeError> {
-        let check = || -> Result<_, _> {
-            Ok(self.types.is_subset_of(&installed.types)?
-                && self.traits.is_subset_of(&installed.traits)?
-                && self.declarations.is_subset_of(&installed.declarations)?
-                && self
-                    .implementations
-                    .is_subset_of(&installed.implementations)?)
-        };
-        check().map_err(|error: DefinitionTableError| {
-            RuntimeError::metadata_conflict(error.to_string())
-        })
-    }
-
-    pub(crate) fn foreign_to(mut self, owned: &Self) -> Result<Self, RuntimeError> {
-        let remove = || -> Result<_, _> {
-            Arc::make_mut(&mut self.types).remove_keys(&owned.types)?;
-            Arc::make_mut(&mut self.traits).remove_keys(&owned.traits)?;
-            Arc::make_mut(&mut self.declarations).remove_keys(&owned.declarations)?;
-            Arc::make_mut(&mut self.implementations).remove_keys(&owned.implementations)?;
-            Ok(())
-        };
-        let mut remove = remove;
-        remove().map_err(|error: DefinitionTableError| {
-            RuntimeError::metadata_conflict(error.to_string())
-        })?;
-        Ok(self)
-    }
-
     pub(crate) fn check_implementations<'a>(
         &self,
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
@@ -242,22 +173,19 @@ impl DeclarationCatalog {
     }
 }
 
-fn merge_index<T: Clone + PartialEq>(
-    target: &mut Arc<DefinitionMap<T>>,
-    source: &DefinitionMap<T>,
-    conflict: &str,
-) -> Result<(), RuntimeError> {
-    if source
-        .is_subset_of(target)
-        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
-    {
-        return Ok(());
+impl<I: DefinitionReference> DeclarationCatalog<I> {
+    pub(crate) fn foreign_to(mut self, owned: &Self) -> Result<Self, RuntimeError> {
+        let remove = || -> Result<_, _> {
+            Arc::make_mut(&mut self.types).remove_keys(&owned.types)?;
+            Arc::make_mut(&mut self.traits).remove_keys(&owned.traits)?;
+            Arc::make_mut(&mut self.declarations).remove_keys(&owned.declarations)?;
+            Arc::make_mut(&mut self.implementations).remove_keys(&owned.implementations)?;
+            Ok(())
+        };
+        let mut remove = remove;
+        remove().map_err(|error: DefinitionTableError| {
+            RuntimeError::metadata_conflict(error.to_string())
+        })?;
+        Ok(self)
     }
-    if !Arc::make_mut(target)
-        .merge(source)
-        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
-    {
-        return Err(RuntimeError::metadata_conflict(conflict));
-    }
-    Ok(())
 }

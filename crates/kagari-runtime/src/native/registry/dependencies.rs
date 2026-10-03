@@ -10,18 +10,29 @@ pub(super) fn validate(
     required: &DeclarationCatalog,
     program: &VerifiedProgram,
 ) -> Result<(), RuntimeError> {
-    for (id, expected) in required.types.iter() {
-        let expected = program.scope(expected)?;
-        if !program.modules().iter().any(|module| module.identity == id.module && module.public_items.iter().any(|item| matches!(item, PublicAbiItem::Type(declaration) if declaration == &expected))) {
+    if required.definitions().id() != program.definitions().id() {
+        return Err(RuntimeError::module_validation(
+            "native requirements belong to a different identity context",
+        ));
+    }
+    for (id, expected) in required.types.entries() {
+        let owner = program
+            .definitions()
+            .resolve(id)
+            .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
+        if !program.modules().iter().any(|module| &module.identity == owner.module() && module.public_items.iter().any(|item| matches!(item, PublicAbiItem::Type(declaration) if declaration == expected))) {
             return Err(RuntimeError::module_validation("native storage type differs from its registered contract"));
         }
     }
-    for (id, expected) in required.traits.iter() {
-        let expected = program.scope(expected)?;
+    for (id, expected) in required.traits.entries() {
+        let owner = program
+            .definitions()
+            .resolve(id)
+            .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().any(|module| {
-            module.identity == id.module
+            &module.identity == owner.module()
                 && module.public_items.iter().any(
-                    |item| matches!(item, PublicAbiItem::Trait(contract) if contract == &expected),
+                    |item| matches!(item, PublicAbiItem::Trait(contract) if contract == expected),
                 )
         }) {
             return Err(RuntimeError::module_validation(format!(
@@ -30,25 +41,31 @@ pub(super) fn validate(
             )));
         }
     }
-    for (id, expected) in required.declarations.iter() {
-        let expected = program.scope(expected)?;
+    for (id, expected) in required.declarations.entries() {
+        let owner = program
+            .definitions()
+            .resolve(id)
+            .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().any(|module| {
-            module.identity == id.module
+            &module.identity == owner.module()
                 && module
                     .native_declarations
                     .iter()
-                    .any(|declaration| declaration == &expected)
+                    .any(|declaration| declaration == expected)
         }) {
             return Err(RuntimeError::module_validation(
                 "native dependency differs from its registered template contract",
             ));
         }
     }
-    for (id, expected) in required.implementations.iter() {
-        let expected = program.scope(expected)?;
-        if !program.modules().iter().filter(|module| module.identity == id.module)
+    for (id, expected) in required.implementations.entries() {
+        let owner = program
+            .definitions()
+            .resolve(id)
+            .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
+        if !program.modules().iter().filter(|module| &module.identity == owner.module())
             .flat_map(|module| &module.public_items).any(|item| {
-                matches!(item, PublicAbiItem::InterfaceTable(actual) if program.definitions().lookup(&id).is_some_and(|id| implementation_matches(&id, &expected, actual)))
+                matches!(item, PublicAbiItem::InterfaceTable(actual) if implementation_matches(&id, expected, actual))
             }) {
             return Err(RuntimeError::module_validation("native dependency differs from its registered implementation contract"));
         }

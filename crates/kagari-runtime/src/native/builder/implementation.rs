@@ -105,7 +105,8 @@ impl<'module> ImplementationBuilder<'module> {
         let (receiver, parameters, parameter_names) = match receiver {
             Receiver::Concrete(ty) => (ty, vec![], vec![]),
             Receiver::Declaration(reference) => {
-                if module.providers.types.get(&reference.id) != Some(reference.declaration.as_ref())
+                if module.providers.types.get(&reference.id)
+                    != Some(&module.providers.scope(reference.declaration.as_ref())?)
                 {
                     return Err(RuntimeError::metadata_conflict(
                         "native receiver declaration is not in the provider catalog",
@@ -162,7 +163,12 @@ impl<'module> ImplementationBuilder<'module> {
         configure: impl FnOnce(&mut MethodsBuilder) -> NativeResult<T>,
     ) -> NativeResult<T> {
         if self.module.providers.get(&applied.contract.id)
-            != Some(applied.contract.contract.as_ref())
+            != Some(
+                &self
+                    .module
+                    .providers
+                    .scope(applied.contract.contract.as_ref())?,
+            )
         {
             return Err(RuntimeError::metadata_conflict(
                 "trait contract is not in this module's provider catalog",

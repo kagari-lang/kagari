@@ -26,6 +26,7 @@ use kagari_common::{
     identity::{
         DefinitionKind,
         map::DefinitionMap,
+        metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -33,9 +34,30 @@ use std::{collections::HashSet, rc::Rc, slice};
 
 #[derive(Debug, Clone)]
 pub(crate) struct BindingRegistration {
-    pub(crate) declarations: Vec<NativeDeclaration>,
+    pub(crate) declarations: DefinitionMetadata<Vec<NativeDeclaration<DefinitionId>>>,
     pub(crate) binding: NativeBinding,
     pub(crate) required_catalog: DeclarationCatalog,
+}
+
+impl BindingRegistration {
+    pub(crate) fn checked(
+        declarations: Vec<NativeDeclaration>,
+        binding: NativeBinding,
+        required_catalog: DeclarationCatalog,
+    ) -> NativeResult<Self> {
+        let records = required_catalog.scope(&declarations)?;
+        let declarations = DefinitionMetadata::checked(
+            required_catalog.definitions(),
+            records,
+            &CancellationToken::default(),
+        )
+        .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
+        Ok(Self {
+            declarations,
+            binding,
+            required_catalog,
+        })
+    }
 }
 
 pub(crate) fn link_host(
@@ -84,16 +106,20 @@ impl Default for NativeRegistry {
 impl NativeRegistry {
     pub(crate) fn install(&mut self, registration: Rc<BindingRegistration>) -> NativeResult<()> {
         let invalid = || RuntimeError::metadata_conflict("invalid or duplicate native binding");
-        let declaration = registration.declarations.first().ok_or_else(invalid)?;
+        let declarations = registration
+            .declarations
+            .to_paths(&CancellationToken::default())
+            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
+        let declaration = declarations.first().ok_or_else(invalid)?;
         let CallableImplementation::Native(binding) = &declaration.function.implementation else {
             return Err(invalid());
         };
         let id = binding.clone();
-        if self.entries.contains_key(&id) || registration.declarations.len() > 4096 {
+        if self.entries.contains_key(&id) || declarations.len() > 4096 {
             return Err(invalid());
         }
         let mut seen = HashSet::new();
-        for declaration in &registration.declarations {
+        for declaration in &declarations {
             validate_native_declarations(
                 slice::from_ref(declaration),
                 &declaration.declaration.module,
@@ -122,9 +148,18 @@ impl NativeRegistry {
             )?;
         }
         let mut catalog = self.catalog.clone();
-        for declaration in &registration.declarations {
+        for declaration in &declarations {
             catalog.insert_declaration(declaration.clone())?;
         }
+        let context = self.entries.context();
+        let registration = Rc::new(BindingRegistration {
+            declarations: registration
+                .declarations
+                .import_into(context, &CancellationToken::default())
+                .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?,
+            binding: registration.binding.clone(),
+            required_catalog: registration.required_catalog.import_into(context)?,
+        });
         self.catalog = catalog;
         self.entries
             .insert(id, registration)
@@ -162,12 +197,7 @@ impl NativeRegistry {
             .ok_or_else(|| RuntimeError::module_validation("native declaration is absent"))?;
         let authored = program.paths(import)?;
         if !authored.structurally_valid()
-            || !entry
-                .declarations
-                .iter()
-                .map(|record| program.scope(record))
-                .collect::<NativeResult<Vec<_>>>()?
-                .contains(declaration)
+            || !entry.declarations.records().contains(declaration)
             || declaration.function.implementation != CallableImplementation::Native(import.binding)
         {
             return Err(RuntimeError::module_validation(
