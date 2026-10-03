@@ -11,6 +11,7 @@ use crate::{
         verify::{native_bounds_valid, validate, validate_native_declarations},
     },
 };
+
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
@@ -35,13 +36,13 @@ impl fmt::Display for DeclarationError {
 impl Error for DeclarationError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImplDecl {
-    pub generic_params: Vec<GenericParameterAbi>,
+pub struct ImplDecl<I = DefinitionPath> {
+    pub generic_params: Vec<GenericParameterAbi<I>>,
     /// Obligations inherited by every method's registered callable template.
-    pub bounds: Vec<GenericBoundAbi>,
-    pub trait_type: Option<NominalAbiType>,
-    pub for_type: AbiType,
-    pub methods: Vec<FunctionAbi>,
+    pub bounds: Vec<GenericBoundAbi<I>>,
+    pub trait_type: Option<NominalAbiType<I>>,
+    pub for_type: AbiType<I>,
+    pub methods: Vec<FunctionAbi<I>>,
 }
 
 /// Rust registration definitions own these records. Generated text is a projection.
@@ -51,26 +52,26 @@ pub struct ImplDecl {
 /// Registered default applications retain their explicit native template mappings.
 /// Method binders retain their own identities; associated type families remain deferred.
 #[derive(Debug, Clone)]
-pub struct ModuleDecl {
+pub struct ModuleDecl<I = DefinitionPath> {
     pub identity: ModuleIdentity,
     /// Installed script package spelling, independent of the canonical package ID.
     pub package_alias: Option<String>,
     /// Owning modules required by the checked registration closure. NativeApi
     /// derives these edges from actual traits, templates and implementation facts.
     pub dependencies: BTreeSet<ModuleIdentity>,
-    pub types: Vec<TypeAbi>,
+    pub types: Vec<TypeAbi<I>>,
     /// Enum owners whose variants are also explicitly exported at module scope.
     pub variant_exports: BTreeSet<String>,
-    pub traits: Vec<TraitAbi>,
-    pub implementations: Vec<ImplDecl>,
-    pub functions: Vec<FunctionAbi>,
+    pub traits: Vec<TraitAbi<I>>,
+    pub implementations: Vec<ImplDecl<I>>,
+    pub functions: Vec<FunctionAbi<I>>,
     /// Registered templates remain addressable by identity without public exports.
-    pub private_functions: BTreeSet<DefinitionPath>,
-    pub documentation: BTreeMap<DefinitionPath, String>,
+    pub private_functions: BTreeSet<I>,
+    pub documentation: BTreeMap<I, String>,
     /// Ordered callback slots owned by each native declaration. The compiler
     /// specializes these requirements; generated source does not select targets.
-    pub callable_requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
-    pub concrete_results: BTreeMap<DefinitionPath, AbiType>,
+    pub callable_requirements: BTreeMap<I, Vec<NativeCallableRequirement<I>>>,
+    pub concrete_results: BTreeMap<I, AbiType<I>>,
 }
 
 impl ModuleDecl {
@@ -808,3 +809,5 @@ fn identifier(name: &str) -> bool {
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
+
+mod mapping;

@@ -14,17 +14,24 @@ use crate::{
     },
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::DefinitionPath;
+
+use kagari_common::identity::reference::DefinitionReference;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SharedCall {
-    pub instance: ConcreteFunctionIdentity,
-    pub implementation: CallableImplementation,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct SharedCall<I = DefinitionPath> {
+    pub instance: ConcreteFunctionIdentity<I>,
+    pub implementation: CallableImplementation<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
-    pub signature: NativeSignature,
+    pub arguments: Vec<AbiType<I>>,
+    pub signature: NativeSignature<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub operations: Vec<OperationWitness>,
+    pub operations: Vec<OperationWitness<I>>,
 }
 
 impl SharedCall {
@@ -126,3 +133,5 @@ impl SharedCall {
         substitution
     }
 }
+
+mod mapping;

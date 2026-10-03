@@ -33,23 +33,31 @@ use kagari_common::{
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt::Write};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModuleAbi {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct ModuleAbi<I = DefinitionPath> {
     #[serde(deserialize_with = "crate::decode_limits::table")]
-    pub native_declarations: Vec<NativeDeclaration>,
+    pub native_declarations: Vec<NativeDeclaration<I>>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
-    pub public_items: PublicAbiItemBuffer,
+    pub public_items: PublicAbiItemBuffer<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub trait_contracts: Vec<TraitContract>,
+    pub trait_contracts: Vec<TraitContract<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PublicAbiItem {
-    Function(FunctionAbi),
-    Const(ConstAbi),
-    Type(TypeAbi),
-    Trait(TraitAbi),
-    InterfaceTable(Box<InterfaceTableAbi>),
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub enum PublicAbiItem<I = DefinitionPath> {
+    Function(FunctionAbi<I>),
+    Const(ConstAbi<I>),
+    Type(TypeAbi<I>),
+    Trait(TraitAbi<I>),
+    InterfaceTable(Box<InterfaceTableAbi<I>>),
 }
 
 impl PublicAbiItem {
@@ -92,57 +100,77 @@ impl PublicAbiItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FunctionAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct FunctionAbi<I = DefinitionPath> {
     pub method_policy: MethodPolicy,
     pub name: String,
-    pub implementation: CallableImplementation,
+    pub implementation: CallableImplementation<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParameterAbi>,
+    pub generic_params: Vec<GenericParameterAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBoundAbi>,
+    pub bounds: Vec<GenericBoundAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub params: Vec<ParameterAbi>,
-    pub return_type: AbiType,
+    pub params: Vec<ParameterAbi<I>>,
+    pub return_type: AbiType<I>,
 }
 
 /// Declaration contract for native entrypoints, including inherent and private
 /// methods absent from the public ABI. The function uses the same checked model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NativeDeclaration {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct NativeDeclaration<I = DefinitionPath> {
     /// Concrete value produced by Rust before a checked interface-result adapter.
-    pub concrete_result: Option<AbiType>,
-    pub declaration: DefinitionPath,
-    pub function: FunctionAbi,
+    pub concrete_result: Option<AbiType<I>>,
+    pub declaration: I,
+    pub function: FunctionAbi<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub callable_requirements: Vec<NativeCallableRequirement>,
+    pub callable_requirements: Vec<NativeCallableRequirement<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ParameterAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct ParameterAbi<I = DefinitionPath> {
     pub name: String,
-    pub ty: AbiType,
+    pub ty: AbiType<I>,
     pub mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConstAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct ConstAbi<I = DefinitionPath> {
     pub name: String,
-    pub ty: AbiType,
+    pub ty: AbiType<I>,
     pub value: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TypeAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct TypeAbi<I = DefinitionPath> {
     pub name: String,
     pub kind: TypeAbiKind,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParameterAbi>,
+    pub generic_params: Vec<GenericParameterAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBoundAbi>,
+    pub bounds: Vec<GenericBoundAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub fields: Vec<FieldAbi>,
+    pub fields: Vec<FieldAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub variants: Vec<VariantAbi>,
+    pub variants: Vec<VariantAbi<I>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,17 +182,25 @@ pub enum TypeAbiKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct FieldAbi<I = DefinitionPath> {
     pub name: String,
-    pub ty: AbiType,
+    pub ty: AbiType<I>,
     pub mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VariantAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct VariantAbi<I = DefinitionPath> {
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub payload: Vec<AbiType>,
+    pub payload: Vec<AbiType<I>>,
 }
 
 /// Semantic ABI types preserve nominal identity and container arguments, whereas
@@ -306,67 +342,87 @@ impl<I: DefinitionReference> AbiType<I> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TraitAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct TraitAbi<I = DefinitionPath> {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_consts: Vec<AssociatedConstAbi>,
+    pub associated_consts: Vec<AssociatedConstAbi<I>>,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub supertraits: Vec<NominalAbiType>,
+    pub supertraits: Vec<NominalAbiType<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParameterAbi>,
+    pub generic_params: Vec<GenericParameterAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBoundAbi>,
+    pub bounds: Vec<GenericBoundAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub methods: Vec<FunctionAbi>,
+    pub methods: Vec<FunctionAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_types: Vec<AssociatedTypeAbi>,
+    pub associated_types: Vec<AssociatedTypeAbi<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AssociatedConstAbi {
-    pub declaration: DefinitionPath,
-    pub ty: AbiType,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct AssociatedConstAbi<I = DefinitionPath> {
+    pub declaration: I,
+    pub ty: AbiType<I>,
     pub default_value: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AssociatedTypeAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct AssociatedTypeAbi<I = DefinitionPath> {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParameterAbi>,
+    pub generic_params: Vec<GenericParameterAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub parameter_bounds: Vec<GenericBoundAbi>,
-    pub declaration: DefinitionPath,
+    pub parameter_bounds: Vec<GenericBoundAbi<I>>,
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<ConstraintAbi>,
+    pub bounds: Vec<ConstraintAbi<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AssociatedTypeFamilyAbi {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct AssociatedTypeFamilyAbi<I = DefinitionPath> {
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParameterAbi>,
+    pub generic_params: Vec<GenericParameterAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBoundAbi>,
-    pub value: AbiType,
+    pub bounds: Vec<GenericBoundAbi<I>>,
+    pub value: AbiType<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InterfaceTableAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct InterfaceTableAbi<I = DefinitionPath> {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_type_families: Vec<AssociatedTypeFamilyAbi>,
+    pub associated_type_families: Vec<AssociatedTypeFamilyAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_consts: Vec<ConstAbi>,
+    pub associated_consts: Vec<ConstAbi<I>>,
     pub host_bridge: bool,
-    pub declaration: DefinitionPath,
+    pub declaration: I,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParameterAbi>,
+    pub generic_params: Vec<GenericParameterAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBoundAbi>,
-    pub trait_type: AbiType,
-    pub for_type: AbiType,
+    pub bounds: Vec<GenericBoundAbi<I>>,
+    pub trait_type: AbiType<I>,
+    pub for_type: AbiType<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub methods: Vec<FunctionAbi>,
+    pub methods: Vec<FunctionAbi<I>>,
 }
 
 impl InterfaceTableAbi {
@@ -507,17 +563,25 @@ pub fn interface_method_semantics(
 
 /// Executable contract for a private trait absent from the public ABI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TraitContract {
-    pub declaration: DefinitionPath,
-    pub abi: TraitAbi,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct TraitContract<I = DefinitionPath> {
+    pub declaration: I,
+    pub abi: TraitAbi<I>,
 }
 
 /// Concrete executable identity; diagnostic function names are not binding keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ConcreteFunctionIdentity {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct ConcreteFunctionIdentity<I = DefinitionPath> {
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -547,7 +611,7 @@ pub enum ConstraintAbi<I = DefinitionPath> {
     Trait(NominalAbiType<I>),
 }
 
-pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
+pub type PublicAbiItemBuffer<I = DefinitionPath> = Vec<PublicAbiItem<I>>;
 
 /// Resolve a trait only within its defining executable module. Standard traits
 /// follow the same carried-contract path; a well-known ID is not a declaration.
@@ -648,3 +712,15 @@ impl AbiType {
         result.is_concrete().then_some(result)
     }
 }
+
+impl<I> Default for ModuleAbi<I> {
+    fn default() -> Self {
+        Self {
+            native_declarations: Default::default(),
+            public_items: Default::default(),
+            trait_contracts: Default::default(),
+        }
+    }
+}
+
+mod mapping;

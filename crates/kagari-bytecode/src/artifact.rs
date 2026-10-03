@@ -6,6 +6,8 @@ use crate::{
     program::{BytecodeProgram, verified::VerifiedBytecodeProgram, verify_program},
     verifier::BytecodeVerificationError,
 };
+use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::reference::DefinitionReference;
 mod limits;
 
 use bincode::{DefaultOptions, ErrorKind, Options};
@@ -21,7 +23,16 @@ use kagari_abi::{
 };
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
-use kagari_common::{host_interface::HostInterface, identity::ModuleIdentity};
+use kagari_common::{
+    cancellation::CancellationToken,
+    host_interface::HostInterface,
+    identity::{
+        ModuleIdentity,
+        mapping::DefinitionMappingError,
+        metadata::{PortableMetadata, scope_record},
+        table::wire::PortableDefinitionRef,
+    },
+};
 use std::io::{self, Write};
 
 use serde::{Deserialize, Serialize};
@@ -70,11 +81,15 @@ pub const KAGARI_COMPILER_FINGERPRINT: &str =
     concat!("kagari-compiler/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KbcArtifact {
+#[serde(bound(
+    serialize = "I: DefinitionReference + Serialize",
+    deserialize = "I: DefinitionReference + Deserialize<'de>"
+))]
+pub struct KbcArtifact<I = DefinitionPath> {
     pub header: ArtifactHeader,
-    pub program: BytecodeProgram,
+    pub program: BytecodeProgram<I>,
     pub tables: ArtifactTables,
-    pub verification: VerificationMetadata,
+    pub verification: VerificationMetadata<I>,
     pub debug: Option<DebugMetadata>,
     pub signatures: Option<ArtifactSignatures>,
     pub portable_mir: Option<PortableMir>,
@@ -111,7 +126,7 @@ impl KbcArtifact {
     ) -> Result<VerifiedArtifact, ArtifactValidationError> {
         self.validate_for_loader(requirements)?;
         Ok(VerifiedArtifact {
-            bytecode: VerifiedBytecodeProgram::from_verified(self.program),
+            bytecode: VerifiedBytecodeProgram::from_verified(self.program)?,
             portable_mir: self.portable_mir,
         })
     }
@@ -291,7 +306,9 @@ impl KbcArtifact {
                 message: reason.into(),
             });
         }
-        codec().serialize(self).map_err(ArtifactCodecError::from)
+        codec()
+            .serialize(&self.portable_projection()?)
+            .map_err(ArtifactCodecError::from)
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ArtifactCodecError> {
@@ -307,15 +324,33 @@ impl KbcArtifact {
                 message: "unsupported artifact magic or format version".into(),
             });
         }
-        let artifact: Self = codec()
+        let portable: PortableMetadata<KbcArtifact<PortableDefinitionRef>> = codec()
             .deserialize(bytes)
             .map_err(ArtifactCodecError::from)?;
+        let cancel = CancellationToken::default();
+        let artifact = portable
+            .decode(&cancel)
+            .and_then(|metadata| metadata.to_paths(&cancel))
+            .map_err(|error| ArtifactCodecError {
+                message: error.to_string(),
+            })?;
         if let Some(reason) = artifact_count_limit(&artifact) {
             return Err(ArtifactCodecError {
                 message: reason.into(),
             });
         }
         Ok(artifact)
+    }
+
+    fn portable_projection(
+        &self,
+    ) -> Result<PortableMetadata<KbcArtifact<PortableDefinitionRef>>, ArtifactCodecError> {
+        let cancel = CancellationToken::default();
+        scope_record(self, &cancel)
+            .and_then(|metadata| metadata.to_portable(&cancel))
+            .map_err(|error| ArtifactCodecError {
+                message: error.to_string(),
+            })
     }
 
     fn validate_header(
@@ -616,12 +651,16 @@ pub struct ArtifactSection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VerificationMetadata {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct VerificationMetadata<I = DefinitionPath> {
     pub bytecode_verified: bool,
     /// Root-member summaries. Dependency metadata remains in its BytecodeModule;
     /// all members are verified before these derived summaries are accepted.
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
-    pub function_layouts: FunctionLayoutBuffer,
+    pub function_layouts: FunctionLayoutBuffer<I>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub function_effects: FunctionEffectBuffer,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
@@ -718,8 +757,12 @@ impl VerificationMetadata {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FunctionLayoutMetadata {
-    pub semantic: SemanticSlots,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct FunctionLayoutMetadata<I = DefinitionPath> {
+    pub semantic: SemanticSlots<I>,
     pub function: FunctionRef,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub params: Vec<ValueType>,
@@ -867,6 +910,8 @@ pub struct ArtifactSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ArtifactValidationError {
+    #[error("artifact identity conversion failed: {0}")]
+    Identity(DefinitionMappingError),
     #[error("invalid KBC magic bytes {0:?}")]
     InvalidMagic([u8; 4]),
     #[error("artifact format version mismatch: expected {expected}, found {found}")]
@@ -931,6 +976,7 @@ impl From<Box<ErrorKind>> for ArtifactCodecError {
 impl ArtifactValidationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Identity(_) => "KG_ARTIFACT_IDENTITY",
             Self::InvalidMagic(_) => "KG_ARTIFACT_INVALID_MAGIC",
             Self::FormatVersionMismatch { .. } => "KG_ARTIFACT_FORMAT_VERSION_MISMATCH",
             Self::LanguageVersionMismatch { .. } => "KG_ARTIFACT_LANGUAGE_VERSION_MISMATCH",
@@ -957,7 +1003,7 @@ impl ArtifactValidationError {
 pub type ArtifactSectionBuffer = Vec<ArtifactSection>;
 pub type SourceFileTable = Vec<String>;
 pub type DebugNameTable = Vec<String>;
-pub type FunctionLayoutBuffer = Vec<FunctionLayoutMetadata>;
+pub type FunctionLayoutBuffer<I = DefinitionPath> = Vec<FunctionLayoutMetadata<I>>;
 pub type FunctionEffectBuffer = Vec<FunctionEffectMetadata>;
 pub type ControlFlowTargetMetadataBuffer = Vec<ControlFlowTargetMetadata>;
 pub type PathFingerprintBuffer = Vec<PathDescriptorFingerprint>;
@@ -966,3 +1012,5 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 
 #[cfg(test)]
 mod canonical_tests;
+
+mod mapping;

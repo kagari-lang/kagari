@@ -18,8 +18,10 @@ Build time (8.63 seconds) is excluded from the representation comparison.
 
 These are `size_of` measurements of the same generic semantic model. They exclude
 heap payloads and definition-table overhead. Frame binder owners and native/cache
-index keys now use scoped IDs; compiled nominal/type metadata still instantiates
-the owned-path form. This is not an artifact-size or execution-speed measurement.
+index keys now use scoped IDs. A later ID02/ID03 checkpoint also adopts scoped
+metadata throughout immutable VerifiedBytecodeProgram records and canonical KBC/MIR
+wire projections. Runtime executable adoption and MIR/HIR ownership remain pending.
+This is not an artifact-size or execution-speed measurement.
 
 ## Definition identity representation (ID01), 2026-10-03
 

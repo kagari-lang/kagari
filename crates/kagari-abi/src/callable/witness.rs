@@ -15,6 +15,8 @@ use crate::{
         verify::{concrete_type_valid, types_in_scope},
     },
 };
+
+use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, DefinitionPath},
@@ -25,18 +27,26 @@ use serde::{Deserialize, Serialize};
 /// retains the caller's existing selection and its generation; it never resolves
 /// a trait again at execution time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OperationWitness {
-    Selected(Box<NativeCallableApplication>),
-    SharedMethod(Box<SharedMethodWitness>),
-    Forward(Box<NativeCallableRequirement>),
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub enum OperationWitness<I = DefinitionPath> {
+    Selected(Box<NativeCallableApplication<I>>),
+    SharedMethod(Box<SharedMethodWitness<I>>),
+    Forward(Box<NativeCallableRequirement<I>>),
 }
 
 /// Select the implementation table once; method-local arguments are supplied by
 /// each checked call into that table's shared entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SharedMethodWitness {
-    pub requirement: NativeCallableRequirement,
-    pub implementation: ConcreteFunctionIdentity,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct SharedMethodWitness<I = DefinitionPath> {
+    pub requirement: NativeCallableRequirement<I>,
+    pub implementation: ConcreteFunctionIdentity<I>,
 }
 
 impl OperationWitness {
@@ -284,3 +294,5 @@ impl NativeCallableRequirement {
         Ok(Some(signature))
     }
 }
+
+mod mapping;

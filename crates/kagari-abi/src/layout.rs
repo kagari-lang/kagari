@@ -1,4 +1,6 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
+
+use kagari_common::identity::reference::DefinitionReference;
 mod applications;
 
 use crate::{
@@ -14,19 +16,27 @@ use kagari_common::{
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct EnumLayout {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct EnumLayout<I = DefinitionPath> {
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub variants: Vec<EnumVariantLayout>,
+    pub variants: Vec<EnumVariantLayout<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct EnumVariantLayout {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct EnumVariantLayout<I = DefinitionPath> {
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub payload: Vec<AbiType>,
+    pub payload: Vec<AbiType<I>>,
 }
 
 /// Compare executable instances to validated public declarations after substitution.
@@ -328,12 +338,16 @@ pub fn validate_enum_layouts(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct StructLayout {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct StructLayout<I = DefinitionPath> {
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub fields: Vec<StructFieldLayout>,
+    pub fields: Vec<StructFieldLayout<I>>,
 }
 
 impl StructLayout {
@@ -347,10 +361,14 @@ impl StructLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct StructFieldLayout {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct StructFieldLayout<I = DefinitionPath> {
+    pub declaration: I,
     pub name: String,
-    pub ty: AbiType,
+    pub ty: AbiType<I>,
     pub mutable: bool,
 }
 
@@ -427,3 +445,5 @@ pub fn validate_layouts(
     }
     Ok(())
 }
+
+mod mapping;

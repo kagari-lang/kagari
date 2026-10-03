@@ -6,13 +6,19 @@ use crate::host_interface::{
     type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     value_type::HostValueType,
 };
+use crate::identity::reference::DefinitionReference;
+
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct HostPathDeclaration {
-    pub root: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostPathDeclaration<I = DefinitionPath> {
+    pub root: I,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub segments: Vec<HostPathSegmentDeclaration>,
+    pub segments: Vec<HostPathSegmentDeclaration<I>>,
     pub access: PathAccess,
     pub schema_epoch: u64,
 }
@@ -27,20 +33,28 @@ impl HostPathDeclaration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum HostPathSegmentDeclaration {
-    Field(DefinitionPath),
-    Index(HostIndexSegmentDeclaration),
-    Virtual(HostVirtualSegmentDeclaration),
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub enum HostPathSegmentDeclaration<I = DefinitionPath> {
+    Field(I),
+    Index(HostIndexSegmentDeclaration<I>),
+    Virtual(HostVirtualSegmentDeclaration<I>),
 }
 
 /// Portable contract for one dynamic index step; runtime type slots are resolved
 /// only when a host binds the declaration.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct HostIndexSegmentDeclaration {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostIndexSegmentDeclaration<I = DefinitionPath> {
     pub slot: u32,
-    pub collection: HostValueType,
-    pub index: HostValueType,
-    pub result: HostValueType,
+    pub collection: HostValueType<I>,
+    pub index: HostValueType<I>,
+    pub result: HostValueType<I>,
     pub access: PathAccess,
 }
 
@@ -61,9 +75,13 @@ impl HostIndexSegmentDeclaration {
 
 /// Portable contract for a host-defined virtual step.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct HostVirtualSegmentDeclaration {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostVirtualSegmentDeclaration<I = DefinitionPath> {
     pub name: String,
-    pub result: HostValueType,
+    pub result: HostValueType<I>,
     pub access: PathAccess,
 }
 
@@ -77,14 +95,14 @@ impl HostVirtualSegmentDeclaration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostPathInput {
+pub enum HostPathInput<I = DefinitionPath> {
     Field {
-        owner: HostValueType,
+        owner: HostValueType<I>,
     },
     Index {
         slot: u64,
-        collection: HostValueType,
-        index: HostValueType,
+        collection: HostValueType<I>,
+        index: HostValueType<I>,
     },
     Virtual {
         name: String,
@@ -92,21 +110,21 @@ pub enum HostPathInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostPathSegmentContract {
-    pub input: HostPathInput,
-    pub result: HostValueType,
+pub struct HostPathSegmentContract<I = DefinitionPath> {
+    pub input: HostPathInput<I>,
+    pub result: HostValueType<I>,
     pub access: PathAccess,
     pub member_fingerprint: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostPathContract {
+pub struct HostPathContract<I = DefinitionPath> {
     pub root_fingerprint: u64,
-    pub result: HostValueType,
+    pub result: HostValueType<I>,
     pub schema_epoch: u64,
     pub access: PathAccess,
 
-    pub segments: Vec<HostPathSegmentContract>,
+    pub segments: Vec<HostPathSegmentContract<I>>,
 }
 
 impl HostPathContract {
@@ -549,3 +567,5 @@ mod tests {
         }
     }
 }
+
+mod mapping;

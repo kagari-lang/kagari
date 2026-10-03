@@ -4,7 +4,13 @@ use kagari_bytecode::{
     artifact::validate_program_resource_limits,
     program::{BytecodeProgram, verified::VerifiedBytecodeProgram},
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        metadata::{PortableMetadata, scope_record},
+        table::wire::PortableDefinitionRef,
+    },
+};
 use kagari_mir::{
     codec::{MirCodecError, decode_program},
     program::VerifiedMirProgram,
@@ -53,16 +59,17 @@ pub fn verify_native_input(
     // Resource validation bounds both encodings before allocation. Comparing
     // canonical bytes preserves floating-point payloads and covers every field,
     // including layouts, concrete identities, imports, debug origins and budgets.
-    let canonical = |program: &BytecodeProgram| {
-        DefaultOptions::new()
-            .with_fixint_encoding()
-            .with_little_endian()
-            .serialize(program)
-            .map_err(|error| NativeInputError::Bytecode(error.to_string()))
-    };
-    let expected = canonical(bytecode.program())?;
+    let expected = canonical(
+        &bytecode
+            .portable_projection(cancel)
+            .map_err(|error| conversion_error(error, cancel))?,
+    )?;
     check_cancel(cancel)?;
-    let actual = canonical(&lowered)?;
+    let actual = canonical(
+        &scope_record(&lowered, cancel)
+            .and_then(|metadata| metadata.to_portable(cancel))
+            .map_err(|error| conversion_error(error, cancel))?,
+    )?;
     check_cancel(cancel)?;
     if actual != expected {
         return Err(NativeInputError::Mismatch);
@@ -70,6 +77,24 @@ pub fn verify_native_input(
     // Exact canonical equality transfers the sealed bytecode's graph/bounds proof
     // to this lowering. The unsealed candidate is never returned or executed.
     Ok(mir)
+}
+
+fn canonical(
+    value: &PortableMetadata<BytecodeProgram<PortableDefinitionRef>>,
+) -> Result<Vec<u8>, NativeInputError> {
+    DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_little_endian()
+        .serialize(value)
+        .map_err(|error| NativeInputError::Bytecode(error.to_string()))
+}
+
+fn conversion_error(error: impl ToString, cancel: &CancellationToken) -> NativeInputError {
+    if cancel.check().is_err() {
+        NativeInputError::Cancelled
+    } else {
+        NativeInputError::Bytecode(error.to_string())
+    }
 }
 
 fn check_cancel(cancel: &CancellationToken) -> Result<(), NativeInputError> {

@@ -11,6 +11,9 @@ use crate::types::{
     trait_contract,
     verify::types_in_scope,
 };
+use kagari_common::identity::DefinitionPath;
+
+use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, ModuleIdentity},
@@ -18,23 +21,27 @@ use kagari_common::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InterfaceCallContract {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct InterfaceCallContract<I = DefinitionPath> {
     /// None dispatches a boxed interface; Some invokes the caller's checked
     /// constraint operation on an unboxed value of this type.
-    pub receiver: Option<AbiType>,
+    pub receiver: Option<AbiType<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub operations: Vec<OperationWitness>,
-    pub interface: NominalAbiType,
+    pub operations: Vec<OperationWitness<I>>,
+    pub interface: NominalAbiType<I>,
     pub method_slot: u32,
     /// Arguments for this method only. The interface owns its trait arguments.
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
 }
 
-pub struct InterfaceMethodSignature {
-    pub params: Vec<AbiType>,
-    pub result: AbiType,
-    pub bounds: Vec<GenericBoundAbi>,
+pub struct InterfaceMethodSignature<I = DefinitionPath> {
+    pub params: Vec<AbiType<I>>,
+    pub result: AbiType<I>,
+    pub bounds: Vec<GenericBoundAbi<I>>,
 }
 
 impl InterfaceMethodSignature {
@@ -239,3 +246,5 @@ impl InterfaceCallContract {
 
 #[cfg(test)]
 mod tests;
+
+mod mapping;

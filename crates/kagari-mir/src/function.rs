@@ -7,6 +7,8 @@ use kagari_abi::{
     slots::SemanticSlots,
     types::{ConcreteFunctionIdentity, ModuleAbi, NominalAbiType},
 };
+use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     host_interface::type_declaration::HostTypeDeclaration, identity::ModuleIdentity, span::Span,
 };
@@ -20,37 +22,45 @@ use crate::{
 use std::{borrow::Cow, iter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MirModule {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct MirModule<I = DefinitionPath> {
     /// Concrete native entry contracts invoked without a script body, including
     /// interface slots and dependencies selected by another native entry.
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-    pub native_targets: Vec<NativeImport>,
+    pub native_targets: Vec<NativeImport<I>>,
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-    pub interface_instances: Vec<ConcreteFunctionIdentity>,
+    pub interface_instances: Vec<ConcreteFunctionIdentity<I>>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
-    pub host_types: Vec<HostTypeDeclaration>,
+    pub host_types: Vec<HostTypeDeclaration<I>>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub dependencies: Vec<ModuleIdentity>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
-    pub structures: Vec<StructLayout>,
+    pub structures: Vec<StructLayout<I>>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
-    pub enumerations: Vec<EnumLayout>,
+    pub enumerations: Vec<EnumLayout<I>>,
     pub identity: ModuleIdentity,
     pub source_name: String,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub module_slots: ModuleSlotBuffer,
-    pub abi: ModuleAbi,
+    pub abi: ModuleAbi<I>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::functions")]
-    pub functions: FunctionBuffer,
+    pub functions: FunctionBuffer<I>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MirFunction {
-    pub semantic: SemanticSlots,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct MirFunction<I = DefinitionPath> {
+    pub semantic: SemanticSlots<I>,
     pub id: InstanceId,
-    pub instance: ConcreteFunctionIdentity,
+    pub instance: ConcreteFunctionIdentity<I>,
     pub name: String,
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub params: ParameterBuffer,
@@ -60,7 +70,7 @@ pub struct MirFunction {
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub temps: TempBuffer,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
-    pub blocks: BlockBuffer,
+    pub blocks: BlockBuffer<I>,
     pub entry: BlockId,
     pub effects: EffectSet,
     pub debug: MirFunctionDebugMetadata,
@@ -184,9 +194,13 @@ pub struct MirModuleSlot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BasicBlock {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct BasicBlock<I = DefinitionPath> {
     #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
-    pub instructions: InstructionBuffer,
+    pub instructions: InstructionBuffer<I>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
     pub instruction_spans: SourceSpanBuffer,
     #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
@@ -196,10 +210,12 @@ pub struct BasicBlock {
     pub terminator_scope: Option<usize>,
 }
 
-pub type FunctionBuffer = Vec<MirFunction>;
+pub type FunctionBuffer<I = DefinitionPath> = Vec<MirFunction<I>>;
 pub type ParameterBuffer = Vec<MirParameter>;
 pub type LocalBuffer = Vec<MirLocal>;
 pub type ModuleSlotBuffer = Vec<MirModuleSlot>;
 pub type TempBuffer = Vec<MirTemp>;
-pub type BlockBuffer = Vec<BasicBlock>;
+pub type BlockBuffer<I = DefinitionPath> = Vec<BasicBlock<I>>;
 pub type SourceSpanBuffer = Vec<Span>;
+
+mod mapping;

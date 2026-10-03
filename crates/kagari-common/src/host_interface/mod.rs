@@ -1,4 +1,6 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
+use crate::identity::reference::DefinitionReference;
+
 use bincode::{DefaultOptions, Options};
 
 use serde::{Deserialize, Serialize};
@@ -69,9 +71,13 @@ pub enum HostPassingStyle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostParameter {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostParameter<I = DefinitionPath> {
     pub name: String,
-    pub ty: HostValueType,
+    pub ty: HostValueType<I>,
     pub passing: HostPassingStyle,
 }
 
@@ -88,13 +94,17 @@ pub struct HostFunctionEffects {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostFunctionDeclaration {
-    pub id: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostFunctionDeclaration<I = DefinitionPath> {
+    pub id: I,
     /// The binding/export label is distinct from nominal declaration identity.
     pub symbol: String,
     #[serde(deserialize_with = "decode_limits::members")]
-    pub params: Vec<HostParameter>,
-    pub return_type: HostValueType,
+    pub params: Vec<HostParameter<I>>,
+    pub return_type: HostValueType<I>,
 
     pub effects: HostFunctionEffects,
     pub documentation: String,
@@ -244,14 +254,18 @@ fn validate_signature(
     Ok(())
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostInterface {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostInterface<I = DefinitionPath> {
     #[serde(deserialize_with = "decode_limits::declarations")]
-    pub paths: Vec<HostPathDeclaration>,
+    pub paths: Vec<HostPathDeclaration<I>>,
     #[serde(deserialize_with = "decode_limits::declarations")]
-    pub types: Vec<HostTypeDeclaration>,
+    pub types: Vec<HostTypeDeclaration<I>>,
     #[serde(deserialize_with = "decode_limits::declarations")]
-    pub functions: Vec<HostFunctionDeclaration>,
+    pub functions: Vec<HostFunctionDeclaration<I>>,
 }
 
 #[derive(Deserialize)]
@@ -441,3 +455,15 @@ fn hash(bytes: impl IntoIterator<Item = u8>) -> u64 {
         (h ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     })
 }
+
+impl<I> Default for HostInterface<I> {
+    fn default() -> Self {
+        Self {
+            paths: Default::default(),
+            types: Default::default(),
+            functions: Default::default(),
+        }
+    }
+}
+
+mod mapping;

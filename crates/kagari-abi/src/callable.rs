@@ -1,6 +1,7 @@
 //! Portable callable implementation identities. Signatures belong to the
 //! declarations lowered from HIR; these identities never reconstruct a signature.
 
+use kagari_common::identity::reference::DefinitionReference;
 pub mod generic;
 pub mod interface;
 pub mod shared;
@@ -31,20 +32,28 @@ impl Default for MethodPolicy {
 /// A requirement has no executable entry until implementation selection resolves
 /// it. Script bodies and registered Rust entries are executable targets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CallableImplementation {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub enum CallableImplementation<I = DefinitionPath> {
     Required,
     Script,
-    Native(DefinitionPath),
+    Native(I),
     /// A trait default applies an ordinary registered function template. Its
     /// arguments belong to the enclosing trait/method binder, including Self.
-    NativeDefault(NativeDefaultApplication),
+    NativeDefault(NativeDefaultApplication<I>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NativeDefaultApplication {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct NativeDefaultApplication<I = DefinitionPath> {
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
 }
 
 impl NativeDefaultApplication {
@@ -83,3 +92,5 @@ impl CallableImplementation {
         })
     }
 }
+
+mod mapping;

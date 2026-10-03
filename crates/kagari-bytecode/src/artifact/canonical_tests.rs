@@ -96,7 +96,7 @@ fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {
 
 #[test]
 fn typed_path_operands_preflight_before_decoding_registers() {
-    let instruction = BytecodeInstruction::ReadPath {
+    let instruction: BytecodeInstruction = BytecodeInstruction::ReadPath {
         dst: Register::new(0),
         root_or_view: Register::new(1),
         path: PathId::new(0),
@@ -149,7 +149,9 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
         ))
     ));
     assert!(artifact.to_bytes().is_err());
-    let crafted = codec().serialize(&artifact).unwrap();
+    let crafted = codec()
+        .serialize(&artifact.portable_projection().unwrap())
+        .unwrap();
     assert!(
         KbcArtifact::from_bytes(&crafted)
             .unwrap_err()
@@ -285,7 +287,9 @@ fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
             Err(ArtifactValidationError::ResourceLimit(found)) if found == reason
         ));
         assert!(artifact.to_bytes().is_err());
-        let crafted = codec().serialize(&artifact).unwrap();
+        let crafted = codec()
+            .serialize(&artifact.portable_projection().unwrap())
+            .unwrap();
         assert!(
             KbcArtifact::from_bytes(&crafted)
                 .unwrap_err()
@@ -330,7 +334,9 @@ fn detached_debug_frame_layout_is_bounded_before_fingerprinting() {
         ))
     ));
     assert!(artifact.to_bytes().is_err());
-    let crafted = codec().serialize(&artifact).unwrap();
+    let crafted = codec()
+        .serialize(&artifact.portable_projection().unwrap())
+        .unwrap();
     assert!(
         KbcArtifact::from_bytes(&crafted)
             .unwrap_err()
@@ -553,7 +559,9 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
             ))
         ));
         assert!(artifact.to_bytes().is_err());
-        let crafted = codec().serialize(&artifact).unwrap();
+        let crafted = codec()
+            .serialize(&artifact.portable_projection().unwrap())
+            .unwrap();
         let error = KbcArtifact::from_bytes(&crafted).unwrap_err();
         let expected = if index == 2 {
             "host member count limit exceeded"
@@ -591,7 +599,9 @@ fn module_count_limit_rejects_memory_and_encoded_artifacts_before_verification()
             .message()
             .contains("too many modules")
     );
-    let crafted = codec().serialize(&artifact).unwrap();
+    let crafted = codec()
+        .serialize(&artifact.portable_projection().unwrap())
+        .unwrap();
     assert!(
         KbcArtifact::from_bytes(&crafted)
             .unwrap_err()
@@ -618,7 +628,9 @@ fn declared_section_counts_are_bounded_independently_of_payload_size() {
         ))
     ));
     assert!(artifact.to_bytes().is_err());
-    let crafted = codec().serialize(&artifact).unwrap();
+    let crafted = codec()
+        .serialize(&artifact.portable_projection().unwrap())
+        .unwrap();
     assert!(KbcArtifact::from_bytes(&crafted).is_err());
 }
 

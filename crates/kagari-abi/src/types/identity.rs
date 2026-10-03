@@ -6,6 +6,7 @@ use crate::types::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
         reference::DefinitionReference,
         table::{
             DefinitionId, DefinitionTable, DefinitionTableBuilder, DefinitionTableError,
@@ -46,6 +47,60 @@ impl From<DefinitionTableError> for IdentityTransformError {
 impl From<TypeTransformError> for IdentityTransformError {
     fn from(error: TypeTransformError) -> Self {
         Self::Type(error)
+    }
+}
+
+impl From<IdentityTransformError> for DefinitionMappingError {
+    fn from(error: IdentityTransformError) -> Self {
+        match error {
+            IdentityTransformError::Identity(error) => Self::Identity(error),
+            IdentityTransformError::Type(TypeTransformError::Cancelled) => Self::Cancelled,
+            IdentityTransformError::Type(TypeTransformError::LimitExceeded) => Self::LimitExceeded,
+            IdentityTransformError::Type(TypeTransformError::InvalidContract) => {
+                Self::InvalidContract
+            }
+        }
+    }
+}
+
+impl From<DefinitionMappingError> for IdentityTransformError {
+    fn from(error: DefinitionMappingError) -> Self {
+        match error {
+            DefinitionMappingError::Identity(error) => Self::Identity(error),
+            DefinitionMappingError::Cancelled => TypeTransformError::Cancelled.into(),
+            DefinitionMappingError::LimitExceeded => TypeTransformError::LimitExceeded.into(),
+            DefinitionMappingError::InvalidContract => TypeTransformError::InvalidContract.into(),
+        }
+    }
+}
+
+impl<I: DefinitionReference> DefinitionRecord<I> for AbiType<I> {
+    type Rebind<J: DefinitionReference> = AbiType<J>;
+
+    fn map_identities<J: DefinitionReference>(
+        &self,
+        mapper: &mut DefinitionMapper<'_, I, J>,
+    ) -> Result<AbiType<J>, DefinitionMappingError> {
+        let cancel = mapper.cancellation().clone();
+        self.map_definitions(
+            &mut |id| mapper.reference(id).map_err(IdentityTransformError::from),
+            &cancel,
+        )
+        .map_err(DefinitionMappingError::from)
+    }
+
+    fn visit_definitions(
+        &self,
+        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        for id in self
+            .definition_references(cancel)
+            .map_err(DefinitionMappingError::from)?
+        {
+            visit(id)?;
+        }
+        Ok(())
     }
 }
 

@@ -4,7 +4,16 @@ use kagari_abi::{
     decode_limits,
     version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
 };
-use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionPath, ModuleIdentity,
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, map_sequence},
+        metadata::{PortableMetadata, scope_record},
+        reference::DefinitionReference,
+        table::wire::PortableDefinitionRef,
+    },
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use smallvec::{Array, SmallVec};
 use std::io::{self, Error as IoError, Read, Write};
@@ -62,17 +71,41 @@ impl Header {
     }
 }
 
-#[derive(Serialize)]
-struct ProgramRef<'a> {
-    root: &'a ModuleIdentity,
-    modules: Vec<&'a MirModule>,
-}
-
-#[derive(Deserialize)]
-struct RawProgram {
+#[derive(Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "I: DefinitionReference + Serialize",
+    deserialize = "I: DefinitionReference + Deserialize<'de>"
+))]
+struct RawProgram<I = DefinitionPath> {
     root: ModuleIdentity,
     #[serde(deserialize_with = "decode_limits::modules")]
-    modules: Vec<MirModule>,
+    modules: Vec<MirModule<I>>,
+}
+
+impl<I: DefinitionReference> DefinitionRecord<I> for RawProgram<I> {
+    type Rebind<J: DefinitionReference> = RawProgram<J>;
+
+    fn map_identities<J: DefinitionReference>(
+        &self,
+        mapper: &mut DefinitionMapper<'_, I, J>,
+    ) -> Result<RawProgram<J>, DefinitionMappingError> {
+        mapper.check()?;
+        Ok(RawProgram {
+            root: self.root.clone(),
+            modules: map_sequence(&self.modules, |module| module.map_identities(mapper))?,
+        })
+    }
+
+    fn visit_definitions(
+        &self,
+        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        for module in &self.modules {
+            module.visit_definitions(visit, cancel)?;
+        }
+        Ok(())
+    }
 }
 
 fn options() -> impl Options {
@@ -110,10 +143,17 @@ pub fn encode_program(
     options()
         .serialize_into(&mut writer, &Header::current())
         .map_err(|error| encoding(error, cancel))?;
-    let wire_program = ProgramRef {
-        root: program.root(),
-        modules: program.modules().iter().map(|module| &**module).collect(),
+    let raw_program = RawProgram {
+        root: program.root().clone(),
+        modules: program
+            .modules()
+            .iter()
+            .map(|module| (**module).clone())
+            .collect(),
     };
+    let wire_program = scope_record(&raw_program, cancel)
+        .and_then(|metadata| metadata.to_portable(cancel))
+        .map_err(|error| encoding(error, cancel))?;
     options()
         .serialize_into(&mut writer, &wire_program)
         .map_err(|error| encoding(error, cancel))?;
@@ -153,13 +193,16 @@ fn read_raw(bytes: &[u8], cancel: &CancellationToken) -> Result<RawProgram, MirC
         .deserialize_from(&mut reader)
         .map_err(|error| encoding(error, cancel))?;
     header.validate()?;
-    let raw = options()
+    let portable: PortableMetadata<RawProgram<PortableDefinitionRef>> = options()
         .deserialize_from(&mut reader)
         .map_err(|error| encoding(error, cancel))?;
     if !reader.bytes.is_empty() {
         return Err(MirCodecError::Encoding("trailing bytes".into()));
     }
-    let raw: RawProgram = raw;
+    let raw = portable
+        .decode(cancel)
+        .and_then(|metadata| metadata.to_paths(cancel))
+        .map_err(|error| encoding(error, cancel))?;
     check_counts(raw.modules.iter(), cancel)?;
     Ok(raw)
 }

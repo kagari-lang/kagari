@@ -1,5 +1,7 @@
 //! Composite declarations use bounded, flat preorder encoding on the wire.
 use super::HostInterfaceError;
+use crate::identity::reference::DefinitionReference;
+
 use crate::{collection::CollectionAccess, identity::DefinitionPath};
 use bincode::Options;
 use serde::{
@@ -7,13 +9,13 @@ use serde::{
     de::{self, Error as DecodeError, SeqAccess, Visitor},
     ser::Error as EncodeError,
 };
-use std::{fmt, vec::IntoIter};
+use std::{fmt, marker::PhantomData, vec::IntoIter};
 
 const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum HostValueType {
+pub enum HostValueType<I = DefinitionPath> {
     Unit,
     Bool,
     I32,
@@ -22,33 +24,24 @@ pub enum HostValueType {
     F64,
     String,
     /// An opaque type is identified by its declaration, never a registry slot.
-    Opaque(DefinitionPath),
-    Tuple(Vec<HostValueType>),
-    Array(Box<HostValueType>, CollectionAccess),
+    Opaque(I),
+    Tuple(Vec<HostValueType<I>>),
+    Array(Box<HostValueType<I>>, CollectionAccess),
     Map {
-        key: Box<HostValueType>,
-        value: Box<HostValueType>,
+        key: Box<HostValueType<I>>,
+        value: Box<HostValueType<I>>,
         access: CollectionAccess,
     },
-    Set(Box<HostValueType>, CollectionAccess),
-    Option(Box<HostValueType>),
+    Set(Box<HostValueType<I>>, CollectionAccess),
+    Option(Box<HostValueType<I>>),
     Result {
-        ok: Box<HostValueType>,
-        error: Box<HostValueType>,
+        ok: Box<HostValueType<I>>,
+        error: Box<HostValueType<I>>,
     },
 }
 
-impl HostValueType {
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        let bytes = super::codec()
-            .serialize(self)
-            .map_err(|_| HostInterfaceError::Encoding)?;
-        Ok(super::hash(
-            b"kagari-host-value-v1\0".iter().copied().chain(bytes),
-        ))
-    }
-
-    pub fn nominal_references(&self) -> Vec<&DefinitionPath> {
+impl<I: DefinitionReference> HostValueType<I> {
+    pub fn nominal_references(&self) -> Vec<&I> {
         let mut pending = vec![self];
         let mut declarations = Vec::new();
         while let Some(ty) = pending.pop() {
@@ -74,7 +67,7 @@ impl HostValueType {
         self.nodes().map(|_| ())
     }
 
-    fn nodes(&self) -> Result<Vec<Node>, HostInterfaceError> {
+    fn nodes(&self) -> Result<Vec<Node<I>>, HostInterfaceError> {
         let mut pending = vec![(self, 1)];
         let mut nodes = Vec::new();
         while let Some((ty, depth)) = pending.pop() {
@@ -90,7 +83,12 @@ impl HostValueType {
                 Self::F64 => Node::F64,
                 Self::String => Node::String,
                 Self::Opaque(id) => {
-                    super::validate_host_type_identity(id)?;
+                    if !id.within_path_limit() {
+                        return Err(HostInterfaceError::TooLarge);
+                    }
+                    if let Some(path) = id.authoring_path() {
+                        super::validate_host_type_identity(path)?;
+                    }
                     Node::Opaque(id.clone())
                 }
                 Self::Tuple(elements) => {
@@ -136,7 +134,11 @@ impl HostValueType {
 // Wire nodes contain no recursive type references. Decoding cannot grow the
 // Rust call stack until node count and depth have been bounded explicitly.
 #[derive(Serialize, Deserialize)]
-enum Node {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+enum Node<I = DefinitionPath> {
     Unit,
     Bool,
     I32,
@@ -144,7 +146,7 @@ enum Node {
     F32,
     F64,
     String,
-    Opaque(DefinitionPath),
+    Opaque(I),
     Tuple(u32),
     Array(CollectionAccess),
     Map(CollectionAccess),
@@ -153,7 +155,7 @@ enum Node {
     Result,
 }
 
-impl Serialize for HostValueType {
+impl<I: DefinitionReference + Serialize> Serialize for HostValueType<I> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.nodes()
             .map_err(EncodeError::custom)?
@@ -161,12 +163,12 @@ impl Serialize for HostValueType {
     }
 }
 
-impl<'de> Deserialize<'de> for HostValueType {
+impl<'de, I: DefinitionReference + Deserialize<'de>> Deserialize<'de> for HostValueType<I> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct TypeVisitor;
+        struct TypeVisitor<I>(PhantomData<I>);
 
-        impl<'de> Visitor<'de> for TypeVisitor {
-            type Value = HostValueType;
+        impl<'de, I: DefinitionReference + Deserialize<'de>> Visitor<'de> for TypeVisitor<I> {
+            type Value = HostValueType<I>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a bounded preorder host type")
@@ -180,14 +182,14 @@ impl<'de> Deserialize<'de> for HostValueType {
                     return Err(DecodeError::custom("host type node limit"));
                 }
                 let mut nodes = Vec::new();
-                while let Some(node) = sequence.next_element::<Node>()? {
+                while let Some(node) = sequence.next_element::<Node<I>>()? {
                     if nodes.len() >= MAX_NODES {
                         return Err(DecodeError::custom("host type node limit"));
                     }
                     nodes.push(node);
                 }
                 let mut nodes = nodes.into_iter();
-                let ty = build::<A::Error>(&mut nodes, 1)?;
+                let ty = build::<I, A::Error>(&mut nodes, 1)?;
                 if nodes.next().is_some() {
                     return Err(DecodeError::custom("trailing host type nodes"));
                 }
@@ -195,11 +197,14 @@ impl<'de> Deserialize<'de> for HostValueType {
                 Ok(ty)
             }
         }
-        deserializer.deserialize_seq(TypeVisitor)
+        deserializer.deserialize_seq(TypeVisitor(PhantomData))
     }
 }
 
-fn build<E: de::Error>(nodes: &mut IntoIter<Node>, depth: usize) -> Result<HostValueType, E> {
+fn build<I: DefinitionReference, E: de::Error>(
+    nodes: &mut IntoIter<Node<I>>,
+    depth: usize,
+) -> Result<HostValueType<I>, E> {
     if depth > MAX_DEPTH {
         return Err(E::custom("host type depth limit"));
     }
@@ -241,6 +246,16 @@ fn build<E: de::Error>(nodes: &mut IntoIter<Node>, depth: usize) -> Result<HostV
     Ok(ty)
 }
 
+impl HostValueType {
+    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
+        let bytes = super::codec()
+            .serialize(self)
+            .map_err(|_| HostInterfaceError::Encoding)?;
+        Ok(super::hash(
+            b"kagari-host-value-v1\0".iter().copied().chain(bytes),
+        ))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,7 +344,7 @@ mod tests {
     fn malformed_wire_types_reject_depth_counts_arity_and_invalid_hash_keys() {
         for nodes in [
             vec![],
-            vec![Node::I32, Node::Bool],
+            vec![Node::<DefinitionPath>::I32, Node::Bool],
             vec![Node::Tuple(u32::MAX)],
             vec![Node::Map(CollectionAccess::Mutable), Node::F32, Node::I32],
             (0..MAX_DEPTH)
@@ -353,9 +368,11 @@ mod tests {
                 .is_err()
         );
         assert!(
-            HostValueType::Tuple(vec![HostValueType::I32; MAX_NODES])
+            HostValueType::Tuple(vec![HostValueType::<DefinitionPath>::I32; MAX_NODES])
                 .validate()
                 .is_err()
         );
     }
 }
+
+mod mapping;

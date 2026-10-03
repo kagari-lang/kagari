@@ -8,6 +8,8 @@ use kagari_abi::{
     standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
 };
+use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::reference::DefinitionReference;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -102,10 +104,14 @@ impl StructId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct FieldRef {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct FieldRef<I = DefinitionPath> {
     pub structure: StructId,
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
     pub slot: u32,
 }
 
@@ -167,11 +173,15 @@ impl PartialEq for ConstantOperand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CallTarget {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub enum CallTarget<I = DefinitionPath> {
     Shared {
         module: ModuleRef,
         target: CallableTarget,
-        contract: Box<SharedCall>,
+        contract: Box<SharedCall<I>>,
     },
     ModuleFunction {
         module: ModuleRef,
@@ -180,7 +190,7 @@ pub enum CallTarget {
     Function(FunctionRef),
     InterfaceMethod {
         module: ModuleRef,
-        contract: Box<InterfaceCallContract>,
+        contract: Box<InterfaceCallContract<I>>,
     },
     Native(NativeImportId),
     Register(Register),
@@ -228,7 +238,11 @@ pub enum BinaryOp {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum BytecodeInstruction {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub enum BytecodeInstruction<I = DefinitionPath> {
     Convert {
         dst: Register,
         src: Register,
@@ -244,18 +258,18 @@ pub enum BytecodeInstruction {
         dst: Register,
         original: Register,
         error: Register,
-        ty: AbiType,
+        ty: AbiType<I>,
     },
     Iter {
         dst: Register,
         value: Option<Register>,
-        ty: AbiType,
+        ty: AbiType<I>,
         op: IterOp,
     },
     StandardEnum {
         dst: Register,
         value: Option<Register>,
-        ty: AbiType,
+        ty: AbiType<I>,
         op: StandardEnumOp,
     },
     LoadConst {
@@ -295,7 +309,7 @@ pub enum BytecodeInstruction {
     },
     Call {
         dst: Option<Register>,
-        callee: CallTarget,
+        callee: CallTarget<I>,
         #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         args: Vec<Register>,
     },
@@ -311,24 +325,24 @@ pub enum BytecodeInstruction {
     RangeBound {
         dst: Register,
         value: Register,
-        range: AbiType,
-        bound: AbiType,
+        range: AbiType<I>,
+        bound: AbiType<I>,
         upper: bool,
     },
     MakeRange {
         dst: Register,
         start: Option<Register>,
         end: Option<Register>,
-        ty: AbiType,
+        ty: AbiType<I>,
     },
     RepeatArray {
-        element: AbiType,
+        element: AbiType<I>,
         dst: Register,
         value: Register,
         count: Register,
     },
     MakeArray {
-        element: AbiType,
+        element: AbiType<I>,
         dst: Register,
         #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         elements: Vec<Register>,
@@ -354,8 +368,8 @@ pub enum BytecodeInstruction {
     UpcastInterface {
         dst: Register,
         value: Register,
-        source: NominalAbiType,
-        target: NominalAbiType,
+        source: NominalAbiType<I>,
+        target: NominalAbiType<I>,
     },
     MakeInterface {
         dst: Register,
@@ -363,13 +377,13 @@ pub enum BytecodeInstruction {
         module: ModuleRef,
         implementation: InterfaceTableRef,
         #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType>,
+        arguments: Vec<AbiType<I>>,
     },
     MakeStruct {
         dst: Register,
         structure: StructId,
         #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType>,
+        arguments: Vec<AbiType<I>>,
         #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         fields: Vec<Register>,
     },
@@ -377,7 +391,7 @@ pub enum BytecodeInstruction {
         dst: Register,
         enumeration: EnumId,
         #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType>,
+        arguments: Vec<AbiType<I>>,
         variant: u32,
         #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
         fields: Vec<Register>,
@@ -387,7 +401,7 @@ pub enum BytecodeInstruction {
         value: Register,
         enumeration: EnumId,
         #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType>,
+        arguments: Vec<AbiType<I>>,
         variant: u32,
     },
     ReadEnumPayload {
@@ -395,18 +409,18 @@ pub enum BytecodeInstruction {
         value: Register,
         enumeration: EnumId,
         #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType>,
+        arguments: Vec<AbiType<I>>,
         variant: u32,
         index: u32,
     },
     ReadAggregateField {
         dst: Register,
         base: Register,
-        field: FieldRef,
+        field: FieldRef<I>,
     },
     WriteAggregateField {
         base: Register,
-        field: FieldRef,
+        field: FieldRef<I>,
         value: Register,
     },
     ReadAggregateIndex {
@@ -488,3 +502,5 @@ impl BytecodeInstruction {
         }
     }
 }
+
+mod mapping;

@@ -14,6 +14,12 @@ mod sealed {
 /// an ID from another context or replace reference resolution during decoding.
 pub trait DefinitionReference: sealed::Sealed + Debug + Clone + Eq + Ord + Hash {
     fn within_path_limit(&self) -> bool;
+
+    /// Only authoring representations contain an owned path. Contextual and
+    /// portable references require explicit resolution by their owning table.
+    fn authoring_path(&self) -> Option<&DefinitionPath> {
+        None
+    }
 }
 
 impl sealed::Sealed for DefinitionPath {}
@@ -21,6 +27,10 @@ impl sealed::Sealed for DefinitionPath {}
 impl DefinitionReference for DefinitionPath {
     fn within_path_limit(&self) -> bool {
         self.within_path_limit()
+    }
+
+    fn authoring_path(&self) -> Option<&DefinitionPath> {
+        Some(self)
     }
 }
 

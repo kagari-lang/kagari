@@ -1,3 +1,5 @@
+use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::reference::DefinitionReference;
 pub mod verified;
 
 use crate::{
@@ -36,10 +38,14 @@ impl ModuleRef {
 /// One immutable executable dependency closure. Module and function slots are
 /// scoped to this program; module references may form cycles.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BytecodeProgram {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct BytecodeProgram<I = DefinitionPath> {
     pub root: ModuleRef,
     #[serde(deserialize_with = "kagari_abi::decode_limits::modules")]
-    pub modules: Vec<BytecodeModule>,
+    pub modules: Vec<BytecodeModule<I>>,
 }
 
 pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificationError> {
@@ -300,3 +306,5 @@ impl BytecodeProgram {
             .collect()
     }
 }
+
+mod mapping;

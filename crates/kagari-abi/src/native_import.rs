@@ -9,6 +9,8 @@ use crate::{
         verify::{native_bounds_valid, types_in_scope},
     },
 };
+
+use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::HostFunctionDeclaration,
@@ -34,27 +36,35 @@ pub fn binding_id(module: &ModuleIdentity, name: &str) -> DefinitionPath {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NativeSignature {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct NativeSignature<I = DefinitionPath> {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub params: Vec<AbiType>,
-    pub result: AbiType,
+    pub params: Vec<AbiType<I>>,
+    pub result: AbiType<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NativeImport {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct NativeImport<I = DefinitionPath> {
     /// Convert a validated Rust body result using this preselected interface table.
-    pub result_adapter: Option<NativeResultAdapter>,
+    pub result_adapter: Option<NativeResultAdapter<I>>,
     /// A shared native entry retains method binders in its template application.
-    pub generic: Option<GenericBody>,
-    pub instance: ConcreteFunctionIdentity,
-    pub binding: DefinitionPath,
-    pub signature: NativeSignature,
+    pub generic: Option<GenericBody<I>>,
+    pub instance: ConcreteFunctionIdentity<I>,
+    pub binding: I,
+    pub signature: NativeSignature<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub requirements: Vec<GenericBoundAbi>,
+    pub requirements: Vec<GenericBoundAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub callables: Vec<OperationWitness>,
+    pub callables: Vec<OperationWitness<I>>,
     /// Existing host borrow/schema/authority facts belong to the host adapter.
-    pub host: Option<HostFunctionDeclaration>,
+    pub host: Option<HostFunctionDeclaration<I>>,
 }
 
 impl NativeImport {
@@ -135,3 +145,5 @@ impl NativeImport {
         matches_declaration(self, declaration, catalog, cancel)
     }
 }
+
+mod mapping;

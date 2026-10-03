@@ -1,5 +1,7 @@
 //! Portable member contracts. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
+use crate::identity::reference::DefinitionReference;
+
 use crate::{
     host_interface::{
         HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, codec, hash,
@@ -40,10 +42,14 @@ pub enum Visibility {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostFieldDeclaration {
-    pub id: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostFieldDeclaration<I = DefinitionPath> {
+    pub id: I,
     pub name: String,
-    pub ty: HostValueType,
+    pub ty: HostValueType<I>,
     pub readable: bool,
     pub writable: bool,
     pub visibility: Visibility,
@@ -75,39 +81,55 @@ impl HostFieldDeclaration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostMethodDeclaration {
-    pub id: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostMethodDeclaration<I = DefinitionPath> {
+    pub id: I,
     pub name: String,
     pub receiver: HostPassingStyle,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub params: Vec<HostParameter>,
-    pub return_type: HostValueType,
+    pub params: Vec<HostParameter<I>>,
+    pub return_type: HostValueType<I>,
 
     pub effects: HostFunctionEffects,
     pub documentation: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostTraitMethodBinding {
-    pub trait_method: DefinitionPath,
-    pub host_method: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostTraitMethodBinding<I = DefinitionPath> {
+    pub trait_method: I,
+    pub host_method: I,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostAssociatedTypeBinding {
-    pub declaration: DefinitionPath,
-    pub ty: HostValueType,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostAssociatedTypeBinding<I = DefinitionPath> {
+    pub declaration: I,
+    pub ty: HostValueType<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostTraitImplementationDeclaration {
-    pub trait_id: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostTraitImplementationDeclaration<I = DefinitionPath> {
+    pub trait_id: I,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub trait_arguments: Vec<HostValueType>,
+    pub trait_arguments: Vec<HostValueType<I>>,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub associated_types: Vec<HostAssociatedTypeBinding>,
+    pub associated_types: Vec<HostAssociatedTypeBinding<I>>,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub methods: Vec<HostTraitMethodBinding>,
+    pub methods: Vec<HostTraitMethodBinding<I>>,
     pub documentation: String,
 }
 
@@ -156,16 +178,20 @@ impl HostMethodDeclaration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HostTypeDeclaration {
-    pub id: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct HostTypeDeclaration<I = DefinitionPath> {
+    pub id: I,
     pub symbol: String,
     pub ownership: HostTypeOwnership,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub fields: Vec<HostFieldDeclaration>,
+    pub fields: Vec<HostFieldDeclaration<I>>,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub methods: Vec<HostMethodDeclaration>,
+    pub methods: Vec<HostMethodDeclaration<I>>,
     #[serde(deserialize_with = "super::decode_limits::members")]
-    pub trait_implementations: Vec<HostTraitImplementationDeclaration>,
+    pub trait_implementations: Vec<HostTraitImplementationDeclaration<I>>,
     pub path_access: PathAccess,
     pub reflection: HostReflectionPolicy,
     pub documentation: String,
@@ -720,3 +746,5 @@ mod tests {
         assert!(HostInterface::from_bytes(&bytes).is_err());
     }
 }
+
+mod mapping;

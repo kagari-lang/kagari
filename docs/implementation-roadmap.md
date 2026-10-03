@@ -130,6 +130,42 @@ and regenerate fixtures at that boundary; finish codecs/layout/closure/reload
 normalization and independent feature/backend consumers; measure complete metadata,
 artifact and timing effects. No phase-completion claim is made by this checkpoint.
 
+ID02/ID03 executable-schema checkpoint: declaration, host-interface, callable,
+layout, MIR, bytecode and artifact records now share one identity-parameterized
+model. Ordinary module-owned traversal implementations cover every identity field;
+record constructors make additions visible during compilation. Mapping rejects
+collapsed dictionary/set keys and observes cancellation. A shared metadata owner
+retains an immutable checked scope; it does not claim semantic verification.
+Canonical portable projections retain only referenced definitions and ancestors,
+and decoding resolves every local reference before semantic adoption.
+
+KBC and MIR codecs now encode exact tables plus local references without changing
+unpublished format/ABI version identifiers or accepting old layouts. The existing
+64 MiB envelopes, preflight count limits, bounded flat types, complete verification,
+debug origins, float bits, source-free behavior and canonical correspondence remain.
+VerifiedBytecodeProgram retains only scoped records and its immutable table, with
+no serialized evidence or mutation API. Explicit mutable extraction materializes
+authoring paths and discards the seal. Native-input correspondence compares complete
+canonical portable projections rather than process-local IDs or compatibility hashes.
+
+Focused common/ABI/MIR/bytecode regressions pass (including three new contextual
+metadata tests); all ten compiler codec tests pass. Two forged-MIR fixtures initially
+used the replaced layout and failed before their intended verifier boundary. Their
+construction now uses the shared portable projection; the original control-flow
+rejection and aggregate analysis-budget assertions remain unchanged and pass.
+The standalone artifact-only/source/native/source-native feature consumers and
+eight production crate-boundary checks pass after coherent disposable fixture
+regeneration. Strict workspace/all-target Clippy and structure (694 files, zero
+violations/exceptions), formatting and diff checks pass. Full workspace regression
+passes with no carried build, codec or verification error.
+
+ID02-ID05 are still not accepted: named/generic HIR and MIR seals retain authoring
+paths; runtime VerifiedProgram currently expands the compact bytecode seal at its
+adoption boundary. Finish runtime/native value metadata, contextual codecs/layouts,
+exact reload normalization and retained compact executable ownership before final
+measurement and acceptance. The parameterized authoring model is an explicit input
+boundary, not a second semantic implementation or a compatibility reader.
+
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
 BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,

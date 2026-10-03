@@ -3,15 +3,22 @@ use crate::types::{
     AbiType, ConcreteFunctionIdentity, GenericBoundAbi, GenericParameterAbi,
     verify::{native_bounds_valid, types_in_scope},
 };
+use kagari_common::identity::DefinitionPath;
+
+use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenericBody {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct GenericBody<I = DefinitionPath> {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub parameters: Vec<GenericParameterAbi>,
+    pub parameters: Vec<GenericParameterAbi<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBoundAbi>,
+    pub bounds: Vec<GenericBoundAbi<I>>,
 }
 
 impl GenericBody {
@@ -40,3 +47,5 @@ impl GenericBody {
         types_in_scope(types, &self.parameters, cancel)
     }
 }
+
+mod mapping;

@@ -8,7 +8,10 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantOperand},
     program::verified::VerifiedBytecodeProgram,
 };
-use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, metadata::scope_record},
+};
 use kagari_mir::{
     codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
     function::{MirModule, MirTemp},
@@ -31,6 +34,11 @@ fn program(source: &str) -> VerifiedMirProgram {
 }
 
 fn forged(root: &ModuleIdentity, modules: &[MirModule]) -> Vec<u8> {
+    let cancel = CancellationToken::default();
+    let portable = scope_record(&modules.to_vec(), &cancel)
+        .unwrap()
+        .to_portable(&cancel)
+        .unwrap();
     DefaultOptions::new()
         .with_fixint_encoding()
         .with_little_endian()
@@ -40,7 +48,7 @@ fn forged(root: &ModuleIdentity, modules: &[MirModule]) -> Vec<u8> {
             KAGARI_RUNTIME_ABI_VERSION,
             KAGARI_RUNTIME_HELPER_ABI_VERSION,
             root,
-            modules,
+            portable,
         ))
         .unwrap()
 }
@@ -275,7 +283,7 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
         verify_native_input(&wire, &different_bytecode, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
-    let mut changed_origin = bytecode.program().clone();
+    let mut changed_origin = bytecode.to_unverified(&Default::default()).unwrap();
     changed_origin.modules[changed_origin.root.index()]
         .source_name
         .push_str("-changed");
@@ -284,7 +292,7 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
         verify_native_input(&wire, &changed_origin, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
-    let mut forged = bytecode.program().clone();
+    let mut forged = bytecode.to_unverified(&Default::default()).unwrap();
     forged.modules[forged.root.index()].functions[0]
         .instructions
         .clear();
@@ -362,7 +370,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             );
             let decoded = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
             assert_same_bytecode(&original, &decoded);
-            let mut changed = bytecode.program().clone();
+            let mut changed = bytecode.to_unverified(&Default::default()).unwrap();
             let module = &mut changed.modules[changed.root.index()];
             // Keep pool and instruction operands consistent so the modified graph
             // is independently valid, including NaN payloads and signed zero.

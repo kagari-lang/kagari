@@ -10,6 +10,8 @@ use crate::{
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
+
+use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionPath, associated_type_id},
@@ -17,12 +19,16 @@ use kagari_common::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NativeCallableRequirement {
-    pub receiver: AbiType,
-    pub interface: NominalAbiType,
-    pub member: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct NativeCallableRequirement<I = DefinitionPath> {
+    pub receiver: AbiType<I>,
+    pub interface: NominalAbiType<I>,
+    pub member: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
 }
 
 impl NativeCallableRequirement {
@@ -99,12 +105,18 @@ pub enum NativeCallableOrigin {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NativeCallableApplication {
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct NativeCallableApplication<I = DefinitionPath> {
     pub origin: NativeCallableOrigin,
-    pub requirement: NativeCallableRequirement,
-    pub instance: ConcreteFunctionIdentity,
-    pub implementation: CallableImplementation,
-    pub signature: NativeSignature,
+    pub requirement: NativeCallableRequirement<I>,
+    pub instance: ConcreteFunctionIdentity<I>,
+    pub implementation: CallableImplementation<I>,
+    pub signature: NativeSignature<I>,
     /// A common conservative callback boundary, checked independently of claims.
     pub effects: EffectSet,
 }
+
+mod mapping;
