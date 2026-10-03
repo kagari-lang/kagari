@@ -1,0 +1,14 @@
+[package]
+name = "kagari-lua-benchmark"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+kagari-common.workspace = true
+kagari-embed = { workspace = true, features = ["source", "native"] }
+kagari-runtime.workspace = true
+kagari-vm.workspace = true
+kagari-codegen-cranelift.workspace = true
+mlua = { version = "=0.11.6", default-features = false, features = ["lua54", "vendored"] }

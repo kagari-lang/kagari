@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "benchmarks/lua-comparison",
     "crates/kagari-codegen",
     "crates/kagari-abi",
     "crates/kagari-cli",

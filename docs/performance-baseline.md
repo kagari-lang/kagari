@@ -3,6 +3,21 @@
 These reproducible workloads establish a baseline for R18. The figures are
 observations on one machine, not performance guarantees.
 
+## Matched Kagari/Lua baseline, 2026-10-03
+
+The [benchmark package and report](../benchmarks/lua-comparison/README.md) compare
+seven equivalent source workloads using standard PUC Lua 5.4.8 and the current
+Kagari SDK. Release-profile execution excludes compilation, preparation and
+initialization; two sequential processes provide 22 samples per actual route.
+Every timed batch validates its result against an independent Rust checksum.
+The six nontrivial workloads show Kagari VM/Lua median time ratios of
+104.71–220.44 on this machine. Their JIT entries are unsupported and omitted,
+not measured as interpreter fallback. Only the trivial entry route executes
+natively. The report records setup costs, sample ranges, toolchain/machine,
+container/safety differences and reproduction commands. These numbers describe
+this finite suite rather than an overall language ratio; no CPU profile or
+production optimization is part of BP01.
+
 ## Verified preparation reuse (TO02), 2026-10-03
 
 TO02 retains immutable bytecode verification across SDK native preparation and

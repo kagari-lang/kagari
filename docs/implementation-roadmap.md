@@ -1,5 +1,34 @@
 # Kagari Implementation Roadmap
 
+## Matched Kagari/Lua benchmark (completed, 2026-10-03)
+
+BP01 owns a reproducible comparison requested by the user: standard Lua 5.4
+against Kagari's interpreter and actual supported JIT routes, covering arithmetic,
+branching, script calls/recursion and collections. Use matching algorithms and
+inputs, independent result checks and separate setup/execution measurements.
+Language grammar, safety checks and container implementations remain distinct;
+no runtime optimization or broader backend implementation belongs to this task.
+Commit this checkpoint with `Roadmap-Step: BP01`.
+
+- [x] Add paired source fixtures and an isolated benchmark-only Lua dependency.
+- [x] Check default, empty and single-element inputs against independent results.
+- [x] Measure two sequential processes with alternating/reversed execution order.
+- [x] Record machine, profile, features, cache conditions, raw data and limitations.
+- [x] Accept strict Clippy, formatting, structure, diff and production boundaries.
+
+Ledger: starts from clean 45aa927d. Seven paired fixtures cover fifteen actual
+routes: seven VM, seven Lua and one supported native entry. All 330 measured
+batches pass; each route has 22 warm execution samples. Six larger workloads
+show VM/Lua median ratios of 104.71–220.44 in this baseline; JIT rejects their
+script-call entries rather than timing an interpreter fallback. Setup and build
+durations are recorded separately. See the [benchmark methodology and results](../benchmarks/lua-comparison/README.md).
+The benchmark regression verifies all seven fixtures with zero and one as inputs.
+Strict workspace/all-target Clippy, formatting, structure (658 Rust files, zero
+violations/exceptions), diff and eight production dependency boundaries plus
+the ABI build graph pass. Production implementations are unchanged; the full
+language contract matrix is not rerun. No carried compilation or validation
+failure remains. Raw output and metadata are under target/lua-comparison.
+
 ## Workspace item spacing (completed, 2026-10-03)
 
 - [x] Separate adjacent Rust functions, type definitions and implementation blocks throughout the repository.
