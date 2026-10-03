@@ -155,6 +155,101 @@ owns phase progress until activation; no parallel plan or implementation has bee
 created. Design validation is documentation/link and diff review, not a workspace
 build. Performance effects remain unmeasured.
 
+### Handoff without conversation history
+
+This track can be implemented from a checkout of the repository without the
+original conversation. Transfer the committed source, tests, manifests/lockfiles
+and documents together; this roadmap alone is not the complete contract. No
+absolute machine path, prior chat, ignored `target/` cache or local measurement
+log is an implementation prerequisite. Rust/Cargo compatible with the workspace
+and `uv` are required. The rustc links explain naming only; the local naming table
+and Kagari specifications define the target, independently of later rustc changes.
+
+Read [AGENTS.md](../AGENTS.md), [project goals](project_goal.md), this track and
+the [architecture cleanup](architecture.md#contract-and-common-responsibility-cleanup),
+including its naming, trait and ABI inventories. Consult the linked specifications
+for behavior. Inspect `git status`, relevant diffs and the latest AC checkpoint
+before selecting work. This plan is queued until an implementation request selects
+its scope; documentation agreement is not an instruction to start every track.
+
+The starting status is AC01-AC05 unchecked, with no code split performed. Current
+names and Rust-owned foundation catalogs in source are expected, not evidence
+that the target design was rejected. Start with AC01 when implementing this
+track; complete its acceptance before AC02. Update that status and the checkboxes
+when implementation advances. Record only material decisions, retained transitional
+consumers and carried errors with their command, cause and owning follow-up phase.
+Commit with the phase trailer above so another checkout can resume from Git.
+
+Choose exact source/tooling/foundation module locations and registry APIs from
+the production consumer graph during their owning phase. Those implementation
+choices remain open; the dependency direction, declaration authorities, mandatory
+availability and semantic preservation rules above are fixed requirements. If
+the audit finds a conflict with the proposed trait partition or an unsupported
+adaptation requirement, document the evidence here before changing the design.
+Do not recover missing decisions by guessing what a previous conversation meant.
+
+Current code entrypoints, to be updated when their owners move:
+
+| Work | Starting locations |
+| --- | --- |
+| ABI/contract model and verification | [ABI root](../crates/kagari-abi/src/lib.rs), `types/`, `callable/`, `layout.rs`, `slots.rs`, `contracts.rs`, `native_import/` under that crate |
+| Physical representation and native boundary | [Value representations](../crates/kagari-abi/src/representation.rs), [native calls](../crates/kagari-abi/src/native_call.rs), [native products](../crates/kagari-abi/src/native.rs) |
+| Existing foundation definitions and generated source | [Language catalog](../crates/kagari-abi/src/language/catalog/mod.rs), [native declarations](../crates/kagari-abi/src/declaration/mod.rs), [source renderer](../crates/kagari-abi/src/declaration/render.rs) |
+| Attribute analysis and language selection | [Syntax attributes](../crates/kagari-syntax/src/ast/item.rs), [HIR entry](../crates/kagari-hir/src/lib.rs), HIR `lower/`, `language/`, `typeck/` and compiler `source/lower/` |
+| Installation and executable consumers | Runtime `native/`, `loading.rs`, `backend.rs` and `backend/native.rs`; MIR, bytecode, VM, codegen and embed consumers of the old ABI model |
+| Common ownership and dependency validation | [Common root](../crates/kagari-common/src/lib.rs), workspace/crate manifests and [standalone feature checker](../scripts/check_features.py) |
+
+Extend check_features.py in AC01 to cover the new contract crate's production
+and build dependency boundaries, and reject an ABI-to-contract edge. A workspace
+test can unify dev features; it does not alone prove a source-free consumer.
+
+Reuse existing focused coverage rather than inventing structural tests that only
+repeat the rename. This is the minimum behavior matrix for AC05, with affected
+rows selected at earlier checkpoints:
+
+| Behavior | Existing coverage / required extension |
+| --- | --- |
+| Foundation and role selection | HIR `language_contracts`, compiler `language_foundation`, embed `operator_traits`, `callable_traits`, `iteration_traits`; add malformed/duplicate/missing/counterfeit role cases in AC02 |
+| Generic and associated contracts | Embed `associated_types`, `generic_associated_types`, `associated_constants`, `trait_inheritance`, `default_methods` |
+| Value, conversion and formatting semantics | Embed `standard_traits`, `conversion_traits`, `numeric_operations`, `result_option`, `string_interpolation`, `string_methods` |
+| Native declaration correspondence | Embed `standard_declarations`, `native_provider_reset`, `source_snapshots`; add analyzed/generated declaration mismatch rejection in AC03 |
+| Collection and range behavior | Embed `collection_interfaces`, `collection_access`, `array_operations`, `list_algorithms`, `syntax_examples`; VM `library_collections`, `native_boundary` |
+| Source-free linking and reload | Embed `artifact_features`, `offline_nominal`, `native_artifacts`, `generic_reload`; runtime `offline_types`, `installation_access` |
+| Execution safety and native behavior | [Language conformance](spec/language-conformance.md), runtime `gc_ownership`, `execution_sessions`, `host_borrows`; embed `native_preparation`, `cranelift_preparation` and backend tests |
+
+Target names above are Cargo integration tests except the linked shared
+conformance suite and backend unit tests; check crate feature gates before running.
+Keep explicit assertions of actual native invocation where supported; JIT fallback
+is not evidence that arbitrary library or GC operations execute as native code.
+
+On a fresh machine, fetch locked dependencies before offline feature checks:
+
+```text
+cargo fetch --locked
+cargo run --locked -p kagari-embed --no-default-features --features source --example regenerate_feature_artifact
+uv run python scripts/check_features.py
+```
+
+The [feature fixture](../crates/kagari-embed/tests/fixtures/README.md) is disposable
+and can be recreated from checked-in source; the feature checker also regenerates
+it before its standalone matrix. Generate it before running source-free tests
+directly. Use the final commands in [verification policy](#execution-and-verification-policy)
+in addition to this matrix. These commands are future implementation checks,
+not a claim that they ran during documentation preparation.
+
+A self-contained first implementation request is:
+
+```text
+Implement AC01 of docs/implementation-roadmap.md in this checkout.
+Read AGENTS.md and the linked architecture/specifications first.
+Split kagari-contract from the physical kagari-abi and migrate its consumers,
+using the documented naming table. Preserve current language behavior, Rust
+foundation authority and source-free validation. Keep AC02-AC05 queued.
+Run the affected checks and AC01 dependency/acceptance checks, update this
+roadmap with the actual status and any carried errors, and commit the checkpoint
+with Roadmap-Step: AC01. Stop at AC01 acceptance.
+```
+
 ## Other queued designs
 
 These are design documents, not additional active execution plans. Activation and
