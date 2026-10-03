@@ -26,9 +26,13 @@ Scope: narrow `kagari-abi` plus source-independent `kagari-contract`.
 Syntax-required traits enter ordinary source analysis with language-role bindings;
 collection and standard-library declarations remain Rust-authored native libraries
 generating `.kgr` for compiler/LSP analysis. Library catalogs belong to those owners,
-not generic compiler or executable models. The exact role partition remains open.
+not generic compiler or executable models. The proposed partition is 24 core
+language items (21 syntax consumers plus Eq/Hash/Ord implicit value semantics)
+and 14 ordinary native-library traits; all 38 remain mandatory.
 The [architecture proposal](architecture.md#contract-and-common-responsibility-cleanup)
-defines authority, analysis/registration flows, syntax bridges and dependency rules.
+defines the [trait inventory](architecture.md#proposed-core-trait-inventory),
+[ABI data inventory](architecture.md#narrow-abi-data-inventory), authority,
+analysis/registration flows, syntax bridges and dependency rules.
 Implementation remains queued; no new parser support is claimed.
 
 Finite scope: separate physical ABI from portable semantic contracts, replace
@@ -45,14 +49,18 @@ Proposed phases, in order, to be activated explicitly for implementation:
 
 - [ ] **AC01: Extract the narrow ABI and semantic contract boundary.** Inventory
   every current ABI/common module and its production/build consumers. Retain
-  physical representations, helper signatures, entry descriptors and stack maps
+  physical representations, helper signatures, entry descriptors and physical roots
   in ABI; extract semantic types, declarations, logical layouts, call records
   and focused verification into contract. Move source generation to tooling.
   Migrate direct imports with no forwarding API. Produce an acyclic graph with
   `contract -> abi` and no frontend dependency from executable consumers. Existing
   foundation declarations can retain their current authority at this checkpoint,
   but live with explicit language or native-library ownership rather than ABI.
-  Classify current Protocol entries and NativeTypeKind/NativeTypeConstructor,
+  Audit the proposed 24/14 trait partition against every consumer, including
+  implicit Eq/Hash/Ord, RangeBounds registration, conversion derivation and numeric
+  adapters. Split logical slot maps and function/debug metadata from physical
+  native artifacts; current logical stack maps are not native GC integration.
+  Classify NativeTypeKind/NativeTypeConstructor,
   StandardEnum, CollectionAccess and storage layout consumers as actual syntax
   bridges, library policy or independently required representation/validation.
   Record the bounded retained exceptions and their owners; do not remove every

@@ -252,7 +252,7 @@ does not require making every trait source-authored.
 
 | Responsibility | Proposed owner |
 | --- | --- |
-| Physical values, calling conventions, helper symbols/signatures, native entries and stack maps | Narrow ABI; no semantic catalog, frontend or runtime implementation dependency |
+| Physical values, calling conventions, helper symbols/signatures, native entries and physical root locations | Narrow ABI; no semantic catalog, frontend or runtime implementation dependency |
 | Semantic types/declarations, logical layouts, imports, interface records and verification | Contract; source-independent, depending on ABI where physical facts are needed |
 | Syntax-required trait declarations and role selection | Language foundation source and compiler semantics, using ordinary parser/HIR |
 | Collection/standard-library traits, types, methods and Rust bodies | Explicit native library ownership; Rust declarations generate `.kgr` for compiler/LSP analysis |
@@ -272,15 +272,125 @@ attribute; HIR collects a role-to-declaration ID and uses normal checked trait
 selection. Executable consumers use selected callable identities/signatures/witnesses.
 Ordinary library traits require no global protocol enum.
 
-The exact per-trait partition of the current 38 contracts remains an AC01 decision.
-Add/Index and iteration are syntax-use examples to audit. List/MutableList,
-Map/MutableMap and Set/MutableSet belong to native library declarations; their
-methods, parents and defaults are library policy. A role may point to a library
-declaration where syntax needs it, without a second trait definition.
+#### Proposed core trait inventory
+
+The proposed target retains 24 of the current 38 traits as language items:
+21 have direct syntax consumers and three support existing implicit value
+implementations. Their declarations are ordinary foundation source, analyzed
+through parser/HIR. Language roles select those declarations; builtin or native
+implementations remain separate. This is a queued design, not implemented support.
+
+| Core traits | Count | Compiler consumer |
+| --- | --- | --- |
+| Add, Sub, Mul, Div, Rem | 5 | Binary arithmetic operators |
+| BitAnd, BitOr, BitXor, Shl, Shr | 5 | Bitwise and shift operators |
+| Neg, Not | 2 | Unary negation and logical/bitwise negation |
+| PartialEq, PartialOrd | 2 | Equality and relational operators |
+| Index | 1 | Indexed reads; writable indexing keeps its separate checked bridge |
+| Fn | 1 | Existing callable/closure trait semantics |
+| Iterator, Iterable | 2 | Iteration and `for` lowering |
+| Debug, Display | 2 | Debug and ordinary interpolated-string formatting |
+| From | 1 | Direct error conversion in Result `?` propagation |
+| Eq, Hash, Ord | 3 | Existing implicit eligibility, identity/composite equality and hashing, and builtin total ordering |
+
+Eq/Hash/Ord are retained because the current compiler supplies implicit value
+implementations, not because a hash container or sorting method alone needs a
+language role. PartialEq/Hash/Debug defaults for user values must remain eligible
+under the current rules; floats do not acquire Eq/Hash/Ord. Explicit implementations
+take precedence where specified. Moving all such defaults to a library would be
+a separate semantic-implementation change, not a prerequisite for this cleanup.
+
+The other 14 traits use ordinary native-library declaration/implementation records:
+
+| Library traits | Count | Ownership reason |
+| --- | --- | --- |
+| List, MutableList, Map, MutableMap, Set, MutableSet | 6 | Container interfaces, inheritance and algorithms are library policy |
+| RangeBounds | 1 | Range syntax constructs a value; its bounds interface is a registered implementation |
+| Into, TryFrom, TryInto | 3 | Ordinary conversion APIs; `?` only selects From |
+| FromStr | 1 | Parsing API |
+| FromIterator, Sum, Product | 3 | Construction and aggregation APIs |
+
+All 38 traits remain mandatory and available without optional modules. Compiler
+recognition and library availability are separate decisions. Preserve current
+Into/From and TryInto/TryFrom derivation and checked numeric conversions through
+checked implementation/adaptation records. Relocating their declarations alone
+does not remove the current special consumers; AC03 must replace those consumers
+without adding a new blanket-implementation or coherence feature.
+
+The audit evidence is the operator/format/propagation selection in HIR and the
+implicit implementation rules in `kagari-hir/src/language/semantics.rs`. In that
+implementation RangeBounds uses registered engine implementations, while Eq,
+Hash and Ord participate in implicit eligibility. Use this behavior, rather than
+the current placement under `core::language`, to classify ownership.
+
+Type/member bindings are a separate list: String literal representation,
+Option/Result variants for `?`, Ordering results, range construction, `[T]`'s
+List declaration, default ArrayList construction and writable indexed access.
+These bindings select checked declarations/members or intrinsic representations;
+they do not justify adding all library traits to a language-role enum. In particular,
+the bracket bridge may refer to native-authored List without duplicating its
+definition. String methods remain ordinary library implementations. No IndexMut,
+Try or FromResidual trait is introduced.
 
 Validate unknown/duplicate/missing roles, installed origin, declaration kind,
 binder arity and required member shapes. Application attributes or copied names
 cannot acquire reserved roles. Preserve exact scopes and generation checks.
+
+### Narrow ABI data inventory
+
+ABI describes representations and the runtime/codegen calling boundary. It does
+not describe a script declaration's meaning. The following inventory uses existing
+type names to identify the data to retain or split, rather than proposing a second
+parallel model:
+
+| ABI data | Existing structures | Required content |
+| --- | --- | --- |
+| Lowered value representations | ValueType | Scalar slot representations, heap/host references and tagged shared-generic values; no nominal type arguments or collection kinds |
+| Machine helper signatures and links | NativeType, NativeHelperSignature, NativeHelperSymbol, NativeHelperDeclaration, NativeLinkDescription | Machine parameter/result kinds, helper symbols and resolved process addresses |
+| Native entry/result convention | JitCompiledFunction, JitValue, JIT status/value tags | Physical entry signature, `repr(C)` result fields, tags and status codes |
+| Target and executable entry descriptors | BackendId, BackendTarget, ExecutableEntryPoint; physical portions of ExecutableFunctionArtifact | Target triple, pointer width, features, ABI identifiers, entry symbol/address and emitted code offsets |
+| Executable memory lifetime | NativeCodeOwner, physical product portion of NativeCompilationProduct | An opaque owner retaining executable pages while installed code is reachable; no backend implementation or runtime state |
+| Physical safe points and roots | Physical portions of ExecutableSafepoint/ExecutableStackMap when supported | Native code offsets and real machine root locations understood by the runtime/backend |
+
+Move ValueType's BuiltinType/HostValueType conversion policy to contract-side
+lowering; the ABI enum must not import semantic type definitions. A tagged generic
+representation does not erase generic typing: binders, arguments and proofs remain
+in the contract and are checked before execution.
+
+Split the current native artifact envelope. Function identities, logical
+register/local maps and source/debug metadata belong to executable contract/MIR
+metadata, which may wrap the physical ABI product. Keep only physical facts and
+opaque shared boundary identifiers in ABI; never make ABI depend on contract to
+recover a semantic function or type. Actual memory ownership remains explicit.
+Current ExecutableStackMapLocation::Register/Local entries are logical slot
+identifiers, not a proven native GC root protocol. Preserve their coverage at the
+logical owner; implement physical root publication only with the native feature
+that consumes it.
+
+The current native helper kinds are Pointer/I32/I64, and the current compiled entry
+is zero-argument with Unit/Bool/i32 results. This separation does not claim wider
+calls or GC support. Introduce byte sizes, alignment, field offsets or additional
+machine passing modes only when an implemented backend/helper needs them.
+
+The data moved out of ABI is equally explicit:
+
+| Data | Proposed owner |
+| --- | --- |
+| AbiType/NominalAbiType, scalar semantic types, generic parameters/bounds, projections and substitutions | Contract type model and focused type operations |
+| Module/Function/Type/Trait/Impl declarations, associated members and semantic native import signatures | Contract declaration model |
+| InterfaceTableAbi, selected call records, generic bodies and implementation witnesses/proofs | Contract callable/interface model and verification |
+| StructLayout/EnumLayout and SemanticSlots | Contract logical layouts and semantic slot metadata; these are not byte-offset layouts |
+| EffectSet and logical RuntimePrimitive/operation contracts | Checked execution/MIR contracts; their machine helper signatures remain ABI |
+| Protocol roles and language trait source | Language foundation and compiler role selection |
+| Native library trait/type definitions, defaults and collection-specific policy | Their native library owner, expressed through ordinary contract records |
+| DeclarationSource/rendering and spans/navigation | Source/tooling owner |
+
+Bounded decoding, shared numeric behavior, identities and host schemas follow
+their concrete consumers in AC01's module audit. This table does not relocate
+them wholesale into ABI or common. Contract retains source-independent signature,
+layout, access and generic/interface verification; narrowing ABI removes none of
+those loading checks. Keep runtime/helper ABI identifiers distinct from artifact
+format identifiers, without routine unpublished-version bumps.
 
 ### Library identities and representation boundaries
 

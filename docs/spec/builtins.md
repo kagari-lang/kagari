@@ -37,9 +37,11 @@ decision that every trait needs a compiler language role.
 
 The [queued ownership cleanup](../architecture.md#contract-and-common-responsibility-cleanup)
 moves ordinary collection/library declarations to native-library ownership and
-keeps actual language dependencies explicit. Its exact per-trait role partition
-remains to be decided. Algorithms and additional container implementations remain
-separate from trait declarations.
+keeps actual language dependencies explicit. Its
+[proposed partition](../architecture.md#proposed-core-trait-inventory) selects
+24 language items and 14 ordinary native-library traits, retaining mandatory
+availability of all 38. This has not been implemented. Algorithms and additional
+container implementations remain separate from trait declarations.
 Try and FromResidual are not added; Option/Result `?` keeps its current semantics.
 
 ## Core Builtin Types
