@@ -1,5 +1,16 @@
 # Kagari Implementation Roadmap
 
+## Test bottleneck diagnosis (completed, 2026-10-03)
+
+The [performance record](performance-baseline.md#test-bottleneck-diagnosis-2026-10-03)
+documents bounded measurements on clean 1b975a36. Runtime initialization accounts
+for 81.1% of the 14 complete language-contract cases in a 90-second prefix;
+five warmed fresh-runtime samples have a 931 ms construction median, including
+639 ms rebuilding per-binding dependency catalogs. The single serial matrix
+and feature-dependent Rust rebuilds amplify wall time; repeated SDK preparation
+is secondary. Temporary instrumentation was restored; this is diagnosis only,
+not full-suite acceptance or activation of R4/R6 or other queued migrations.
+
 ## Clippy maintenance (completed, 2026-10-03)
 
 Scope: resolve the current workspace/all-target warnings on rustc 1.99.0 without

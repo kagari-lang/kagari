@@ -3,6 +3,104 @@
 These reproducible workloads establish a baseline for R18. The figures are
 observations on one machine, not performance guarantees.
 
+## Test bottleneck diagnosis, 2026-10-03
+
+Baseline: clean `1b975a36`, Windows 11 Pro, Intel Core i9-12900K (16 cores,
+24 logical processors), 63.7 GiB RAM, rustc 1.99.0 (`b940084d7`, LLVM 23.1.1),
+`x86_64-pc-windows-msvc`. Use the workspace's O1 dev/test profile with debug
+information, default target directory and Cargo build parallelism. SDK measurements
+enable default source/native features. Builds and timed execution ran separately;
+no competing agent build/test ran during measurement. Background host activity was
+not controlled. Build caches were warm; each measured runtime was freshly created.
+
+The previous workspace test log reports 50.78 seconds of compilation before
+execution. Selecting common/HIR/runtime/bytecode subsequently recompiled shared
+dependencies, including smallvec, and reported 102 seconds of compilation. Its
+634 passing tests report **88.93 seconds summed across 25 test-target/doctest
+summaries**, excluding process startup and Cargo overhead. HIR's 400 unit tests
+took 25.35 seconds; typed_path_views took 17.55 seconds; runtime's 51 unit tests
+took 8.00 seconds. These logs do not establish a complete workspace ranking.
+Changing the selected packages can change Cargo feature unification and artifact
+reuse; compilation must not be counted as script/test execution.
+
+### Bounded language-contract measurement
+
+Temporarily timed compile, direct/serialized preparation, runtime construction,
+load, setup and execution in
+[language_contract.rs](../crates/kagari-embed/src/runtime/language_contract.rs).
+Build with `cargo test -p kagari-embed --lib --no-run --message-format=json`, then
+run its reported test executable directly with
+`runtime::language_contract::language_contract_routes_preserve_values_diagnostics_and_effects
+--exact --nocapture --test-threads=1`. Apply a 90-second subprocess deadline.
+This is a partial profiling run, not a passing/full test-suite result. The existing
+assertions and four execution routes remained enabled.
+
+Before the deadline, 14 executing cases completed all 56 routes; 13 diagnostic
+cases also completed. The table includes only the 14 complete executing cases,
+so intervals correspond to the same work. Each case compiles once and prepares
+direct and serialized products once; each route gets a fresh runtime.
+
+| Phase | Samples | Total | Median per sample |
+| --- | ---: | ---: | ---: |
+| Source check/lower/artifact construction | 14 | 4.769 s | 317.984 ms |
+| Direct and serialized preparation | 14 | 10.226 s | 702.827 ms |
+| Runtime construction | 56 | 71.110 s | 1,152.819 ms |
+| Host registration and program load | 56 | 0.245 s | 3.580 ms |
+| Execute/prepare-native and outcome assertion | 56 | 0.006 s | 0.049 ms |
+| Complete executing cases, including cleanup | 14 | 87.638 s | 5.684 s |
+
+Runtime construction accounts for **81.1%** of complete-case wall time. Its
+observed range was 0.922-2.841 seconds, so these are noisy local measurements,
+not universal latency promises. This prefix does not cover all later cases,
+large workloads, native operations or the entire workspace.
+
+### Initialization attribution and priorities
+
+A separate temporary test constructed six fresh default runtimes on one thread;
+discard the first warmup and report five samples. Added timers around foundation
+build/install, algorithm build/install and the binding dependency/registration
+loops in [lib.rs](../crates/kagari-runtime/src/lib.rs) and
+[native/module.rs](../crates/kagari-runtime/src/native/module.rs).
+
+| Initialization work | Median |
+| --- | ---: |
+| Complete Runtime::new | 931.420 ms |
+| Foundation module build/check | 856.055 ms |
+| Foundation installation | 64.892 ms |
+| Collection algorithm module build | 2.924 ms |
+| Collection algorithm installation | 7.031 ms |
+| Per-binding dependency catalogs inside foundation build (91 bindings) | 639.155 ms |
+
+The dependency interval is nested in module construction, not additive to it.
+NativeModule::checked seeds each binding's dependencies with all owned traits and
+module implementations, traversing and cloning those records repeatedly. Each
+Runtime::new builds and validates that module again. SDK engine construction also
+creates a validation Runtime; its runtime factory creates another fresh Runtime.
+This magnifies the cost in SDK/VM tests, beyond this one matrix.
+
+Recommended order, without activating an implementation migration:
+
+1. Address the architecture review's R4: reuse checked immutable foundation
+   registration blueprints and declaration/dependency storage. Preserve fresh heaps,
+   host state, generation identities and atomic installation checks. Rc-backed
+   handlers need an appropriate thread/engine lifetime, not unsafe Send/Sync claims.
+2. Split the single language-contract test into separately named cases, retaining
+   every route and assertion and the current compile/product sharing. Its internal
+   serial loop prevents libtest from scheduling cases independently and hides
+   progress. More test threads cannot parallelize that one test; measure memory
+   and contention before increasing concurrency.
+3. Address R6's repeated sealed-input verification at PreparedProgram boundaries.
+   It is secondary here (11.7% in preparation); independently decoded/derived
+   products must still be validated and compared.
+4. Keep development test selections coherent and distinguish warm no-change builds
+   from feature-set switches. Do not remove conformance routes or change build
+   profiles based solely on these observations.
+
+All diagnostic Rust edits were restored byte-for-byte; no production behavior or
+test coverage changed. Raw logs, summaries, backups and initialization timer patch
+are under ignored `target/test-bottlenecks/`. The tables and instrumentation
+boundaries above preserve the conclusions and reproduction approach after cleanup.
+
 ## Foundation baseline, 2026-09-25
 
 Environment: Windows x86_64, Intel Core i9-12900K, rustc 1.98.1
