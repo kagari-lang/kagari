@@ -1,7 +1,9 @@
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{FileId, ModuleIdentity, PackageId},
-    source_database::SourceLayer,
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{ModuleIdentity, PackageId},
+    },
+    kagari_source::{identity::FileId, source_database::SourceLayer},
 };
 
 use kagari_embed::{

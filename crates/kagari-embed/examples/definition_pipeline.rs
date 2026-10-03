@@ -1,7 +1,7 @@
 //! Identity migration measurements; compile and allocator passes are separate.
-use kagari_common::{source::SourceFile, source_database::SourceLayer};
 use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_runtime::{Runtime, module::VerifiedProgram, value::Value};
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_vm::vm::Vm;
 use std::{
     alloc::{GlobalAlloc, Layout, System},

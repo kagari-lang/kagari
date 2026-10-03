@@ -19,25 +19,29 @@ use crate::{
 use analysis::AnalysisDatabase;
 
 use declarations::Declarations;
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    diagnostic::{Diagnostic, DiagnosticKind, Severity},
-    identity::{
-        DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS,
-        map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-        metadata::DefinitionMetadata,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
-    },
-    source::SourceFile,
-    source_database::SourceSnapshot,
-    span::Span,
-};
 use kagari_syntax::parser::Parse;
 use smallvec::SmallVec;
 use std::{ops::Deref, sync::Arc};
 use typeck::associated_consts;
+use {
+    kagari_common::{
+        cancellation::{CancellationToken, Cancelled},
+        identity::{
+            DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS,
+            map::DefinitionContext,
+            mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+            metadata::DefinitionMetadata,
+            reference::DefinitionReference,
+            table::{DefinitionId, DefinitionTable},
+        },
+        span::Span,
+    },
+    kagari_source::{
+        diagnostic::{Diagnostic, DiagnosticKind, Severity},
+        source::SourceFile,
+        source_database::SourceSnapshot,
+    },
+};
 pub mod aggregates;
 pub mod analysis;
 pub mod builtin;

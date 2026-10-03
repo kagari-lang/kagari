@@ -1,10 +1,14 @@
 use super::*;
 use crate::declarations::DeclarationId;
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    identity::{DefinitionKind, ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
-    span::Span,
+use {
+    kagari_common::{
+        identity::{DefinitionKind, ModuleIdentity, PackageId},
+        span::Span,
+    },
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        source_database::{SourceDatabase, SourceLayer},
+    },
 };
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {

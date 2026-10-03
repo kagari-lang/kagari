@@ -307,9 +307,9 @@ fn concrete_interface_methods_have_verified_executable_slots() {
 
 #[test]
 fn source_interface_coercion_links_an_imported_implementation_table() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::{SourceDatabase, SourceLayer},
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::{SourceDatabase, SourceLayer},
     };
 
     let mut sources = SourceDatabase::default();

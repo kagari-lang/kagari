@@ -12,14 +12,12 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
-    identity::associated_const_id,
-    span::Span,
-};
 use kagari_contract::scalar::BuiltinType;
 use std::collections::HashSet;
+use {
+    kagari_common::{cancellation::CancellationToken, identity::associated_const_id, span::Span},
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 fn error(name: &str, reason: &str, span: Span) -> Diagnostic {
     Diagnostic::error(DiagnosticKind::InvalidAssociatedConst {

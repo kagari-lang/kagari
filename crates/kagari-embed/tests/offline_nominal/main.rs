@@ -1,18 +1,21 @@
-use kagari_common::{
-    collection::CollectionAccess,
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        type_declaration::{
-            HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
-            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
-        },
-        value_type::HostValueType,
-    },
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
-    source::SourceFile,
-    source_database::SourceLayer,
-};
 use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
+use {
+    kagari_common::{
+        collection::CollectionAccess,
+        host_interface::{
+            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+            type_declaration::{
+                HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
+                HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+            },
+            value_type::HostValueType,
+        },
+        identity::{
+            DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+        },
+    },
+    kagari_source::{source::SourceFile, source_database::SourceLayer},
+};
 
 use kagari_embed::{
     context::ExecutionContext,

@@ -22,7 +22,7 @@ mod tests {
 
     use super::*;
     use crate::analysis::AnalysisDatabase;
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
     fn ranges_and_collections_expose_source_owned_api_queries() {
@@ -333,7 +333,7 @@ mod tests {
 mod trait_tests {
     use super::*;
     use crate::analysis::AnalysisDatabase;
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
     fn registered_defaults_navigate_to_source_and_expose_checked_signatures() {
@@ -437,7 +437,7 @@ mod trait_tests {
                 .source(declaration.location.file)
                 .unwrap()
                 .name()
-                .ends_with("kagari-core/language.kgr")
+                .ends_with("library/core/language.kgr")
         );
     }
 }
@@ -446,7 +446,7 @@ mod trait_tests {
 mod interpolation_queries {
     use super::*;
     use crate::analysis::AnalysisDatabase;
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
     fn hole_bindings_retain_original_locations_and_survive_snapshot_rebasing() {
@@ -525,7 +525,7 @@ mod interpolation_queries {
             assert!(
                 diagnostics.iter().all(|diagnostic| matches!(
                     diagnostic.kind,
-                    kagari_common::diagnostic::DiagnosticKind::ExpectedFieldName
+                    kagari_source::diagnostic::DiagnosticKind::ExpectedFieldName
                 )),
                 "{text}: {diagnostics:?}"
             );
@@ -551,7 +551,7 @@ mod collection_access_tests {
 
     use super::*;
 
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
@@ -720,7 +720,7 @@ mod collection_access_tests {
             assert!(
                 diagnostics.iter().all(|diagnostic| matches!(
                     diagnostic.kind,
-                    kagari_common::diagnostic::DiagnosticKind::ExpectedFieldName
+                    kagari_source::diagnostic::DiagnosticKind::ExpectedFieldName
                 )),
                 "{text}: {diagnostics:?}"
             );
@@ -777,7 +777,7 @@ mod collection_access_tests {
             assert!(
                 diagnostics.iter().all(|diagnostic| matches!(
                     diagnostic.kind,
-                    kagari_common::diagnostic::DiagnosticKind::ExpectedFieldName
+                    kagari_source::diagnostic::DiagnosticKind::ExpectedFieldName
                 )),
                 "{text}: {diagnostics:?}"
             );

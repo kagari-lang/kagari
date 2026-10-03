@@ -1,10 +1,6 @@
 //! Reproducible end-to-end interpreter samples; compilation/input creation are excluded.
 //! Run with --ignored --nocapture --test-threads=1. This is not a JIT benchmark.
 mod native_allocations_counter;
-use kagari_common::{
-    identity::DefinitionPath,
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{declaration::ModuleDecl, scalar::BuiltinType, types::Ty};
 use kagari_hir::analysis::AnalysisDatabase;
@@ -12,6 +8,10 @@ use kagari_runtime::{Runtime, RuntimeConfig, module::LoadedModule, value::Value}
 use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
 use std::{hint::black_box, time::Instant};
+use {
+    kagari_common::identity::DefinitionPath,
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
+};
 
 fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
     let mut sources = SourceDatabase::default();

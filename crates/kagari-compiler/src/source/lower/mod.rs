@@ -1,10 +1,5 @@
 use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
 use instances::InstancePlanner;
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
-    identity::mapping::DefinitionMappingError,
-};
 use kagari_contract::{
     host as module_host,
     types::{ConcreteFunctionIdentity, ModuleContract, Ty},
@@ -27,6 +22,10 @@ use kagari_mir::{
 use std::{
     collections::{BTreeSet, HashSet},
     slice,
+};
+use {
+    kagari_common::{cancellation::CancellationToken, identity::mapping::DefinitionMappingError},
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 mod abi;
 mod debug;

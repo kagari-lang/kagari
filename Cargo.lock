@@ -364,6 +364,7 @@ dependencies = [
  "kagari-common",
  "kagari-embed",
  "kagari-runtime",
+ "kagari-source",
  "kagari-syntax",
  "kagari-vm",
  "thiserror",
@@ -397,6 +398,7 @@ dependencies = [
  "kagari-embed",
  "kagari-mir",
  "kagari-runtime",
+ "kagari-source",
  "thiserror",
 ]
 
@@ -420,6 +422,7 @@ dependencies = [
  "kagari-contract",
  "kagari-hir",
  "kagari-mir",
+ "kagari-source",
  "kagari-syntax",
  "smallvec",
  "thiserror",
@@ -451,6 +454,7 @@ dependencies = [
  "kagari-hir",
  "kagari-mir",
  "kagari-runtime",
+ "kagari-source",
  "kagari-syntax",
  "kagari-vm",
  "smallvec",
@@ -464,6 +468,7 @@ dependencies = [
  "kagari-abi",
  "kagari-common",
  "kagari-contract",
+ "kagari-source",
  "kagari-syntax",
  "serde",
  "smallvec",
@@ -479,6 +484,7 @@ dependencies = [
  "kagari-common",
  "kagari-embed",
  "kagari-runtime",
+ "kagari-source",
  "kagari-vm",
  "mlua",
 ]
@@ -512,10 +518,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagari-source"
+version = "0.1.0"
+dependencies = [
+ "kagari-common",
+ "serde",
+]
+
+[[package]]
 name = "kagari-syntax"
 version = "0.1.0"
 dependencies = [
  "kagari-common",
+ "kagari-source",
  "rowan",
  "smallvec",
 ]
@@ -532,6 +547,7 @@ dependencies = [
  "kagari-hir",
  "kagari-mir",
  "kagari-runtime",
+ "kagari-source",
  "kagari-syntax",
 ]
 

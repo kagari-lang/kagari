@@ -9,9 +9,9 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 
-#[cfg(feature = "source")]
-use kagari_common::source::SourceFile;
 use kagari_runtime::value::Value;
+#[cfg(feature = "source")]
+use kagari_source::source::SourceFile;
 use std::{cell::Cell, fs, path::Path, rc::Rc, sync::OnceLock};
 
 // Share application code with the emitter while compiling without its frontend.

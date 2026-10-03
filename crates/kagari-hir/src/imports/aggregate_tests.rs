@@ -1,10 +1,10 @@
 use super::tests::{analyze, insert};
 use crate::{analysis::AnalysisDatabase, types::TypeId};
-use kagari_common::{
+use kagari_contract::scalar::BuiltinType;
+use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_contract::scalar::BuiltinType;
 use std::sync::Arc;
 
 #[test]

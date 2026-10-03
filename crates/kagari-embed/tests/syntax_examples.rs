@@ -1,8 +1,8 @@
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
     program::PreparedProgram,
 };
+use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
 
@@ -380,7 +380,7 @@ fn inline_module_errors_point_into_the_original_source() {
             "mem://inline-error",
             "mod child { pub fn value() -> i32 { missing } } fn main() -> i32 { child::value() }"
                 .into(),
-            kagari_common::source_database::SourceLayer::Base,
+            kagari_source::source_database::SourceLayer::Base,
         )
         .unwrap();
     let error = engine

@@ -1,16 +1,16 @@
 //! Run with `cargo run -p kagari-embed --example source_queries`.
 
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    identity::{ModuleIdentity, PackageId},
-    line_index::PositionEncoding,
-    source_database::SourceLayer,
-};
 use kagari_hir::{
     declarations::DeclarationId,
     hir::ids::{BodyOwner, HirOwner},
     resolver::resolved::ResolvedName,
     types::TypeId,
+};
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::{
+        diagnostic::DiagnosticKind, line_index::PositionEncoding, source_database::SourceLayer,
+    },
 };
 use {kagari_hir::typeck::const_budget::ConstLimits, kagari_syntax::parser::ParseLimits};
 

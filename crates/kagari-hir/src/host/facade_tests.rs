@@ -1,8 +1,11 @@
 use super::*;
 use crate::analysis::AnalysisDatabase;
-use kagari_common::{
-    identity::{FileId, ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::{
+        identity::FileId,
+        source_database::{SourceDatabase, SourceLayer},
+    },
 };
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {

@@ -5,18 +5,6 @@ use {
     kagari_vm::reentry::reenter,
 };
 
-use kagari_common::{
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        type_declaration::{
-            HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
-            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership,
-        },
-        value_type::HostValueType,
-    },
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
-    source_database::SourceLayer,
-};
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
 };
@@ -25,6 +13,21 @@ use kagari_runtime::{
     value::Value,
 };
 use std::{cell::RefCell, rc::Rc};
+use {
+    kagari_common::{
+        host_interface::{
+            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+            type_declaration::{
+                HostAssociatedTypeBinding, HostMethodDeclaration,
+                HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
+                HostTypeOwnership,
+            },
+            value_type::HostValueType,
+        },
+        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    },
+    kagari_source::source_database::SourceLayer,
+};
 
 const SOURCE: &str = concat!(
     include_str!("../../../examples/host-interfaces.kgr"),

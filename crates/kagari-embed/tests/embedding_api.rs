@@ -21,7 +21,6 @@ use kagari_bytecode::{
     },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
 };
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -30,6 +29,7 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions, ReloadOptions},
 };
+use kagari_source::source::SourceFile;
 use {
     kagari_common::host_interface::type_declaration::{
         HostReflectionPolicy, HostTypeOwnership, PathAccess,

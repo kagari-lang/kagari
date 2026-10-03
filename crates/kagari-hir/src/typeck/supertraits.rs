@@ -15,10 +15,9 @@ use crate::{
     types::{NominalType, TypeId},
 };
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
-    span::Span,
+use {
+    kagari_common::{cancellation::CancellationToken, span::Span},
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
 pub(crate) fn trait_supertrait_surface(

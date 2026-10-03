@@ -1,6 +1,6 @@
 use super::*;
 use crate::hir::expr::ExprKind;
-use kagari_common::diagnostic::DiagnosticKind;
+use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
 fn branch_and_array_merges_recover_complementary_member_facts() {

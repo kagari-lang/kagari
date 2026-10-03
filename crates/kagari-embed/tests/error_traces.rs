@@ -1,5 +1,4 @@
 mod support;
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -7,6 +6,7 @@ use kagari_embed::{
     program::PreparedProgram,
     runtime::LoadOptions,
 };
+use kagari_source::source::SourceFile;
 use kagari_vm::vm::native::PreparedNativeEntry;
 
 #[test]
@@ -458,9 +458,9 @@ fn main()->Result<i32,Problem>{Err(Problem {code:7})}
 
 #[test]
 fn imported_error_frames_keep_their_own_source_locations() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let mut root = None;

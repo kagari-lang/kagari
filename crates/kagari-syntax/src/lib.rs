@@ -1,4 +1,4 @@
-use kagari_common::diagnostic::Diagnostic;
+use kagari_source::diagnostic::Diagnostic;
 use smallvec::SmallVec;
 
 pub mod ast;

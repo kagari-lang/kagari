@@ -3,10 +3,13 @@
 use crate::typeck::TypedFunction;
 use std::collections::HashMap;
 
-use kagari_common::{
-    diagnostic::{Diagnostic, Severity},
-    identity::{
-        FileId, ModuleIdentity, Revision, mapping::DefinitionMappingError, table::DefinitionId,
+use {
+    kagari_common::identity::{
+        ModuleIdentity, mapping::DefinitionMappingError, table::DefinitionId,
+    },
+    kagari_source::{
+        diagnostic::{Diagnostic, Severity},
+        identity::{FileId, Revision},
     },
 };
 

@@ -12,17 +12,18 @@ use crate::{
     typeck::table::ConstraintTarget,
     types::abi::{lower_nominal_type, lower_type},
 };
-use kagari_common::{
-    diagnostic::{Diagnostic, DiagnosticKind},
-    identity::DefinitionPath,
-    literal::decode_string_literal,
-    span::Span,
-};
 use kagari_contract::{
     language::{self, role::LangRole},
     types::Constraint,
 };
 use std::collections::{BTreeMap, btree_map::Entry};
+use {
+    kagari_common::{identity::DefinitionPath, span::Span},
+    kagari_source::{
+        diagnostic::{Diagnostic, DiagnosticKind},
+        literal::decode_string_literal,
+    },
+};
 
 pub(crate) fn collect(
     lowered: &LoweredModule,

@@ -15,15 +15,14 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{
-    cancellation::Cancelled,
-    diagnostic::{Diagnostic, DiagnosticKind},
-    identity,
-};
 use kagari_contract::{
     language::{self as standard_traits, Protocol},
     scalar::BuiltinType,
     standard::surface::StandardTypeConstraint,
+};
+use {
+    kagari_common::{cancellation::Cancelled, identity},
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
 impl BodyChecker<'_> {

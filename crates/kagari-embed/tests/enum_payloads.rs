@@ -5,8 +5,8 @@ use kagari_contract::{
 };
 use {kagari_bytecode::instruction::EnumId, kagari_runtime::module::LoadedModule};
 
-use kagari_common::source::SourceFile;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use kagari_source::source::SourceFile;
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     let checked = engine
@@ -198,9 +198,9 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
 
 #[test]
 fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     for (name, value) in [("left", 7), ("right", 9)] {
@@ -338,9 +338,9 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
 
 #[test]
 fn same_spelled_payload_types_from_different_modules_have_different_abi() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     for name in ["left", "right"] {

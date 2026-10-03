@@ -3,9 +3,9 @@ use crate::{
     analysis::AnalysisDatabase, callable::CallableSignature, native::NativeBinding,
     typeck::FunctionImplementation,
 };
-use kagari_common::{
-    host_interface::{HostParameter, HostPassingStyle},
-    source_database::{SourceDatabase, SourceLayer},
+use {
+    kagari_common::host_interface::{HostParameter, HostPassingStyle},
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
 };
 
 #[test]

@@ -349,10 +349,12 @@ fn host_trait_script_bounds_are_rechecked_after_decode() {
 
 #[test]
 fn host_trait_bounds_use_imported_script_implementations() {
-    use kagari_common::{
-        host_interface::value_type::HostValueType,
-        identity::{ModuleIdentity, PackageId},
-        source_database::{SourceDatabase, SourceLayer},
+    use {
+        kagari_common::{
+            host_interface::value_type::HostValueType,
+            identity::{ModuleIdentity, PackageId},
+        },
+        kagari_source::source_database::{SourceDatabase, SourceLayer},
     };
 
     let mut sources = SourceDatabase::default();

@@ -6,12 +6,14 @@ use crate::{
     aggregates::traits::MethodDefault, declarations::DeclarationId, native::NativeBinding,
     typeck::table::CallTarget, types::NominalType,
 };
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    identity::{ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_contract::{callable::NativeDefaultApplication, scalar::BuiltinType};
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        source_database::{SourceDatabase, SourceLayer},
+    },
+};
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     sources

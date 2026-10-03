@@ -1,5 +1,4 @@
 mod support;
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -7,6 +6,7 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
+use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
 

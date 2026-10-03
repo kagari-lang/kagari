@@ -12,7 +12,6 @@ use kagari_codegen::{
     BackendConfiguration, BackendFunctionInput, CodegenBackend,
     diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
 };
-use kagari_common::{cancellation::CancellationToken, source::SourceFile};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{
@@ -34,6 +33,7 @@ use {
         native::{ExecutableFunctionArtifact, NativeCompilationProduct},
     },
 };
+use {kagari_common::cancellation::CancellationToken, kagari_source::source::SourceFile};
 
 #[derive(Debug)]
 struct Owner(Arc<AtomicUsize>);

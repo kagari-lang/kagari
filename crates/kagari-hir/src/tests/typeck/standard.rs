@@ -9,7 +9,7 @@ fn foundation_interface(name: &str) -> NominalType {
     }
 }
 use super::*;
-use {crate::typeck::table::CallTarget, kagari_common::source::SourceFile};
+use {crate::typeck::table::CallTarget, kagari_source::source::SourceFile};
 
 use crate::{language::semantics::ProtocolSemantics, native::NativeBinding};
 use kagari_common::identity::DefinitionKind;
@@ -87,11 +87,11 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         native::NativeTypeKind,
         typeck::{FunctionImplementation, table::ConstraintTarget},
     };
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
     use kagari_contract::{
         language::Protocol,
         standard::surface::{self as standard_surface, StandardEnum},
     };
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     assert!(standard_surface::builtin_type("String").is_some());
     assert!(standard_surface::builtin_type("usize").is_some());

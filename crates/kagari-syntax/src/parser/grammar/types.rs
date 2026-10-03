@@ -1,4 +1,4 @@
-use kagari_common::diagnostic::DiagnosticKind;
+use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{kind::SyntaxKind, parser::core::Parser, token::TokenKind};
 

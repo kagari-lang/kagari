@@ -6,7 +6,7 @@ use crate::{
     typeck::table::TypeTable,
 };
 
-use kagari_common::diagnostic::Diagnostic;
+use kagari_source::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
 
 pub struct BodyReuse<'a> {
@@ -129,10 +129,12 @@ fn environment(module: &LoweredModule, text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_common::{
-        diagnostic::{Diagnostic, DiagnosticKind},
-        source::SourceFile,
-        span::Span,
+    use {
+        kagari_common::span::Span,
+        kagari_source::{
+            diagnostic::{Diagnostic, DiagnosticKind},
+            source::SourceFile,
+        },
     };
 
     #[test]

@@ -1,15 +1,15 @@
 //! SDK diagnostics and execution error mapping.
 use kagari_bytecode::artifact::ArtifactValidationError;
 #[cfg(feature = "source")]
-use kagari_common::{diagnostic::Diagnostic, source::SourceFile};
-use kagari_common::{diagnostic::Severity, identity::FileSpan};
-#[cfg(feature = "source")]
 use kagari_compiler::{bytecode::BytecodeLoweringError, source::lower::MirLoweringError};
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     reload::ReloadValidationError as RuntimeReloadValidationError,
 };
+#[cfg(feature = "source")]
+use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
+use kagari_source::{diagnostic::Severity, identity::FileSpan};
 use kagari_vm::error::VmError;
 #[cfg(feature = "source")]
 use smallvec::SmallVec;

@@ -1,4 +1,4 @@
-use kagari_common::diagnostic::Severity;
+use kagari_source::diagnostic::Severity;
 
 use crate::tests::common;
 

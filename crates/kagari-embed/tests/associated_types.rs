@@ -1,14 +1,13 @@
 use kagari_bytecode::program::verify_program;
-use kagari_common::{
-    identity::{ModuleIdentity, PackageId},
-    source::SourceFile,
-    source_database::SourceLayer,
-};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::PreparedProgram,
+};
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::{source::SourceFile, source_database::SourceLayer},
 };
 
 use kagari_runtime::value::Value;

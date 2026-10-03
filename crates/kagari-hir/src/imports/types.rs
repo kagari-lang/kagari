@@ -11,13 +11,16 @@ use crate::{
     types::{NominalType, TypeId},
 };
 
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionPath, FileId, Revision, reference::DefinitionReference},
-};
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
+};
+use {
+    kagari_common::{
+        cancellation::{CancellationToken, Cancelled},
+        identity::{DefinitionPath, reference::DefinitionReference},
+    },
+    kagari_source::identity::{FileId, Revision},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

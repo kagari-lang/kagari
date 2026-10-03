@@ -1,11 +1,13 @@
 // Core language traits. This source owns the declarations and language roles.
 
+/// A shared cursor. Each next call advances it and returns Some(item), or None when exhausted.
 #[lang = "iterator"]
 pub trait Iterator {
     type Item;
     fn next(self) -> Option<<Self as Iterator>::Item>;
 }
 
+/// Produces an iterator whose Item matches this collection or sequence.
 #[lang = "iterable"]
 pub trait Iterable {
     type Item;

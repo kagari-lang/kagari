@@ -14,18 +14,23 @@ use crate::{
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
 };
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    diagnostic::{Diagnostic, DiagnosticKind},
-    identity::{FileId, ModuleIdentity, Revision},
-    source::SourceFile,
-    span::Span,
-};
 use kagari_contract::{language, standard::surface::StandardEnum};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry},
     sync::Arc,
+};
+use {
+    kagari_common::{
+        cancellation::{CancellationToken, Cancelled},
+        identity::ModuleIdentity,
+        span::Span,
+    },
+    kagari_source::{
+        diagnostic::{Diagnostic, DiagnosticKind},
+        identity::{FileId, Revision},
+        source::SourceFile,
+    },
 };
 
 #[cfg(test)]

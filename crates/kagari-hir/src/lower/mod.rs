@@ -9,12 +9,13 @@ use kagari_syntax::{
     parser::parse,
 };
 
-use kagari_common::{
-    cancellation::CancellationToken, collection::CollectionAccess, source::SourceFile, span::Span,
-};
 use kagari_contract::{
     callable::MethodPolicy,
     types::{NativeDeclaration, conversion::ConversionAdapter},
+};
+use {
+    kagari_common::{cancellation::CancellationToken, collection::CollectionAccess, span::Span},
+    kagari_source::source::SourceFile,
 };
 
 use std::{

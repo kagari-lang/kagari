@@ -1,13 +1,15 @@
 //! Optional tool metadata supplied alongside an offline host interface.
 //! Locations never participate in native binding authority or ABI fingerprints.
 
-use kagari_common::{
-    host_interface::{HostInterface, HostInterfaceError},
-    identity::DefinitionPath,
-    source_database::normalize_source_name,
-    span::Span,
-};
 use std::collections::HashMap;
+use {
+    kagari_common::{
+        host_interface::{HostInterface, HostInterfaceError},
+        identity::DefinitionPath,
+        span::Span,
+    },
+    kagari_source::source_database::normalize_source_name,
+};
 
 #[cfg(test)]
 mod tests;

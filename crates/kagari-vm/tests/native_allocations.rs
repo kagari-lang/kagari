@@ -3,7 +3,6 @@ use std::sync::Arc;
 mod native_allocations_counter;
 
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register};
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty};
 use kagari_hir::analysis::AnalysisDatabase;
@@ -22,6 +21,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use native_allocations_counter::{Counts, measured, verify_counter};
 use std::{hint::black_box, time::Duration};
 

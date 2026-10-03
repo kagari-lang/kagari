@@ -4,7 +4,6 @@ use crate::source::{
     lower::{MirLoweringError, instances::InstancePlanner},
     types::raise_type,
 };
-use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_contract::{
     layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
     types::{GenericParam, verify::types_in_scope},
@@ -17,6 +16,7 @@ use kagari_hir::{
     },
 };
 use kagari_mir::function::MirFunction;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use std::{
     collections::{HashSet, VecDeque},
     mem, slice,

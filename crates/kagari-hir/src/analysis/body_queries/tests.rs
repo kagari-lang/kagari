@@ -1,12 +1,15 @@
 use super::*;
 use crate::analysis::ownership;
 use crate::declarations::DeclarationId;
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    identity::{DefinitionPath, FileId},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_contract::scalar::BuiltinType;
+use {
+    kagari_common::identity::DefinitionPath,
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        identity::FileId,
+        source_database::{SourceDatabase, SourceLayer},
+    },
+};
 
 fn owner(
     db: &mut AnalysisDatabase,

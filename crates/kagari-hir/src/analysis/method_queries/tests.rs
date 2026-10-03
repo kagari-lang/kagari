@@ -1,7 +1,7 @@
 use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
-use kagari_common::{
-    identity::DefinitionKind,
-    source_database::{SourceDatabase, SourceLayer},
+use {
+    kagari_common::identity::DefinitionKind,
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
 };
 
 #[test]

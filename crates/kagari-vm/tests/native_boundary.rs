@@ -10,7 +10,6 @@ mod native_boundary_sessions;
 mod native_boundary_storage;
 mod support;
 use kagari_bytecode::program::BytecodeProgram;
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::Ty;
 use kagari_hir::analysis::AnalysisDatabase;
@@ -31,6 +30,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_vm::{error::VmError, vm::Vm};
 use std::ops::Bound;
 use std::{cell::Cell, rc::Rc};

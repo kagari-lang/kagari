@@ -1,8 +1,4 @@
 use super::collect_module_abi;
-use kagari_common::{
-    identity::associated_type_id,
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_contract::{
     callable::CallableImplementation,
     language::{self as traits, Protocol},
@@ -17,6 +13,10 @@ use kagari_hir::{
     native::NativeBinding as HirNativeBinding,
 };
 use std::collections::BTreeMap;
+use {
+    kagari_common::identity::associated_type_id,
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
+};
 
 #[test]
 fn installed_native_declarations_keep_public_representation_and_payload_contracts() {

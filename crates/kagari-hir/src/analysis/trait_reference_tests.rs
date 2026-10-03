@@ -3,12 +3,14 @@ use crate::{
     hir::{ids::HirOwner, ty::TypeKind},
     typeck::table::{ConstraintTarget, TypeTarget},
 };
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    identity::{ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_contract::scalar::BuiltinType;
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        source_database::{SourceDatabase, SourceLayer},
+    },
+};
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -257,7 +259,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
         .unwrap();
     assert_eq!(
         snapshot.source(declaration.location.file).unwrap().name(),
-        "kagari://native/kagari-core/language.kgr"
+        crate::language::source::CORE_URI
     );
 }
 

@@ -1,5 +1,5 @@
 use kagari_bytecode::program::verify_program;
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 use {
     kagari_embed::{context::JitPolicy, error::EmbeddingError},
     kagari_vm::vm::Vm,
@@ -77,9 +77,9 @@ fn main() -> i32 { val x: Child = Number { value: 14 }; generic(Number { value: 
 
 #[test]
 fn imported_child_bounds_keep_hidden_parent_declarations_and_projections() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let mut root = None;

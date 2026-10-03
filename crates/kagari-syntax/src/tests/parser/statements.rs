@@ -3,7 +3,7 @@ use crate::{
     parser::parse,
     tests::common,
 };
-use kagari_common::diagnostic::Severity;
+use kagari_source::diagnostic::Severity;
 
 #[test]
 fn compound_assignments_preserve_lossless_computed_targets() {

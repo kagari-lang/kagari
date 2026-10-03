@@ -1,6 +1,6 @@
 //! Generate the disposable source-free SDK feature fixture from reviewed source.
-use kagari_common::source::SourceFile;
 use kagari_embed::engine::KagariEngine;
+use kagari_source::source::SourceFile;
 use std::{fs, path::Path};
 
 // The producer and independent consumer install the exact same public provider.

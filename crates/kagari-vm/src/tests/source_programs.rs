@@ -6,12 +6,12 @@ use crate::{
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use {crate::error::VmError, kagari_runtime::error::RuntimeErrorKind};
 
-use kagari_common::{
-    identity::{ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_compiler::bytecode::lower_program_to_bytecode;
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
+};
 
 fn fixture(dependency_source: &str) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();

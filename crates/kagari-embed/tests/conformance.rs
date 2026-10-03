@@ -9,9 +9,9 @@ use kagari_embed::{
     runtime::{LoadOptions, ReloadOptions},
 };
 
-use kagari_common::{
-    identity::{ModuleIdentity, PackageId},
-    source::SourceFile,
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::source::SourceFile,
 };
 
 use kagari_runtime::value::Value;
@@ -48,7 +48,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .set_source(
             "pkg://gameplay/math.kgr",
             "pub fn value() -> i32 { 42 }".into(),
-            kagari_common::source_database::SourceLayer::Base,
+            kagari_source::source_database::SourceLayer::Base,
         )
         .unwrap();
     let checked = engine

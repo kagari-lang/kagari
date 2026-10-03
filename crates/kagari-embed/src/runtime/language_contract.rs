@@ -185,9 +185,9 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
         vec![],
         HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
     );
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::{SourceDatabase, SourceLayer},
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::{SourceDatabase, SourceLayer},
     };
     let mut sources = SourceDatabase::default();
     let mut root = None;

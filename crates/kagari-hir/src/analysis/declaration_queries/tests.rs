@@ -3,10 +3,12 @@ use crate::{
     analysis::AnalysisSnapshot, declarations::DeclarationId, resolver::resolved::ResolvedName,
 };
 
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    identity::{ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        source_database::{SourceDatabase, SourceLayer},
+    },
 };
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnapshot {

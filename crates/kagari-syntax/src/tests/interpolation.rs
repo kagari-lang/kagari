@@ -4,8 +4,9 @@ use crate::{
     parser::{ParseLimits, parse, parse_with_limits},
 };
 
-use kagari_common::{
-    cancellation::CancellationToken, diagnostic::DiagnosticKind, source::SourceFile,
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::{diagnostic::DiagnosticKind, source::SourceFile},
 };
 
 #[test]

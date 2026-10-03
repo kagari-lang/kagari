@@ -2,11 +2,11 @@ use crate::{
     hir::expr::literal::{Literal, LiteralKind},
     types::TypeId,
 };
-use kagari_common::{
-    literal,
-    numeric::{self, Number},
-};
 use kagari_contract::{scalar::BuiltinType, standard::surface::builtin_type};
+use {
+    kagari_common::numeric::{self, Number},
+    kagari_source::literal,
+};
 
 /// A checked scalar fact shared by literals, const evaluation and code generation.
 #[derive(Debug, Clone, PartialEq)]

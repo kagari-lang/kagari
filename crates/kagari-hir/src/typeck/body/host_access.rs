@@ -16,17 +16,19 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_common::{
-    cancellation::Cancelled,
-    collection::CollectionAccess,
-    diagnostic::{Diagnostic, DiagnosticKind},
-    host_interface::{
-        self, HostFunctionDeclaration,
-        path::HostPathSegmentDeclaration,
-        type_declaration::{HostFieldDeclaration, PathAccess},
-    },
-};
 use kagari_contract::scalar::BuiltinType;
+use {
+    kagari_common::{
+        cancellation::Cancelled,
+        collection::CollectionAccess,
+        host_interface::{
+            self, HostFunctionDeclaration,
+            path::HostPathSegmentDeclaration,
+            type_declaration::{HostFieldDeclaration, PathAccess},
+        },
+    },
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_host_call_type(

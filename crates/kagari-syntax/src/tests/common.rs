@@ -2,7 +2,7 @@ use crate::{
     ast::item::{ConstDef, EnumDef, FnDef, Item, SourceFile as AstSourceFile, StructDef},
     parser::{Parse, parse as parse_source, parse_module},
 };
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 
 pub fn source(text: &str) -> SourceFile {
     SourceFile::new("test.kg", text)

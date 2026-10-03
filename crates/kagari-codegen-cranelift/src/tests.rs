@@ -1,5 +1,4 @@
 use super::*;
-use kagari_common::source::SourceFile;
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode, native_links::build_native_links,
     source::program::lower_program_to_mir,
@@ -10,6 +9,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig, backend::BackendInvocationError, error::RuntimeErrorKind,
     jit_abi::native_helper_symbols, resource::RuntimeLimits, value::Value,
 };
+use kagari_source::source::SourceFile;
 use std::rc::Rc;
 use {
     kagari_abi::{native::ExecutableEntryPoint, native_call::JIT_POLL_EXECUTION_SYMBOL},

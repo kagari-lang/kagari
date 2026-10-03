@@ -7,7 +7,7 @@ use crate::{
     parser::{parse, parse_declarations},
 };
 
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 
 #[test]
 fn outer_attributes_preserve_nested_arguments_trivia_and_item_dispatch() {

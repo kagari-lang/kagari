@@ -7,18 +7,12 @@ use crate::{
         item::{function::FunctionKind, module::Import, storage::Visibility},
         ty::TypeKind,
     },
+    language::source::{CORE_SOURCE, CORE_URI, trait_source},
     lower::{LoweredModule, lower_module_controlled},
     native::{
         NativeBinding, NativeTypeKind,
         render::{DeclarationSource, declaration_source_with_providers},
     },
-};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
-    source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
-    span::Span,
 };
 use kagari_contract::{
     callable::CallableImplementation,
@@ -31,6 +25,17 @@ use kagari_syntax::{
     parser::{Parse, ParseLimits, parse_declarations},
 };
 use std::{collections::HashSet, sync::Arc};
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
+        span::Span,
+    },
+    kagari_source::{
+        source::SourceFile,
+        source_database::{SourceDatabase, SourceLayer},
+    },
+};
 
 pub(crate) fn import(
     definition: &ModuleDecl,
@@ -57,11 +62,27 @@ pub(crate) fn import_source(
     let id = sources
         .set(&generated.uri, generated.text.clone(), SourceLayer::Base)
         .map_err(DeclarationError)?;
-    let source = sources
+    let mut source = sources
         .snapshot()
         .file(id)
         .expect("native declaration source")
         .clone();
+    if definition.identity == language::module_identity() {
+        let original = Arc::new(SourceFile::new(CORE_URI, CORE_SOURCE));
+        let view = Arc::make_mut(&mut source);
+        for role in LangRole::ALL {
+            let text = trait_source(role);
+            if let Some(start) = view.text().find(text) {
+                let authored = CORE_SOURCE.find(text).expect("handwritten trait fragment");
+                view.add_copy(
+                    Span::new(start, start + text.len()),
+                    original.clone(),
+                    Span::new(authored, authored + text.len()),
+                )
+                .map_err(|error| DeclarationError(error.into()))?;
+            }
+        }
+    }
     let parsed = parse_declarations(&source, limits, cancel)
         .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
     if !parsed.diagnostics().is_empty() {

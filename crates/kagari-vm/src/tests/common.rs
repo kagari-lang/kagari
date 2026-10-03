@@ -8,10 +8,10 @@ use kagari_bytecode::{
     program::BytecodeProgram,
 };
 use kagari_common::host_interface::{HostInterface, standard_log};
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
 use kagari_runtime::{Runtime, module::LoadedModule};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
     load_bytecode_module_with_runtime(Runtime::default(), name, bytecode)

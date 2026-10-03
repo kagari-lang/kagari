@@ -6,13 +6,14 @@ use crate::{
     lower,
     native::{api, render::declaration_source},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::map::DefinitionContext,
-    source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
-};
 use std::{slice, sync::Arc};
+use {
+    kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext},
+    kagari_source::{
+        source::SourceFile,
+        source_database::{SourceDatabase, SourceLayer},
+    },
+};
 
 fn check_core(mutate: impl FnOnce(&mut String)) -> DiagnosticBuffer {
     let cancel = CancellationToken::default();

@@ -5,9 +5,9 @@ use crate::{
     resolver::resolved::ResolvedName,
     typeck::table::{CallTarget, ConstraintTarget},
 };
-use kagari_common::{
-    identity::DefinitionPath,
-    source_database::{SourceDatabase, SourceLayer},
+use {
+    kagari_common::identity::DefinitionPath,
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
 };
 
 const SOURCE: &str = "trait Get { fn get(self) -> i32; } struct Point { val n: i32 } impl Get for Point { fn get(self) -> i32 { self.n } } fn read<T: Get>(p: T) -> i32 { p.get() } fn main() -> i32 { read(Point { n: 7 }) }";

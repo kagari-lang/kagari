@@ -12,12 +12,11 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_common::{
-    collection::CollectionAccess,
-    diagnostic::{Diagnostic, DiagnosticKind},
-    identity::DefinitionPath,
-};
 use kagari_contract::{language::Protocol, scalar::BuiltinType};
+use {
+    kagari_common::{collection::CollectionAccess, identity::DefinitionPath},
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn resolve_assignment_target_type(

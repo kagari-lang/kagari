@@ -4,46 +4,18 @@ use crate::{
     lower::context::{syntax_span, token_span},
     native::render::{DeclarationSource, NativeDeclarationSite},
 };
-use kagari_common::{
-    identity::{DefinitionKind, DefinitionPath, associated_type_id},
-    source::SourceFile,
-};
 use kagari_contract::{
     declaration::ModuleDecl,
     language::{Protocol, role::LangRole},
 };
 use kagari_syntax::{ast::item::Item, parser::parse};
+use {
+    kagari_common::identity::{DefinitionKind, associated_type_id},
+    kagari_source::source::SourceFile,
+};
 
-pub(super) fn core_text(module: &ModuleDecl, owner: &DefinitionPath, role: LangRole) -> String {
-    let mut text = String::new();
-    for line in trait_source(role).lines() {
-        let trimmed = line.trim_start();
-        let id = if trimmed.starts_with("#[lang") {
-            Some(owner.clone())
-        } else if let Some(method) = trimmed.strip_prefix("fn ") {
-            Some(ModuleDecl::method_id(
-                owner,
-                method.split('(').next().unwrap(),
-            ))
-        } else {
-            trimmed
-                .strip_prefix("type ")
-                .map(|member| associated_type_id(owner, member.split([';', ':']).next().unwrap()))
-        };
-        if let Some(docs) = id.as_ref().and_then(|id| module.documentation.get(id)) {
-            for doc in docs.lines() {
-                if !trimmed.starts_with("#[lang") {
-                    text.push_str("    ");
-                }
-                text.push_str("/// ");
-                text.push_str(doc);
-                text.push('\n');
-            }
-        }
-        text.push_str(line);
-        text.push('\n');
-    }
-    text
+pub(super) fn core_text(role: LangRole) -> String {
+    format!("{}\n", trait_source(role))
 }
 
 pub(super) fn record_sites(source: &mut DeclarationSource, module: &ModuleDecl) {

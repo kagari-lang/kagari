@@ -1,9 +1,11 @@
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    literal,
-    span::Span,
-};
 use smallvec::SmallVec;
+use {
+    kagari_common::{
+        cancellation::{CancellationToken, Cancelled},
+        span::Span,
+    },
+    kagari_source::literal,
+};
 
 use crate::{
     TokenBuffer,

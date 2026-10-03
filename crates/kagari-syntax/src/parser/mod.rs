@@ -1,11 +1,11 @@
 mod core;
 mod grammar;
 
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    source::SourceFile,
-};
 use rowan::GreenNode;
+use {
+    kagari_common::cancellation::{CancellationToken, Cancelled},
+    kagari_source::source::SourceFile,
+};
 
 use crate::{
     BoxedDiagnosticBuffer, DiagnosticBuffer,

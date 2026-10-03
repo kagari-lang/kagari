@@ -5,7 +5,7 @@ use crate::{
     typeck::{BodyTypeEnv, body::BodyChecker},
     types::TypeId,
 };
-use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
     pub(super) fn check_enum_pattern(

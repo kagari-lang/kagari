@@ -129,7 +129,7 @@ pub(crate) fn database() -> AnalysisDatabase {
 fn native_fixture_source_is_a_valid_offline_declaration() {
     for module in [module(), text_items_module()] {
         let generated = declaration_source(&module).unwrap();
-        let source = kagari_common::source::SourceFile::new(&generated.uri, &generated.text);
+        let source = kagari_source::source::SourceFile::new(&generated.uri, &generated.text);
         let parsed = kagari_syntax::parser::parse_declarations(
             &source,
             Default::default(),

@@ -1,10 +1,10 @@
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::PreparedProgram,
 };
+use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
 
@@ -175,9 +175,9 @@ fn invalid_family_declarations_projections_and_dynamic_interfaces_are_rejected()
 
 #[test]
 fn imported_families_and_defaults_keep_declaration_owned_binders() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let mut root = None;

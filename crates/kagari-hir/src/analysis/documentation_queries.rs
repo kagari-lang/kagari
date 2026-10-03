@@ -9,14 +9,17 @@ use crate::{
     declarations::{Declaration, DeclarationId},
     host::origin::HostDeclarationOrigin,
 };
-use kagari_common::{
-    identity::{FileId, reference::DefinitionReference, table::DefinitionId},
-    span::Span,
-};
 use kagari_syntax::ast::{
     item::{Item, MethodDef},
     misc::{Field, Name, Variant},
     traits::AstNode,
+};
+use {
+    kagari_common::{
+        identity::{reference::DefinitionReference, table::DefinitionId},
+        span::Span,
+    },
+    kagari_source::identity::FileId,
 };
 
 #[cfg(test)]
@@ -77,9 +80,7 @@ impl FileDeclarations {
         let id = ownership::locate(id, self.declarations().definitions())?;
         let declaration = self.declarations().get(&id)?;
         let source = self.source();
-        if source.span(declaration.location.range)? != declaration.location {
-            return None;
-        }
+        let local_range = source.local_range(declaration.location)?;
         let (documentation, written_signature) = {
             let node = self.parsed.syntax().syntax().descendants().find(|node| {
                 node.children().filter_map(Name::cast).any(|name| {
@@ -91,7 +92,7 @@ impl FileDeclarations {
                         .map(|token| token.text_range());
                     range.is_some_and(|range| {
                         Span::new(usize::from(range.start()), usize::from(range.end()))
-                            == declaration.location.range
+                            == local_range
                     })
                 })
             })?;

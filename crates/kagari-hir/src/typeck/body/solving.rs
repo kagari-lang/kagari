@@ -13,7 +13,7 @@ use crate::{
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use std::collections::HashSet;
 
 impl BodyChecker<'_> {

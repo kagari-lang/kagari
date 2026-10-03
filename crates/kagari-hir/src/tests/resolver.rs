@@ -1,4 +1,4 @@
-use kagari_common::diagnostic::DiagnosticKind;
+use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{
     hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},

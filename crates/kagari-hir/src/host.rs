@@ -9,20 +9,6 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    diagnostic::{Diagnostic, DiagnosticKind},
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostInterfaceError,
-        path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::{
-            HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,
-        },
-        value_type::HostValueType,
-    },
-    identity::{DefinitionPath, ModuleIdentity},
-    span::Span,
-};
 use kagari_contract::{
     host::satisfies_standard_constraint, language::Protocol, scalar::BuiltinType,
     standard::surface::StandardEnum,
@@ -34,6 +20,22 @@ use std::{
         Arc, OnceLock,
         atomic::{AtomicU64, Ordering},
     },
+};
+use {
+    kagari_common::{
+        cancellation::{CancellationToken, Cancelled},
+        host_interface::{
+            HostFunctionDeclaration, HostInterface, HostInterfaceError,
+            path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
+            type_declaration::{
+                HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,
+            },
+            value_type::HostValueType,
+        },
+        identity::{DefinitionPath, ModuleIdentity},
+        span::Span,
+    },
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
 pub mod callable;

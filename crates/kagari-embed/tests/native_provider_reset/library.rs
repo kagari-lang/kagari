@@ -1,6 +1,6 @@
-use kagari_common::source::SourceFile;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{library::collections, value::Value};
+use kagari_source::source::SourceFile;
 
 #[test]
 fn foundation_algorithms_are_available_from_normal_engine_construction() {

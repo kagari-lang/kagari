@@ -1,4 +1,4 @@
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 use {
     kagari_compiler::source::lower::instances::MirLoweringOptions,
     kagari_embed::context::{ExecutionContext, JitPolicy},

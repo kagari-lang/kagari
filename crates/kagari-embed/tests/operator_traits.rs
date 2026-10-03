@@ -8,7 +8,7 @@ use kagari_embed::{
 };
 use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
 
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
 
@@ -283,9 +283,9 @@ fn array_index_methods_use_the_actual_integer_argument() {
 
 #[test]
 fn imported_generic_operators_keep_the_defining_implementation() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     for downstream_override in [false, true] {
         let engine = KagariEngine::default();

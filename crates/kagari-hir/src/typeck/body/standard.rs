@@ -4,8 +4,8 @@ use crate::{
     typeck::{BodyTypeEnv, body::BodyChecker, completion, table::CallTarget},
     types::TypeId,
 };
-use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_contract::{language::Protocol, standard::surface::StandardEnum};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
     /// A completed branch can supply the missing payload type of a sibling None.

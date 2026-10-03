@@ -4,7 +4,7 @@ use kagari_hir::{
 };
 
 use kagari_bytecode::program::BytecodeProgram;
-use kagari_common::{
+use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };

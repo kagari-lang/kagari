@@ -1,5 +1,5 @@
 use crate::{ast::item::Visibility, tests::common};
-use kagari_common::diagnostic::{DiagnosticKind, Severity};
+use kagari_source::diagnostic::{DiagnosticKind, Severity};
 
 #[test]
 fn parses_struct_definition_with_fields() {

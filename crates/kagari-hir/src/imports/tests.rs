@@ -1,9 +1,8 @@
 use super::*;
 
-use kagari_common::{
-    host_interface::value_type::HostValueType,
-    identity::PackageId,
-    source_database::{SourceDatabase, SourceLayer},
+use {
+    kagari_common::{host_interface::value_type::HostValueType, identity::PackageId},
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
 };
 
 use crate::analysis::{AnalysisDatabase, AnalysisSnapshot};

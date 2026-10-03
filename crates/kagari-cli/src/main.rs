@@ -1,7 +1,6 @@
 use kagari_bytecode::artifact::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::{diagnostic::Diagnostic, host_interface, source::SourceFile};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -21,6 +20,10 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::ExitCode,
+};
+use {
+    kagari_common::host_interface,
+    kagari_source::{diagnostic::Diagnostic, source::SourceFile},
 };
 
 use kagari_syntax::parser::parse_module;

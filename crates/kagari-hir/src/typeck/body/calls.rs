@@ -15,11 +15,11 @@ use crate::{
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
-use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_contract::{
     language::Protocol,
     standard::surface::{self as standard_surface, StandardTypeConstraint},
 };
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use std::iter;
 
 impl<'a> BodyChecker<'a> {

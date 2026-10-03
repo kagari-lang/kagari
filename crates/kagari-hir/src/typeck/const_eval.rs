@@ -14,14 +14,16 @@ use crate::{
     typeck::{scalar::ScalarValue, table::TypeTable},
     types::TypeId,
 };
-use kagari_common::{
-    arithmetic::{self, IntegerBinaryOp},
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
-    integer::{self, IntegerOp},
-};
 use kagari_contract::scalar::BuiltinType;
 use std::collections::HashMap;
+use {
+    kagari_common::{
+        arithmetic::{self, IntegerBinaryOp},
+        cancellation::CancellationToken,
+        integer::{self, IntegerOp},
+    },
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 use smallvec::SmallVec;
 

@@ -1,6 +1,6 @@
 mod support;
 use kagari_bytecode::program::verify_program;
-use kagari_common::{collection::CollectionAccess, source::SourceFile};
+use {kagari_common::collection::CollectionAccess, kagari_source::source::SourceFile};
 use {
     kagari_embed::{context::JitPolicy, engine::EngineConfig},
     kagari_runtime::session::ExecutionOptions,

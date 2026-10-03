@@ -4,14 +4,16 @@ use crate::{
     native::NativeBinding, typeck::FunctionImplementation,
 };
 use kagari_common::host_interface::type_declaration::HostMethodDeclaration;
-use kagari_common::{
-    host_interface::{HostParameter, HostPassingStyle},
-    identity::{ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
+use {
+    crate::hir::expr::ExprKind, kagari_common::host_interface::path::HostPathSegmentDeclaration,
+    kagari_source::diagnostic::DiagnosticKind,
 };
 use {
-    crate::hir::expr::ExprKind,
-    kagari_common::{diagnostic::DiagnosticKind, host_interface::path::HostPathSegmentDeclaration},
+    kagari_common::{
+        host_interface::{HostParameter, HostPassingStyle},
+        identity::{ModuleIdentity, PackageId},
+    },
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
 };
 
 fn interface() -> HostInterface {
@@ -217,14 +219,14 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
 
 #[test]
 fn erroneous_host_calls_retain_return_types_and_member_facts() {
-    use kagari_common::{
-        diagnostic::DiagnosticKind,
-        host_interface::{
+    use {
+        kagari_common::host_interface::{
             path::HostPathDeclaration,
             type_declaration::{
                 HostFieldDeclaration, HostMethodDeclaration, HostTypeOwnership, PathAccess,
             },
         },
+        kagari_source::diagnostic::DiagnosticKind,
     };
     let mut declarations = interface();
     let parameter = HostParameter {

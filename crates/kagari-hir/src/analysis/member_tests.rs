@@ -1,11 +1,12 @@
 use super::*;
 use crate::declarations::DeclarationId;
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    identity::DefinitionKind,
-    line_index::PositionEncoding,
-    source_database::{SourceDatabase, SourceLayer},
-    span::Span,
+use {
+    kagari_common::{identity::DefinitionKind, span::Span},
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        line_index::PositionEncoding,
+        source_database::{SourceDatabase, SourceLayer},
+    },
 };
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {

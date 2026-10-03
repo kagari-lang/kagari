@@ -8,7 +8,7 @@ use crate::{
     resolver::{collect::resolve_names, resolved::ResolvedName},
 };
 
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
 fn lowering_records_owners_for_interleaved_functions_and_constants() {

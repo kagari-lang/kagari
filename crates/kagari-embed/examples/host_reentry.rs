@@ -9,7 +9,7 @@ use std::{
     slice,
 };
 
-use kagari_common::{host_interface::standard_log, source::SourceFile};
+use {kagari_common::host_interface::standard_log, kagari_source::source::SourceFile};
 
 use kagari_runtime::{
     Runtime,

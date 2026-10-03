@@ -6,11 +6,11 @@ use {
     kagari_vm::vm::Vm,
 };
 
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -598,9 +598,9 @@ fn make()->(Test,HashSet<Key>) {
 
 #[test]
 fn imported_equality_and_hash_use_the_defining_modules_implementations() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     for downstream_override in [false, true] {
         let engine = KagariEngine::default();

@@ -1,17 +1,20 @@
 //! Offline host associated-output declarations and dynamic interface binding.
 //! Run with `cargo run -p kagari-embed --example host_interfaces`.
 
-use kagari_common::{
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        type_declaration::{
-            HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
-            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+use {
+    kagari_common::{
+        host_interface::{
+            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+            type_declaration::{
+                HostAssociatedTypeBinding, HostMethodDeclaration,
+                HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
+                HostTypeOwnership, PathAccess,
+            },
+            value_type::HostValueType,
         },
-        value_type::HostValueType,
+        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     },
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
-    source_database::SourceLayer,
+    kagari_source::source_database::SourceLayer,
 };
 
 use kagari_embed::{

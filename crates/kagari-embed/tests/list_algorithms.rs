@@ -1,12 +1,12 @@
 #![cfg(feature = "source")]
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();

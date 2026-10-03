@@ -1,9 +1,9 @@
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
-};
 use rowan::{Checkpoint as GreenCheckpoint, GreenNode, GreenNodeBuilder, Language};
 use smallvec::SmallVec;
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 use crate::{
     DiagnosticBuffer, TokenBuffer,

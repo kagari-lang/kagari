@@ -3,20 +3,22 @@ use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule, aggregates::AggregateCatalog, analyze_parsed,
     declare_analysis, host::HostDeclarations, lower::lower_module_controlled,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        DefinitionPath,
-        map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-        metadata::DefinitionMetadata,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
-    },
-    source::SourceFile,
-};
 use kagari_syntax::parser::parse_with_limits;
 use std::sync::Arc;
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{
+            DefinitionPath,
+            map::DefinitionContext,
+            mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+            metadata::DefinitionMetadata,
+            reference::DefinitionReference,
+            table::{DefinitionId, DefinitionTable},
+        },
+    },
+    kagari_source::source::SourceFile,
+};
 
 pub(super) fn scope<T: DefinitionRecord<DefinitionPath>>(
     record: &T,

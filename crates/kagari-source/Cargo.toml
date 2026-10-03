@@ -1,0 +1,9 @@
+[package]
+name = "kagari-source"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-common.workspace = true
+serde.workspace = true

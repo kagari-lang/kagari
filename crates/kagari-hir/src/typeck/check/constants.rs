@@ -12,13 +12,13 @@ use crate::{
     typeck::{TopLevelTypeIndex, const_budget::ConstBudget, table::TypeTable, ty::display_type_id},
     types::TypeId,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
-};
 use kagari_contract::scalar::BuiltinType;
 use smallvec::SmallVec;
 use std::collections::HashMap;
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ConstVisitState {

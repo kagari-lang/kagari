@@ -1,5 +1,5 @@
-use kagari_common::source::SourceFile;
 use kagari_embed::{context::JitPolicy, engine::EngineConfig};
+use kagari_source::source::SourceFile;
 
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,

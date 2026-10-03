@@ -152,7 +152,7 @@ impl DeclarationView<'_> {
             if self.identity == language::module_identity()
                 && let Some(role) = Protocol::from_id(&id).and_then(LangRole::from_protocol)
             {
-                output.text.push_str(&core_text(self, &id, role));
+                output.text.push_str(&core_text(role));
                 output.text.push_str("\n\n");
                 continue;
             }

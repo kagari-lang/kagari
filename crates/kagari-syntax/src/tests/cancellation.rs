@@ -1,6 +1,6 @@
 use crate::{ast::traits::AstNode, parser::parse};
 
-use kagari_common::{cancellation::CancellationToken, source::SourceFile};
+use {kagari_common::cancellation::CancellationToken, kagari_source::source::SourceFile};
 
 #[test]
 fn cancelled_parses_never_return_a_partial_success() {

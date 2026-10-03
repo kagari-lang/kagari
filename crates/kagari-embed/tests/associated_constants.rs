@@ -1,10 +1,10 @@
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::PreparedProgram,
 };
+use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
 
@@ -147,9 +147,9 @@ fn main() -> i32 { get(Holder { value: true }) + Holder<i32>::VALUE - 42 }
 
 #[test]
 fn imported_defaults_keep_the_trait_module_constant_resolution() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let mut root = None;

@@ -1,5 +1,5 @@
 use crate::{analyze_source, typeck::table::ConstraintTarget, types::TypeId};
-use kagari_common::{diagnostic::DiagnosticKind, source::SourceFile};
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 
 use kagari_contract::scalar::BuiltinType;
 

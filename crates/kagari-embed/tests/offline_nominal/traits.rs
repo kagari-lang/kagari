@@ -1,5 +1,5 @@
 use super::*;
-use kagari_common::diagnostic::DiagnosticKind;
+use kagari_source::diagnostic::DiagnosticKind;
 use {
     kagari_bytecode::artifact::KbcArtifact,
     kagari_common::host_interface::type_declaration::PathAccess, kagari_embed::context::JitPolicy,

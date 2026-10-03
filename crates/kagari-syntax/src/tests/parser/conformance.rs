@@ -5,7 +5,7 @@ use crate::{
     },
     tests::common,
 };
-use kagari_common::diagnostic::{DiagnosticKind, Severity};
+use kagari_source::diagnostic::{DiagnosticKind, Severity};
 
 #[test]
 fn parses_unit_type_and_unit_value() {

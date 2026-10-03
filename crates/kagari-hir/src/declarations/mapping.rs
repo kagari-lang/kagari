@@ -107,7 +107,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
                     .iter()
                     .map(|(key, value)| Ok(((key).map_identities(mapper)?, *(value)))),
             )?,
-            sites: self.sites.clone(),
+            site_ranges: self.site_ranges.clone(),
             impl_identities: map_hash_entries(
                 self.impl_identities.len(),
                 self.impl_identities

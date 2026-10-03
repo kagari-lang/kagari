@@ -35,7 +35,7 @@ fn main() -> i32 { make(Number {}) }
 
 #[test]
 fn constructor_binders_and_cached_queries_follow_the_latest_signature() {
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
     let text = "trait Family { type Item<T>; fn make<T>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V>(self, value:V)->V { value } } fn edit()->i32 { 1 } fn main()->i32 { val value: <N as Family>::Item<i32> = N {}.make(42); value }";
     let mut sources = SourceDatabase::default();
     let file = sources

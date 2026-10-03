@@ -4,14 +4,10 @@ pub mod mapping;
 pub mod metadata;
 pub mod reference;
 pub mod table;
-use crate::{decode_limits::bounded_vec, span::Span};
+use crate::decode_limits::bounded_vec;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{
-    fmt,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::fmt;
 
-static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 pub const MAX_IDENTITY_PATH_SEGMENTS: usize = 64;
 
 fn module_path<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
@@ -31,24 +27,6 @@ fn definition_path<'de, D: Deserializer<'de>>(
         "definition identity path segment",
     )
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct FileId(u64);
-
-impl FileId {
-    pub(crate) fn fresh() -> Self {
-        Self(
-            NEXT_FILE
-                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-                .expect("source identity exhausted"),
-        )
-    }
-}
-
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
-pub struct Revision(pub u64);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PackageId(pub String);
@@ -116,13 +94,6 @@ pub struct DefinitionPathSegment {
     /// Source-order occurrence among declarations with the same parent, kind and name.
     /// Usually zero; also distinguishes malformed duplicates and unnamed impl blocks.
     pub occurrence: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileSpan {
-    pub file: FileId,
-    pub revision: Revision,
-    pub range: Span,
 }
 
 impl DefinitionPath {

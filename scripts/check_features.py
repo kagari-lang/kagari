@@ -15,7 +15,7 @@ OUTPUT = ROOT / "target" / "architecture-features"
 
 
 def check_crate_boundaries(output: Path = OUTPUT) -> None:
-    source = {"kagari-hir", "kagari-syntax"}
+    source = {"kagari-source", "kagari-hir", "kagari-syntax"}
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     execution = {"kagari-runtime", "kagari-vm", "kagari-embed", "kagari-bytecode"}
     constraints = {
@@ -56,15 +56,15 @@ def run() -> None:
     lines = [
         '[workspace]', '[package]', 'name = "kagari-feature-consumer"',
         'version = "0.0.0"', 'edition = "2024"', '[features]', 'default = []',
-        'source = ["kagari-embed/source"]',
+        'source = ["kagari-embed/source", "dep:kagari-source"]',
         'native = ["kagari-embed/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
         '[dependencies]',
     ]
-    for name in ["abi", "contract", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift"]:
+    for name in ["source", "abi", "contract", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift"]:
         options = [f'path = {json.dumps(str(ROOT / "crates" / f"kagari-{name}"))}']
         if name == "embed":
             options.append('default-features = false')
-        if name in {"codegen", "mir", "codegen-cranelift"}:
+        if name in {"source", "codegen", "mir", "codegen-cranelift"}:
             options.append('optional = true')
         lines.append(f'kagari-{name} = {{ {", ".join(options)} }}')
     targets = ["artifact_features"]
@@ -99,14 +99,14 @@ def run() -> None:
         packages = {line.split()[0] for line in graph.splitlines() if line}
         forbidden = set()
         if "source" not in features:
-            forbidden |= {"kagari-hir", "kagari-syntax"}
+            forbidden |= {"kagari-source", "kagari-hir", "kagari-syntax"}
         if not features:
             forbidden |= {"kagari-compiler", "kagari-mir", "kagari-codegen", "kagari-codegen-cranelift"}
         if features == "source":
             forbidden |= {"kagari-codegen", "kagari-codegen-cranelift"}
         assert not packages & forbidden, (label, packages & forbidden)
         if "source" in features:
-            assert {"kagari-hir", "kagari-syntax"} <= packages, label
+            assert {"kagari-source", "kagari-hir", "kagari-syntax"} <= packages, label
         with (output / f"{label}-tests.log").open("w") as log:
             subprocess.run(
                 ["cargo", "test", "--locked", "--offline", *args, "--target-dir", str(ROOT / "target")],

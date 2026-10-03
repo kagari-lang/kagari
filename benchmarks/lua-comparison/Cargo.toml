@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+kagari-source.workspace = true
 kagari-common.workspace = true
 kagari-bytecode.workspace = true
 kagari-embed = { workspace = true, features = ["source", "native"] }

@@ -39,11 +39,9 @@ mod trait_surface;
 
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind, TypePosition},
-    identity::DefinitionPath,
-    span::Span,
+use {
+    kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, span::Span},
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind, TypePosition},
 };
 
 use smallvec::SmallVec;

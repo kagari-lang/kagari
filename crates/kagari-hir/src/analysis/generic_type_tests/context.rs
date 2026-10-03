@@ -1,5 +1,5 @@
 use super::*;
-use {crate::typeck::table::CallTarget, kagari_common::diagnostic::DiagnosticKind};
+use {crate::typeck::table::CallTarget, kagari_source::diagnostic::DiagnosticKind};
 
 #[test]
 fn body_constraints_use_later_arguments_and_local_uses() {

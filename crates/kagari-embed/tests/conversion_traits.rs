@@ -1,10 +1,10 @@
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
 
@@ -143,9 +143,9 @@ fn main()->i32{X{}.into()}
 
 #[test]
 fn imported_generic_conversions_and_iterators_link_to_their_defining_module() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let mut root = None;

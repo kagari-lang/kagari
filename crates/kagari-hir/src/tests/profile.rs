@@ -1,5 +1,5 @@
 use crate::{analyze_source, typeck::table::CallTarget};
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 
 #[test]
 fn generic_type_binding_does_not_acquire_same_named_trait_permissions() {

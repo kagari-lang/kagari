@@ -2,7 +2,6 @@ use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     native_input::PortableMir,
 };
-use kagari_common::source::SourceFile;
 use kagari_compiler::native_input::verify_native_input;
 use kagari_embed::{
     context::ExecutionContext,
@@ -14,6 +13,7 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 #[test]
 fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {

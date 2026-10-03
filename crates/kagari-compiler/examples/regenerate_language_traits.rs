@@ -1,12 +1,12 @@
 //! Regenerate the checked executable declaration product from handwritten core source.
 use bincode::serialize;
-use kagari_common::{source::SourceFile, source_database::SourceSnapshot};
 use kagari_compiler::source::lower::module_contract;
 use kagari_contract::{
     language::{self, role::LangRole},
     types::PublicItem,
 };
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
 use std::{env, fs, path::Path, sync::Arc};
 
 fn main() {

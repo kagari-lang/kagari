@@ -1,14 +1,16 @@
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_common::{
-    collection::CollectionAccess,
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        value_type::HostValueType as Type,
-    },
-    source::SourceFile,
-};
 use kagari_runtime::host::HostError;
 use kagari_vm::reentry::reenter;
+use {
+    kagari_common::{
+        collection::CollectionAccess,
+        host_interface::{
+            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+            value_type::HostValueType as Type,
+        },
+    },
+    kagari_source::source::SourceFile,
+};
 
 use kagari_embed::{
     context::ExecutionContext,

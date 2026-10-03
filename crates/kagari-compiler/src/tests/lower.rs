@@ -9,7 +9,7 @@ use {
     kagari_mir::ids::TempId,
 };
 use {
-    kagari_bytecode::instruction::BytecodeInstruction, kagari_common::diagnostic::DiagnosticKind,
+    kagari_bytecode::instruction::BytecodeInstruction, kagari_source::diagnostic::DiagnosticKind,
 };
 
 use {

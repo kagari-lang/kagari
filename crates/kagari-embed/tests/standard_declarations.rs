@@ -1,5 +1,5 @@
-use kagari_common::source::SourceFile;
 use kagari_embed::engine::KagariEngine;
+use kagari_source::source::SourceFile;
 
 #[test]
 fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports() {

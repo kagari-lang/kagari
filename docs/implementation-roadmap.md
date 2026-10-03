@@ -1,7 +1,7 @@
 # Kagari Implementation Roadmap
 
 This is the single queue and progress owner for pending work. AC01-AC05 are active
-under the continuous implementation goal. AC01-AC03 are complete; AC04 is in progress and AC05 remains pending. Other queued proposals are outside this goal.
+under the continuous implementation goal. AC01-AC04 are complete; AC05 is in progress. Other queued proposals are outside this goal.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -13,7 +13,9 @@ native calls, registered GC storage, shared generic interface methods, collectio
 and String APIs, scoped definition identities, installation-based access and
 cooperative cancellation are implemented. Physical ABI and semantic contracts are
 separate. Core trait source and checked language-role collection are implemented;
-native library ingestion and policy localization remain AC03 work.
+native library ingestion and declaration-driven policy selection are implemented.
+Source/tooling ownership and installation checks are integrated; final replacement
+acceptance is AC05 work.
 
 Immutable preparation, foundation registration reuse and shared interface metadata
 are implemented. Remaining measured costs and reproduction commands live in
@@ -110,7 +112,7 @@ track; that scope does not require a separate approval for each phase:
   Preserve signatures, bounds/defaults, mandatory availability, native storage
   checks and checked intrinsic facts. Representation exceptions follow AC01's
   consumer audit, not a blanket engine instruction redesign.
-- [ ] **AC04: Integrate loading, registration, tooling and common ownership.**
+- [x] **AC04: Integrate loading, registration, tooling and common ownership.**
   Keep executable products and native registrations independent of syntax/HIR;
   check reserved roles and declarations against installation. Native bindings
   consume exact checked declarations; navigation uses handwritten language source
@@ -291,6 +293,33 @@ ownership review and diff checks pass. No carried build/test failure remains.
 Executable fixture regeneration and the full feature/backend matrix belong to
 AC05; unmodified checked products are not repeatedly rebuilt. Logs are under
 `target/ac-cleanup/ac03-*.log`.
+
+AC04 migrates source documents, diagnostics, literal grammar, line indices and
+FileId/Revision/FileSpan into `kagari-source`, with direct frontend imports,
+optional compiler/SDK source dependencies and dev-only backend/VM consumers.
+Portable identities/debug spans, numeric semantics, cancellation, decoding and
+host/access/range schemas remain common mechanisms with executable consumers.
+RuntimePrimitive's eight entries are checked execution helpers, not declarations.
+Core documentation now belongs to handwritten source. Native views copy core
+fragments exactly; retained source provenance makes navigation point into the
+handwritten file while declaration-site analysis still uses generated offsets.
+Snapshots retain both sources, and docs queries validate the translated location.
+Reserved public/private roles and installed native capabilities are checked at
+load and reload even without native imports; foundation products require all 24
+public core declarations.
+
+AC04 acceptance passes: workspace all-target compilation; 412 HIR and seven
+source-tool unit tests; four installation tests including reserved forgery,
+missing/duplicate/private roles and reload without native calls; 13 source-snapshot,
+17 provider-reset, eight generic-reload, three Cranelift-preparation and one
+native-preparation embedding tests. Strict Clippy passes for source/HIR/runtime/SDK
+all targets. The checked core source/product comparison, nine production dependency
+boundaries and ABI/contract build graphs pass. Structure (733 files, zero exceptions),
+formatting, ownership/import review and diff checks pass. The missing benchmark
+consumer, test-only Span import, old generated core navigation expectations and
+private-test owning-module mistake are resolved; no carried error remains.
+Command logs are under `target/ac-cleanup/ac04-*.log`. AC05 owns the complete
+workspace/behavior/feature/backend checks and coherent executable fixture updates.
 
 Acceptance includes both sides of the boundary: source-defined operator traits,
 native-generated library traits and application traits use the same record/selection

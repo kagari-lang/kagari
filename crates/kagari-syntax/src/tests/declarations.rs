@@ -6,7 +6,7 @@ use crate::{
     parser::{ParseLimits, parse, parse_declarations},
 };
 
-use kagari_common::{cancellation::CancellationToken, source::SourceFile};
+use {kagari_common::cancellation::CancellationToken, kagari_source::source::SourceFile};
 
 #[test]
 fn declaration_mode_preserves_signatures_docs_and_source() {

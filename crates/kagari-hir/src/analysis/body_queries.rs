@@ -26,18 +26,18 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::Diagnostic,
-    identity::{
-        mapping::DefinitionMappingError,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable, DefinitionTableError},
-    },
-    source::SourceFile,
-    source_database::SourceSnapshot,
-};
 use std::sync::Arc;
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{
+            mapping::DefinitionMappingError,
+            reference::DefinitionReference,
+            table::{DefinitionId, DefinitionTable, DefinitionTableError},
+        },
+    },
+    kagari_source::{diagnostic::Diagnostic, source::SourceFile, source_database::SourceSnapshot},
+};
 
 #[cfg(test)]
 mod tests;

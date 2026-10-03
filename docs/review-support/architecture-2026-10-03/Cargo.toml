@@ -11,6 +11,7 @@ name = "kagari-interface-review-probe"
 path = "src/main.rs"
 
 [dependencies]
+kagari-source = { path = "../../../crates/kagari-source" }
 kagari-bytecode = { path = "../../../crates/kagari-bytecode" }
 kagari-common = { path = "../../../crates/kagari-common" }
 kagari-embed = { path = "../../../crates/kagari-embed" }

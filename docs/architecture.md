@@ -23,7 +23,8 @@ explicitly marked and do not describe implemented behavior.
 
 | Crate | Current responsibility |
 | --- | --- |
-| kagari-common | Source utilities, identities, diagnostics and shared primitives |
+| kagari-common | Portable definition identities, debug spans, numeric semantics, cancellation and host schema mechanisms |
+| kagari-source | Source documents/revisions, diagnostics, literal grammar, line indices and navigation provenance |
 | kagari-syntax | Lexer, parser, CST and AST views |
 | kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
 | kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
@@ -38,7 +39,7 @@ explicitly marked and do not describe implemented behavior.
 | kagari-embed | Host SDK, preparation and execution orchestration |
 | kagari-cli | Arguments, filesystem IO and presentation |
 
-Runtime, bytecode and VM have no production dependency on MIR, syntax/HIR or
+Runtime, bytecode and VM have no production dependency on MIR, source/syntax/HIR or
 codegen. MIR depends on contract/ABI/common. Contract depends on ABI/common; ABI
 depends only on Serde and has no semantic model, foundation catalog or renderer.
 Compiler core works without `source`.
@@ -303,7 +304,7 @@ phase-by-phase approval, with one validated commit per phase under the roadmap's
 | Syntax-required trait declarations and role selection | Language foundation source and compiler semantics, using ordinary parser/HIR |
 | Collection/standard-library traits, types, methods and Rust bodies | Explicit native library ownership; Rust declarations generate `.kgr` for compiler/LSP analysis |
 | Substitution and implementation proofs | Focused contract verification, including linked and bounded checks |
-| Source rendering, navigation and diagnostics | Source/tooling ownership; no executable dependency on generated text |
+| Source rendering, navigation and diagnostics | Source owns documents and provenance; HIR tooling owns rendering and queries; no executable dependency on generated text |
 
 ### Naming policy for the split
 
@@ -549,6 +550,33 @@ Audit common by responsibility: source/diagnostic/literal tooling; portable iden
 versus source revisions/spans; shared numeric semantics; portable host schemas;
 cancellation and decode mechanisms. Preserve one checked numeric implementation and
 source-free executable consumers. A shared consumer count is not an ownership rule.
+
+AC04 implements the common audit with `kagari-source` owning source documents,
+FileId/Revision/FileSpan, diagnostics, line indices and literal grammar. Frontend
+consumers import that owner directly; compiler/SDK dependencies are gated by
+`source`, and backend/VM test dependencies do not enter their production graphs.
+Common retains portable definition identities and debug Span coordinates,
+checked numeric arithmetic, cancellation and bounded decoding. Its host schema,
+CollectionAccess and RangeKind are portable facts consumed by contract validation,
+runtime host registration/GC/borrow checks and VM/backend operations; they do not
+own source declarations or independently select library traits.
+
+Core documentation is authored in `library/core/language.kgr`. Native views copy
+those declarations verbatim for ordinary analysis. Source provenance accepts only
+exact disjoint copied ranges and retains their original text and revision; HIR
+site lookup uses view offsets while navigation and documentation expose authored
+locations through the owning snapshot. Other native declarations retain generated
+view locations and Rust-owned documentation. Loading and reload compare every
+reserved core trait and installed storage/conversion capability against the exact
+runtime registration, including private records and products with no native calls.
+A foundation module must expose all 24 required core declarations.
+
+The eight RuntimePrimitive entries remain checked execution helpers: value
+comparison/equality/hash/formatting, StringPartsJoin and Assert. Their signatures,
+effects and operand facts belong to contract/MIR verification; Rust bodies belong
+to runtime and physical helper calls to ABI/backend. No primitive owns or defines
+a source trait. Existing storage layouts, roots, scoped host borrows, cancellation
+and generation-pinned execution retain their current owners.
 
 ### Scope and completion boundary
 

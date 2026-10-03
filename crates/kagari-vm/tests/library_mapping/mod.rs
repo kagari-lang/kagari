@@ -1,5 +1,4 @@
 use super::{Probe, program, run};
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_contract::{
     declaration::ModuleDecl,
     language::{self, Protocol},
@@ -11,6 +10,7 @@ use kagari_runtime::{
     library::collections,
     value::{EnumTag, Value},
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
 

@@ -1,6 +1,6 @@
 use std::fmt::{self, Display, Formatter};
 
-use crate::span::Span;
+use kagari_common::span::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {

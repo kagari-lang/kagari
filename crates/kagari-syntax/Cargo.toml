@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kagari-source.workspace = true
 kagari-common.workspace = true
 rowan = "0.16.1"
 smallvec.workspace = true

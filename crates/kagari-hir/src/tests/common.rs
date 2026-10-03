@@ -8,7 +8,7 @@ use crate::{
         reuse::BodyReuse,
     },
 };
-use kagari_common::{identity::map::DefinitionContext, source::SourceFile};
+use {kagari_common::identity::map::DefinitionContext, kagari_source::source::SourceFile};
 
 use kagari_syntax::parser::parse_module;
 

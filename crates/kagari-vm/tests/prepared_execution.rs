@@ -1,7 +1,6 @@
 use std::{ffi::c_void, rc::Rc};
 
 use kagari_bytecode::program::BytecodeProgram;
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
@@ -11,6 +10,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig, error::RuntimeErrorKind, jit_abi::jit_poll_execution,
     module::LoadedModule, resource::RuntimeLimits, value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_vm::{
     error::VmError,
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},

@@ -1,5 +1,4 @@
 use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions};
-use kagari_common::{diagnostic::DiagnosticKind, identity::ModuleIdentity};
 use kagari_contract::{
     callable::CallableImplementation,
     types::{ConcreteFunctionIdentity, GenericParam},
@@ -15,6 +14,7 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     iter,
 };
+use {kagari_common::identity::ModuleIdentity, kagari_source::diagnostic::DiagnosticKind};
 
 #[derive(Debug)]
 pub enum SourceProgramError {

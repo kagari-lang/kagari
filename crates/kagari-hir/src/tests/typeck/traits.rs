@@ -1,5 +1,5 @@
 use super::*;
-use kagari_common::diagnostic::DiagnosticKind;
+use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
 fn trait_method_where_bounds_keep_self_and_associated_output_owners() {

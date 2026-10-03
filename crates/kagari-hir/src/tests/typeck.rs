@@ -1,9 +1,11 @@
-use kagari_common::{
-    collection::CollectionAccess,
-    diagnostic::{DiagnosticKind, TypePosition},
-    source::SourceFile,
-};
 use kagari_syntax::parser::parse_module;
+use {
+    kagari_common::collection::CollectionAccess,
+    kagari_source::{
+        diagnostic::{DiagnosticKind, TypePosition},
+        source::SourceFile,
+    },
+};
 
 use crate::{
     builtin::surface,

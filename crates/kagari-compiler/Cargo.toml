@@ -6,9 +6,10 @@ license.workspace = true
 
 [features]
 default = ["source"]
-source = ["dep:kagari-hir", "dep:kagari-syntax"]
+source = ["dep:kagari-source", "dep:kagari-hir", "dep:kagari-syntax"]
 
 [dependencies]
+kagari-source = { workspace = true, optional = true }
 kagari-abi.workspace = true
 kagari-contract.workspace = true
 kagari-common.workspace = true

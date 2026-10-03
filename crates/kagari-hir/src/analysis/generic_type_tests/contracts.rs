@@ -1,7 +1,7 @@
 //! Ordinary application declarations used to exercise inference and recovery.
 //! These bodies are test inputs, not a second implementation of library algorithms.
 use crate::{AnalysisResult, AnalyzedModule, analyze_source};
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 
 const CONTRACTS: &str = r#"
 fn take_bool(value: bool, message: String) {}

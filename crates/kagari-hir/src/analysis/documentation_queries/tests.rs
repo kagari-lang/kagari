@@ -1,8 +1,8 @@
 use crate::native::render::declaration_source;
 use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_contract::language::{self as standard_traits, Protocol};
 use kagari_contract::library::catalog;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::collections::HashSet;
 
 #[test]
@@ -39,15 +39,29 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
         let declaration = snapshot
             .declaration(&DeclarationId::Definition(id.clone()))
             .unwrap_or_else(|| panic!("missing generated declaration: {id:?}"));
-        assert_eq!(declaration.location.range, range);
+        assert_eq!(file.source().local_range(declaration.location), Some(range));
         assert_eq!(&generated.text[range.start..range.end], declaration.name);
         assert!(identities.insert(declaration.id.clone()));
         let metadata = snapshot.documentation(&declaration.id).unwrap();
         assert_eq!(metadata.declaration, *declaration);
-        assert_eq!(
-            metadata.documentation,
-            installed.documentation.get(id).cloned().unwrap_or_default()
-        );
+        if declaration.location.file == file.source().id() {
+            assert_eq!(
+                metadata.documentation,
+                installed.documentation.get(id).cloned().unwrap_or_default()
+            );
+        } else {
+            let authored = snapshot.source(declaration.location.file).unwrap();
+            assert!(authored.name().ends_with("library/core/language.kgr"));
+            assert_eq!(authored.text(), crate::language::source::CORE_SOURCE);
+            assert_eq!(
+                authored.span(declaration.location.range),
+                Some(declaration.location)
+            );
+            assert_eq!(
+                &authored.text()[declaration.location.range.start..declaration.location.range.end],
+                declaration.name
+            );
+        }
         assert!(metadata.written_signature.contains(&declaration.name));
         assert!(independent.documentation(&declaration.id).is_none());
         let other = independent
@@ -55,7 +69,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             .unwrap();
         assert_ne!(other.declaration.id, declaration.id);
         assert_eq!(other.declaration.name, declaration.name);
-        assert_eq!(other.declaration.location.range, range);
+        assert_eq!(other.declaration.location.range, declaration.location.range);
         assert_eq!(other.documentation, metadata.documentation);
         assert_eq!(other.written_signature, metadata.written_signature);
         assert_eq!(file.source().span(range), Some(declaration.location));
@@ -223,7 +237,6 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
         .files()
         .find(|file| file.source().name() == uri)
         .unwrap();
-    let source = file.source();
     for name in ["ArrayList", "Option", "Iterator"] {
         let declaration = file
             .declarations()
@@ -240,7 +253,10 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
         );
         assert!(docs.written_signature.contains(name));
         assert_eq!(
-            source.span(declaration.location.range),
+            snapshot
+                .source(declaration.location.file)
+                .unwrap()
+                .span(declaration.location.range),
             Some(docs.declaration.location)
         );
     }

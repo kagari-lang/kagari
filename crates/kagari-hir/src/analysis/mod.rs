@@ -24,23 +24,6 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    host_interface::{
-        HostFunctionDeclaration,
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-    },
-    identity::{
-        FileId, Revision,
-        map::{DefinitionContext, DefinitionMap},
-        mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
-    },
-    source::SourceFile,
-    source_database::SourceSnapshot,
-};
 use kagari_contract::declaration::ModuleDecl;
 use kagari_syntax::{
     ast::item::SourceFile as AstSourceFile,
@@ -50,6 +33,27 @@ use std::{
     cell::{OnceCell, RefCell},
     collections::{BTreeMap, HashMap},
     sync::Arc,
+};
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        host_interface::{
+            HostFunctionDeclaration,
+            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        },
+        identity::{
+            map::{DefinitionContext, DefinitionMap},
+            mapping::DefinitionMappingError,
+            metadata::DefinitionMetadata,
+            reference::DefinitionReference,
+            table::{DefinitionId, DefinitionTable},
+        },
+    },
+    kagari_source::{
+        identity::{FileId, Revision},
+        source::SourceFile,
+        source_database::SourceSnapshot,
+    },
 };
 
 const DEFAULT_MAX_SEMANTIC_DIAGNOSTICS: usize = 1_000;
@@ -1129,7 +1133,7 @@ impl AnalysisSnapshot {
 
     /// Read a source owned by this analysis, including its installed standard package.
     pub fn source(&self, file: FileId) -> Option<&SourceFile> {
-        self.files.get(&file).map(|analysis| analysis.source())
+        self.declaration_snapshot().source(file)
     }
 }
 

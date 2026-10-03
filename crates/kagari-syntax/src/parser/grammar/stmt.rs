@@ -3,7 +3,7 @@ use crate::{
     parser::core::{Checkpoint, Parser},
     token::TokenKind,
 };
-use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_block(&mut self) {

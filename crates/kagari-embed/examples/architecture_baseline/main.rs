@@ -8,13 +8,13 @@ use std::{hint::black_box, time::Instant};
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::source::SourceFile;
 use kagari_compiler::{native_links::build_native_links, source::lower::lower_to_mir};
 use kagari_contract::native::NativeCompilationProduct;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_hir::analyze_source;
 use kagari_mir::{ids::InstanceId, verify::verify_mir};
 use kagari_runtime::{jit_abi::native_helper_symbols, value::Value};
+use kagari_source::source::SourceFile;
 use kagari_vm::vm::JitExecutionStatus;
 
 use memory::{CountingAllocator, live_bytes};

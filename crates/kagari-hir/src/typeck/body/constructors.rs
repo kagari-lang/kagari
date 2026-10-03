@@ -16,11 +16,11 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{
-    diagnostic::{Diagnostic, DiagnosticKind},
-    identity::DefinitionPath,
-};
 use std::collections::HashSet;
+use {
+    kagari_common::identity::DefinitionPath,
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn enum_member(&self, expr: ExprId) -> Option<(DefinitionPath, String)> {

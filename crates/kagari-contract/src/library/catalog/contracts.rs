@@ -103,12 +103,6 @@ pub(super) fn applied_item(kind: RegistrationTrait, item: Ty) -> NominalTy {
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     module.traits.extend(product::declarations());
-    module.documentation.insert(key::identity(RegistrationTrait::Iterator),
-        "A shared cursor. Each next call advances it and returns Some(item), or None when exhausted.".into());
-    module.documentation.insert(
-        key::identity(RegistrationTrait::Iterable),
-        "Produces an iterator whose Item matches this collection or sequence.".into(),
-    );
     let mut bounds = contract(RegistrationTrait::RangeBounds, &["T"]);
     let bound = enum_type(
         StandardEnum::Bound,

@@ -1,6 +1,6 @@
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn compile(text: &str) {
     let mut sources = SourceDatabase::default();

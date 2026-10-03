@@ -1,10 +1,10 @@
 use crate::{source::lower::lower_to_mir, tests::common};
-use kagari_common::{line_index::PositionEncoding, span::Span};
 use kagari_mir::{
     debug::SourcePosition,
     verify::{MirVerificationErrorKind, verify_mir},
 };
 use std::sync::Arc;
+use {kagari_common::span::Span, kagari_source::line_index::PositionEncoding};
 
 #[test]
 fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {

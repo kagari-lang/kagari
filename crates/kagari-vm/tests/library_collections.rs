@@ -3,7 +3,6 @@ use std::sync::Arc;
 mod library_mapping;
 mod list_failures;
 use kagari_bytecode::program::BytecodeProgram;
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, declarations::DeclarationId};
 use kagari_runtime::{
@@ -17,6 +16,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_vm::vm::Vm;
 use std::{
     cell::{Cell, RefCell},

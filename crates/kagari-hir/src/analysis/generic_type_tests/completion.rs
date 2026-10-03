@@ -1,7 +1,7 @@
 use super::contracts::analyze_contracts;
 use super::*;
 use crate::hir::expr::ExprKind;
-use {crate::typeck::table::CallTarget, kagari_common::diagnostic::DiagnosticKind};
+use {crate::typeck::table::CallTarget, kagari_source::diagnostic::DiagnosticKind};
 
 #[test]
 fn terminating_array_members_do_not_contribute_or_enable_later_type_joins() {

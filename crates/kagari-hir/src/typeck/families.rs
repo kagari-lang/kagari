@@ -12,9 +12,9 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
 pub(super) fn validate(

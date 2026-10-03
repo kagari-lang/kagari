@@ -1,16 +1,18 @@
 //! Declaration and binding identities owned by one semantic analysis.
 use kagari_contract::language::role::LangRole;
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, FileSpan,
-        map::DefinitionContext,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{
+            DefinitionKind, DefinitionPath, DefinitionPathSegment,
+            map::DefinitionContext,
+            reference::DefinitionReference,
+            table::{DefinitionId, DefinitionTable},
+        },
+        span::Span,
     },
-    source::SourceFile,
-    span::Span,
+    kagari_source::{identity::FileSpan, source::SourceFile},
 };
 
 use crate::{
@@ -32,7 +34,7 @@ use crate::{
     types::GenericParameterType,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -78,7 +80,7 @@ pub struct Declarations<I: DefinitionReference = DefinitionPath> {
     context: DefinitionContext,
     targets: HashMap<DeclarationKey, Declaration<I>>,
     identities: HashMap<DeclarationId<I>, DeclarationKey>,
-    sites: HashSet<DeclarationKey>,
+    site_ranges: HashMap<DeclarationKey, Span>,
     impl_identities: HashMap<ImplId, I>,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind<I>>,
     native_enums: HashMap<EnumId, NativeTypeKind<I>>,
@@ -126,7 +128,7 @@ impl Declarations {
                 context: context.clone(),
                 targets: HashMap::new(),
                 identities: HashMap::new(),
-                sites: HashSet::new(),
+                site_ranges: HashMap::new(),
                 impl_identities: HashMap::new(),
                 native_types: lowered.native_types.clone(),
                 native_enums: lowered.native_enums.clone(),
@@ -528,7 +530,7 @@ impl Builder<'_> {
     ) {
         let key = key.into();
         if site {
-            self.result.sites.insert(key);
+            self.result.site_ranges.insert(key, range);
         }
         self.result.identities.insert(id.clone(), key);
         self.result.targets.insert(
@@ -536,11 +538,11 @@ impl Builder<'_> {
             Declaration {
                 id,
                 name: name.into(),
-                location: FileSpan {
+                location: self.source.span(range).unwrap_or(FileSpan {
                     file: self.source.origin_id(),
                     revision: self.source.revision(),
                     range,
-                },
+                }),
             },
         );
     }
@@ -593,32 +595,27 @@ impl<I: DefinitionReference> Declarations<I> {
         self.targets
             .iter()
             .filter(|(key, _)| {
-                self.sites.contains(key)
-                    && matches!(
-                        key,
-                        DeclarationKey::Field(_)
-                            | DeclarationKey::Variant(_)
-                            | DeclarationKey::AssociatedType(_)
-                    )
+                matches!(
+                    key,
+                    DeclarationKey::Field(_)
+                        | DeclarationKey::Variant(_)
+                        | DeclarationKey::AssociatedType(_)
+                )
             })
-            .map(|(_, d)| d)
-            .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
+            .find_map(|(key, declaration)| {
+                let range = self.site_ranges.get(key)?;
+                (range.start <= offset && offset < range.end).then_some(declaration)
+            })
     }
 
-    /// Declaration-site lookup uses only identifier-sized ranges. Incomplete
-    /// names cannot claim surrounding code.
+    /// Declaration-site lookup uses analysis coordinates, independently of the
+    /// authoritative navigation location of a copied source fragment.
     pub fn site_at(&self, offset: usize) -> Option<&Declaration<I>> {
-        self.targets
+        self.site_ranges
             .iter()
-            .filter(|(key, _)| self.sites.contains(key))
-            .map(|(_, declaration)| declaration)
-            .filter(|declaration| {
-                let range = declaration.location.range;
-                range.start <= offset && offset < range.end
-            })
-            .min_by_key(|declaration| {
-                declaration.location.range.end - declaration.location.range.start
-            })
+            .filter(|(_, range)| range.start <= offset && offset < range.end)
+            .min_by_key(|(_, range)| range.end - range.start)
+            .and_then(|(key, _)| self.targets.get(key))
     }
 
     pub fn imported_types(&self) -> &ImportedTypes<I> {

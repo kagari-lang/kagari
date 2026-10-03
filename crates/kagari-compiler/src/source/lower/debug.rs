@@ -1,12 +1,13 @@
 use crate::source::lower::MirLoweringError;
-use kagari_common::{
-    cancellation::CancellationToken, line_index::PositionEncoding, source::SourceFile,
-};
 use kagari_mir::{
     debug::{SourceOrigin, SourcePosition},
     function::MirFunction,
 };
 use std::collections::BTreeSet;
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::{line_index::PositionEncoding, source::SourceFile},
+};
 
 pub(super) fn capture_origin(
     function: &MirFunction,

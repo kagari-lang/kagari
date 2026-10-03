@@ -7,14 +7,14 @@ use crate::{
 };
 
 #[cfg(feature = "source")]
-use kagari_common::source_database::SourceDatabase;
-#[cfg(feature = "source")]
 use kagari_hir::analysis::AnalysisDatabase;
 #[cfg(feature = "source")]
 use kagari_hir::native::render::{DeclarationSource, declaration_source};
 #[cfg(feature = "source")]
 use kagari_runtime::library::collections;
 use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::module::NativeModule};
+#[cfg(feature = "source")]
+use kagari_source::source_database::SourceDatabase;
 #[cfg(feature = "source")]
 use std::{cell::RefCell, sync::Arc};
 

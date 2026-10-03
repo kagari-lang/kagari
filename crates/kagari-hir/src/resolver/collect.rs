@@ -10,12 +10,12 @@ use crate::{
         table::NameTable,
     },
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::{Diagnostic, DiagnosticKind},
-};
 use smallvec::SmallVec;
 use std::{collections::HashSet, sync::Arc};
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
     let hosts = HostDeclarations::empty();

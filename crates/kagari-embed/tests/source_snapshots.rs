@@ -1,10 +1,10 @@
-use kagari_common::{
-    cancellation::CancellationToken, diagnostic::DiagnosticKind, source::SourceFile,
-    source_database::SourceLayer,
-};
 use kagari_hir::typeck::const_budget::ConstLimits;
 use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::{diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceLayer},
+};
 
 use kagari_embed::{
     engine::{KagariEngine, source::ArtifactOptions},
@@ -654,7 +654,7 @@ fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
 
 #[test]
 fn invalid_const_types_cannot_bypass_validation_budget() {
-    use kagari_common::diagnostic::DiagnosticKind;
+    use kagari_source::diagnostic::DiagnosticKind;
     for max_steps in [0, 1, 3] {
         let engine = KagariEngine::default();
         engine.set_const_limits(ConstLimits {

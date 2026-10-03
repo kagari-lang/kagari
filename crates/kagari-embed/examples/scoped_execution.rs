@@ -1,6 +1,5 @@
 //! Independent execution sessions and cooperative cancellation.
 
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -9,6 +8,7 @@ use kagari_embed::{
     runtime::LoadOptions,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn main() {
     let engine = KagariEngine::default();

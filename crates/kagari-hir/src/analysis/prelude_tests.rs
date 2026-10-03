@@ -4,7 +4,7 @@ use crate::{
     builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
     resolver::resolved::ResolvedName, typeck::table::CallTarget,
 };
-use kagari_common::{
+use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };

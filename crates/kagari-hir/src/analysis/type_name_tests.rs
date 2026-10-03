@@ -4,8 +4,8 @@ use crate::{
     resolver::{resolved::ResolvedName, table::NameResolution},
 };
 
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_contract::scalar::BuiltinType;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
 fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {

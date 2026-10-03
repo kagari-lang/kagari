@@ -1,5 +1,4 @@
 mod support;
-use kagari_common::{host_interface::standard_log, source::SourceFile};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -8,6 +7,7 @@ use kagari_embed::{
 };
 use kagari_runtime::{host::HostFunction, value::Value};
 use std::sync::{Arc, Mutex};
+use {kagari_common::host_interface::standard_log, kagari_source::source::SourceFile};
 
 fn execute(source: &str, entry: &str, expected: i32) {
     let engine = KagariEngine::default();

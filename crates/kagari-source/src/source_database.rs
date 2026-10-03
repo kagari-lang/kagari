@@ -1,7 +1,8 @@
 use crate::{
-    identity::{FileId, FileSpan, ModuleIdentity, Revision},
+    identity::{FileId, FileSpan, Revision},
     source::SourceFile,
 };
+use kagari_common::identity::ModuleIdentity;
 use std::{collections::BTreeMap, env, fs, sync::Arc};
 
 #[derive(Debug, Clone, Copy)]
@@ -325,10 +326,8 @@ fn is_absolute_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        line_index::{Position, PositionEncoding},
-        span::Span,
-    };
+    use crate::line_index::{Position, PositionEncoding};
+    use kagari_common::span::Span;
 
     #[test]
     fn single_file_snapshot_preserves_identity_revision_and_span_validation() {
@@ -354,7 +353,7 @@ mod tests {
 
     #[test]
     fn logical_module_bindings_survive_overlays_and_invalidate_old_revisions() {
-        use crate::identity::{ModuleIdentity, PackageId};
+        use kagari_common::identity::{ModuleIdentity, PackageId};
         let mut db = SourceDatabase::new("C:/project").unwrap();
         let identity = ModuleIdentity {
             package: PackageId("game".into()),

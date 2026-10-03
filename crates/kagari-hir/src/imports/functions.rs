@@ -10,11 +10,14 @@ use crate::{
     typeck::TypedFunction,
 };
 
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionPath, FileId, Revision, reference::DefinitionReference},
-};
 use std::collections::HashMap;
+use {
+    kagari_common::{
+        cancellation::{CancellationToken, Cancelled},
+        identity::{DefinitionPath, reference::DefinitionReference},
+    },
+    kagari_source::identity::{FileId, Revision},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceFunctionId {

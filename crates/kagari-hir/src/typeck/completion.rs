@@ -446,7 +446,7 @@ impl<'a> Completion<'a> {
 mod tests {
     use {
         crate::{hir::ids::StmtId, resolver::collect::resolve_names},
-        kagari_common::source::SourceFile,
+        kagari_source::source::SourceFile,
     };
 
     use super::*;

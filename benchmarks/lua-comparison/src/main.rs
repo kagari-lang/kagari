@@ -5,12 +5,12 @@ mod workloads;
 use std::{env, hint::black_box, time::Instant};
 
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
     runtime::KagariRuntime,
 };
 use kagari_runtime::{module::LoadedModule, value::Value};
+use kagari_source::source::SourceFile;
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use mlua::{Function, Lua};
 use workloads::{WORKLOADS, Workload};

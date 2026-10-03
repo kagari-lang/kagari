@@ -6,6 +6,7 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     declaration::ImplDecl,
+    language::{self, Protocol},
     types::{InterfaceTable, PublicItem, Ty},
 };
 
@@ -20,9 +21,6 @@ pub(super) fn validate_installed_traits(
         let PublicItem::Trait(contract) = item else {
             continue;
         };
-        if contract.storage_access.is_none() && contract.conversion_adapter.is_none() {
-            continue;
-        }
         let id = DefinitionPath {
             module: module.identity.clone(),
             path: vec![DefinitionPathSegment {
@@ -31,19 +29,47 @@ pub(super) fn validate_installed_traits(
                 occurrence: 0,
             }],
         };
-        if installed.traits.get(&id) != Some(contract) {
+        if (Protocol::from_id(&id).is_some()
+            || contract.storage_access.is_some()
+            || contract.conversion_adapter.is_some())
+            && installed.traits.get(&id) != Some(contract)
+        {
             return Err(RuntimeError::module_validation(
-                "storage interface differs from its installed contract",
+                "reserved or native trait differs from its installed contract",
             ));
         }
     }
     for contract in &module.trait_contracts {
-        if (contract.abi.storage_access.is_some() || contract.abi.conversion_adapter.is_some())
+        let path = installed
+            .definitions()
+            .resolve(contract.declaration)
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?
+            .to_path();
+        if (Protocol::from_id(&path).is_some()
+            || contract.abi.storage_access.is_some()
+            || contract.abi.conversion_adapter.is_some())
             && installed.traits.get_id(contract.declaration) != Some(&contract.abi)
         {
             return Err(RuntimeError::module_validation(
-                "private storage interface lacks an installed contract",
+                "private reserved or native trait lacks an installed contract",
             ));
+        }
+    }
+    if module.identity == language::module_identity() {
+        for protocol in Protocol::ALL {
+            let id = language::identity(protocol);
+            let expected = installed.traits.get(&id).ok_or_else(|| {
+                RuntimeError::module_validation("language foundation is not installed")
+            })?;
+            if !module
+                .public_items
+                .iter()
+                .any(|item| matches!(item, PublicItem::Trait(actual) if actual == expected))
+            {
+                return Err(RuntimeError::module_validation(
+                    "language foundation is missing a required role",
+                ));
+            }
         }
     }
     Ok(())

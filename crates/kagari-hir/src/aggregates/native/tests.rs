@@ -17,12 +17,14 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::FileId,
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_contract::{language::Protocol, scalar::BuiltinType, standard::surface::StandardEnum};
+use {
+    kagari_common::collection::CollectionAccess,
+    kagari_source::{
+        identity::FileId,
+        source_database::{SourceDatabase, SourceLayer},
+    },
+};
 
 fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
     let mut sources = SourceDatabase::default();

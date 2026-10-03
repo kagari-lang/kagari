@@ -3,10 +3,6 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register},
     program::{BytecodeProgram, verify_program},
 };
-use kagari_common::{
-    identity::{ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_compiler::bytecode::lower_program_to_bytecode;
 use kagari_contract::{
     callable::{CallableImplementation, witness::OperationWitness},
@@ -15,6 +11,10 @@ use kagari_contract::{
 };
 use kagari_runtime::{Runtime, value::Value};
 use kagari_vm::vm::Vm;
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
+};
 
 fn fixture(dependency_source: &str) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();

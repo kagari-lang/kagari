@@ -1,9 +1,3 @@
-use kagari_common::{
-    cancellation::CancellationToken,
-    collection::CollectionAccess,
-    identity::{DefinitionPath, associated_type_id},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_contract::library;
 use kagari_contract::library::catalog as language;
 use kagari_contract::{
@@ -13,6 +7,14 @@ use kagari_contract::{
 };
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_hir::native::render::declaration_source;
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        collection::CollectionAccess,
+        identity::{DefinitionPath, associated_type_id},
+    },
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
+};
 
 #[test]
 fn portable_language_catalog_has_complete_contracts() {

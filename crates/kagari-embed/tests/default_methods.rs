@@ -2,7 +2,6 @@ use kagari_contract::callable::CallableImplementation;
 use kagari_contract::library;
 use {kagari_bytecode::program::ModuleRef, kagari_embed::context::JitPolicy};
 
-use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -10,6 +9,7 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -249,9 +249,9 @@ fn main() -> i32 {
 
 #[test]
 fn imported_defaults_preserve_private_helpers_and_definition_context() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let mut root = None;
@@ -672,9 +672,9 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
 
 #[test]
 fn shared_helpers_are_materialized_in_their_declaring_module() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let mut root = None;

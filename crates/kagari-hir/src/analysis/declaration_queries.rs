@@ -11,14 +11,6 @@ use crate::{
 };
 use kagari_contract::library;
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::Diagnostic,
-    identity::{FileId, Revision, reference::DefinitionReference, table::DefinitionId},
-    source::SourceFile,
-    source_database::SourceSnapshot,
-    span::Span,
-};
 use kagari_syntax::{
     ast::{
         item::{Item, SourceFile as AstSourceFile},
@@ -29,6 +21,19 @@ use kagari_syntax::{
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     sync::Arc,
+};
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{reference::DefinitionReference, table::DefinitionId},
+        span::Span,
+    },
+    kagari_source::{
+        diagnostic::Diagnostic,
+        identity::{FileId, Revision},
+        source::SourceFile,
+        source_database::SourceSnapshot,
+    },
 };
 
 #[cfg(test)]
@@ -94,6 +99,18 @@ impl DeclarationSnapshot {
     /// Source identities and declarations remain owned by this snapshot.
     pub fn files(&self) -> impl Iterator<Item = &FileDeclarations> {
         self.files.values().map(AsRef::as_ref)
+    }
+
+    /// Source text retained by this snapshot, including authored origins of views.
+    pub fn source(&self, id: FileId) -> Option<&SourceFile> {
+        self.files.values().find_map(|file| {
+            let source = file.source();
+            if source.id() == id {
+                Some(source)
+            } else {
+                source.copied_sources().find(|original| original.id() == id)
+            }
+        })
     }
 
     pub fn module_graph(&self) -> &ModuleGraph {

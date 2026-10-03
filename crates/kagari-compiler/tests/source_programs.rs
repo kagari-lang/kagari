@@ -10,12 +10,6 @@ use kagari_mir::{
     verify::{MirVerificationError, MirVerificationErrorKind},
 };
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    diagnostic::DiagnosticKind,
-    identity::{FileId, ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_compiler::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
     source::{
@@ -26,6 +20,17 @@ use kagari_compiler::{
 use kagari_hir::{
     analysis::AnalysisDatabase,
     program::{CheckedProgram, ProgramCheckError},
+};
+use {
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{ModuleIdentity, PackageId},
+    },
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        identity::FileId,
+        source_database::{SourceDatabase, SourceLayer},
+    },
 };
 
 fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
@@ -603,7 +608,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
 
 #[test]
 fn portable_default_method_origins_remain_with_the_definition_module() {
-    use kagari_common::{line_index::PositionEncoding, source::SourceFile};
+    use kagari_source::{line_index::PositionEncoding, source::SourceFile};
     let mut db = SourceDatabase::default();
     let model = "pub trait Read { fn read(self) -> i32;\n fn again(self) -> i32 { self.read() }\n}";
     insert(&mut db, "model", model);
@@ -679,7 +684,7 @@ fn portable_default_method_origins_remain_with_the_definition_module() {
 
 #[test]
 fn portable_inline_module_origins_keep_physical_offsets() {
-    use kagari_common::{line_index::PositionEncoding, source::SourceFile};
+    use kagari_source::{line_index::PositionEncoding, source::SourceFile};
     let text = "// 中文😀\r\nmod child {\r\n pub fn value() -> i32 { 42 }\r\n}\r\nuse self::child::value; fn main() -> i32 { value() }";
     let mut db = SourceDatabase::default();
     let root = insert(&mut db, "root", text);

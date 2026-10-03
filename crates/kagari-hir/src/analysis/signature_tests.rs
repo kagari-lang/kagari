@@ -1,6 +1,6 @@
 use super::*;
 use crate::analysis::ownership;
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())

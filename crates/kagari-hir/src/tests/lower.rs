@@ -10,7 +10,7 @@ use crate::{
     },
     tests::common,
 };
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 use kagari_syntax::parser;
 use std::sync::Arc;
 

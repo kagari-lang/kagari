@@ -6,6 +6,7 @@ members = [
     "crates/kagari-contract",
     "crates/kagari-cli",
     "crates/kagari-common",
+    "crates/kagari-source",
     "crates/kagari-embed",
     "crates/kagari-hir",
     "crates/kagari-mir",
@@ -28,6 +29,7 @@ kagari-codegen = { path = "crates/kagari-codegen" }
 kagari-abi = { path = "crates/kagari-abi" }
 kagari-contract = { path = "crates/kagari-contract" }
 kagari-common = { path = "crates/kagari-common" }
+kagari-source = { path = "crates/kagari-source" }
 kagari-embed = { path = "crates/kagari-embed", default-features = false }
 kagari-hir = { path = "crates/kagari-hir" }
 kagari-mir = { path = "crates/kagari-mir" }

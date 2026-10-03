@@ -2,7 +2,7 @@ use super::*;
 use crate::analysis::ownership;
 use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName};
 
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(source.snapshot(), &Default::default()).unwrap()

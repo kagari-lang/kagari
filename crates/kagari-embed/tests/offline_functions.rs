@@ -1,11 +1,11 @@
-use kagari_common::{
-    host_interface::{
+use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
+use {
+    kagari_common::host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         value_type::HostValueType,
     },
-    source::SourceFile,
+    kagari_source::source::SourceFile,
 };
-use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
 
 use kagari_embed::{
     context::ExecutionContext,
@@ -30,9 +30,9 @@ fn declaration() -> HostFunctionDeclaration {
 
 #[test]
 fn offline_host_facades_preserve_linking_and_backend_call_traces() {
-    use kagari_common::{
-        identity::{ModuleIdentity, PackageId},
-        source_database::SourceLayer,
+    use {
+        kagari_common::identity::{ModuleIdentity, PackageId},
+        kagari_source::source_database::SourceLayer,
     };
     let engine = KagariEngine::default();
     let definition = declaration();

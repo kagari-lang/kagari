@@ -1,10 +1,10 @@
 use super::*;
 use crate::{declarations::DeclarationId, hir::ids::HirOwner};
-use kagari_common::{
-    identity::{ModuleIdentity, PackageId},
-    source_database::{SourceDatabase, SourceLayer},
-};
 use kagari_contract::scalar::BuiltinType;
+use {
+    kagari_common::identity::{ModuleIdentity, PackageId},
+    kagari_source::source_database::{SourceDatabase, SourceLayer},
+};
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())

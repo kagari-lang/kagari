@@ -2,7 +2,7 @@
 //! Warm interpreter execution only; every sample includes the SDK root envelope,
 //! one interface construction, and 1,000 calls to m0 through that interface.
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-use kagari_common::source::SourceFile;
+use kagari_source::source::SourceFile;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 use std::{

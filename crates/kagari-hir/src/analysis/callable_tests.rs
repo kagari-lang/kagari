@@ -10,16 +10,18 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_common::{
-    diagnostic::DiagnosticKind,
-    host_interface::{
+use kagari_contract::{callable::NativeDefaultApplication, scalar::BuiltinType};
+use {
+    kagari_common::host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         value_type::HostValueType,
     },
-    source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
+    kagari_source::{
+        diagnostic::DiagnosticKind,
+        source::SourceFile,
+        source_database::{SourceDatabase, SourceLayer},
+    },
 };
-use kagari_contract::{callable::NativeDefaultApplication, scalar::BuiltinType};
 
 #[test]
 fn native_generic_scalar_calls_keep_their_exact_declared_types() {
