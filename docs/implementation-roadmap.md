@@ -1,5 +1,14 @@
 # Kagari Implementation Roadmap
 
+## Interface dispatch optimization (active)
+
+The [interface dispatch plan](interface-dispatch-optimization.md) implements R3
+against the completed foundation API. ID01 shares immutable interface descriptors
+and method selections; ID02 reuses receiver preparation while retaining per-call
+generic arguments and constraint witnesses. Execution is authorized with one
+commit per step. The plan owns the finite scope, validation and progress ledger.
+Other architecture review findings and queued migrations remain separate work.
+
 ## Foundation API completion (completed)
 
 The [foundation API completion plan](foundation-api-completion.md) implements

@@ -8,10 +8,10 @@ use std::{
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Counts {
-    allocations: usize,
+    pub(super) allocations: usize,
     reallocations: usize,
     deallocations: usize,
-    requested_bytes: usize,
+    pub(super) requested_bytes: usize,
 }
 thread_local! {
     static ACTIVE: Cell<Option<Counts>> = const { Cell::new(None) };

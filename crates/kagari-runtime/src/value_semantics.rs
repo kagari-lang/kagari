@@ -18,7 +18,8 @@ pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
         return None;
     };
     let snapshot = gc.interface_snapshot(*id)?;
-    abi::is_collection_interface(&snapshot.interface_type.declaration).then_some(snapshot.data)
+    abi::is_collection_interface(&snapshot.interface_type.declaration)
+        .then(|| snapshot.data.clone())
 }
 
 /// Identity is available only for script object categories, never allocation

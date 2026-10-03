@@ -281,7 +281,7 @@ enum HeapObject {
         fields: Vec<Value>,
     },
     Interface {
-        snapshot: Box<InterfaceValueSnapshot>,
+        snapshot: Rc<InterfaceValueSnapshot>,
         _retention: RetainedRuntimeProgram,
     },
     Closure {
@@ -718,7 +718,7 @@ impl GcHeap {
             ));
         }
         self.alloc_object(HeapObject::Interface {
-            snapshot: Box::new(snapshot),
+            snapshot: Rc::new(snapshot),
             _retention: retention,
         })
         .map(InterfaceObjectId)
@@ -820,10 +820,10 @@ impl GcHeap {
     pub(crate) fn interface_snapshot(
         &self,
         id: InterfaceObjectId,
-    ) -> Option<InterfaceValueSnapshot> {
+    ) -> Option<Rc<InterfaceValueSnapshot>> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id.0)? {
-            HeapObject::Interface { snapshot, .. } => Some((**snapshot).clone()),
+            HeapObject::Interface { snapshot, .. } => Some(snapshot.clone()),
             _ => None,
         }
     }

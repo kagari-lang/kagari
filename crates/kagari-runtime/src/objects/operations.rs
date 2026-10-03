@@ -21,7 +21,7 @@ impl Runtime {
         owner: &LoadedModule,
         target: CallableTarget,
         binding: &InterfaceResultBinding,
-    ) -> Result<Vec<BoundOperation>, RuntimeError> {
+    ) -> Result<Vec<Rc<BoundOperation>>, RuntimeError> {
         let required = match target {
             CallableTarget::Native(target) => owner
                 .bytecode
@@ -45,10 +45,10 @@ impl Runtime {
     pub(crate) fn bind_table_operations(
         &self,
         binding: &InterfaceResultBinding,
-    ) -> Result<Vec<BoundOperation>, RuntimeError> {
+    ) -> Result<Vec<Rc<BoundOperation>>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("receiver operation table");
         let mut pending = vec![binding.clone()];
-        let mut operations: Vec<BoundOperation> = vec![];
+        let mut operations: Vec<Rc<BoundOperation>> = vec![];
         let mut visited = vec![];
         while let Some(binding) = pending.pop() {
             let owner = &binding.owner;
@@ -157,7 +157,7 @@ impl Runtime {
                         .generic
                         .as_ref(),
                 };
-                operations.push(BoundOperation {
+                operations.push(Rc::new(BoundOperation {
                     generic: Some(BoundGenericMethod {
                         receiver_table: binding.clone(),
                         receiver_environment: Some(environment.clone()),
@@ -181,7 +181,7 @@ impl Runtime {
                         result: method.return_type.clone(),
                     },
                     retention: retention.clone(),
-                });
+                }));
             }
             // An associated result adapter already selects the output's table.
             // Native defaults can use its operations without resolving a trait.

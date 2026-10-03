@@ -1,4 +1,5 @@
 mod calls;
+pub(crate) mod method;
 mod operations;
 
 use crate::{
@@ -9,7 +10,7 @@ use crate::{
         arguments::{ScopedSignature, TypeArgument},
     },
     gc::{
-        self, HeapObjectId,
+        self, HeapObjectId, RootedValue,
         interfaces::{
             InterfaceMethodBinding, InterfaceParentBinding, InterfaceResultBinding,
             InterfaceValueSnapshot,
@@ -22,6 +23,7 @@ use kagari_bytecode::{module::CallableTarget, trait_bounds::interface_views};
 
 use kagari_abi::{
     ids::FunctionRef,
+    native_import::NativeSignature,
     operations::IterOp,
     representation::ValueType,
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, substitution::TypeSubstitution},
@@ -514,36 +516,9 @@ impl Runtime {
 
     pub fn resolve_interface_method(
         &self,
-        value: &value::Value,
+        value: &Value,
         method: &DefinitionId,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        if let Value::Interface(id) = value
-            && let Some(snapshot) = self.gc.interface_snapshot(*id)
-            && !snapshot
-                .methods
-                .iter()
-                .flatten()
-                .any(|binding| &binding.method == method)
-        {
-            let versions = snapshot.implementation.members().collect::<Vec<_>>();
-            let modules = versions
-                .iter()
-                .map(|version| version.bytecode.as_ref())
-                .collect::<Vec<_>>();
-            if let Some(parents) =
-                interface_views(&snapshot.interface_type, &snapshot.concrete_type, &modules)
-            {
-                for parent in parents.into_iter().skip(1) {
-                    let mut owner = method.clone();
-                    owner.path.pop();
-                    if owner == parent.declaration {
-                        let view =
-                            self.upcast_interface(value, &snapshot.interface_type, &parent)?;
-                        return self.resolve_interface_method(&view, method);
-                    }
-                }
-            }
-        }
         let Value::Interface(id) = value else {
             return Err(RuntimeError::module_validation("expected interface value"));
         };
@@ -551,16 +526,40 @@ impl Runtime {
             .gc
             .interface_snapshot(*id)
             .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
-        let slot = snapshot
-            .methods
+        let root = self.root_value(value.clone()).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
+        })?;
+        let slot = snapshot.methods.iter().position(|binding| {
+            binding
+                .as_ref()
+                .is_some_and(|binding| &binding.method == method)
+        });
+        if let Some(slot) = slot {
+            return self.apply_interface_method(
+                RootedInterfaceMethod::from_interface(root, snapshot, slot),
+                &[],
+            );
+        }
+        let versions = snapshot.implementation.members().collect::<Vec<_>>();
+        let modules = versions
             .iter()
-            .position(|binding| {
-                binding
-                    .as_ref()
-                    .is_some_and(|binding| &binding.method == method)
-            })
-            .ok_or_else(|| RuntimeError::module_validation("interface method unavailable"))?;
-        self.resolve_interface_method_slot(value, &snapshot.interface_type, slot, &[])
+            .map(|version| version.bytecode.as_ref())
+            .collect::<Vec<_>>();
+        if let Some(parents) =
+            interface_views(&snapshot.interface_type, &snapshot.concrete_type, &modules)
+        {
+            for parent in parents.into_iter().skip(1) {
+                let mut owner = method.clone();
+                owner.path.pop();
+                if owner == parent.declaration {
+                    let view = self.upcast_interface(value, &snapshot.interface_type, &parent)?;
+                    return self.resolve_interface_method(&view, method);
+                }
+            }
+        }
+        Err(RuntimeError::module_validation(
+            "interface method unavailable",
+        ))
     }
 
     /// Creates a parent interface view using already compiled tables from the
@@ -607,22 +606,31 @@ impl Runtime {
     /// name or declaration search during script dispatch.
     pub fn resolve_interface_method_slot(
         &self,
-        value: &value::Value,
+        value: &Value,
         interface: &NominalAbiType,
         slot: usize,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        if let Value::Interface(id) = value
-            && let Some(snapshot) = self.gc.interface_snapshot(*id)
-            && snapshot.interface_type != *interface
-        {
+        let (root, snapshot) = self.rooted_interface_snapshot(value)?;
+        if snapshot.interface_type != *interface {
             let view = self.upcast_interface(value, &snapshot.interface_type, interface)?;
             return self.resolve_interface_method_slot(&view, interface, slot, arguments);
         }
-        let method = self.resolve_interface_method_inner(value, Some(interface), |snapshot| {
-            snapshot.methods.get(slot).and_then(Option::as_ref)
-        })?;
-        self.apply_interface_method(method, arguments)
+        if snapshot
+            .methods
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_none()
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "interface method unavailable",
+            ));
+        }
+        self.apply_interface_method(
+            RootedInterfaceMethod::from_interface(root, snapshot, slot),
+            arguments,
+        )
     }
 
     pub(super) fn apply_interface_method(
@@ -630,9 +638,9 @@ impl Runtime {
         mut method: RootedInterfaceMethod,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        if method.type_parameters.is_empty()
-            && method.entry_parameters.is_empty()
-            && method.receiver_environment.is_none()
+        if method.type_parameters().is_empty()
+            && method.entry_parameters().is_empty()
+            && method.receiver_environment().is_none()
         {
             return if arguments.is_empty() {
                 Ok(method)
@@ -645,101 +653,78 @@ impl Runtime {
         for argument in arguments {
             argument.validate(self)?;
         }
-        let mut binders = TypeEnvironment::new(method.type_parameters.clone(), arguments.to_vec())?;
-        binders.include(method.receiver_environment.as_deref())?;
+        let mut binders =
+            TypeEnvironment::new(method.type_parameters().to_vec(), arguments.to_vec())?;
+        binders.include(method.receiver_environment().map(Rc::as_ref))?;
         let binders = Some(Rc::new(binders));
-        if let Some(adapter) = &mut method.result_adapter {
+        if let Some(adapter) = method.result_adapter() {
+            let mut adapter = adapter.clone();
             adapter.environment = binders.clone();
+            method.result_adapter = Some(adapter);
         }
         let params = self.type_arguments(
-            &method.implementation,
+            method.implementation(),
             binders.clone(),
-            &method.parameter_types,
+            method.parameter_types(),
         )?;
         let result = self
             .type_arguments(
-                &method.implementation,
+                method.implementation(),
                 binders.clone(),
-                slice::from_ref(&method.return_type),
+                slice::from_ref(method.return_type()),
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("interface return type"))?;
-        method.parameter_types = params
-            .iter()
-            .map(|argument| argument.ty().clone())
-            .collect();
-        method.return_type = result.ty().clone();
+        method.resolved_signature = Some(NativeSignature {
+            params: params
+                .iter()
+                .map(|argument| argument.ty().clone())
+                .collect(),
+            result: result.ty().clone(),
+        });
         if result.has_origin() || params.iter().any(TypeArgument::has_origin) {
             method.scoped_signature = Some(ScopedSignature { params, result });
         }
-        method.environment = if method.entry_parameters.is_empty() {
+        method.environment = if method.entry_parameters().is_empty() {
             None
         } else {
             Some(Rc::new(TypeEnvironment::new(
-                method.entry_parameters.clone(),
-                self.type_arguments(&method.implementation, binders, &method.entry_arguments)?,
+                method.entry_parameters().to_vec(),
+                self.type_arguments(method.implementation(), binders, method.entry_arguments())?,
             )?))
         };
-        if let Some(environment) = &mut method.environment
-            && let Some(table) = &method.receiver_table
-        {
-            Rc::make_mut(environment)
-                .operations
-                .extend(self.bind_receiver_operations(
-                    &method.implementation,
-                    method.target,
-                    table,
-                )?);
+        let operations = if method.environment.is_some() {
+            method
+                .receiver_table()
+                .map(|table| {
+                    self.bind_receiver_operations(method.implementation(), method.target(), table)
+                })
+                .transpose()?
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
+        if let Some(environment) = &mut method.environment {
+            Rc::make_mut(environment).operations.extend(operations);
         }
         Ok(method)
     }
 
-    pub(super) fn resolve_interface_method_inner(
+    fn rooted_interface_snapshot(
         &self,
-        value: &value::Value,
-        expected_interface: Option<&NominalAbiType>,
-        select: impl for<'a> FnOnce(&'a InterfaceValueSnapshot) -> Option<&'a InterfaceMethodBinding>,
-    ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        value: &Value,
+    ) -> Result<(RootedValue, Rc<InterfaceValueSnapshot>), RuntimeError> {
+        let invalid =
+            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle");
         let Value::Interface(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "expected interface value",
             ));
         };
-        let root = self.root_value(value.clone()).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
-        })?;
-        let snapshot = self.gc.interface_snapshot(*id).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
-        })?;
-        if expected_interface.is_some_and(|expected| *expected != snapshot.interface_type) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "interface type does not match the call target",
-            ));
-        }
-        let binding = select(&snapshot).cloned().ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "interface method unavailable")
-        })?;
-        Ok(RootedInterfaceMethod {
-            receiver_table: Some(snapshot.receiver_table),
-            type_parameters: binding.parameters,
-            entry_parameters: binding.entry_parameters,
-            entry_arguments: binding.entry_arguments,
-            environment: None,
-            scoped_signature: None,
-            result_adapter: binding.result_adapter,
-            _root: root,
-            receiver: snapshot.data,
-            concrete_type: snapshot.concrete_type,
-            interface_type: snapshot.interface_type,
-            interface_expression: snapshot.interface_expression,
-            receiver_environment: snapshot.environment,
-            implementation: snapshot.implementation,
-            target: binding.target,
-            parameter_types: binding.parameter_types,
-            return_type: binding.return_type,
-        })
+        let root = self.root_value(value.clone()).ok_or_else(invalid)?;
+        let snapshot = self.gc.interface_snapshot(*id).ok_or_else(invalid)?;
+        Ok((root, snapshot))
     }
 
     pub fn validate_interface_method_arguments(
@@ -747,19 +732,19 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         arguments: &[value::Value],
     ) -> Result<(), RuntimeError> {
-        if !method.implementation.belongs_to(self.host.owner())
-            || arguments.len() != method.parameter_types.len()
+        if !method.implementation().belongs_to(self.host.owner())
+            || arguments.len() != method.parameter_types().len()
             || !arguments
                 .iter()
                 .enumerate()
                 .all(|(index, value)| match &method.scoped_signature {
                     Some(signature) => {
-                        signature.params[index].matches(self, value, &method.implementation)
+                        signature.params[index].matches(self, value, method.implementation())
                     }
                     None => self.matches_interface_method_abi(
                         value,
-                        &method.parameter_types[index],
-                        &method.implementation,
+                        &method.parameter_types()[index],
+                        method.implementation(),
                     ),
                 })
         {
@@ -777,7 +762,7 @@ impl Runtime {
         result: Value,
     ) -> Result<Value, RuntimeError> {
         self.validate_interface_method_result(method, &result)?;
-        if let Some(adapter) = &method.result_adapter {
+        if let Some(adapter) = method.result_adapter() {
             // Keep the raw return alive until its interface wrapper is published.
             let _root = self
                 .root_value(result.clone())
@@ -798,15 +783,15 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         result: &value::Value,
     ) -> Result<(), RuntimeError> {
-        if !method.implementation.belongs_to(self.host.owner())
+        if !method.implementation().belongs_to(self.host.owner())
             || !match &method.scoped_signature {
                 Some(signature) => signature
                     .result
-                    .matches(self, result, &method.implementation),
+                    .matches(self, result, method.implementation()),
                 None => self.matches_interface_method_abi(
                     result,
-                    &method.return_type,
-                    &method.implementation,
+                    method.return_type(),
+                    method.implementation(),
                 ),
             }
         {

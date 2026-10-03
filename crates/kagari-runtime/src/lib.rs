@@ -3,12 +3,8 @@ mod loading;
 mod objects;
 use frame::types::{TypeEnvironment, arguments::ScopedSignature};
 use host::HostCallContext;
-use kagari_abi::{
-    ids::FunctionRef,
-    standard::RuntimePrimitive,
-    types::{AbiType, GenericParameterAbi, NominalAbiType},
-};
-use kagari_bytecode::{instruction::BinaryOp, module::CallableTarget};
+use kagari_abi::{ids::FunctionRef, native_import::NativeSignature, standard::RuntimePrimitive};
+use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::host_interface::path::HostPathDeclaration;
 use reflection::ReflectionError;
 use session::{ExecutionEntry, SessionState};
@@ -47,7 +43,6 @@ pub mod session;
 pub mod value;
 pub mod value_semantics;
 
-use crate::gc::interfaces::InterfaceResultBinding;
 use crate::{
     builtin::BuiltinError,
     cache::{
@@ -74,6 +69,10 @@ use crate::{
     session::{
         ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionPhase, ExecutionSession,
     },
+};
+use crate::{
+    gc::interfaces::InterfaceResultBinding,
+    objects::method::{BoundReceiver, MethodSelection},
 };
 
 /// Verified and linked reload data that has not changed any runtime entry.
@@ -130,47 +129,13 @@ pub struct Runtime {
 /// A resolved dynamic method whose interface receiver stays rooted across
 /// safepoints and synchronous host reentry.
 pub struct RootedInterfaceMethod {
-    type_parameters: Vec<GenericParameterAbi>,
-    entry_parameters: Vec<GenericParameterAbi>,
-    entry_arguments: Vec<AbiType>,
+    selection: MethodSelection,
+    bound_receiver: Option<BoundReceiver>,
     environment: Option<Rc<TypeEnvironment>>,
+    resolved_signature: Option<NativeSignature>,
     scoped_signature: Option<ScopedSignature>,
     result_adapter: Option<InterfaceResultBinding>,
     _root: RootedValue,
-    receiver: value::Value,
-    concrete_type: AbiType,
-    interface_type: NominalAbiType,
-    interface_expression: NominalAbiType,
-    receiver_environment: Option<Rc<TypeEnvironment>>,
-    receiver_table: Option<InterfaceResultBinding>,
-    implementation: LoadedModule,
-    target: CallableTarget,
-    parameter_types: Vec<AbiType>,
-    return_type: AbiType,
-}
-
-impl RootedInterfaceMethod {
-    pub fn receiver(&self) -> &value::Value {
-        &self.receiver
-    }
-    pub fn concrete_type(&self) -> &AbiType {
-        &self.concrete_type
-    }
-    pub fn interface_type(&self) -> &NominalAbiType {
-        &self.interface_type
-    }
-    pub fn implementation(&self) -> &LoadedModule {
-        &self.implementation
-    }
-    pub fn target(&self) -> CallableTarget {
-        self.target
-    }
-    pub fn parameter_types(&self) -> &[AbiType] {
-        &self.parameter_types
-    }
-    pub fn return_type(&self) -> &AbiType {
-        &self.return_type
-    }
 }
 
 impl Runtime {

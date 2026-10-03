@@ -98,43 +98,13 @@ impl Runtime {
                 .operation_slot(&receiver_type, &interface, contract.method_slot)
                 .ok_or_else(invalid)?;
             self.validate_loaded_module(&operation.owner)?;
-            let method = RootedInterfaceMethod {
-                receiver_table: operation
-                    .generic
-                    .as_ref()
-                    .map(|generic| generic.receiver_table.clone()),
-                type_parameters: operation
-                    .generic
-                    .as_ref()
-                    .map(|generic| generic.parameters.clone())
-                    .unwrap_or_default(),
-                entry_parameters: operation
-                    .generic
-                    .as_ref()
-                    .map(|generic| generic.entry_parameters.clone())
-                    .unwrap_or_default(),
-                entry_arguments: operation
-                    .generic
-                    .as_ref()
-                    .map(|generic| generic.entry_arguments.clone())
-                    .unwrap_or_default(),
-                environment: None,
-                scoped_signature: None,
-                result_adapter: None,
-                _root: self.root_value(receiver.clone()).ok_or_else(invalid)?,
-                receiver: receiver.clone(),
-                concrete_type: receiver_type.into_owned(),
-                interface_expression: interface.clone(),
-                receiver_environment: operation
-                    .generic
-                    .as_ref()
-                    .and_then(|generic| generic.receiver_environment.clone()),
-                interface_type: interface,
-                implementation: operation.owner.clone(),
-                target: operation.target,
-                parameter_types: operation.signature.params.clone(),
-                return_type: operation.signature.result.clone(),
-            };
+            let method = RootedInterfaceMethod::from_operation(
+                self.root_value(receiver.clone()).ok_or_else(invalid)?,
+                operation.clone(),
+                receiver.clone(),
+                receiver_type.into_owned(),
+                interface,
+            );
             let arguments =
                 self.type_arguments(frame.loaded(), frame.environment(), &contract.arguments)?;
             let mut method = self.apply_interface_method(method, &arguments)?;
@@ -154,9 +124,9 @@ impl Runtime {
             &arguments,
         )?;
         if !TypeView::new(
-            &AbiType::Trait(method.interface_expression.clone()),
-            &method.implementation,
-            method.receiver_environment.as_deref(),
+            &AbiType::Trait(method.interface_expression().clone()),
+            method.implementation(),
+            method.receiver_environment().map(Rc::as_ref),
         )
         .compatible(TypeView::new(
             &AbiType::Trait(contract.interface.clone()),
@@ -177,7 +147,7 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
         witnesses: &[OperationWitness],
-    ) -> Result<Vec<BoundOperation>, RuntimeError> {
+    ) -> Result<Vec<Rc<BoundOperation>>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         let mut operations = Vec::with_capacity(witnesses.len());
         let mut supplying_program = None;
@@ -258,7 +228,7 @@ impl Runtime {
                             })
                         })
                         .ok_or_else(invalid)? as u32;
-                    BoundOperation {
+                    Rc::new(BoundOperation {
                         generic: None,
                         retention,
                         slot,
@@ -267,7 +237,7 @@ impl Runtime {
                         owner,
                         target,
                         signature: selected.signature.clone(),
-                    }
+                    })
                 }
             };
             operations.push(operation);
@@ -281,7 +251,7 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
         selected: &SharedMethodWitness,
-    ) -> Result<BoundOperation, RuntimeError> {
+    ) -> Result<Rc<BoundOperation>, RuntimeError> {
         let binding = interface_binding(
             frame.loaded(),
             &selected.implementation,

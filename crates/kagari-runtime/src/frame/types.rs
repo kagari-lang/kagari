@@ -42,7 +42,7 @@ pub(crate) struct BoundGenericMethod {
 pub struct TypeEnvironment {
     parameters: Vec<GenericParameterAbi>,
     arguments: Vec<TypeArgument>,
-    pub(crate) operations: Vec<BoundOperation>,
+    pub(crate) operations: Vec<Rc<BoundOperation>>,
 }
 
 impl TypeEnvironment {
@@ -141,7 +141,7 @@ impl TypeEnvironment {
         receiver: &AbiType,
         interface: &NominalAbiType,
         slot: u32,
-    ) -> Option<&BoundOperation> {
+    ) -> Option<&Rc<BoundOperation>> {
         self.operations.iter().find(|operation| {
             operation.slot == slot
                 && operation.requirement.receiver == *receiver
@@ -152,7 +152,7 @@ impl TypeEnvironment {
     pub(crate) fn operation(
         &self,
         required: &NativeCallableRequirement,
-    ) -> Option<&BoundOperation> {
+    ) -> Option<&Rc<BoundOperation>> {
         self.operations.iter().find(|operation| {
             operation.requirement == *required
                 || (operation.generic.is_some()
