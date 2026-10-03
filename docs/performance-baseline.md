@@ -3,6 +3,26 @@
 These reproducible workloads establish a baseline for R18. The figures are
 observations on one machine, not performance guarantees.
 
+## Definition identity representation (ID01), 2026-10-03
+
+Reproduce with `cargo run -p kagari-common --example definition_identity --release
+--locked`. The isolated, single-thread probe uses a `game.kgr::Player.hp` path,
+100,000 owned clones or short-ID copies, one warmup and eleven timing samples.
+Allocation counting runs separately from timing; a forwarding System allocator
+counts allocation/reallocation calls only during the counting pass. Timing still
+includes the inactive allocator wrapper for the owned representation. Setup,
+path interning, table construction and Rust compilation are outside both loops.
+
+Environment: Windows 11 Pro, i9-12900K (24 logical processors), 63.7 GiB RAM,
+rustc 1.99.0 (b940084d7, LLVM 23.1.1), x86_64-pc-windows-msvc. Workspace release
+profile, default features and build parallelism, default target directory; warm
+dependency cache with this example freshly compiled. Owned identity headers occupy
+72 bytes (excluding all heap contents); scoped IDs occupy 8 bytes. The owned
+loop performs 600,000 allocations and has a 16,011,800 ns median; short-ID copies
+perform zero allocations and have a 20,500 ns median. Black-box barriers retain
+the operations, but these are minimal representation loops, not a compiler or
+interpreter speedup. ID02-ID05 have not adopted short IDs at this checkpoint.
+
 ## Matched Kagari/Lua baseline, 2026-10-03
 
 The [benchmark package and report](../benchmarks/lua-comparison/README.md) compare

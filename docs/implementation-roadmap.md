@@ -1,5 +1,67 @@
 # Kagari Implementation Roadmap
 
+## Scoped definition identities (in progress, 2026-10-03)
+
+The user authorized the Rust-inspired definition-table migration. ID01-ID05 own
+the complete native declaration/HIR/ABI/MIR/bytecode/artifact/runtime identity
+chain. Preserve exact package/module/kind/name/occurrence identity at boundaries;
+use table-scoped Copy IDs internally. Do not introduce stable path hashes,
+incremental disk caching, declaration macros, old-format readers, ABI/version
+bumps, foundation registration redesign or interpreter-loop optimization.
+
+- [x] ID01: record the owned-identity baseline; implement checked table primitives,
+  shared snapshots, name interning and explicit cross-table remapping.
+- [ ] ID02: migrate declarations, analysis/cache ownership and compiled metadata.
+- [ ] ID03: migrate explicit portable table encoding, canonical fingerprints,
+  bounded decoding and source-free validation; regenerate affected fixtures once.
+- [ ] ID04: migrate native linking, codecs, type environments, layouts and reload
+  identity remapping while retaining executable generations and immutable seals.
+- [ ] ID05: remove transitional models; accept the full integration matrix and
+  record allocation, metadata-size, artifact-size and timing evidence.
+
+Design: a short ID contains private u32 table and node indices (8 bytes); table
+numbers are process-local, checked and never reused. Roots hold logical module
+identities; child nodes hold parent/kind/interned-name/occurrence. Builders append
+without changing existing indices; immutable snapshots share owned metadata.
+Each native module, analysis snapshot and verified program retains its table;
+runtime linking maps exact identities into a runtime-owned context once per
+preparation. Cross-table equality requires explicit import. A declaration ID does
+not replace HIR arena/body identity or module epoch/generation checks.
+
+Portable records contain canonical identity tables and local references, never
+process table numbers. Encoding/decoding receives its table explicitly. Fingerprint
+inputs use canonical exact identity content, independent of table insertion order
+and unrelated entries. Reject foreign/out-of-range references, duplicate identities,
+invalid parent/string references, cycles, paths over 64 segments and tables over
+1,000,000 records before executable adoption; retain existing envelope/type limits.
+
+ID02-ID04 form a continuous migration window: record intermediate diagnostics and
+their owning follow-up; commit coherent buildable checkpoints, with no compatibility
+facades or disabled validation. Final acceptance includes structure, fmt, strict
+workspace/all-target Clippy, workspace tests, complete language contracts, standalone
+feature/backend consumers and diff checks. Use Roadmap-Step: ID01 through ID05.
+
+Ledger: starts from clean 7857fd8a; no carried build or validation error. Inspection
+finds 124 Rust files mentioning the owned DefinitionId. Native modules are authored
+independently, and immutable verified programs can link into multiple runtimes;
+explicit contextual import is required at both boundaries. Short-ID copies must
+allocate nothing; measured speedups are not assumed.
+
+ID01: identity table primitives retain immutable Arc snapshots and share interned
+module/name payloads. Explicit imports include each referenced ancestor once and
+reject foreign/unmapped IDs. Portable table encoding orders exact identities and
+omits unrelated entries; decoding rejects duplicate identities/names/modules,
+forward/cyclic parent edges, missing references and path depth violations. Count
+prefixes are bounded before reading table elements. The common crate passes all
+33 tests (10 new identity-table tests). Focused all-target strict Clippy and the
+structure checker (663 Rust files, zero violations/exceptions) pass. The standalone
+representation probe records 72-byte owned headers and 8-byte short IDs; 100,000
+copies require 600,000 versus zero allocations. See the performance baseline for
+methodology and timing limits. Existing consumers intentionally still use owned
+DefinitionId; ScopedDefinitionId is the temporary short-type name until ID02
+replaces the owned model. No production runtime speedup or end-to-end migration
+is claimed by ID01, and ID02-ID05 remain required. No carried error.
+
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
 BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,
