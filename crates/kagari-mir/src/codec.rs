@@ -9,7 +9,7 @@ use kagari_common::{
     identity::{
         DefinitionPath, ModuleIdentity,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, map_sequence},
-        metadata::{PortableMetadata, scope_record},
+        metadata::{DefinitionMetadata, PortableMetadata},
         reference::DefinitionReference,
         table::wire::PortableDefinitionRef,
     },
@@ -151,9 +151,10 @@ pub fn encode_program(
             .map(|module| (**module).clone())
             .collect(),
     };
-    let wire_program = scope_record(&raw_program, cancel)
-        .and_then(|metadata| metadata.to_portable(cancel))
-        .map_err(|error| encoding(error, cancel))?;
+    let wire_program =
+        DefinitionMetadata::checked(program.definitions().clone(), raw_program, cancel)
+            .and_then(|metadata| metadata.to_portable(cancel))
+            .map_err(|error| encoding(error, cancel))?;
     options()
         .serialize_into(&mut writer, &wire_program)
         .map_err(|error| encoding(error, cancel))?;
@@ -207,8 +208,8 @@ fn read_raw(bytes: &[u8], cancel: &CancellationToken) -> Result<RawProgram, MirC
     Ok(raw)
 }
 
-fn check_counts<'a>(
-    modules: impl Iterator<Item = &'a MirModule>,
+fn check_counts<'a, I: DefinitionReference + 'a>(
+    modules: impl Iterator<Item = &'a MirModule<I>>,
     cancel: &CancellationToken,
 ) -> Result<(), MirCodecError> {
     let mut functions = 0usize;

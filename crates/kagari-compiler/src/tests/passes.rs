@@ -128,7 +128,7 @@ fn scalar_facts_do_not_flow_through_heap_reads_or_calls() {
             .iter()
             .flat_map(|function| &function.blocks)
             .flat_map(|block| &block.instructions)
-            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::SourceFunction(contract), .. } if contract.declaration.path.last().is_some_and(|part| part.name == "index")))
+            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::SourceFunction(contract), .. } if result.module.definitions().resolve(contract.declaration).unwrap().segments().last().is_some_and(|part| part.name == "index")))
     );
 }
 

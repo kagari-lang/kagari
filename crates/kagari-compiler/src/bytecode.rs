@@ -1,3 +1,4 @@
+use kagari_common::identity::table::DefinitionId;
 mod debug;
 mod defaults;
 mod interfaces;
@@ -30,7 +31,10 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     host_interface::HostInterface,
-    identity::{DefinitionPath, ModuleIdentity},
+    identity::{
+        ModuleIdentity,
+        mapping::{DefinitionMapper, DefinitionRecord},
+    },
     span::Span,
 };
 use kagari_mir::{
@@ -69,20 +73,39 @@ pub fn lower_to_bytecode(ir: &VerifiedMirModule) -> Result<BytecodeModule, Bytec
                 Instruction::Call {
                     callee: MirCallTarget::InterfaceMethod(contract),
                     ..
-                } => contract.interface.declaration.module != ir.identity,
+                } => {
+                    ir.definitions()
+                        .resolve(contract.interface.declaration)
+                        .expect("verified interface identity")
+                        .module()
+                        != &ir.identity
+                }
                 Instruction::Call {
                     callee: MirCallTarget::Shared(contract),
                     ..
-                } => contract.instance.declaration.module != ir.identity,
+                } => {
+                    ir.definitions()
+                        .resolve(contract.instance.declaration)
+                        .expect("verified callable identity")
+                        .module()
+                        != &ir.identity
+                }
                 Instruction::MakeInterface { implementation, .. } => {
-                    implementation.module != ir.identity
+                    ir.definitions()
+                        .resolve(*implementation)
+                        .expect("verified implementation identity")
+                        .module()
+                        != &ir.identity
                 }
                 _ => false,
             })
     {
         return Err(BytecodeLoweringError::UnlinkedSourceModules);
     }
-    let mut module = lower_linked_module(ir, None, Vec::new())?;
+    let compact = lower_linked_module(ir, None, Vec::new())?;
+    let mut module = ir
+        .paths(&compact, &Default::default())
+        .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
     views::populate(slice::from_mut(&mut module))?;
     verify_module(&module).map_err(BytecodeLoweringError::Verification)?;
     Ok(module)
@@ -92,7 +115,7 @@ fn lower_linked_module(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
     dependencies: Vec<ModuleRef>,
-) -> Result<BytecodeModule, BytecodeLoweringError> {
+) -> Result<BytecodeModule<DefinitionId>, BytecodeLoweringError> {
     let mut context = BytecodeLoweringContext {
         program,
         structures: &ir.structures,
@@ -156,13 +179,13 @@ fn lower_linked_module(
 #[derive(Debug, Default)]
 struct BytecodeLoweringContext<'a> {
     program: Option<&'a VerifiedMirProgram>,
-    structures: &'a [StructLayout],
-    enumerations: &'a [EnumLayout],
+    structures: &'a [StructLayout<DefinitionId>],
+    enumerations: &'a [EnumLayout<DefinitionId>],
     identity: Option<&'a ModuleIdentity>,
     ir: Option<&'a VerifiedMirModule>,
-    interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>>,
-    host_interface: HostInterface,
-    native_imports: Vec<NativeImport>,
+    interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity<DefinitionId>>>,
+    host_interface: HostInterface<DefinitionId>,
+    native_imports: Vec<NativeImport<DefinitionId>>,
     paths: Vec<PathRecord>,
 }
 
@@ -183,15 +206,24 @@ impl BytecodeLoweringContext<'_> {
 
     fn interface_ref(
         &mut self,
-        implementation: &DefinitionPath,
-        arguments: &[AbiType],
+        implementation: &DefinitionId,
+        arguments: &[AbiType<DefinitionId>],
     ) -> (ModuleRef, InterfaceTableRef) {
         let (module, owner) = if let Some(program) = self.program {
             program
                 .modules()
                 .iter()
                 .enumerate()
-                .find(|(_, owner)| owner.identity == implementation.module)
+                .find(|(_, owner)| {
+                    &owner.identity
+                        == self
+                            .ir
+                            .expect("lowering owner")
+                            .definitions()
+                            .resolve(*implementation)
+                            .expect("verified implementation")
+                            .module()
+                })
                 .map(|(index, owner)| (ModuleRef::new(index), owner))
                 .expect("verified interface owner")
         } else {
@@ -212,7 +244,7 @@ impl BytecodeLoweringContext<'_> {
         (module, InterfaceTableRef::new(table))
     }
 
-    fn native_import(&mut self, contract: &NativeImport) -> NativeImportId {
+    fn native_import(&mut self, contract: &NativeImport<DefinitionId>) -> NativeImportId {
         if let Some(host) = &contract.host
             && !self
                 .host_interface
@@ -234,7 +266,7 @@ impl BytecodeLoweringContext<'_> {
         id
     }
 
-    fn structure_id(&self, id: &NominalAbiType) -> StructId {
+    fn structure_id(&self, id: &NominalAbiType<DefinitionId>) -> StructId {
         StructId::new(
             self.structures
                 .iter()
@@ -245,7 +277,7 @@ impl BytecodeLoweringContext<'_> {
         )
     }
 
-    fn field_ref(&self, field: &AggregateFieldRef) -> FieldRef {
+    fn field_ref(&self, field: &AggregateFieldRef<DefinitionId>) -> FieldRef<DefinitionId> {
         FieldRef {
             structure: self.structure_id(&field.owner),
             arguments: field.owner.arguments.clone(),
@@ -253,7 +285,7 @@ impl BytecodeLoweringContext<'_> {
         }
     }
 
-    fn path_id(&mut self, path: &PathRef) -> PathId {
+    fn path_id(&mut self, path: &PathRef<DefinitionId>) -> PathId {
         if let Some(declaration) = &path.declaration
             && !self.host_interface.paths.contains(declaration)
         {
@@ -282,10 +314,10 @@ impl BytecodeLoweringContext<'_> {
 }
 
 fn lower_function(
-    function: &MirFunction,
+    function: &MirFunction<DefinitionId>,
     analysis: &FunctionAnalysis,
     context: &mut BytecodeLoweringContext,
-) -> Result<BytecodeFunction, BytecodeLoweringError> {
+) -> Result<BytecodeFunction<DefinitionId>, BytecodeLoweringError> {
     let block_offsets = compute_block_offsets(function, analysis);
     let mut instructions = Vec::with_capacity(
         function
@@ -348,7 +380,9 @@ fn lower_function(
     })
 }
 
-fn collect_function_table(functions: &[BytecodeFunction]) -> Vec<FunctionRecord> {
+fn collect_function_table(
+    functions: &[BytecodeFunction<DefinitionId>],
+) -> Vec<FunctionRecord<DefinitionId>> {
     functions
         .iter()
         .map(|function| FunctionRecord {
@@ -362,7 +396,7 @@ fn collect_function_table(functions: &[BytecodeFunction]) -> Vec<FunctionRecord>
         .collect()
 }
 
-fn collect_constant_pool(functions: &[BytecodeFunction]) -> Vec<ConstantOperand> {
+fn collect_constant_pool(functions: &[BytecodeFunction<DefinitionId>]) -> Vec<ConstantOperand> {
     let mut constants = Vec::new();
     for function in functions {
         for instruction in &function.instructions {
@@ -376,7 +410,7 @@ fn collect_constant_pool(functions: &[BytecodeFunction]) -> Vec<ConstantOperand>
     constants
 }
 
-fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
+fn collect_type_table(module: &BytecodeModule<DefinitionId>) -> Vec<ValueType> {
     let mut types = Vec::new();
     for slot in &module.module_slots {
         push_type(&mut types, slot.ty);
@@ -418,7 +452,9 @@ fn push_type(types: &mut Vec<ValueType>, ty: ValueType) {
     }
 }
 
-fn collect_control_flow_targets(instructions: &[BytecodeInstruction]) -> Vec<JumpTarget> {
+fn collect_control_flow_targets(
+    instructions: &[BytecodeInstruction<DefinitionId>],
+) -> Vec<JumpTarget> {
     let mut targets = Vec::new();
     for instruction in instructions {
         match instruction {
@@ -444,7 +480,7 @@ fn push_target(targets: &mut Vec<JumpTarget>, target: JumpTarget) {
 }
 
 fn compute_block_offsets(
-    function: &MirFunction,
+    function: &MirFunction<DefinitionId>,
     analysis: &FunctionAnalysis,
 ) -> HashMap<BlockId, JumpTarget> {
     function
@@ -467,10 +503,10 @@ fn compute_block_offsets(
 }
 
 fn lower_block(
-    block: &BasicBlock,
+    block: &BasicBlock<DefinitionId>,
     block_offsets: &HashMap<BlockId, JumpTarget>,
     context: &mut BytecodeLoweringContext,
-    out: &mut Vec<BytecodeInstruction>,
+    out: &mut Vec<BytecodeInstruction<DefinitionId>>,
     spans: &mut Vec<Span>,
 ) -> Result<(), BytecodeLoweringError> {
     for (index, instruction) in block.instructions.iter().enumerate() {
@@ -493,9 +529,9 @@ fn lower_block(
 }
 
 fn lower_instruction(
-    instruction: &Instruction,
+    instruction: &Instruction<DefinitionId>,
     context: &mut BytecodeLoweringContext,
-) -> BytecodeInstruction {
+) -> BytecodeInstruction<DefinitionId> {
     match instruction {
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
             dst: lower_value(*dst),
@@ -543,7 +579,7 @@ fn lower_instruction(
                         .program
                         .expect("linked source program")
                         .function(&ConcreteFunctionIdentity {
-                            declaration: contract.declaration.clone(),
+                            declaration: contract.declaration,
                             arguments: contract.arguments.clone(),
                         })
                         .expect("verified source binding");
@@ -599,7 +635,15 @@ fn lower_instruction(
                 }
                 MirCallTarget::Function(id) => CallTarget::Function(FunctionRef::new(id.index())),
                 MirCallTarget::InterfaceMethod(contract) => CallTarget::InterfaceMethod {
-                    module: context.owner_ref(&contract.interface.declaration.module),
+                    module: context.owner_ref(
+                        context
+                            .ir
+                            .expect("lowering module")
+                            .definitions()
+                            .resolve(contract.interface.declaration)
+                            .expect("verified interface identity")
+                            .module(),
+                    ),
                     contract: contract.clone(),
                 },
                 MirCallTarget::Native(contract) => {
@@ -937,7 +981,7 @@ fn lower_instruction(
 fn lower_terminator(
     terminator: &Terminator,
     block_offsets: &HashMap<BlockId, JumpTarget>,
-) -> Result<BytecodeInstruction, BytecodeLoweringError> {
+) -> Result<BytecodeInstruction<DefinitionId>, BytecodeLoweringError> {
     Ok(match terminator {
         Terminator::Return(value) => BytecodeInstruction::Return(value.map(lower_value)),
         Terminator::Jump(target) => BytecodeInstruction::Jump {
@@ -1061,10 +1105,16 @@ pub(crate) fn lower_program_for_comparison(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut bytecode = BytecodeProgram {
+    let bytecode = BytecodeProgram {
         root: indices[program.root()],
         modules,
     };
+    let mut bytecode = bytecode
+        .map_identities(&mut DefinitionMapper::new(
+            &mut |id| Ok(program.definitions().resolve(*id)?.to_path()),
+            &Default::default(),
+        ))
+        .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
     views::populate(&mut bytecode.modules)?;
     Ok(bytecode)
 }

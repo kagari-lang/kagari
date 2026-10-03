@@ -3,7 +3,7 @@ use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
     program::shared,
-    verify::VerifiedMirModule,
+    verify::ValidatedMirModule,
 };
 use kagari_abi::{
     callable::CallableImplementation,
@@ -21,7 +21,7 @@ use kagari_common::{
 
 pub(super) fn validate(
     caller: &MirModule,
-    closure: &[&VerifiedMirModule],
+    closure: &[&ValidatedMirModule],
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
     let tables = closure

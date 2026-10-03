@@ -2,7 +2,7 @@
 use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
-    verify::VerifiedMirModule,
+    verify::ValidatedMirModule,
 };
 use kagari_abi::{
     callable::CallableImplementation,
@@ -13,7 +13,7 @@ use kagari_common::cancellation::CancellationToken;
 
 pub(super) fn valid(
     caller: &MirModule,
-    closure: &[&VerifiedMirModule],
+    closure: &[&ValidatedMirModule],
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {

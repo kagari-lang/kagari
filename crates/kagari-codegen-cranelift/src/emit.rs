@@ -6,6 +6,7 @@ use crate::{
         read_register, write_register,
     },
 };
+use kagari_common::identity::table::DefinitionId;
 
 use cranelift_codegen::{
     Context,
@@ -242,7 +243,7 @@ fn safepoint(instruction_offset: usize) -> ExecutableSafepoint {
     }
 }
 
-fn check_subset(function: &MirFunction) -> Result<(), BackendCompileError> {
+fn check_subset(function: &MirFunction<DefinitionId>) -> Result<(), BackendCompileError> {
     let scalar = |ty| matches!(ty, ValueType::Unit | ValueType::Bool | ValueType::I32);
     if !function.params.is_empty() {
         return Err(BackendCompileError::unsupported(

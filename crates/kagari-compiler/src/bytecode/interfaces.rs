@@ -1,6 +1,6 @@
 //! Executable interface slots use checked declaration applications, without bodies
 //! or per-library method selection for registered native entries.
-use crate::bytecode::{BytecodeLoweringError, defaults};
+use crate::bytecode::{BytecodeLoweringError, defaults::Contracts};
 use kagari_abi::{
     callable::CallableImplementation,
     ids::FunctionRef,
@@ -11,9 +11,10 @@ use kagari_bytecode::{
     instruction::NativeImportId,
     module::{CallableTarget, InterfaceMethodSlot, InterfaceTableRecord},
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPathSegment},
 };
 use kagari_mir::{
     instruction::Instruction, program::VerifiedMirProgram, verify::VerifiedMirModule,
@@ -23,7 +24,7 @@ use std::slice;
 pub(super) fn interface_instances(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
-) -> Vec<ConcreteFunctionIdentity> {
+) -> Vec<ConcreteFunctionIdentity<DefinitionId>> {
     let mut instances = ir
         .abi
         .public_items
@@ -33,7 +34,7 @@ pub(super) fn interface_instances(
                 return None;
             };
             Some(ConcreteFunctionIdentity {
-                declaration: table.declaration.clone(),
+                declaration: table.declaration,
                 arguments: vec![],
             })
         })
@@ -52,7 +53,7 @@ pub(super) fn interface_instances(
                 arguments,
                 ..
             } => Some(ConcreteFunctionIdentity {
-                declaration: implementation.clone(),
+                declaration: *implementation,
                 arguments: arguments.clone(),
             }),
             _ => None,
@@ -61,7 +62,13 @@ pub(super) fn interface_instances(
         .iter()
         .flat_map(|owner| owner.interface_instances.iter().cloned());
     for mut instance in allocations.chain(demands) {
-        if instance.declaration.module != ir.identity {
+        if ir
+            .definitions()
+            .resolve(instance.declaration)
+            .expect("verified interface owner")
+            .module()
+            != &ir.identity
+        {
             continue;
         }
         instance.arguments = table_arguments(ir, &instance.declaration, &instance.arguments);
@@ -74,9 +81,9 @@ pub(super) fn interface_instances(
 
 pub(super) fn table_arguments(
     ir: &VerifiedMirModule,
-    declaration: &DefinitionPath,
-    arguments: &[AbiType],
-) -> Vec<AbiType> {
+    declaration: &DefinitionId,
+    arguments: &[AbiType<DefinitionId>],
+) -> Vec<AbiType<DefinitionId>> {
     if arguments.iter().all(AbiType::is_concrete) {
         return arguments.to_vec();
     }
@@ -95,8 +102,8 @@ pub(super) fn table_arguments(
 pub(super) fn collect_interface_tables(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
-    imports: &mut Vec<NativeImport>,
-) -> Result<Vec<InterfaceTableRecord>, BytecodeLoweringError> {
+    imports: &mut Vec<NativeImport<DefinitionId>>,
+) -> Result<Vec<InterfaceTableRecord<DefinitionId>>, BytecodeLoweringError> {
     let closure = program
         .map(VerifiedMirProgram::modules)
         .unwrap_or(slice::from_ref(ir));
@@ -115,14 +122,15 @@ pub(super) fn collect_interface_tables(
                 CallableImplementation::NativeDefault(_)
             )
         });
-    let catalog = if has_defaults {
-        Some(defaults::catalog(
-            &closure.iter().collect::<Vec<_>>(),
-            &cancel,
-        )?)
+    let default_contracts = if has_defaults {
+        Some(Contracts::from_modules(closure, &cancel)?)
     } else {
         None
     };
+    let catalog = default_contracts
+        .as_ref()
+        .map(|contracts| contracts.catalog(&cancel))
+        .transpose()?;
     interface_instances(ir, program)
         .into_iter()
         .map(|instance| {
@@ -165,8 +173,8 @@ pub(super) fn collect_interface_tables(
                     name: method.name.clone(),
                     occurrence: 0,
                 };
-                let declaration = child(&abi.declaration, segment.clone());
-                let member = child(&interface.declaration, segment);
+                let declaration = child(ir, abi.declaration, &segment)?;
+                let member = child(ir, interface.declaration, &segment)?;
                 let mut entry_arguments: Vec<_> = if shared_receiver {
                     instance
                         .arguments
@@ -194,7 +202,11 @@ pub(super) fn collect_interface_tables(
                         CallableImplementation::NativeDefault(_)
                     ) {
                         let applied = abi
-                            .instantiate_in(&instance.arguments, &abi.generic_params)
+                            .instantiate_scoped(
+                                &instance.arguments,
+                                &abi.generic_params,
+                                Some(ir.definitions()),
+                            )
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
                         let applied = applied
                             .methods
@@ -207,7 +219,11 @@ pub(super) fn collect_interface_tables(
                             unreachable!("applied default");
                         };
                         let mut assumptions = abi
-                            .instantiate_in(&instance.arguments, &abi.generic_params)
+                            .instantiate_scoped(
+                                &instance.arguments,
+                                &abi.generic_params,
+                                Some(ir.definitions()),
+                            )
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
                             .bounds;
                         assumptions.extend(applied.bounds.clone());
@@ -217,19 +233,31 @@ pub(super) fn collect_interface_tables(
                             .chain(&applied.generic_params)
                             .cloned()
                             .collect::<Vec<_>>();
-                        let mut instance = catalog
+                        let application = ir
+                            .paths(application, &cancel)
+                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
+                        let scope = ir
+                            .paths(&scope, &cancel)
+                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
+                        let assumptions = ir
+                            .paths(&assumptions, &cancel)
+                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
+                        let instance = catalog
                             .as_ref()
                             .expect("default catalog")
-                            .resolve_native_default_in(application, &scope, &assumptions, &cancel)
+                            .resolve_native_default_in(&application, &scope, &assumptions, &cancel)
                             .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
                             .instance;
+                        let mut instance = ir
+                            .scope(&instance, &cancel)
+                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
                         if !instance.arguments.is_empty() {
                             entry_arguments = instance.arguments.clone();
                             instance.arguments = (0..instance.arguments.len())
                                 .map(|position| {
                                     GenericParameterAbi {
-                                        owner: instance.declaration.clone(),
+                                        owner: instance.declaration,
                                         position,
                                     }
                                     .as_type()
@@ -247,7 +275,7 @@ pub(super) fn collect_interface_tables(
                                     .enumerate()
                                     .map(|(position, _)| {
                                         GenericParameterAbi {
-                                            owner: declaration.clone(),
+                                            owner: declaration,
                                             position,
                                         }
                                         .as_type()
@@ -299,7 +327,7 @@ pub(super) fn collect_interface_tables(
                                 }
                         {
                             methods.push(InterfaceMethodSlot {
-                                method: member.clone(),
+                                method: member,
                                 target: CallableTarget::Script(FunctionRef::new(
                                     function.id.index(),
                                 )),
@@ -320,8 +348,12 @@ pub(super) fn collect_interface_tables(
         .collect()
 }
 
-fn child(owner: &DefinitionPath, segment: DefinitionPathSegment) -> DefinitionPath {
-    let mut declaration = owner.clone();
-    declaration.path.push(segment);
-    declaration
+fn child(
+    ir: &VerifiedMirModule,
+    owner: DefinitionId,
+    segment: &DefinitionPathSegment,
+) -> Result<DefinitionId, BytecodeLoweringError> {
+    ir.definitions()
+        .lookup_child(owner, segment.kind, &segment.name, segment.occurrence)
+        .ok_or(BytecodeLoweringError::InvalidNativeInterface)
 }

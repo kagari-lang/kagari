@@ -78,7 +78,29 @@ fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
         );
         assert_same_bytecode(&original, &decoded);
         for (a, b) in original.modules().iter().zip(decoded.modules()) {
+            assert_eq!(a.definitions().id(), original.definitions().id());
+            assert_eq!(b.definitions().id(), decoded.definitions().id());
             for function in &a.functions {
+                let recreated = &b.functions[function.id.index()];
+                assert_ne!(
+                    function.instance.declaration,
+                    recreated.instance.declaration
+                );
+                assert!(
+                    b.definitions()
+                        .resolve(function.instance.declaration)
+                        .is_err()
+                );
+                assert_eq!(
+                    a.definitions()
+                        .resolve(function.instance.declaration)
+                        .unwrap()
+                        .to_path(),
+                    b.definitions()
+                        .resolve(recreated.instance.declaration)
+                        .unwrap()
+                        .to_path(),
+                );
                 let facts = b.analysis(function.id).unwrap();
                 assert_eq!(facts.block(function.entry).unwrap().start_offset(), 0);
                 assert_eq!(
@@ -87,6 +109,31 @@ fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
                 );
             }
         }
+        let retained = decoded
+            .modules()
+            .iter()
+            .find(|module| !module.functions.is_empty())
+            .unwrap()
+            .clone();
+        let declaration = retained.functions[0].instance.declaration;
+        let expected = retained
+            .definitions()
+            .resolve(declaration)
+            .unwrap()
+            .to_path();
+        drop(decoded);
+        assert_eq!(
+            retained
+                .definitions()
+                .resolve(declaration)
+                .unwrap()
+                .to_path(),
+            expected
+        );
+        let cancelled = CancellationToken::default();
+        cancelled.cancel();
+        assert!(matches!(retained.to_unverified(&cancelled), Err(error)
+            if error.kind == MirVerificationErrorKind::Cancelled));
     }
 }
 

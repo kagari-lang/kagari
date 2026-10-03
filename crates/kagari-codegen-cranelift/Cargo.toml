@@ -8,6 +8,7 @@ license.workspace = true
 kagari-codegen.workspace = true
 kagari-mir.workspace = true
 kagari-abi.workspace = true
+kagari-common.workspace = true
 thiserror.workspace = true
 cranelift-codegen.workspace = true
 cranelift-frontend.workspace = true
@@ -17,7 +18,6 @@ cranelift-native.workspace = true
 
 [dev-dependencies]
 kagari-bytecode.workspace = true
-kagari-common.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
 kagari-embed = { workspace = true, features = ["source"] }
 kagari-runtime.workspace = true

@@ -14,7 +14,11 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::HostInterface,
-    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
+    identity::{
+        DefinitionKind, DefinitionPath, ModuleIdentity,
+        mapping::{DefinitionMapper, DefinitionRecord},
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use std::collections::{HashMap, HashSet};
 
@@ -22,7 +26,9 @@ use crate::{
     function::MirModule,
     ids::InstanceId,
     instruction::{CallTarget, Instruction},
-    verify::{MirVerificationError, VerificationBudget, VerifiedMirModule, verify_with_budget},
+    verify::{
+        MirVerificationError, VerificationBudget, VerifiedMirModule, ownership, verify_with_budget,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,10 +59,15 @@ pub struct ProgramError {
 pub struct VerifiedMirProgram {
     root: ModuleIdentity,
     modules: Vec<VerifiedMirModule>,
-    bindings: HashMap<ConcreteFunctionIdentity, ProgramFunctionRef>,
+    bindings: HashMap<ConcreteFunctionIdentity<DefinitionId>, ProgramFunctionRef>,
+    definitions: DefinitionTable,
 }
 
 impl VerifiedMirProgram {
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+
     pub fn root(&self) -> &ModuleIdentity {
         &self.root
     }
@@ -65,7 +76,10 @@ impl VerifiedMirProgram {
         &self.modules
     }
 
-    pub fn function(&self, instance: &ConcreteFunctionIdentity) -> Option<ProgramFunctionRef> {
+    pub fn function(
+        &self,
+        instance: &ConcreteFunctionIdentity<DefinitionId>,
+    ) -> Option<ProgramFunctionRef> {
         self.bindings.get(instance).copied()
     }
 
@@ -493,9 +507,47 @@ pub fn verify_program(
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
     }
+    let (raw_modules, analyses): (Vec<_>, Vec<_>) = modules
+        .into_iter()
+        .map(|checked| (checked.module, checked.analyses))
+        .unzip();
+    let metadata = ownership::scope_modules(&raw_modules, cancel).map_err(|cause| {
+        error(
+            &root,
+            ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+        )
+    })?;
+    let definitions = metadata.definitions().clone();
+    let compact = metadata.into_records();
+    let bindings = bindings
+        .into_iter()
+        .map(|(identity, target)| {
+            let identity = identity
+                .map_identities(&mut DefinitionMapper::new(
+                    &mut |path| definitions.lookup(path).ok_or_else(ownership::unmapped),
+                    cancel,
+                ))
+                .map_err(|cause| {
+                    error(
+                        &root,
+                        ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+                    )
+                })?;
+            Ok((identity, target))
+        })
+        .collect::<Result<_, ProgramError>>()?;
+    let modules = analyses
+        .into_iter()
+        .zip(compact)
+        .map(|(analysis, records)| {
+            ownership::retain(definitions.clone(), records, analysis, cancel)
+                .map_err(|cause| error(&root, ProgramErrorKind::Verification(cause)))
+        })
+        .collect::<Result<_, _>>()?;
     Ok(VerifiedMirProgram {
         root,
         modules,
         bindings,
+        definitions,
     })
 }

@@ -71,7 +71,7 @@ pub struct MirCapturedBindingDebugInfo {
 pub type MirLocalDebugBuffer = Vec<MirLocalDebugInfo>;
 pub type CapturedBindingDebugBuffer = Vec<MirCapturedBindingDebugInfo>;
 
-impl MirFunction {
+impl<I> MirFunction<I> {
     /// All referenced source ranges, including the synthetic zero-width origin.
     /// Transformations retain their original ranges or provide matching positions.
     pub fn source_spans(&self) -> impl Iterator<Item = Span> + '_ {

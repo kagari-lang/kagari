@@ -376,6 +376,7 @@ name = "kagari-codegen"
 version = "0.1.0"
 dependencies = [
  "kagari-abi",
+ "kagari-common",
  "kagari-mir",
 ]
 

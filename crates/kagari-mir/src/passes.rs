@@ -56,7 +56,7 @@ pub fn optimize(
     };
     work.charge(0)?;
     let mut statistics = PassStatistics::default();
-    let mut raw = module.into_unverified();
+    let mut raw = module.to_unverified(cancel)?;
     constants::simplify(&mut raw, &mut statistics, &mut work)?;
     let module = verify_mir(raw, cancel)?;
     let removals = dead::find(&module, &mut work)?;
@@ -64,7 +64,7 @@ pub fn optimize(
     let module = if removals.is_empty() {
         module
     } else {
-        let mut raw = module.into_unverified();
+        let mut raw = module.to_unverified(cancel)?;
         // Remove backwards within each block so original indices remain valid.
         let mut removals = removals;
         removals.sort_unstable_by(|left, right| right.cmp(left));

@@ -2,6 +2,7 @@ use crate::{
     source::{lower::lower_to_mir, program::lower_program_to_mir},
     tests::common,
 };
+use kagari_common::identity::table::DefinitionId;
 use {
     crate::source::lower::{MirLoweringError, instances::MirLoweringOptions},
     kagari_common::span::Span,
@@ -78,7 +79,12 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     assert_eq!(
         ir.enumerations
             .iter()
-            .filter(|layout| layout.declaration.module == ir.identity)
+            .filter(|layout| ir
+                .definitions()
+                .resolve(layout.declaration)
+                .unwrap()
+                .module()
+                == &ir.identity)
             .count(),
         1
     );
@@ -151,14 +157,25 @@ fn checked_enum_constructors_lower_to_nominal_layout_operands() {
         assert_eq!(
             ir.enumerations
                 .iter()
-                .filter(|layout| layout.declaration.module == ir.identity)
+                .filter(|layout| ir
+                    .definitions()
+                    .resolve(layout.declaration)
+                    .unwrap()
+                    .module()
+                    == &ir.identity)
                 .count(),
             1
         );
         let layout = ir
             .enumerations
             .iter()
-            .find(|layout| layout.declaration.module == ir.identity)
+            .find(|layout| {
+                ir.definitions()
+                    .resolve(layout.declaration)
+                    .unwrap()
+                    .module()
+                    == &ir.identity
+            })
             .unwrap();
         let instruction = ir.functions[0]
             .blocks
@@ -220,9 +237,10 @@ fn main() -> i32 {
         .enumerations
         .iter()
         .find(|enumeration| {
-            enumeration
-                .declaration
-                .path
+            ir.definitions()
+                .resolve(enumeration.declaration)
+                .unwrap()
+                .segments()
                 .last()
                 .is_some_and(|segment| segment.name == "Local")
         })
@@ -250,20 +268,29 @@ fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
     );
     let ir = lower_to_mir(analyzed.root(), &Default::default()).unwrap();
     assert_eq!(ir.functions.len(), 4);
-    assert!(
-        !ir.functions.iter().any(|function| function
-            .instance
-            .declaration
-            .path
+    assert!(!ir.functions.iter().any(|function| {
+        ir.definitions()
+            .resolve(function.instance.declaration)
+            .unwrap()
+            .segments()
             .last()
             .unwrap()
             .name
-            == "unused")
-    );
+            == "unused"
+    }));
     let echo = ir
         .functions
         .iter()
-        .filter(|function| function.instance.declaration.path.last().unwrap().name == "echo")
+        .filter(|function| {
+            ir.definitions()
+                .resolve(function.instance.declaration)
+                .unwrap()
+                .segments()
+                .last()
+                .unwrap()
+                .name
+                == "echo"
+        })
         .collect::<Vec<_>>();
     assert_eq!(echo.len(), 2);
     assert_eq!(echo[0].instance.declaration, echo[1].instance.declaration);
@@ -417,7 +444,16 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
         let main = ir
             .functions
             .iter()
-            .find(|function| function.instance.declaration.path.last().unwrap().name == "main")
+            .find(|function| {
+                ir.definitions()
+                    .resolve(function.instance.declaration)
+                    .unwrap()
+                    .segments()
+                    .last()
+                    .unwrap()
+                    .name
+                    == "main"
+            })
             .unwrap();
         assert!(
             main.blocks
@@ -861,7 +897,7 @@ fn main() -> usize {
                 .flat_map(|block| &block.instructions)
                 .filter(|instruction| matches!(instruction,
                     Instruction::Call { callee: CallTarget::Native(import), .. }
-                        if import.binding.path.last().is_some_and(|part| part.name == expected)
+                        if ir.definitions().resolve(import.binding).unwrap().segments().last().is_some_and(|part| part.name == expected)
                 ))
                 .count(),
             1,
@@ -920,7 +956,7 @@ fn main() -> () {
             .blocks
             .iter()
             .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. } if import.binding.path.last().is_some_and(|part| part.name == "$foundation_list_index")))
+            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. } if ir.definitions().resolve(import.binding).unwrap().segments().last().is_some_and(|part| part.name == "$foundation_list_index")))
     );
     assert!(
         function
@@ -931,11 +967,11 @@ fn main() -> () {
     );
 }
 
-fn assert_value_matches_temp_layout(function: &MirFunction, value: MirValue) {
+fn assert_value_matches_temp_layout(function: &MirFunction<DefinitionId>, value: MirValue) {
     assert_eq!(function.temps[value.temp.index()].ty, value.ty);
 }
 
-fn instruction_values(instruction: &Instruction) -> Vec<MirValue> {
+fn instruction_values(instruction: &Instruction<DefinitionId>) -> Vec<MirValue> {
     instruction
         .output()
         .into_iter()

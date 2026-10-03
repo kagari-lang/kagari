@@ -299,8 +299,8 @@ pub enum CallTarget<I = DefinitionPath> {
     RuntimeHelper(RuntimeHelper),
 }
 
-impl Instruction {
-    pub fn path_reference(&self) -> Option<&PathRef> {
+impl<I: DefinitionReference> Instruction<I> {
+    pub fn path_reference(&self) -> Option<&PathRef<I>> {
         match self {
             Self::ReadPath { path, .. }
             | Self::SetPath { path, .. }
@@ -408,7 +408,7 @@ impl Terminator {
     }
 }
 
-impl CallTarget {
+impl<I: DefinitionReference> CallTarget<I> {
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::Function(_) | Self::SourceFunction(_) | Self::Value(_) | Self::Closure { .. } => {

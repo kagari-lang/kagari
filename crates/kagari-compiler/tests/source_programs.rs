@@ -85,10 +85,10 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         .functions
         .iter()
         .filter(|function| {
-            function
-                .instance
-                .declaration
-                .path
+            ir.definitions()
+                .resolve(function.instance.declaration)
+                .unwrap()
+                .segments()
                 .last()
                 .is_some_and(|segment| segment.name == "get")
         })
@@ -369,10 +369,18 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
         .collect::<Vec<_>>();
     assert_eq!(calls.len(), 2);
     for call in calls {
-        assert_eq!(call.declaration.module.path, ["shared"]);
+        assert_eq!(
+            program
+                .definitions()
+                .resolve(call.declaration)
+                .unwrap()
+                .module()
+                .path,
+            ["shared"]
+        );
         let binding = program
             .function(&ConcreteFunctionIdentity {
-                declaration: call.declaration.clone(),
+                declaration: call.declaration,
                 arguments: call.arguments.clone(),
             })
             .unwrap();
@@ -614,9 +622,25 @@ fn portable_default_method_origins_remain_with_the_definition_module() {
     let inherited = root_module
         .functions
         .iter()
-        .find(|function| function.instance.declaration.path.last().unwrap().name == "again")
+        .find(|function| {
+            ir.definitions()
+                .resolve(function.instance.declaration)
+                .unwrap()
+                .segments()
+                .last()
+                .unwrap()
+                .name
+                == "again"
+        })
         .unwrap();
-    assert_eq!(inherited.instance.declaration.module.path, ["root"]);
+    assert_eq!(
+        ir.definitions()
+            .resolve(inherited.instance.declaration)
+            .unwrap()
+            .module()
+            .path,
+        ["root"]
+    );
     assert_eq!(
         inherited.debug.source_module.as_ref().unwrap().path,
         ["model"]

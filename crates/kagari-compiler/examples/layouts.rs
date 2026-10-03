@@ -60,12 +60,15 @@ fn main() {
         .find(|module| &module.identity == mir_program.root())
         .unwrap();
     for layout in &ir.structures {
-        assert_eq!(layout.declaration.path.len(), 1);
-        assert_eq!(layout.declaration.path[0].occurrence, 0);
-        println!("{}::{}", layout.declaration.module, layout.name());
+        let identity = ir.definitions().resolve(layout.declaration).unwrap();
+        let segment = identity.segments().last().unwrap();
+        assert_eq!(identity.segments().count(), 1);
+        assert_eq!(segment.occurrence, 0);
+        println!("{}::{}", identity.module(), segment.name);
         for (slot, field) in layout.fields.iter().enumerate() {
-            assert_eq!(field.declaration.path.len(), 2);
-            assert_eq!(field.declaration.path[1].occurrence, 0);
+            let identity = ir.definitions().resolve(field.declaration).unwrap();
+            assert_eq!(identity.segments().count(), 2);
+            assert_eq!(identity.segments().last().unwrap().occurrence, 0);
             println!(
                 "  slot {slot}: {} {:?}, mutable={}",
                 field.name, field.ty, field.mutable

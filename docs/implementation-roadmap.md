@@ -181,8 +181,30 @@ Structure checks cover 695 Rust files with no violations or exceptions. No carri
 build, codec, verification or test error remains. Full final integration and measured
 normalization costs remain ID05 work; these observations do not establish a speedup.
 
-ID02-ID05 are still not accepted: named/generic HIR ownership, MIR seals/backend
-inputs and native catalog value metadata still retain authoring paths. Finish those
+ID02/ID04 MIR ownership checkpoint: immutable module/program seals now retain scoped
+records and a checked definition table; a dependency program shares one scope.
+Verification uses ephemeral authoring input until all module and closure checks
+complete, then retains the existing physical analysis facts with compact records.
+Cranelift and bytecode lowering consume these checked records. Named ABI methods
+are interned from their checked declarations, including unused marker traits;
+unreferenced names confer no authority and are omitted from portable projections.
+Explicit mutable extraction discards the seal; cancellable extraction is used by
+optimization passes. Default-contract proof checking and unsealed public bytecode
+output remain explicit authoring boundaries, without retaining expanded function
+bodies in backend input. Identity builders enforce the one-million-node adoption
+limit as well as portable decoding limits.
+
+Workspace/all-target checking, compiler/MIR/Cranelift regressions and structure
+(696 Rust files, zero findings/exceptions) pass. Compiler regression covers 161
+unit tests, four foundation and ten source-program tests. The codec scope regression
+also checks independent table identities, foreign-reference rejection, shared closure
+scope, retained names after program drop and extraction cancellation. Its first
+retention assertion selected an empty native module; selecting a module containing
+a script function fixes that test setup, and the focused rerun passes. The initial
+compiler interface diagnostics are resolved; no carried build/test error remains.
+
+ID02-ID05 are still not accepted: named/generic HIR ownership and native catalog
+value metadata still retain authoring paths. Finish those
 ownership boundaries before the final feature/backend matrix and metadata/artifact/
 allocation/timing measurements. The parameterized authoring model is an explicit
 input boundary, not a second semantic implementation or a compatibility reader.

@@ -2,6 +2,7 @@ use crate::{
     ids::BlockId,
     instruction::{CallTarget, Instruction, MirValue, Terminator},
 };
+use kagari_common::identity::reference::DefinitionReference;
 use smallvec::SmallVec;
 use std::iter;
 
@@ -29,7 +30,7 @@ impl Terminator {
     }
 }
 
-impl Instruction {
+impl<I: DefinitionReference> Instruction<I> {
     /// Temporary uses for dataflow analysis; this order is not evaluation order.
     pub fn inputs(&self) -> SmallVec<[MirValue; 4]> {
         match self {

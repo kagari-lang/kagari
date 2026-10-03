@@ -7,6 +7,7 @@ use kagari_bytecode::{
     },
     program::ModuleRef,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
 use kagari_mir::{
     analysis::{FunctionAnalysis, PointAnalysis},
@@ -17,7 +18,7 @@ use kagari_mir::{
 use std::collections::HashMap;
 
 pub(super) fn collect_debug_metadata(
-    function: &MirFunction,
+    function: &MirFunction<DefinitionId>,
     analysis: &FunctionAnalysis,
     instruction_spans: &[Span],
     source_module: Option<ModuleRef>,
@@ -123,7 +124,7 @@ pub(super) fn collect_debug_metadata(
 }
 
 fn collect_local_live_ranges(
-    function: &MirFunction,
+    function: &MirFunction<DefinitionId>,
     points: &[&PointAnalysis],
 ) -> Vec<LocalLiveRange> {
     let mut ranges = Vec::new();

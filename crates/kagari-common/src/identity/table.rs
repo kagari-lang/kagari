@@ -344,6 +344,9 @@ impl DefinitionTableBuilder {
         let index = if let Some(index) = self.data.node_indices.get(&node) {
             *index
         } else {
+            if self.data.nodes.len() >= wire::MAX_PORTABLE_IDENTITY_RECORDS {
+                return Err(DefinitionTableError::PortableLimit);
+            }
             let index = DefinitionIndex(checked_index(self.data.nodes.len())?);
             let data = Arc::make_mut(&mut self.data);
             data.nodes.push(node);

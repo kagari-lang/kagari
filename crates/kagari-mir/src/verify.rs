@@ -4,7 +4,11 @@ use kagari_abi::{
     representation::ValueType,
     types::AbiType,
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind, span::Span};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId},
+    span::Span,
+};
 use std::{collections::HashSet, ops::Deref};
 
 use crate::{
@@ -20,6 +24,7 @@ mod debug;
 mod flow;
 mod layout;
 mod operation;
+pub(crate) mod ownership;
 
 /// Owns a checked module. Mutating a copy requires verifying it again.
 ///
@@ -36,14 +41,28 @@ mod operation;
 /// ```
 #[derive(Debug, Clone)]
 pub struct VerifiedMirModule {
-    module: MirModule,
+    metadata: DefinitionMetadata<MirModule<DefinitionId>>,
     analyses: Vec<FunctionAnalysis>,
 }
 
 impl Deref for VerifiedMirModule {
+    type Target = MirModule<DefinitionId>;
+
+    fn deref(&self) -> &Self::Target {
+        self.metadata.records()
+    }
+}
+
+/// Ephemeral verifier state; it cannot be submitted to a backend.
+pub(crate) struct ValidatedMirModule {
+    pub(crate) module: MirModule,
+    pub(crate) analyses: Vec<FunctionAnalysis>,
+}
+
+impl Deref for ValidatedMirModule {
     type Target = MirModule;
 
-    fn deref(&self) -> &MirModule {
+    fn deref(&self) -> &Self::Target {
         &self.module
     }
 }
@@ -52,10 +71,6 @@ impl VerifiedMirModule {
     /// Facts belong to this immutable module revision and cannot survive mutation.
     pub fn analysis(&self, function: InstanceId) -> Option<&FunctionAnalysis> {
         self.analyses.get(function.index())
-    }
-
-    pub fn into_unverified(self) -> MirModule {
-        self.module
     }
 }
 
@@ -152,7 +167,8 @@ pub fn verify_mir(
     module: MirModule,
     cancel: &CancellationToken,
 ) -> Result<VerifiedMirModule, MirVerificationError> {
-    verify_with_budget(module, cancel, &mut VerificationBudget::default())
+    let checked = verify_with_budget(module, cancel, &mut VerificationBudget::default())?;
+    ownership::adopt(checked, cancel)
 }
 
 /// Program verification shares this budget across every retained module seal.
@@ -163,7 +179,7 @@ pub(crate) fn verify_with_budget(
     module: MirModule,
     cancel: &CancellationToken,
     budget: &mut VerificationBudget,
-) -> Result<VerifiedMirModule, MirVerificationError> {
+) -> Result<ValidatedMirModule, MirVerificationError> {
     let context = Context {
         function: None,
         block: None,
@@ -257,7 +273,7 @@ pub(crate) fn verify_with_budget(
             &mut budget.0,
         )?);
     }
-    Ok(VerifiedMirModule { module, analyses })
+    Ok(ValidatedMirModule { module, analyses })
 }
 
 #[derive(Clone, Copy)]

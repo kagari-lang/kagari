@@ -4,6 +4,7 @@ use crate::diagnostic::BackendCompileError;
 use kagari_abi::native::{
     BackendId, BackendTarget, NativeCompilationProduct, NativeLinkDescription,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_mir::{
     analysis::FunctionAnalysis, function::MirFunction, ids::InstanceId, verify::VerifiedMirModule,
 };
@@ -33,7 +34,7 @@ impl<'a> BackendFunctionInput<'a> {
         self.module
     }
 
-    pub fn function(&self) -> &'a MirFunction {
+    pub fn function(&self) -> &'a MirFunction<DefinitionId> {
         &self.module.functions[self.function.index()]
     }
 

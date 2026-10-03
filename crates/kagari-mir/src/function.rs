@@ -76,10 +76,10 @@ pub struct MirFunction<I = DefinitionPath> {
     pub debug: MirFunctionDebugMetadata,
 }
 
-impl MirFunction {
+impl<I: DefinitionReference> MirFunction<I> {
     /// Canonical logical point order: entry block first, then block ID order.
     /// Requires the valid entry guaranteed by MIR verification.
-    pub fn emission_order(&self) -> impl Iterator<Item = (usize, &BasicBlock)> {
+    pub fn emission_order(&self) -> impl Iterator<Item = (usize, &BasicBlock<I>)> {
         iter::once((self.entry.index(), &self.blocks[self.entry.index()])).chain(
             self.blocks
                 .iter()
@@ -109,8 +109,8 @@ impl MirFunction {
     }
 }
 
-impl MirModule {
-    pub fn selected_callables(&self) -> impl Iterator<Item = &NativeCallableApplication> {
+impl<I: DefinitionReference> MirModule<I> {
+    pub fn selected_callables(&self) -> impl Iterator<Item = &NativeCallableApplication<I>> {
         self.native_applications()
             .flat_map(|import| &import.callables)
             .filter_map(|operation| match operation {
@@ -141,7 +141,7 @@ impl MirModule {
             )
     }
 
-    pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {
+    pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport<I>> {
         self.native_targets.iter().chain(
             self.functions
                 .iter()
@@ -157,7 +157,7 @@ impl MirModule {
         )
     }
 
-    pub fn structure(&self, instance: &NominalAbiType) -> Option<Cow<'_, StructLayout>> {
+    pub fn structure(&self, instance: &NominalAbiType<I>) -> Option<Cow<'_, StructLayout<I>>> {
         self.structures
             .iter()
             .find(|layout| {
