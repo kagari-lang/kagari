@@ -1,10 +1,10 @@
 //! Host retention and a repeatable baseline for nonmoving mark-sweep pauses.
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::collection::CollectionAccess;
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{Runtime, value::Value};
 
 fn main() {
@@ -23,7 +23,7 @@ fn main() {
             )
             .unwrap();
         // A typed array of scalar arrays makes the graph shape and storage cost explicit.
-        let element = AbiType::Builtin(BuiltinType::I32);
+        let element = Ty::Builtin(BuiltinType::I32);
         let mut leaves = Vec::with_capacity(LEAVES);
         for _ in 0..LEAVES {
             leaves.push(Value::Array(
@@ -36,7 +36,7 @@ fn main() {
             runtime
                 .alloc_array(
                     &owner,
-                    AbiType::Array(Box::new(element), CollectionAccess::Mutable),
+                    Ty::Array(Box::new(element), CollectionAccess::Mutable),
                     leaves,
                 )
                 .unwrap(),

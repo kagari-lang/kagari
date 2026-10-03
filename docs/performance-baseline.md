@@ -101,7 +101,7 @@ Commands:
 
 ```text
 cargo run -p kagari-common --example definition_identity --release --locked
-cargo run -p kagari-abi --example definition_metadata --release --locked
+cargo run -p kagari-contract --example definition_metadata --release --locked
 ```
 
 Same Windows/i9/rustc 1.99.0 environment and release/default-feature settings as

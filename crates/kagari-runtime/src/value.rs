@@ -5,14 +5,15 @@ use crate::{
     range::RangeValue,
     value_semantics,
 };
-use kagari_abi::{
-    representation::ValueType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
-};
 use kagari_common::identity::table::DefinitionId;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     slice,
+};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{standard::surface::StandardEnum as StandardEnumKind, types::Ty},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,7 +198,7 @@ enum KeyPart {
     DeclaredEnum(
         HostRegistryId,
         DefinitionId,
-        Vec<AbiType<DefinitionId>>,
+        Vec<Ty<DefinitionId>>,
         DefinitionId,
     ),
     Identity(u8, HeapObjectId),

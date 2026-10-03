@@ -3,20 +3,20 @@ use crate::{
     error::RuntimeError,
     native::binding::{Codec, NativeResult},
 };
-use kagari_abi::{
+use kagari_common::identity::{DefinitionPath, associated_type_id};
+use kagari_contract::{
     declaration::ModuleDecl,
     scalar::BuiltinType,
-    types::{AbiType, NominalAbiType, TraitAbi, TypeAbi},
+    types::{NominalTy, TraitDef, Ty, TypeDef},
 };
-use kagari_common::identity::{DefinitionPath, associated_type_id};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Type(pub(crate) AbiType);
+pub struct Type(pub(crate) Ty);
 
 impl Type {
     pub fn scalar(kind: BuiltinType) -> Self {
-        Self(AbiType::Builtin(kind))
+        Self(Ty::Builtin(kind))
     }
 
     pub fn unit() -> Self {
@@ -48,17 +48,17 @@ impl Type {
     }
 
     pub fn tuple(items: impl IntoIterator<Item = Type>) -> Self {
-        Self(AbiType::Tuple(items.into_iter().map(|ty| ty.0).collect()))
+        Self(Ty::Tuple(items.into_iter().map(|ty| ty.0).collect()))
     }
 
     pub fn function(params: impl IntoIterator<Item = Type>, result: Type) -> Self {
-        Self(AbiType::Function {
+        Self(Ty::Function {
             params: params.into_iter().map(|ty| ty.0).collect(),
             result: Box::new(result.0),
         })
     }
 
-    pub fn abi(&self) -> &AbiType {
+    pub fn abi(&self) -> &Ty {
         &self.0
     }
 }
@@ -71,7 +71,7 @@ pub struct ParameterRef {
 #[derive(Debug, Clone)]
 pub struct TypeRef {
     pub(crate) id: DefinitionPath,
-    pub(crate) declaration: Arc<TypeAbi>,
+    pub(crate) declaration: Arc<TypeDef>,
     pub(crate) parameter_names: Vec<String>,
 }
 
@@ -91,7 +91,7 @@ impl TypeRef {
                 "native type argument count",
             ));
         }
-        Ok(Type(AbiType::NativeObject(NominalAbiType {
+        Ok(Type(Ty::NativeObject(NominalTy {
             declaration: self.id.clone(),
             arguments,
             associated_types: BTreeMap::new(),
@@ -126,14 +126,14 @@ impl ParameterRef {
 #[derive(Debug, Clone)]
 pub struct TraitRef {
     pub(crate) id: DefinitionPath,
-    pub(crate) contract: Arc<TraitAbi>,
+    pub(crate) contract: Arc<TraitDef>,
 }
 
 impl TraitRef {
     pub fn apply(&self, arguments: impl IntoIterator<Item = Type>) -> AppliedTrait {
         AppliedTrait {
             contract: self.clone(),
-            ty: NominalAbiType {
+            ty: NominalTy {
                 declaration: self.id.clone(),
                 arguments: arguments.into_iter().map(|ty| ty.0).collect(),
                 associated_types: BTreeMap::new(),
@@ -159,7 +159,7 @@ impl TraitRef {
     }
 
     pub fn receiver(&self) -> Type {
-        Type(AbiType::SelfType(self.id.clone()))
+        Type(Ty::SelfType(self.id.clone()))
     }
 
     pub fn id(&self) -> &DefinitionPath {
@@ -174,7 +174,7 @@ fn kagari_method_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
 #[derive(Debug, Clone)]
 pub struct AppliedTrait {
     pub(crate) contract: TraitRef,
-    pub(crate) ty: NominalAbiType,
+    pub(crate) ty: NominalTy,
 }
 
 impl AppliedTrait {
@@ -196,7 +196,7 @@ impl AppliedTrait {
     }
 
     pub fn ty(&self) -> Type {
-        Type(AbiType::Trait(self.ty.clone()))
+        Type(Ty::Trait(self.ty.clone()))
     }
 }
 

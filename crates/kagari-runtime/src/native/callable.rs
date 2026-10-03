@@ -12,8 +12,8 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::types::AbiType;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::Ty;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -57,8 +57,8 @@ impl PreparedClosure {
     fn call<R: NativeScalar, A: CallArguments>(
         &self,
         cx: &CallContext<'_>,
-        params: &[AbiType<DefinitionId>],
-        result: &AbiType<DefinitionId>,
+        params: &[Ty<DefinitionId>],
+        result: &Ty<DefinitionId>,
         arguments: A,
     ) -> NativeResult<R> {
         if result != &R::abi_type_in() || !A::matches(params) {
@@ -110,15 +110,15 @@ impl PreparedClosure {
 /// shares immutable capture metadata and never holds a heap borrow across calls.
 pub struct CallableHandle<'call> {
     target: PreparedClosure,
-    params: &'call [AbiType<DefinitionId>],
-    result: &'call AbiType<DefinitionId>,
+    params: &'call [Ty<DefinitionId>],
+    result: &'call Ty<DefinitionId>,
     _arguments: ArgumentView<'call>,
 }
 
 impl<'call> CallableHandle<'call> {
     pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
         cx.heap().ensure_no_native_borrow()?;
-        let AbiType::Function { params, result } = cx.argument_type(index)? else {
+        let Ty::Function { params, result } = cx.argument_type(index)? else {
             return Err(RuntimeError::module_validation(
                 "native callback declaration",
             ));
@@ -127,7 +127,7 @@ impl<'call> CallableHandle<'call> {
         let closure = cx.runtime.resolve_closure(&value)?;
         cx.runtime.validate_loaded_module(&closure.implementation)?;
         let expected = cx.argument_type_view(index)?;
-        let AbiType::Function {
+        let Ty::Function {
             params: expected_params,
             result: expected_result,
         } = expected.ty
@@ -183,8 +183,8 @@ impl<'call> CallableHandle<'call> {
 #[derive(Debug)]
 struct StoredFunction {
     target: PreparedClosure,
-    params: Box<[AbiType<DefinitionId>]>,
-    result: AbiType<DefinitionId>,
+    params: Box<[Ty<DefinitionId>]>,
+    result: Ty<DefinitionId>,
 }
 
 /// Embed this immutable descriptor in a NativePayload and visit it in trace.

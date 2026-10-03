@@ -1,6 +1,6 @@
 use super::*;
 use crate::{Runtime, layout_fixtures::allocation_owner};
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 
 #[test]
 fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
@@ -10,16 +10,12 @@ fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
     let array = runtime
         .alloc_array(
             &owner,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(1), Value::I32(2)],
         )
         .unwrap();
     let short = runtime
-        .alloc_array(
-            &owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(0)],
-        )
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(0)])
         .unwrap();
     let before = heap.stats().current_heap_units;
     assert!(heap.array_copy_from(array, short).is_err());
@@ -30,7 +26,7 @@ fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
     let mut foreign = Runtime::default();
     let foreign_owner = allocation_owner(&mut foreign);
     let foreign_array = foreign
-        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     assert!(heap.array_fill(array, Value::Array(foreign_array)).is_err());
     assert!(heap.array_copy_from(array, foreign_array).is_err());
@@ -47,7 +43,7 @@ fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
     let heap = runtime.gc();
     let original = vec![Value::I32(1), Value::I32(2), Value::I32(3), Value::I32(4)];
     let target = runtime
-        .alloc_array(&owner, AbiType::Builtin(BuiltinType::I32), original.clone())
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), original.clone())
         .unwrap();
     let before = heap.stats().current_heap_units;
     for (start, end, destination) in [

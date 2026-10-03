@@ -441,7 +441,7 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
         assert_eq!(
             file.type_at("fn good(value: i32) -> i32 { ".len()),
             Some(kagari_hir::types::TypeId::Builtin(
-                kagari_abi::scalar::BuiltinType::I32
+                kagari_contract::scalar::BuiltinType::I32
             )),
             "case {index}: preceding function body remains typed",
         );
@@ -614,7 +614,7 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
     assert_eq!(
         file.type_at("fn good(value: i32) -> i32 { ".len()),
         Some(kagari_hir::types::TypeId::Builtin(
-            kagari_abi::scalar::BuiltinType::I32
+            kagari_contract::scalar::BuiltinType::I32
         ))
     );
     assert!(analysis.check_program(id, &Default::default()).is_err());
@@ -703,7 +703,7 @@ fn invalid_const_types_cannot_bypass_validation_budget() {
         assert_eq!(
             file.type_at("fn good(value: i32) -> i32 { ".len()),
             Some(kagari_hir::types::TypeId::Builtin(
-                kagari_abi::scalar::BuiltinType::I32
+                kagari_contract::scalar::BuiltinType::I32
             ))
         );
         assert!(analysis.check_program(id, &Default::default()).is_err());

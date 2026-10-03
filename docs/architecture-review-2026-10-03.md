@@ -59,7 +59,7 @@ polling semantics. These are not bugs caused merely by lacking a larger backend.
 | Gate | Current boundary | Required decision and evidence |
 | --- | --- | --- |
 | General calls and values | [native_call.rs](../crates/kagari-abi/src/native_call.rs), 38–46, transports runtime/result/status for zero arguments and Unit/Bool/i32 results | Define argument/result representation, helper calls, error propagation and cleanup once for both native backends |
-| Native GC roots | [native.rs](../crates/kagari-abi/src/native.rs), 75–85, records logical Register/Local locations; no runtime physical map reader was found | Choose a shadow-root protocol or real physical frame/PC/location maps; prove objects survive collecting helpers, returned allocation, reentry and traps |
+| Native GC roots | [native.rs](../crates/kagari-contract/src/native.rs), logical stack-map declarations, records logical Register/Local locations; no runtime physical map reader was found | Choose a shadow-root protocol or real physical frame/PC/location maps; prove objects survive collecting helpers, returned allocation, reentry and traps |
 | Verified cross-module calls | [codegen/lib.rs](../crates/kagari-codegen/src/lib.rs), 12–45, accepts a module seal; full binding proofs live in `VerifiedMirProgram` | Pass program-scoped verified target bindings or a typed runtime trampoline; backends must not redo name/type resolution |
 | Effect interpretation | Script calls carry `calls`/`may_trap`, not transitive allocation/write facts | Treat calls as conservative memory/GC barriers or compute conservative graph summaries before emitting LLVM `readonly`/`readnone`-style assumptions |
 | Tier-neutral callbacks | Synchronous `ScriptInvoker` currently selects the interpreter | Preserve pinned generation, captures, argument/result checks, shared call depth/cancellation, observers and trap origins when selecting compiled callbacks |
@@ -72,7 +72,7 @@ metadata schema for completed GC integration.
 
 Effect caution is similarly forward-looking. In
 [instruction.rs](../crates/kagari-mir/src/instruction.rs), lines 397–406, script calls
-use `EffectSet::call`; [effects.rs](../crates/kagari-abi/src/effects.rs), lines
+use `EffectSet::call`; [effects.rs](../crates/kagari-contract/src/effects.rs), lines
 124–129, sets only `calls` and `may_trap`. A callee can still allocate and mutate.
 Current constant propagation treats calls as barriers and dead-code elimination
 requires an empty effect set, so no present miscompile was demonstrated. Individual

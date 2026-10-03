@@ -238,10 +238,10 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
 
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
-    use kagari_abi::{
+    use kagari_contract::{
         scalar::BuiltinType,
         standard::surface::StandardTypeConstraint,
-        types::{AbiType, ConstraintAbi, GenericBoundAbi, PublicAbiItem},
+        types::{Constraint, GenericBound, PublicItem, Ty},
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"),  Default::default()).unwrap();
@@ -253,7 +253,7 @@ fn unused_family_metadata_is_verified_before_loading() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    if let PublicAbiItem::Trait(record) = item {
+                    if let PublicItem::Trait(record) = item {
                         Some(record)
                     } else {
                         None
@@ -269,7 +269,7 @@ fn unused_family_metadata_is_verified_before_loading() {
                 }
                 1 => record.associated_types[0].generic_params[0].position = 1,
                 _ => {
-                    let AbiType::Projection { arguments, .. } = &mut record.methods[0].return_type
+                    let Ty::Projection { arguments, .. } = &mut record.methods[0].return_type
                     else {
                         panic!("projection")
                     };
@@ -281,7 +281,7 @@ fn unused_family_metadata_is_verified_before_loading() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    if let PublicAbiItem::InterfaceTable(table) = item {
+                    if let PublicItem::InterfaceTable(table) = item {
                         Some(table)
                     } else {
                         None
@@ -293,24 +293,24 @@ fn unused_family_metadata_is_verified_before_loading() {
                 3 => family.generic_params[0].owner = table.declaration.clone(),
                 4 => family.generic_params[0].position = 1,
                 5 => family.generic_params.clear(),
-                6 => family.value = AbiType::Builtin(BuiltinType::Unit),
-                7 => family.bounds.push(GenericBoundAbi {
-                    ty: AbiType::Parameter {
+                6 => family.value = Ty::Builtin(BuiltinType::Unit),
+                7 => family.bounds.push(GenericBound {
+                    ty: Ty::Parameter {
                         owner: family.generic_params[0].owner.clone(),
                         position: 0,
                     },
-                    constraints: vec![ConstraintAbi::Standard(StandardTypeConstraint::HashKey)],
+                    constraints: vec![Constraint::Standard(StandardTypeConstraint::HashKey)],
                 }),
                 8 => family.declaration.path.last_mut().unwrap().name = "Unknown".into(),
                 _ => {
-                    family.value = AbiType::Projection {
+                    family.value = Ty::Projection {
                         receiver: Box::new(table.for_type.clone()),
                         interface: Box::new(match &table.trait_type {
-                            AbiType::Trait(v) => v.clone(),
+                            Ty::Trait(v) => v.clone(),
                             _ => unreachable!(),
                         }),
                         member: family.declaration.clone(),
-                        arguments: vec![AbiType::Parameter {
+                        arguments: vec![Ty::Parameter {
                             owner: family.generic_params[0].owner.clone(),
                             position: 0,
                         }],
@@ -345,8 +345,8 @@ fn main()->i32 { make(Maker {}).read() }
 
 #[test]
 fn complete_family_metadata_cannot_make_a_dynamic_interface() {
-    use kagari_abi::types::{
-        AbiType, AssociatedTypeAbi, AssociatedTypeFamilyAbi, GenericParameterAbi, PublicAbiItem,
+    use kagari_contract::types::{
+        AssociatedTypeDef, AssociatedTypeFamily, GenericParam, PublicItem, Ty,
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self)->i32; } struct N {} impl Read for N { fn read(self)->i32 { 42 } } fn main()->i32 { val x: Read = N {}; x.read() }"),  Default::default()).unwrap();
@@ -356,10 +356,10 @@ fn complete_family_metadata_cannot_make_a_dynamic_interface() {
         .public_items
         .iter()
         .find_map(|item| {
-            let PublicAbiItem::InterfaceTable(table) = item else {
+            let PublicItem::InterfaceTable(table) = item else {
                 return None;
             };
-            let AbiType::Trait(interface) = &table.trait_type else {
+            let Ty::Trait(interface) = &table.trait_type else {
                 return None;
             };
             Some((interface.declaration.clone(), table.declaration.clone()))
@@ -369,30 +369,28 @@ fn complete_family_metadata_cannot_make_a_dynamic_interface() {
     let binder = kagari_common::identity::associated_type_id(&implementation, "Item");
     for item in &mut module.public_items {
         match item {
-            PublicAbiItem::Trait(record) => record.associated_types.push(AssociatedTypeAbi {
+            PublicItem::Trait(record) => record.associated_types.push(AssociatedTypeDef {
                 declaration: member.clone(),
-                generic_params: vec![GenericParameterAbi {
+                generic_params: vec![GenericParam {
                     owner: member.clone(),
                     position: 0,
                 }],
                 parameter_bounds: Vec::new(),
                 bounds: Vec::new(),
             }),
-            PublicAbiItem::InterfaceTable(table) => {
-                table
-                    .associated_type_families
-                    .push(AssociatedTypeFamilyAbi {
-                        declaration: member.clone(),
-                        generic_params: vec![GenericParameterAbi {
-                            owner: binder.clone(),
-                            position: 0,
-                        }],
-                        bounds: Vec::new(),
-                        value: AbiType::Parameter {
-                            owner: binder.clone(),
-                            position: 0,
-                        },
-                    })
+            PublicItem::InterfaceTable(table) => {
+                table.associated_type_families.push(AssociatedTypeFamily {
+                    declaration: member.clone(),
+                    generic_params: vec![GenericParam {
+                        owner: binder.clone(),
+                        position: 0,
+                    }],
+                    bounds: Vec::new(),
+                    value: Ty::Parameter {
+                        owner: binder.clone(),
+                        position: 0,
+                    },
+                })
             }
             _ => {}
         }

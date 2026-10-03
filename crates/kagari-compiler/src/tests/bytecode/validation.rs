@@ -6,7 +6,7 @@ use kagari_bytecode::{
     program::verify_program,
 };
 
-use kagari_abi::{effects::EffectSet, standard::RuntimePrimitive};
+use kagari_contract::{effects::EffectSet, standard::RuntimePrimitive};
 
 #[test]
 fn rejects_function_fallthrough_before_loading() {
@@ -444,8 +444,8 @@ fn verifier_rejects_malformed_debug_metadata() {
 
 #[test]
 fn mapped_result_error_rejects_invalid_contracts_and_registers() {
-    use kagari_abi::{
-        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
+    use kagari_contract::{
+        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::Ty,
     };
     let module = common::bytecode_ok(
         "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");Ok(r?)}",
@@ -469,9 +469,9 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
             unreachable!()
         };
         match mutation {
-            0 => *ty = AbiType::Builtin(BuiltinType::Bool),
+            0 => *ty = Ty::Builtin(BuiltinType::Bool),
             1 => {
-                *ty = AbiType::StandardEnum {
+                *ty = Ty::StandardEnum {
                     kind: StandardEnumKind::Result,
                     args: vec![],
                 }
@@ -485,10 +485,10 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
 
 #[test]
 fn ranges_reject_forged_shapes_endpoints_and_bounds() {
-    use kagari_abi::{
-        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
-    };
     use kagari_common::range::RangeKind;
+    use kagari_contract::{
+        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::Ty,
+    };
     let module =
         common::bytecode_ok("fn main() { val range = 0usize..2usize; range.start_bound(); }");
     verify_program(&module).unwrap();
@@ -507,21 +507,16 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
             0 => *start = None,
             1 => *end = None,
             2 => {
-                *ty = AbiType::Range(
-                    Box::new(AbiType::Builtin(BuiltinType::Bool)),
+                *ty = Ty::Range(
+                    Box::new(Ty::Builtin(BuiltinType::Bool)),
                     RangeKind::Exclusive,
                 )
             }
-            3 => {
-                *ty = AbiType::Range(
-                    Box::new(AbiType::Builtin(BuiltinType::USize)),
-                    RangeKind::Full,
-                )
-            }
+            3 => *ty = Ty::Range(Box::new(Ty::Builtin(BuiltinType::USize)), RangeKind::Full),
             4 => *start = Some(Register::new(usize::MAX)),
             _ => {
-                *ty = AbiType::Range(
-                    Box::new(AbiType::Builtin(BuiltinType::U64)),
+                *ty = Ty::Range(
+                    Box::new(Ty::Builtin(BuiltinType::U64)),
                     RangeKind::Exclusive,
                 )
             }
@@ -547,16 +542,16 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         let mut invalid = module.clone();
         let contract = &mut invalid.modules[root].native_imports[import];
         match mutation {
-            0 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
+            0 => contract.signature.result = Ty::Builtin(BuiltinType::Bool),
             1 => {
-                contract.signature.result = AbiType::StandardEnum {
+                contract.signature.result = Ty::StandardEnum {
                     kind: StandardEnumKind::Bound,
                     args: vec![],
                 }
             }
             2 => {
-                contract.signature.params[0] = AbiType::Range(
-                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                contract.signature.params[0] = Ty::Range(
+                    Box::new(Ty::Builtin(BuiltinType::I32)),
                     RangeKind::Exclusive,
                 )
             }

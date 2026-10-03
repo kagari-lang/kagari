@@ -10,8 +10,8 @@ use {
 
 #[path = "support/layouts.rs"]
 mod layouts;
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::module::BytecodeModule;
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use {
     kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     kagari_runtime::{
@@ -124,8 +124,8 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         "Record",
         &[(
             "leaf",
-            AbiType::Array(
-                Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
+            Ty::Array(
+                Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable,
             ),
             true,
@@ -134,7 +134,7 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
     let leaf = runtime
         .alloc_array(
             record_layout.module(),
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(1)],
         )
         .unwrap();
@@ -268,8 +268,8 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
         "HostBacked",
         &[(
             "path",
-            AbiType::Array(
-                Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
+            Ty::Array(
+                Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable,
             ),
             true,
@@ -279,7 +279,7 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
         runtime
             .alloc_array(
                 record_layout.module(),
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![host_root_value(1)]
             )
             .is_err()
@@ -287,7 +287,7 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let script = runtime
         .alloc_array(
             record_layout.module(),
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(1)],
         )
         .unwrap();

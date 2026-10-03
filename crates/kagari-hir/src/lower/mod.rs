@@ -6,8 +6,8 @@ use kagari_syntax::{
     parser::parse,
 };
 
-use kagari_abi::{callable::MethodPolicy, types::NativeDeclaration};
 use kagari_common::{cancellation::CancellationToken, source::SourceFile, span::Span};
+use kagari_contract::{callable::MethodPolicy, types::NativeDeclaration};
 
 use std::{
     collections::{HashMap, HashSet},

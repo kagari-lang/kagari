@@ -17,7 +17,6 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_abi::{language::Protocol, standard::surface::StandardTypeConstraint};
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
@@ -25,6 +24,7 @@ use kagari_common::{
     range::RangeKind,
     span::Span,
 };
+use kagari_contract::{language::Protocol, standard::surface::StandardTypeConstraint};
 
 pub(super) fn validate(
     ty: &TypeId,

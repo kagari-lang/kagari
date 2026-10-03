@@ -1,8 +1,8 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -142,7 +142,7 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
         runtime
             .alloc_array(
                 &module,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![borrow_value.clone()]
             )
             .is_err()

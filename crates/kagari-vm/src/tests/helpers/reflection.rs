@@ -1,7 +1,7 @@
 use super::*;
 use crate::tests::common;
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 
 #[test]
 fn executes_runtime_reflect_type_of_helper() {
@@ -228,7 +228,7 @@ fn executes_runtime_reflect_set_index_helper() {
                     constant: ConstantOperand::I32(2),
                 },
                 BytecodeInstruction::MakeArray {
-                    element: AbiType::Builtin(BuiltinType::I32),
+                    element: Ty::Builtin(BuiltinType::I32),
                     dst: Register::new(2),
                     elements: vec![Register::new(0), Register::new(1)],
                 },

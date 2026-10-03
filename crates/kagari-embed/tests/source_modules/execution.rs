@@ -285,12 +285,12 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
 
 #[test]
 fn malformed_programs_are_rejected_before_any_member_is_published() {
-    use kagari_abi::ids::FunctionRef;
     use kagari_bytecode::{
         instruction::{BytecodeInstruction, CallTarget},
         module::BytecodeModule,
         program::ModuleRef,
     };
+    use kagari_contract::ids::FunctionRef;
     let engine = KagariEngine::default();
     insert(
         &engine,

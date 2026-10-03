@@ -1,7 +1,3 @@
-use kagari_abi::{
-    ids::{DebugPointId, FunctionRef},
-    representation::ValueType,
-};
 use kagari_bytecode::module::RootSlotLayout;
 use kagari_bytecode::{
     instruction::{
@@ -12,6 +8,10 @@ use kagari_bytecode::{
         InstructionSourceSpan, SafeDebugPoint, SafeDebugPointKind,
     },
     program::ModuleRef,
+};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::ids::{DebugPointId, FunctionRef},
 };
 
 use kagari_common::span::Span;
@@ -170,13 +170,13 @@ fn debug_runtime(_module_name: &str) -> Runtime {
 }
 
 fn interface_instruction_module() -> BytecodeModule {
-    use kagari_abi::{
-        scalar::BuiltinType,
-        types::{AbiType, InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi},
-    };
     use kagari_bytecode::{instruction::InterfaceTableRef, module::InterfaceTableRecord};
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+    };
+    use kagari_contract::{
+        scalar::BuiltinType,
+        types::{InterfaceTable, NominalTy, PublicItem, TraitDef, Ty},
     };
 
     let identity = ModuleIdentity::single_file("interface-instruction.kgr");
@@ -212,7 +212,7 @@ fn interface_instruction_module() -> BytecodeModule {
     )]);
     module.identity = identity;
     module.public_items = vec![
-        PublicAbiItem::Trait(TraitAbi {
+        PublicItem::Trait(TraitDef {
             associated_consts: Vec::new(),
             supertraits: Vec::new(),
             associated_types: Vec::new(),
@@ -221,7 +221,7 @@ fn interface_instruction_module() -> BytecodeModule {
             bounds: vec![],
             methods: vec![],
         }),
-        PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+        PublicItem::InterfaceTable(Box::new(InterfaceTable {
             associated_type_families: Vec::new(),
             associated_consts: Vec::new(),
             host_bridge: false,
@@ -229,12 +229,12 @@ fn interface_instruction_module() -> BytecodeModule {
             name: String::new(),
             generic_params: vec![],
             bounds: vec![],
-            trait_type: AbiType::Trait(NominalAbiType {
+            trait_type: Ty::Trait(NominalTy {
                 associated_types: Default::default(),
                 declaration: trait_id,
                 arguments: vec![],
             }),
-            for_type: AbiType::Builtin(BuiltinType::I32),
+            for_type: Ty::Builtin(BuiltinType::I32),
             methods: vec![],
         })),
     ];

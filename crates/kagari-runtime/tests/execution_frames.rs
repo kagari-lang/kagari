@@ -1,5 +1,6 @@
-use kagari_abi::{
-    ids::FunctionRef, representation::ValueType, scalar::BuiltinType, types::AbiType,
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty},
 };
 use {
     kagari_bytecode::module::RootSlotLayout,
@@ -86,11 +87,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
         .unwrap();
     let first = Value::Array(
         runtime
-            .alloc_array(
-                &module,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(1)],
-            )
+            .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
             .unwrap(),
     );
     outer
@@ -104,11 +101,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
         .unwrap();
     let second = Value::Array(
         runtime
-            .alloc_array(
-                &module,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(2)],
-            )
+            .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(2)])
             .unwrap(),
     );
     nested
@@ -266,11 +259,7 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
         .unwrap();
     let old_object = Value::Array(
         runtime
-            .alloc_array(
-                &old,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(7)],
-            )
+            .alloc_array(&old, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
             .unwrap(),
     );
     let initialization = runtime.begin_candidate_initialization(&candidate).unwrap();

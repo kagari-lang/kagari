@@ -1,13 +1,12 @@
-use kagari_abi::{
-    ids::{DebugPointId, FunctionRef},
-    native::BackendId,
-    representation::ValueType,
-};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantOperand, Register},
     module::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
     },
+};
+use {
+    kagari_abi::{native::BackendId, representation::ValueType},
+    kagari_contract::ids::{DebugPointId, FunctionRef},
 };
 
 use kagari_common::span::Span;

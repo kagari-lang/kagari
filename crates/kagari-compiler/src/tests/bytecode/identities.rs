@@ -1,5 +1,5 @@
 use crate::tests::bytecode::*;
-use kagari_abi::types as abi;
+use kagari_contract::types as abi;
 
 #[test]
 fn executable_function_identities_survive_lowering_and_reject_mismatched_records() {
@@ -36,7 +36,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .as_ref()
             .unwrap()
             .arguments,
-        [abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)]
+        [abi::Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)]
     );
     let mut mismatched_record = module.clone();
     mismatched_record.modules[mismatched_record.root.index()].function_table[generic].identity =
@@ -112,8 +112,8 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .as_mut()
         .unwrap()
         .arguments = vec![
-        abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32);
-        kagari_abi::decode_limits::MAX_NESTED_RECORDS + 1
+        abi::Ty::Builtin(kagari_contract::scalar::BuiltinType::I32);
+        kagari_contract::decode_limits::MAX_NESTED_RECORDS + 1
     ];
     oversized.modules[oversized.root.index()].function_table[generic].identity =
         oversized.modules[oversized.root.index()].functions[generic]
@@ -130,7 +130,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .identity
         .as_mut()
         .unwrap()
-        .arguments[0] = kagari_abi::types::AbiType::Parameter {
+        .arguments[0] = kagari_contract::types::Ty::Parameter {
         owner: unresolved.modules[unresolved.root.index()].function_table[generic]
             .identity
             .as_ref()
@@ -214,9 +214,9 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
 
 #[test]
 fn executable_struct_fields_require_concrete_resolved_types() {
-    use kagari_abi::{
+    use kagari_contract::{
         scalar::BuiltinType,
-        types::{AbiType, NominalAbiType},
+        types::{NominalTy, Ty},
     };
     let module = common::bytecode_ok(
         "struct Box<T> { val value: T } fn main() -> i32 { Box<i32> { value: 42 }.value }",
@@ -225,16 +225,16 @@ fn executable_struct_fields_require_concrete_resolved_types() {
         .declaration
         .clone();
     for ty in [
-        AbiType::Parameter {
+        Ty::Parameter {
             owner: declaration.clone(),
             position: 0,
         },
-        AbiType::Struct(NominalAbiType {
+        Ty::Struct(NominalTy {
             associated_types: Default::default(),
             declaration,
-            arguments: vec![AbiType::Builtin(BuiltinType::Bool)],
+            arguments: vec![Ty::Builtin(BuiltinType::Bool)],
         }),
-        AbiType::Builtin(BuiltinType::Bool),
+        Ty::Builtin(BuiltinType::Bool),
     ] {
         let mut invalid = module.clone();
         invalid.modules[invalid.root.index()].structures[0].fields[0].ty = ty;
@@ -244,8 +244,8 @@ fn executable_struct_fields_require_concrete_resolved_types() {
 
 #[test]
 fn struct_instances_must_match_public_templates_locally_and_across_modules() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let owner = common::bytecode_ok(
         "pub struct Box<T> { var values: ArrayList<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
     );
@@ -271,8 +271,8 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
         let mut invalid = owner.clone();
         match mutation {
             0 => {
-                invalid.modules[invalid.root.index()].structures[0].fields[0].ty = AbiType::Array(
-                    Box::new(AbiType::Builtin(BuiltinType::Bool)),
+                invalid.modules[invalid.root.index()].structures[0].fields[0].ty = Ty::Array(
+                    Box::new(Ty::Builtin(BuiltinType::Bool)),
                     CollectionAccess::Mutable,
                 )
             }

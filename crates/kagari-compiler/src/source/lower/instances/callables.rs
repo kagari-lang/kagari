@@ -3,7 +3,11 @@ use crate::source::{
     lower::{MirLoweringError, instances::InstancePlanner},
     types::{raise_nominal_type, raise_type},
 };
-use kagari_abi::{
+use kagari_common::{
+    identity::{DefinitionPath, associated_type_id},
+    span::Span,
+};
+use kagari_contract::{
     callable::{
         CallableImplementation,
         witness::{OperationWitness, SharedMethodWitness},
@@ -15,10 +19,6 @@ use kagari_abi::{
         callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
     },
     types::{ConcreteFunctionIdentity, NativeDeclaration, substitution::TypeSubstitution},
-};
-use kagari_common::{
-    identity::{DefinitionPath, associated_type_id},
-    span::Span,
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault,

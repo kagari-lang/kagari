@@ -21,11 +21,11 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::{native_import::callables::NativeCallableRequirement, types::AbiType};
-use kagari_abi::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
 use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{native_import::callables::NativeCallableRequirement, types::Ty};
+use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use std::{rc::Rc, slice};
 
 #[derive(Clone, Copy)]
@@ -105,8 +105,8 @@ pub struct LinkedCallable {
     pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
     pub(crate) owner: CallableOwner,
     pub(crate) target: CallableTarget,
-    pub(crate) params: Box<[AbiType<DefinitionId>]>,
-    pub(crate) result: AbiType<DefinitionId>,
+    pub(crate) params: Box<[Ty<DefinitionId>]>,
+    pub(crate) result: Ty<DefinitionId>,
     pub(crate) primitive: Option<RuntimePrimitive>,
 }
 
@@ -218,7 +218,7 @@ impl<'call> CallContext<'call> {
         self.heap().ensure_no_native_borrow()?;
         let ty = self.result_type();
         let storage = match ty {
-            AbiType::NativeObject(nominal) => self
+            Ty::NativeObject(nominal) => self
                 .runtime
                 .native_entries
                 .storage
@@ -240,9 +240,9 @@ impl<'call> CallContext<'call> {
         })?;
         let id = self.heap().alloc_native(object)?;
         Ok(match ty {
-            AbiType::Array(..) => Value::Array(id),
-            AbiType::Map { .. } => Value::Map(id),
-            AbiType::Set(..) => Value::Set(id),
+            Ty::Array(..) => Value::Array(id),
+            Ty::Map { .. } => Value::Map(id),
+            Ty::Set(..) => Value::Set(id),
             _ => Value::GcHandle(id),
         })
     }
@@ -250,7 +250,7 @@ impl<'call> CallContext<'call> {
     pub fn allocate_result_payload<S: NativePayload>(&self, payload: S) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
         let ty = self.result_type();
-        let AbiType::NativeObject(nominal) = ty else {
+        let Ty::NativeObject(nominal) = ty else {
             return Err(RuntimeError::module_validation(
                 "provided payload requires a registered native object result",
             ));
@@ -294,10 +294,7 @@ impl<'call> CallContext<'call> {
 
     /// Resolve a type in this native function's lexical program. Result parameters
     /// must use result_type_parameter() to retain their supplying scopes.
-    pub fn resolve_type<I: DefinitionReference>(
-        &self,
-        ty: &AbiType<I>,
-    ) -> NativeResult<TypeArgument> {
+    pub fn resolve_type<I: DefinitionReference>(&self, ty: &Ty<I>) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()
@@ -372,7 +369,7 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native argument slot"))
     }
 
-    pub fn argument_type(&self, index: usize) -> NativeResult<&'call AbiType<DefinitionId>> {
+    pub fn argument_type(&self, index: usize) -> NativeResult<&'call Ty<DefinitionId>> {
         self.function
             .signature
             .params
@@ -394,7 +391,7 @@ impl<'call> CallContext<'call> {
         .ok_or_else(|| RuntimeError::module_validation("native argument scope"))
     }
 
-    pub fn result_type(&self) -> &'call AbiType<DefinitionId> {
+    pub fn result_type(&self) -> &'call Ty<DefinitionId> {
         &self.function.signature.result
     }
 

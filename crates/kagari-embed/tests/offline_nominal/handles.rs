@@ -220,12 +220,12 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     ).unwrap();
     let module = &artifact.program.modules[artifact.program.root.index()];
     assert_eq!(module.host_interface.types, interface.types[..2]);
-    let kagari_abi::types::PublicAbiItem::Function(pass) = &module.public_items[0] else {
+    let kagari_contract::types::PublicItem::Function(pass) = &module.public_items[0] else {
         panic!("public pass")
     };
     assert_eq!(
         pass.return_type,
-        kagari_abi::types::AbiType::Host(interface.types[0].id.clone())
+        kagari_contract::types::Ty::Host(interface.types[0].id.clone())
     );
     assert_eq!(
         pass.return_type.representation(),

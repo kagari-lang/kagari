@@ -6,12 +6,12 @@ use crate::{
     typeck::{GenericBounds, inference, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::{
-    language::{self as standard_traits, Protocol},
-    scalar::BuiltinType,
-};
 use kagari_common::{
     cancellation::CancellationToken, identity::associated_type_id, range::RangeKind,
+};
+use kagari_contract::{
+    language::{self as standard_traits, Protocol},
+    scalar::BuiltinType,
 };
 
 /// Inference alone does not prove that an impl owns this receiver. A method

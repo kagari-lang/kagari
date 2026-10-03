@@ -2,7 +2,7 @@ use crate::{
     hir::ids::{ExprId, TypeRefId},
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
+use kagari_contract::scalar::BuiltinType;
 use std::collections::{HashMap, HashSet};
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
@@ -230,8 +230,8 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_abi::scalar::BuiltinType;
     use kagari_common::collection::CollectionAccess;
+    use kagari_contract::scalar::BuiltinType;
 
     #[test]
     fn later_constraints_resolve_nested_types_without_conflating_recovery() {

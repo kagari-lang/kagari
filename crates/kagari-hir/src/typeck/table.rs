@@ -17,12 +17,12 @@ use crate::{
     },
 };
 
-use kagari_abi::{language::Protocol, standard::surface::StandardTypeConstraint};
 use kagari_common::{
     host_interface::path::{HostPathContract, HostPathDeclaration},
     identity::{DefinitionPath, reference::DefinitionReference},
     span::Span,
 };
+use kagari_contract::{language::Protocol, standard::surface::StandardTypeConstraint};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

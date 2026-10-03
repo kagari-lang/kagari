@@ -13,10 +13,12 @@ use kagari_bytecode::{
     verifier::{BytecodeVerificationError, verify_module},
 };
 
-use kagari_abi::{
-    ids::FunctionRef,
-    representation::ValueType,
-    types::{PublicAbiItem, TypeAbiKind},
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        ids::FunctionRef,
+        types::{PublicItem, TypeDefKind},
+    },
 };
 
 use kagari_common::{

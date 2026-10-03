@@ -6,8 +6,8 @@ use {
     kagari_mir::instruction::{CallTarget, Instruction},
 };
 
-use kagari_abi::{ids::FunctionRef, types as abi};
 use kagari_bytecode::{module::CallableTarget, program::verify_program};
+use kagari_contract::{ids::FunctionRef, types as abi};
 use kagari_mir::program as mir_program;
 
 fn script_target(target: CallableTarget) -> FunctionRef {
@@ -27,12 +27,12 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
             .public_items
             .iter()
             .find_map(|item| match item {
-                PublicAbiItem::Type(item) if item.name == "Bag" => Some(item),
+                PublicItem::Type(item) if item.name == "Bag" => Some(item),
                 _ => None,
             })
             .unwrap();
         assert!(matches!(&bag.bounds[0].constraints[0],
-            abi::ConstraintAbi::Trait(ty) if ty.arguments.len() == 1));
+            abi::Constraint::Trait(ty) if ty.arguments.len() == 1));
         let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
         artifact
             .verification
@@ -54,14 +54,14 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
         .public_items
         .iter_mut()
         .find_map(|item| match item {
-            PublicAbiItem::Type(item) if item.name == "Bag" => Some(item),
+            PublicItem::Type(item) if item.name == "Bag" => Some(item),
             _ => None,
         })
         .unwrap();
-    let kagari_abi::types::ConstraintAbi::Trait(ty) = &mut bag.bounds[0].constraints[0] else {
+    let kagari_contract::types::Constraint::Trait(ty) = &mut bag.bounds[0].constraints[0] else {
         panic!("trait bound");
     };
-    let kagari_abi::types::AbiType::Parameter { owner, .. } = &mut ty.arguments[0] else {
+    let kagari_contract::types::Ty::Parameter { owner, .. } = &mut ty.arguments[0] else {
         panic!("template argument");
     };
     *owner = ty.declaration.clone();
@@ -121,9 +121,9 @@ fn applied_trait_template_keeps_impl_and_trait_arguments() {
             .is_empty()
     );
     assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(item,
-        PublicAbiItem::InterfaceTable(table)
+        PublicItem::InterfaceTable(table)
             if table.generic_params.len() == 1
-                && matches!(&table.trait_type, abi::AbiType::Trait(instance) if instance.arguments.len() == 1)
+                && matches!(&table.trait_type, abi::Ty::Trait(instance) if instance.arguments.len() == 1)
     )));
 }
 
@@ -146,7 +146,7 @@ fn generic_interface_implementation_specializes_reachable_method() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => Some(table),
+            PublicItem::InterfaceTable(table) => Some(table),
             _ => None,
         })
         .unwrap();
@@ -163,11 +163,11 @@ fn generic_interface_implementation_specializes_reachable_method() {
                 .clone()
         })
         .collect::<Vec<_>>();
-    assert!(arguments.contains(&vec![abi::AbiType::Builtin(
-        kagari_abi::scalar::BuiltinType::I32
+    assert!(arguments.contains(&vec![abi::Ty::Builtin(
+        kagari_contract::scalar::BuiltinType::I32
     )]));
-    assert!(arguments.contains(&vec![abi::AbiType::Builtin(
-        kagari_abi::scalar::BuiltinType::String
+    assert!(arguments.contains(&vec![abi::Ty::Builtin(
+        kagari_contract::scalar::BuiltinType::String
     )]));
     let mut wrong_arity = module.clone();
     let method = slots[0].target;
@@ -215,7 +215,8 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
         .identity
         .as_mut()
         .unwrap()
-        .arguments[0] = kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
+        .arguments[0] =
+        kagari_contract::types::Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool);
     wrong_instance.modules[wrong_instance.root.index()].function_table[method].identity =
         wrong_instance.modules[wrong_instance.root.index()].functions[method]
             .identity
@@ -480,7 +481,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
 
 #[test]
 fn private_interface_tables_must_match_their_trait_contract() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
 
     let original = common::bytecode_ok(
         "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",
@@ -488,7 +489,7 @@ fn private_interface_tables_must_match_their_trait_contract() {
     let index = original.modules[original.root.index()]
         .public_items
         .iter()
-        .position(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+        .position(|item| matches!(item, PublicItem::InterfaceTable(_)))
         .unwrap();
     assert_eq!(
         original.modules[original.root.index()]
@@ -501,15 +502,15 @@ fn private_interface_tables_must_match_their_trait_contract() {
         let mut forged = original.clone();
         match corruption {
             "result" => {
-                let PublicAbiItem::InterfaceTable(table) =
+                let PublicItem::InterfaceTable(table) =
                     &mut forged.modules[forged.root.index()].public_items[index]
                 else {
                     unreachable!()
                 };
-                table.methods[0].return_type = AbiType::Builtin(BuiltinType::Bool);
+                table.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
             }
             "roster" => {
-                let PublicAbiItem::InterfaceTable(table) =
+                let PublicItem::InterfaceTable(table) =
                     &mut forged.modules[forged.root.index()].public_items[index]
                 else {
                     unreachable!()

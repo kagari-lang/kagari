@@ -1,7 +1,7 @@
 use crate::error::RuntimeError;
-use kagari_abi::native::ExecutableDebugInfo;
 use kagari_bytecode::module::BytecodeFunction;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::native::ExecutableDebugInfo;
 pub mod native;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

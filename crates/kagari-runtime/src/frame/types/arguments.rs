@@ -14,19 +14,19 @@ use crate::{
     module::LoadedModule,
     value::{EnumTag, Value},
 };
-use kagari_abi::types::{AbiType, verify::types_in_scope_in};
+use kagari_contract::types::{Ty, verify::types_in_scope_in};
 use std::{rc::Rc, slice};
 
 #[derive(Debug, Clone)]
 pub struct TypeArgument {
-    ty: AbiType<DefinitionId>,
+    ty: Ty<DefinitionId>,
     definitions: DefinitionTable,
     origin: Option<Rc<TypeOrigin>>,
 }
 
 #[derive(Debug)]
 struct TypeOrigin {
-    expression: AbiType<DefinitionId>,
+    expression: Ty<DefinitionId>,
     scope: Rc<TypeScope>,
 }
 
@@ -63,7 +63,7 @@ impl TypeArgument {
         &self,
         runtime: &Runtime,
         fallback: &LoadedModule,
-        derive: impl FnOnce(&AbiType<DefinitionId>) -> Option<AbiType<DefinitionId>>,
+        derive: impl FnOnce(&Ty<DefinitionId>) -> Option<Ty<DefinitionId>>,
     ) -> Result<Self, RuntimeError> {
         let (expression, owner, environment) = match &self.origin {
             Some(origin) => (
@@ -90,7 +90,7 @@ impl TypeArgument {
         self.derive(runtime, fallback, |ty| type_parameter(ty, index).cloned())
     }
 
-    pub fn ty(&self) -> &AbiType<DefinitionId> {
+    pub fn ty(&self) -> &Ty<DefinitionId> {
         &self.ty
     }
 
@@ -138,25 +138,19 @@ impl TypeArgument {
     }
 }
 
-pub(crate) fn type_parameter(
-    ty: &AbiType<DefinitionId>,
-    index: usize,
-) -> Option<&AbiType<DefinitionId>> {
+pub(crate) fn type_parameter(ty: &Ty<DefinitionId>, index: usize) -> Option<&Ty<DefinitionId>> {
     match ty {
-        AbiType::Struct(nominal)
-        | AbiType::Enum(nominal)
-        | AbiType::NativeObject(nominal)
-        | AbiType::Trait(nominal) => nominal.arguments.get(index),
-        AbiType::Tuple(items) | AbiType::StandardEnum { args: items, .. } => items.get(index),
-        AbiType::Array(item, _)
-        | AbiType::Set(item, _)
-        | AbiType::Iter(item)
-        | AbiType::Range(item, _)
+        Ty::Struct(nominal)
+        | Ty::Enum(nominal)
+        | Ty::NativeObject(nominal)
+        | Ty::Trait(nominal) => nominal.arguments.get(index),
+        Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => items.get(index),
+        Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _)
             if index == 0 =>
         {
             Some(item)
         }
-        AbiType::Map { key, value, .. } => match index {
+        Ty::Map { key, value, .. } => match index {
             0 => Some(key),
             1 => Some(value),
             _ => None,
@@ -165,27 +159,22 @@ pub(crate) fn type_parameter(
     }
 }
 
-fn contains_nominal_layout(ty: &AbiType<DefinitionId>) -> bool {
+fn contains_nominal_layout(ty: &Ty<DefinitionId>) -> bool {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         match ty {
-            AbiType::Struct(_) | AbiType::Enum(_) => return true,
-            AbiType::Tuple(types) | AbiType::StandardEnum { args: types, .. } => {
-                pending.extend(types)
-            }
-            AbiType::Function { params, result } => {
+            Ty::Struct(_) | Ty::Enum(_) => return true,
+            Ty::Tuple(types) | Ty::StandardEnum { args: types, .. } => pending.extend(types),
+            Ty::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::NativeObject(ty) | AbiType::Trait(ty) => {
+            Ty::NativeObject(ty) | Ty::Trait(ty) => {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());
             }
-            AbiType::Array(ty, _)
-            | AbiType::Iter(ty)
-            | AbiType::Range(ty, _)
-            | AbiType::Set(ty, _) => pending.push(ty),
-            AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(ty, _) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
+            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             _ => {}
         }
     }
@@ -196,7 +185,7 @@ impl Runtime {
     pub(crate) fn matches_capture_type(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: &TypeEnvironment,
     ) -> bool {
@@ -215,7 +204,7 @@ impl Runtime {
     pub fn resolve_type_arguments<I: DefinitionReference>(
         &self,
         owner: &LoadedModule,
-        types: &[AbiType<I>],
+        types: &[Ty<I>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let cancel = Default::default();
         let types = types
@@ -238,7 +227,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         environment: Option<Rc<TypeEnvironment>>,
-        types: &[AbiType<DefinitionId>],
+        types: &[Ty<DefinitionId>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("type argument scope");
         // Reified types own immutable metadata, not executable module instances.
@@ -249,7 +238,7 @@ impl Runtime {
         let definitions = self.definition_context().snapshot();
         let mut arguments = Vec::with_capacity(types.len());
         for expression in types {
-            if let AbiType::Parameter { owner, position } = expression {
+            if let Ty::Parameter { owner, position } = expression {
                 let argument = environment
                     .as_ref()
                     .and_then(|environment| environment.argument(owner, *position))
@@ -304,14 +293,14 @@ impl Runtime {
     pub(crate) fn matches_type_in(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
         if !self.gc.validate_value(value) {
             return false;
         }
-        if let AbiType::Parameter {
+        if let Ty::Parameter {
             owner: binder,
             position,
         } = ty
@@ -320,14 +309,14 @@ impl Runtime {
                 .and_then(|environment| environment.argument(binder, *position))
                 .is_some_and(|argument| argument.matches(self, value, owner));
         }
-        if let (Value::Tuple(values), AbiType::Tuple(types)) = (value, ty) {
+        if let (Value::Tuple(values), Ty::Tuple(types)) = (value, ty) {
             return values.len() == types.len()
                 && values
                     .iter()
                     .zip(types)
                     .all(|(value, ty)| self.matches_type_in(value, ty, owner, environment));
         }
-        if matches!(ty, AbiType::Host(_)) {
+        if matches!(ty, Ty::Host(_)) {
             return self.matches_interface_method_abi(value, ty, owner);
         }
         self.gc.matches_type_in(value, ty, owner, environment)
@@ -338,14 +327,14 @@ impl GcHeap {
     pub(crate) fn matches_type_in(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
         if ty.is_concrete() {
             return self.matches_abi(value, ty, owner);
         }
-        if let AbiType::Parameter {
+        if let Ty::Parameter {
             owner: binder,
             position,
         } = ty
@@ -354,14 +343,14 @@ impl GcHeap {
                 .and_then(|environment| environment.argument(binder, *position))
                 .is_some_and(|argument| argument.matches_heap(self, value, owner));
         }
-        if let (Value::Tuple(values), AbiType::Tuple(types)) = (value, ty) {
+        if let (Value::Tuple(values), Ty::Tuple(types)) = (value, ty) {
             return values.len() == types.len()
                 && values
                     .iter()
                     .zip(types)
                     .all(|(value, ty)| self.matches_type_in(value, ty, owner, environment));
         }
-        if let (Value::Enum(id), AbiType::StandardEnum { kind, args }) = (value, ty) {
+        if let (Value::Enum(id), Ty::StandardEnum { kind, args }) = (value, ty) {
             let Some(snapshot) = self.enum_snapshot(*id) else {
                 return false;
             };
@@ -378,44 +367,44 @@ impl GcHeap {
                 }
             };
         }
-        if let (Value::Closure(id), AbiType::Function { params, result }) = (value, ty) {
+        if let (Value::Closure(id), Ty::Function { params, result }) = (value, ty) {
             return self.closure_snapshot(*id).is_some_and(|closure| {
                 closure.matches_function(params, result, owner, environment)
             });
         }
-        if let (Value::Interface(id), AbiType::Trait(_)) = (value, ty) {
+        if let (Value::Interface(id), Ty::Trait(_)) = (value, ty) {
             return self
                 .interface_snapshot(*id)
                 .is_some_and(|actual| actual.matches_type(ty, owner, environment));
         }
-        if let (Value::GcHandle(id), AbiType::Iter(element)) = (value, ty) {
+        if let (Value::GcHandle(id), Ty::Iter(element)) = (value, ty) {
             return self.matches_iter_type(*id, element, owner, environment);
         }
-        if let (Value::GcHandle(id), AbiType::NativeObject(_)) = (value, ty) {
+        if let (Value::GcHandle(id), Ty::NativeObject(_)) = (value, ty) {
             return self.matches_native_type(*id, ty, owner, environment);
         }
-        if let (Value::Map(id), AbiType::Map { key, value, .. }) = (value, ty) {
+        if let (Value::Map(id), Ty::Map { key, value, .. }) = (value, ty) {
             return self.map_contract(*id).is_some_and(|(a, b, _)| {
                 a.matches_scoped(key, owner, environment)
                     && b.matches_scoped(value, owner, environment)
             });
         }
-        if let (Value::Set(id), AbiType::Set(element, _)) = (value, ty) {
+        if let (Value::Set(id), Ty::Set(element, _)) = (value, ty) {
             return self
                 .set_contract(*id)
                 .is_some_and(|(contract, _)| contract.matches_scoped(element, owner, environment));
         }
-        if let (Value::Array(id), AbiType::Array(element, _)) = (value, ty) {
+        if let (Value::Array(id), Ty::Array(element, _)) = (value, ty) {
             return self
                 .array_contract(*id)
                 .is_some_and(|contract| contract.matches_scoped(element, owner, environment));
         }
-        if let (Value::Struct(id), AbiType::Struct(_)) = (value, ty) {
+        if let (Value::Struct(id), Ty::Struct(_)) = (value, ty) {
             return self
                 .struct_layout(*id)
                 .is_some_and(|actual| actual.matches_type(ty, owner, environment));
         }
-        if let (Value::Enum(id), AbiType::Enum(_)) = (value, ty) {
+        if let (Value::Enum(id), Ty::Enum(_)) = (value, ty) {
             return self.enum_snapshot(*id).is_some_and(|snapshot| matches!(snapshot.tag, EnumTag::Declared(actual) if actual.matches_type(ty, owner, environment)));
         }
         match environment {

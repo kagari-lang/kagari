@@ -26,7 +26,8 @@ explicitly marked and do not describe implemented behavior.
 | kagari-common | Source utilities, identities, diagnostics and shared primitives |
 | kagari-syntax | Lexer, parser, CST and AST views |
 | kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
-| kagari-abi | Executable types/layouts, semantic/native contracts and physical helper ABI |
+| kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
+| kagari-contract | Source-independent semantic types/declarations, checked call/layout/operation contracts and verification |
 | kagari-mir | Typed CFGs, verification, bounded analyses/passes and portable encoding |
 | kagari-compiler | Checked source lowering, specialization, bytecode emission and native links |
 | kagari-bytecode | Interpreter model, independent verification, codec and artifact envelope |
@@ -38,11 +39,21 @@ explicitly marked and do not describe implemented behavior.
 | kagari-cli | Arguments, filesystem IO and presentation |
 
 Runtime, bytecode and VM have no production dependency on MIR, syntax/HIR or
-codegen. MIR depends on ABI/common. Compiler core works without `source`.
+codegen. MIR depends on contract/ABI/common. Contract depends on ABI/common; ABI
+depends only on Serde and has no semantic model, foundation catalog or renderer.
+Compiler core works without `source`.
 Backends depend on codegen/MIR/ABI and backend libraries, not runtime, compiler,
 bytecode or SDK. ABI has no frontend/build-time source generator dependency.
 Source-based dev-dependencies do not change those production constraints.
 LLVM remains deferred; no placeholder backend crate is required.
+
+Native artifacts split physical `kagari-abi::native::NativeArtifact` from
+contract-owned executable function identity, logical stack maps and debug metadata.
+`NativeCompilationProduct` retains the executable page owner alongside that checked
+envelope. Register/Local stack-map entries are logical slots, not a physical native
+GC protocol. Semantic-to-slot lowering belongs to contract. Native `.kgr` rendering
+belongs to HIR tooling and the SDK's `source` feature; runtime installations expose
+checked declaration records without generating text.
 
 ## Compilation Pipeline
 
@@ -528,7 +539,7 @@ source-free executable consumers. A shared consumer count is not an ownership ru
 
 ### Scope and completion boundary
 
-The [roadmap](implementation-roadmap.md#contract-and-common-responsibility-cleanup-queued)
+The [roadmap](implementation-roadmap.md#contract-and-common-responsibility-cleanup)
 owns AC01-AC05, checks and activation. Preserve the current finite trait/API surface,
 mandatory foundation, shared generics, storage safety and reload pinning. No new
 containers/traits, general downcast, async/permission redesign, blanket standard-enum

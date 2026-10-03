@@ -2,15 +2,6 @@
 mod applications;
 mod native;
 mod shared;
-use kagari_abi::{
-    contracts, host,
-    language::Protocol,
-    representation::ValueType,
-    types::{
-        self as abi, AbiType, ConcreteFunctionIdentity, PublicAbiItem, inheritance,
-        substitution::TypeTransformError,
-    },
-};
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::HostInterface,
@@ -21,6 +12,17 @@ use kagari_common::{
     },
 };
 use std::collections::{HashMap, HashSet};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        contracts, host,
+        language::Protocol,
+        types::{
+            self as abi, ConcreteFunctionIdentity, PublicItem, Ty, inheritance,
+            substitution::TypeTransformError,
+        },
+    },
+};
 
 use crate::{
     function::MirModule,
@@ -300,7 +302,7 @@ pub fn verify_program(
                 .filter(|owner| **owner == index || dependencies.contains(owner))
                 .is_some_and(|owner| {
                     modules[*owner].abi.public_items.iter().any(|item| {
-                        let PublicAbiItem::InterfaceTable(table) = item else {
+                        let PublicItem::InterfaceTable(table) = item else {
                             return false;
                         };
                         table.declaration == request.declaration
@@ -336,11 +338,8 @@ pub fn verify_program(
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
             if let Instruction::UpcastInterface { source, target, .. } = instruction {
-                let ancestry = inheritance::trait_closure(
-                    source,
-                    &AbiType::Trait(source.clone()),
-                    cancel,
-                    &|id| {
+                let ancestry =
+                    inheritance::trait_closure(source, &Ty::Trait(source.clone()), cancel, &|id| {
                         let owner = *indices.get(&id.module)?;
                         if owner != index && !dependencies.contains(&owner) {
                             return None;
@@ -352,7 +351,7 @@ pub fn verify_program(
                             .map(|record| &record.abi)
                             .or_else(|| {
                                 abi.public_items.iter().find_map(|item| match item {
-                                    PublicAbiItem::Trait(record)
+                                    PublicItem::Trait(record)
                                         if id.path.len() == 1
                                             && id.path[0].name == record.name
                                             && id.path[0].kind == DefinitionKind::Trait
@@ -363,8 +362,7 @@ pub fn verify_program(
                                     _ => None,
                                 })
                             })
-                    },
-                );
+                    });
                 if !ancestry.is_ok_and(|parents| parents.contains(target)) {
                     return Err(error(
                         &module.identity,
@@ -429,7 +427,7 @@ pub fn verify_program(
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         modules[*target].abi.public_items.iter().find_map(|item| {
-                            if let PublicAbiItem::InterfaceTable(table) = item
+                            if let PublicItem::InterfaceTable(table) = item
                                 && table.declaration == *implementation
                             {
                                 table.instantiate_in(

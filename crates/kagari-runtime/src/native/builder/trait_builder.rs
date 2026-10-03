@@ -9,14 +9,12 @@ use crate::{
         types::{AppliedTrait, FunctionRef, ParameterRef, TraitRef, Type},
     },
 };
-use kagari_abi::{
+use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
+use kagari_contract::{
     declaration::ModuleDecl,
     native_import::callables::NativeCallableRequirement,
-    types::{
-        AbiType, AssociatedTypeAbi, ConstraintAbi, GenericParameterAbi, NominalAbiType, TraitAbi,
-    },
+    types::{AssociatedTypeDef, Constraint, GenericParam, NominalTy, TraitDef, Ty},
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
 use std::{collections::BTreeMap, sync::Arc};
 
 mod defaults;
@@ -24,12 +22,12 @@ mod defaults;
 pub struct TraitBuilder<'module> {
     module: &'module mut ModuleBuilder,
     id: DefinitionPath,
-    declaration: TraitAbi,
+    declaration: TraitDef,
     parameter_names: Vec<String>,
     method_parameters: BTreeMap<DefinitionPath, Vec<String>>,
     requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
     defaults: BTreeMap<DefinitionPath, NativeBinding>,
-    concrete_results: BTreeMap<DefinitionPath, AbiType>,
+    concrete_results: BTreeMap<DefinitionPath, Ty>,
 }
 
 impl<'module> TraitBuilder<'module> {
@@ -38,7 +36,7 @@ impl<'module> TraitBuilder<'module> {
         Self {
             module,
             id,
-            declaration: TraitAbi {
+            declaration: TraitDef {
                 name,
                 supertraits: vec![],
                 generic_params: vec![],
@@ -60,7 +58,7 @@ impl<'module> TraitBuilder<'module> {
         if self.parameter_names.contains(&name) {
             return Err(RuntimeError::metadata_conflict("duplicate trait parameter"));
         }
-        let parameter = GenericParameterAbi {
+        let parameter = GenericParam {
             owner: self.id.clone(),
             position: self.parameter_names.len(),
         };
@@ -72,7 +70,7 @@ impl<'module> TraitBuilder<'module> {
     }
 
     pub fn receiver(&self) -> Type {
-        Type(AbiType::SelfType(self.id.clone()))
+        Type(Ty::SelfType(self.id.clone()))
     }
 
     /// Refer to an operation on this default body's actual receiver. The final
@@ -91,13 +89,13 @@ impl<'module> TraitBuilder<'module> {
         Ok(CallableRequirement {
             requirement: NativeCallableRequirement {
                 receiver: self.receiver().0,
-                interface: NominalAbiType {
+                interface: NominalTy {
                     declaration: self.id.clone(),
                     arguments: self
                         .declaration
                         .generic_params
                         .iter()
-                        .map(GenericParameterAbi::as_type)
+                        .map(GenericParam::as_type)
                         .collect(),
                     associated_types: BTreeMap::new(),
                 },
@@ -127,26 +125,26 @@ impl<'module> TraitBuilder<'module> {
                 "duplicate associated type declaration",
             ));
         }
-        self.declaration.associated_types.push(AssociatedTypeAbi {
+        self.declaration.associated_types.push(AssociatedTypeDef {
             declaration: id.clone(),
             generic_params: vec![],
             parameter_bounds: vec![],
             bounds: bounds
                 .into_iter()
-                .map(|bound| ConstraintAbi::Trait(bound.ty))
+                .map(|bound| Constraint::Trait(bound.ty))
                 .collect(),
         });
         let interface: Vec<_> = self
             .declaration
             .generic_params
             .iter()
-            .map(GenericParameterAbi::as_type)
+            .map(GenericParam::as_type)
             .collect();
         let trait_ref = TraitRef {
             id: self.id.clone(),
             contract: Arc::new(self.declaration.clone()),
         };
-        Ok(Type(AbiType::Projection {
+        Ok(Type(Ty::Projection {
             receiver: Box::new(self.receiver().0),
             interface: Box::new(trait_ref.apply(interface.into_iter().map(Type)).ty),
             member: id,

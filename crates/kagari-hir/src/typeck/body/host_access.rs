@@ -16,7 +16,6 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     cancellation::Cancelled,
     collection::CollectionAccess,
@@ -27,6 +26,7 @@ use kagari_common::{
         type_declaration::{HostFieldDeclaration, PathAccess},
     },
 };
+use kagari_contract::scalar::BuiltinType;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_host_call_type(

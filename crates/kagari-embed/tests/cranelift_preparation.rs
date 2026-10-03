@@ -1,6 +1,6 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::source::SourceFile;
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -180,11 +180,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     for (module, native, value) in [(&old, &old_native, 42), (&current, &current_native, 43)] {
         let dead = runtime
             .runtime()
-            .alloc_array(
-                module,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(9)],
-            )
+            .alloc_array(module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
             .unwrap();
         let collections = runtime.runtime().gc().stats().collections;
         let report = runtime

@@ -1,5 +1,5 @@
 mod support;
-use kagari_abi::language::{self as standard_traits, Protocol};
+use kagari_contract::language::{self as standard_traits, Protocol};
 use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
 use {
     kagari_embed::{context::JitPolicy, engine::EngineConfig},
@@ -193,9 +193,9 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
-    use kagari_abi::{
+    use kagari_contract::{
         scalar::BuiltinType,
-        types::{AbiType, PublicAbiItem},
+        types::{PublicItem, Ty},
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "struct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default()).unwrap();
@@ -209,7 +209,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    if let PublicAbiItem::InterfaceTable(table) = item {
+                    if let PublicItem::InterfaceTable(table) = item {
                         Some(table)
                     } else {
                         None
@@ -217,21 +217,19 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                 })
                 .unwrap();
             match mutation {
-                1 => table.methods[0].return_type = AbiType::Builtin(BuiltinType::I32),
+                1 => table.methods[0].return_type = Ty::Builtin(BuiltinType::I32),
                 2 => {
-                    let AbiType::Trait(trait_type) = &mut table.trait_type else {
+                    let Ty::Trait(trait_type) = &mut table.trait_type else {
                         panic!("trait");
                     };
                     trait_type.declaration = standard_traits::identity(Protocol::Hash);
                 }
                 3 => table.methods.clear(),
                 _ => {
-                    let AbiType::Trait(trait_type) = &mut table.trait_type else {
+                    let Ty::Trait(trait_type) = &mut table.trait_type else {
                         panic!("trait");
                     };
-                    trait_type
-                        .arguments
-                        .push(AbiType::Builtin(BuiltinType::I32));
+                    trait_type.arguments.push(Ty::Builtin(BuiltinType::I32));
                 }
             }
         }
@@ -668,9 +666,9 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
 
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
-    use kagari_abi::{
+    use kagari_contract::{
         language::Protocol,
-        types::{AbiType, PublicAbiItem},
+        types::{PublicItem, Ty},
     };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
@@ -690,7 +688,7 @@ fn main()->i64 {Key{id:1}.hash()}
     for missing in [Protocol::Eq, Protocol::PartialEq] {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
-        module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==standard_traits::identity(missing))));
+        module.public_items.retain(|item| !matches!(item,PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(t) if t.declaration==standard_traits::identity(missing))));
         assert!(verify_program(&program).is_err(), "missing {missing:?}");
     }
 }

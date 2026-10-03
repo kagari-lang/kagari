@@ -1,8 +1,8 @@
 use super::{compile, compile_program};
-use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_bytecode::{
     artifact::KbcArtifact, program::verify_program, verifier::BytecodeVerificationError,
 };
+use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,

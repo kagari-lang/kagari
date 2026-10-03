@@ -5,8 +5,8 @@ use crate::{
     native::{binding::NativeResult, context::CallContext, storage::NativePayload},
     value::Value,
 };
-use kagari_abi::{operations::IterOp, types::AbiType};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{operations::IterOp, types::Ty};
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@ pub struct NativeCursor(Rc<Cursor>);
 #[derive(Debug)]
 struct Cursor {
     value: Value,
-    ty: AbiType<DefinitionId>,
+    ty: Ty<DefinitionId>,
 }
 
 impl NativePayload for NativeCursor {
@@ -45,7 +45,7 @@ impl CallContext<'_> {
     /// native payload and visit it in iteration_sources for for-scope cleanup.
     pub fn sequence_cursor(&self, index: usize) -> NativeResult<NativeCursor> {
         let ty = self.argument_type(index)?;
-        let AbiType::Array(item, _) = ty else {
+        let Ty::Array(item, _) = ty else {
             return Err(RuntimeError::module_validation(
                 "sequence cursor requires ArrayList",
             ));
@@ -53,7 +53,7 @@ impl CallContext<'_> {
         let value = self.iter_operation(index, IterOp::New)?;
         Ok(NativeCursor(Rc::new(Cursor {
             value,
-            ty: AbiType::Iter(item.clone()),
+            ty: Ty::Iter(item.clone()),
         })))
     }
 }

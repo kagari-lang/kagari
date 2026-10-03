@@ -11,8 +11,8 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::types::AbiType;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::Ty;
 use std::cell::Cell;
 
 struct NativeBorrow<'heap>(&'heap Cell<usize>);
@@ -27,7 +27,7 @@ impl GcHeap {
     pub(crate) fn matches_native_type(
         &self,
         id: HeapObjectId,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -35,11 +35,11 @@ impl GcHeap {
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty, owner, environment))
     }
 
-    pub(crate) fn default_storage(&self, ty: &AbiType<DefinitionId>) -> Option<&NativeStorage> {
+    pub(crate) fn default_storage(&self, ty: &Ty<DefinitionId>) -> Option<&NativeStorage> {
         match ty {
-            AbiType::Array(..) => Some(&self.sequence_storage),
-            AbiType::Map { .. } => Some(&self.map_storage),
-            AbiType::Set(..) => Some(&self.set_storage),
+            Ty::Array(..) => Some(&self.sequence_storage),
+            Ty::Map { .. } => Some(&self.map_storage),
+            Ty::Set(..) => Some(&self.set_storage),
             _ => None,
         }
     }
@@ -49,7 +49,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
         };
-        let AbiType::NativeObject(nominal) = &object.ty else {
+        let Ty::NativeObject(nominal) = &object.ty else {
             return None;
         };
         Some(object.definition_name(nominal.declaration)?.to_owned())

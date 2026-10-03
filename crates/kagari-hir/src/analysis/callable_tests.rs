@@ -10,7 +10,6 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_abi::{callable::NativeDefaultApplication, scalar::BuiltinType};
 use kagari_common::{
     diagnostic::DiagnosticKind,
     host_interface::{
@@ -20,6 +19,7 @@ use kagari_common::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_contract::{callable::NativeDefaultApplication, scalar::BuiltinType};
 
 #[test]
 fn native_generic_scalar_calls_keep_their_exact_declared_types() {
@@ -133,7 +133,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
                     kagari_common::identity::DefinitionKind::Function,
                     &format!("default_{name}"),
                 ),
-                arguments: vec![kagari_abi::types::AbiType::SelfType(iterator.id.clone())],
+                arguments: vec![kagari_contract::types::Ty::SelfType(iterator.id.clone())],
             }));
         let method = iterator
             .methods

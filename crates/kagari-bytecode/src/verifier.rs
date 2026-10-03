@@ -14,19 +14,21 @@ use crate::{
 };
 mod operation;
 
-use kagari_abi::{
-    callable::CallableImplementation,
-    contracts::{self, ContractError},
-    host,
-    ids::FunctionRef,
-    layout::{self, StructFieldLayout},
-    operations::BinaryOp as MirBinaryOp,
-    representation::ValueType,
-    standard::RuntimePrimitive,
-    types::{AbiType, InterfaceTableAbi, PublicAbiItem, verify},
-};
 use kagari_common::identity::DefinitionKind;
 use std::{collections::HashSet, iter};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::CallableImplementation,
+        contracts::{self, ContractError},
+        host,
+        ids::FunctionRef,
+        layout::{self, StructFieldLayout},
+        operations::BinaryOp as MirBinaryOp,
+        standard::RuntimePrimitive,
+        types::{InterfaceTable, PublicItem, Ty, verify},
+    },
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {
@@ -320,7 +322,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
         .public_items
         .iter()
         .filter_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => Some(table),
+            PublicItem::InterfaceTable(table) => Some(table),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -363,7 +365,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
         {
             return Err(BytecodeVerificationError::InvalidInterfaceTable);
         }
-        let AbiType::Trait(trait_type) = &abi.trait_type else {
+        let Ty::Trait(trait_type) = &abi.trait_type else {
             return Err(BytecodeVerificationError::InvalidInterfaceTable);
         };
         if table.declaration != abi.declaration {
@@ -503,7 +505,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
 }
 
 fn host_bridge_method_matches(
-    table: &InterfaceTableAbi,
+    table: &InterfaceTable,
     slot: &InterfaceMethodSlot,
     function: &BytecodeFunction,
     module: &BytecodeModule,

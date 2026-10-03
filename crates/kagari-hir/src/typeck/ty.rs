@@ -15,8 +15,8 @@ use crate::{
     types::{NominalType, TypeId},
 };
 
-use kagari_abi::{language::Protocol, scalar::BuiltinType};
 use kagari_common::{cancellation::CancellationToken, identity};
+use kagari_contract::{language::Protocol, scalar::BuiltinType};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {

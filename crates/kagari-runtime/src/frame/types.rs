@@ -11,14 +11,14 @@ use crate::{
     gc::interfaces::{InterfaceResultBinding, MethodApplication},
     module::{LoadedModule, RetainedRuntimeProgram},
 };
-use kagari_abi::{
+use kagari_bytecode::module::CallableTarget;
+use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
+use kagari_contract::{
     callable::generic::GenericBody,
     native_import::{NativeSignature, callables::NativeCallableRequirement},
     standard::RuntimePrimitive,
-    types::{AbiType, GenericParameterAbi, NominalAbiType, substitution::substitute_parameters},
+    types::{GenericParam, NominalTy, Ty, substitution::substitute_parameters},
 };
-use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -42,15 +42,15 @@ pub(crate) struct BoundOperation {
 pub(crate) struct BoundGenericMethod {
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) receiver_environment: Option<Rc<TypeEnvironment>>,
-    pub(crate) parameters: Vec<GenericParameterAbi<DefinitionId>>,
-    pub(crate) entry_parameters: Vec<GenericParameterAbi<DefinitionId>>,
-    pub(crate) entry_arguments: Vec<AbiType<DefinitionId>>,
+    pub(crate) parameters: Vec<GenericParam<DefinitionId>>,
+    pub(crate) entry_parameters: Vec<GenericParam<DefinitionId>>,
+    pub(crate) entry_arguments: Vec<Ty<DefinitionId>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypeEnvironment {
     definitions: DefinitionContext,
-    parameters: Rc<[GenericParameterAbi<DefinitionId>]>,
+    parameters: Rc<[GenericParam<DefinitionId>]>,
     arguments: Rc<[TypeArgument]>,
     parent: Option<Rc<TypeEnvironment>>,
     pub(crate) operations: OperationBindings,
@@ -59,7 +59,7 @@ pub struct TypeEnvironment {
 impl TypeEnvironment {
     pub(crate) fn new(
         definitions: &DefinitionContext,
-        parameters: Vec<GenericParameterAbi<DefinitionId>>,
+        parameters: Vec<GenericParam<DefinitionId>>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
         if parameters.len() != arguments.len()
@@ -156,10 +156,7 @@ impl TypeEnvironment {
         offset == body.parameters.len()
     }
 
-    pub(crate) fn resolve(
-        &self,
-        ty: &AbiType<DefinitionId>,
-    ) -> Result<AbiType<DefinitionId>, RuntimeError> {
+    pub(crate) fn resolve(&self, ty: &Ty<DefinitionId>) -> Result<Ty<DefinitionId>, RuntimeError> {
         let result = substitute_parameters(
             ty,
             &|owner, position| self.argument(owner, position).map(TypeArgument::ty),
@@ -176,9 +173,7 @@ impl TypeEnvironment {
         &self,
         required: &NativeCallableRequirement<DefinitionId>,
     ) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
-        let AbiType::Trait(interface) =
-            self.resolve(&AbiType::Trait(required.interface.clone()))?
-        else {
+        let Ty::Trait(interface) = self.resolve(&Ty::Trait(required.interface.clone()))? else {
             return Err(RuntimeError::module_validation("constraint interface type"));
         };
         Ok(NativeCallableRequirement {
@@ -195,8 +190,8 @@ impl TypeEnvironment {
 
     pub(crate) fn operation_slot(
         &self,
-        receiver: &AbiType<DefinitionId>,
-        interface: &NominalAbiType<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        interface: &NominalTy<DefinitionId>,
         slot: u32,
     ) -> Option<&Rc<BoundOperation>> {
         self.operations.operation_slot(receiver, interface, slot)

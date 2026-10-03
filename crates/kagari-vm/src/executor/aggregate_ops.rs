@@ -1,8 +1,8 @@
-use kagari_abi::{
-    operations::StandardEnumOp, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
-};
 use kagari_bytecode::instruction::{EnumId, FieldRef, Register, StructId};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{
+    operations::StandardEnumOp, standard::surface::StandardEnum as StandardEnumKind, types::Ty,
+};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     value::{EnumTag, Value},
@@ -15,7 +15,7 @@ impl Executor<'_> {
         &self,
         value: Register,
         enumeration: EnumId,
-        arguments: &[AbiType<DefinitionId>],
+        arguments: &[Ty<DefinitionId>],
         variant: u32,
     ) -> Result<Value, VmError> {
         let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
@@ -39,7 +39,7 @@ impl Executor<'_> {
         &self,
         value: Register,
         enumeration: EnumId,
-        arguments: &[AbiType<DefinitionId>],
+        arguments: &[Ty<DefinitionId>],
         variant: u32,
         index: u32,
     ) -> Result<Value, VmError> {
@@ -67,7 +67,7 @@ impl Executor<'_> {
     pub(crate) fn make_enum(
         &self,
         enumeration: EnumId,
-        arguments: &[AbiType<DefinitionId>],
+        arguments: &[Ty<DefinitionId>],
         variant: u32,
         fields: &[Register],
     ) -> Result<Value, VmError> {
@@ -94,7 +94,7 @@ impl Executor<'_> {
 
     pub(crate) fn make_array(
         &self,
-        element: &AbiType<DefinitionId>,
+        element: &Ty<DefinitionId>,
         elements: &[Register],
     ) -> Result<Value, VmError> {
         let elements = elements
@@ -116,7 +116,7 @@ impl Executor<'_> {
     pub(crate) fn make_struct(
         &self,
         structure: StructId,
-        arguments: &[AbiType<DefinitionId>],
+        arguments: &[Ty<DefinitionId>],
         fields: &[Register],
     ) -> Result<Value, VmError> {
         let fields = fields
@@ -264,10 +264,10 @@ impl Executor<'_> {
     pub(crate) fn standard_enum_operation(
         &self,
         value: Option<Register>,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         op: StandardEnumOp,
     ) -> Result<Value, VmError> {
-        let AbiType::StandardEnum { kind, args } = ty else {
+        let Ty::StandardEnum { kind, args } = ty else {
             return Err(VmError::TypeMismatch("standard enum type"));
         };
         let variant = match op {

@@ -2,8 +2,8 @@ use crate::{
     source::lower::{instances::MirLoweringOptions, lower_to_mir},
     tests::common,
 };
-use kagari_abi::{effects::EffectSet, operations::BinaryOp};
 use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{effects::EffectSet, operations::BinaryOp};
 use kagari_mir::{
     ids::BlockId,
     instruction::{CallTarget, Constant, Instruction, Terminator},

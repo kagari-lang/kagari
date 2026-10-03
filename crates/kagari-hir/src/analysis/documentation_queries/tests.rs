@@ -1,6 +1,7 @@
+use crate::native::render::declaration_source;
 use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
-use kagari_abi::language::{self as standard_traits, Protocol, catalog};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_contract::language::{self as standard_traits, Protocol, catalog};
 use std::collections::HashSet;
 
 #[test]
@@ -11,7 +12,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     let installed = catalog::shared();
-    let generated = installed.declaration_source().unwrap();
+    let generated = declaration_source(&installed).unwrap();
     let independent = AnalysisDatabase::default()
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -215,7 +216,7 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let uri = catalog::shared().declaration_source().unwrap().uri;
+    let uri = declaration_source(&catalog::shared()).unwrap().uri;
     drop(database);
     let file = snapshot
         .files()

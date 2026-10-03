@@ -1,10 +1,11 @@
 use super::{Probe, program, run};
-use kagari_abi::{
+use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_contract::{
     declaration::ModuleDecl,
     language::{self, Protocol},
 };
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::native::render::declaration_source;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     library::collections,
@@ -226,7 +227,7 @@ fn retained_map_uses_its_original_callback_after_reload() {
 #[test]
 fn native_iterator_completion_navigates_to_the_generated_impl() {
     let library = collections::module().unwrap();
-    let generated = library.declaration_source();
+    let generated = declaration_source(&library.to_declaration().unwrap()).unwrap();
     let text = "use std::collections::map; fn main() { val cursor = map([1], |x| x); cursor. }";
     let mut sources = SourceDatabase::default();
     let file = sources

@@ -16,12 +16,12 @@ use crate::{
     },
     types::{NominalType, TypeId},
 };
-use kagari_abi::language::Protocol;
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity,
     span::Span,
 };
+use kagari_contract::language::Protocol;
 use smallvec::SmallVec;
 use std::iter;
 

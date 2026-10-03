@@ -1,8 +1,8 @@
-use kagari_abi::{operations::IterOp, standard::RuntimePrimitive, types::AbiType};
 use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
 };
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{operations::IterOp, standard::RuntimePrimitive, types::Ty};
 use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
 use std::iter;
 
@@ -15,7 +15,7 @@ impl<'a> Executor<'a> {
     fn dispatch_iterator(
         &mut self,
         source: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         op: IterOp,
         dst: Option<Register>,
     ) -> Result<(), VmError> {
@@ -31,8 +31,8 @@ impl<'a> Executor<'a> {
     fn dispatch_range_bound(
         &mut self,
         value: Value,
-        range: &AbiType<DefinitionId>,
-        bound: &AbiType<DefinitionId>,
+        range: &Ty<DefinitionId>,
+        bound: &Ty<DefinitionId>,
         upper: bool,
         dst: Option<Register>,
     ) -> Result<(), VmError> {
@@ -323,16 +323,16 @@ impl<'a> Executor<'a> {
                 source,
                 target,
             } => {
-                let AbiType::Trait(source) = self
+                let Ty::Trait(source) = self
                     .current_frame()?
-                    .resolve_type(&AbiType::Trait(source))?
+                    .resolve_type(&Ty::Trait(source))?
                     .into_owned()
                 else {
                     return Err(VmError::TypeMismatch("interface upcast source"));
                 };
-                let AbiType::Trait(target) = self
+                let Ty::Trait(target) = self
                     .current_frame()?
-                    .resolve_type(&AbiType::Trait(target))?
+                    .resolve_type(&Ty::Trait(target))?
                     .into_owned()
                 else {
                     return Err(VmError::TypeMismatch("interface upcast target"));

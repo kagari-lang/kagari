@@ -19,7 +19,8 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     execution = {"kagari-runtime", "kagari-vm", "kagari-embed", "kagari-bytecode"}
     constraints = {
-        "abi": source | compiling | execution,
+        "abi": source | compiling | execution | {"kagari-contract", "kagari-common"},
+        "contract": source | compiling | execution,
         "mir": source | execution | {"kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"},
         "bytecode": source | compiling,
         "runtime": source | compiling,
@@ -36,15 +37,16 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         (output / f"{crate}-production-graph.log").write_text(graph)
         packages = {line.split()[0] for line in graph.splitlines() if line}
         assert not packages & forbidden, (crate, packages & forbidden)
-    abi_build_graph = subprocess.check_output([
-        "cargo", "tree", "--locked", "--offline", "-p", "kagari-abi",
-        "--no-default-features", "--edges", "normal,build", "--prefix", "none",
-    ], cwd=ROOT, text=True)
-    (output / "abi-build-graph.log").write_text(abi_build_graph)
-    abi_build_packages = {line.split()[0] for line in abi_build_graph.splitlines() if line}
-    assert not abi_build_packages & constraints["abi"], ("abi build", abi_build_packages & constraints["abi"])
-    print("eight production crate boundaries pass", flush=True)
-    print("ABI build graph is independent of source analysis and execution", flush=True)
+    for crate in ["abi", "contract"]:
+        graph = subprocess.check_output([
+            "cargo", "tree", "--locked", "--offline", "-p", f"kagari-{crate}",
+            "--no-default-features", "--edges", "normal,build", "--prefix", "none",
+        ], cwd=ROOT, text=True)
+        (output / f"{crate}-build-graph.log").write_text(graph)
+        packages = {line.split()[0] for line in graph.splitlines() if line}
+        assert not packages & constraints[crate], (f"{crate} build", packages & constraints[crate])
+    print("nine production crate boundaries pass", flush=True)
+    print("ABI/contract build graphs are independent of source analysis and execution", flush=True)
 
 
 def run() -> None:
@@ -58,7 +60,7 @@ def run() -> None:
         'native = ["kagari-embed/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
         '[dependencies]',
     ]
-    for name in ["abi", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift"]:
+    for name in ["abi", "contract", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift"]:
         options = [f'path = {json.dumps(str(ROOT / "crates" / f"kagari-{name}"))}']
         if name == "embed":
             options.append('default-features = false')

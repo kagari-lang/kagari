@@ -14,12 +14,12 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::{
-    native_import::NativeSignature,
-    types::{AbiType, TypeAbiKind, native::NativeStorageLayout},
-};
 use kagari_common::identity::table::DefinitionId;
 use kagari_common::{collection::CollectionAccess, identity::DefinitionPath};
+use kagari_contract::{
+    native_import::NativeSignature,
+    types::{Ty, TypeDefKind, native::NativeStorageLayout},
+};
 use std::{fmt, rc::Rc, slice};
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
@@ -29,7 +29,7 @@ pub type NativeEntry = dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResul
 /// Scalars have an exact semantic type; generic views inherit their declared slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Codec {
-    Scalar(AbiType),
+    Scalar(Ty),
     Value,
     Object(DefinitionPath),
     Sequence,
@@ -55,14 +55,14 @@ impl Codec {
             )
     }
 
-    pub(crate) fn accepts(&self, ty: &AbiType, catalog: &DeclarationCatalog) -> bool {
+    pub(crate) fn accepts(&self, ty: &Ty, catalog: &DeclarationCatalog) -> bool {
         let layout = match ty {
-            AbiType::NativeObject(nominal) => {
+            Ty::NativeObject(nominal) => {
                 catalog
                     .types
                     .get(&nominal.declaration)
                     .and_then(|ty| match ty.kind {
-                        TypeAbiKind::NativeStorage(layout) => Some(layout),
+                        TypeDefKind::NativeStorage(layout) => Some(layout),
                         _ => None,
                     })
             }
@@ -72,27 +72,27 @@ impl Codec {
             Self::Scalar(expected) => expected == ty,
             Self::Value => true,
             Self::Object(id) => {
-                matches!(ty, AbiType::NativeObject(nominal) if nominal.declaration == *id)
+                matches!(ty, Ty::NativeObject(nominal) if nominal.declaration == *id)
             }
             Self::Sequence => {
-                matches!(ty, AbiType::Array(_, _))
+                matches!(ty, Ty::Array(_, _))
                     || matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
             }
             Self::MutableSequence => {
-                matches!(ty, AbiType::Array(_, CollectionAccess::Mutable))
+                matches!(ty, Ty::Array(_, CollectionAccess::Mutable))
                     || matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
             }
             Self::Map => {
-                matches!(ty, AbiType::Map { .. })
+                matches!(ty, Ty::Map { .. })
                     || matches!(layout, Some(NativeStorageLayout::Map { .. }))
             }
             Self::Set => {
-                matches!(ty, AbiType::Set(_, _))
+                matches!(ty, Ty::Set(_, _))
                     || matches!(layout, Some(NativeStorageLayout::Set { .. }))
             }
-            Self::Callable => matches!(ty, AbiType::Function { .. }),
+            Self::Callable => matches!(ty, Ty::Function { .. }),
             Self::Iterator => {
-                matches!(ty, AbiType::Iter(_))
+                matches!(ty, Ty::Iter(_))
                     || matches!(layout, Some(NativeStorageLayout::Iterator { .. }))
             }
         }

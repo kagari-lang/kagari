@@ -11,10 +11,12 @@ jit = []
 [dependencies]
 bincode.workspace = true
 kagari-abi.workspace = true
+kagari-contract.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true
 kagari-bytecode.workspace = true
 
 [dev-dependencies]
+kagari-hir.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
 kagari-mir.workspace = true

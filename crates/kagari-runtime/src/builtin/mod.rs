@@ -1,6 +1,6 @@
 pub mod standard;
 
-use kagari_abi::standard::RuntimePrimitive;
+use kagari_contract::standard::RuntimePrimitive;
 use std::borrow::Cow;
 
 use crate::{

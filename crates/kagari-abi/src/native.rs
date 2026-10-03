@@ -1,8 +1,5 @@
-use crate::{
-    ids::{DebugPointId, FunctionRef},
-    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
-};
-use std::{fmt, rc::Rc};
+use crate::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendId(String);
@@ -47,51 +44,28 @@ pub enum ExecutableEntryPoint {
     Native { symbol: String, address: usize },
 }
 
+/// Physical emitted code metadata; semantic function identities live in contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableSafepoint {
-    pub instruction_offset: usize,
-    pub kind: ExecutableSafepointKind,
-    pub stack_map: ExecutableStackMap,
+pub struct NativeArtifact {
+    pub runtime_abi_version: String,
+    pub runtime_helper_abi_version: String,
+    pub backend: BackendId,
+    pub target: BackendTarget,
+    pub entry: ExecutableEntryPoint,
+    pub traps: Vec<ExecutableTrap>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutableSafepointKind {
-    RuntimeHelperCall { helper: String },
-    CallBoundary,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ExecutableStackMap {
-    pub live_slots: Vec<ExecutableStackMapSlot>,
-}
-
-impl ExecutableStackMap {
-    pub fn empty() -> Self {
+impl NativeArtifact {
+    pub fn new(backend: BackendId, target: BackendTarget) -> Self {
         Self {
-            live_slots: Vec::new(),
+            runtime_abi_version: KAGARI_RUNTIME_ABI_VERSION.into(),
+            runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.into(),
+            backend,
+            target,
+            entry: ExecutableEntryPoint::Unresolved,
+            traps: Vec::new(),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableStackMapSlot {
-    pub location: ExecutableStackMapLocation,
-    pub value_kind: ExecutableStackValueKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutableStackMapLocation {
-    Register(u32),
-    Local(u32),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutableStackValueKind {
-    GcManaged,
-    Interface,
-    HostHandle,
-    HostPathView,
-    Ephemeral,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,62 +74,9 @@ pub struct ExecutableTrap {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableFunctionArtifact {
-    pub runtime_abi_version: String,
-    pub runtime_helper_abi_version: String,
-    pub backend: BackendId,
-    pub target: BackendTarget,
-    pub function: FunctionRef,
-    pub entry: ExecutableEntryPoint,
-    pub safepoints: Vec<ExecutableSafepoint>,
-    pub debug: ExecutableDebugInfo,
-    pub traps: Vec<ExecutableTrap>,
-}
-
-impl ExecutableFunctionArtifact {
-    pub fn new(backend: BackendId, target: BackendTarget, function: FunctionRef) -> Self {
-        Self {
-            runtime_abi_version: KAGARI_RUNTIME_ABI_VERSION.into(),
-            runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.into(),
-            backend,
-            target,
-            function,
-            entry: ExecutableEntryPoint::Unresolved,
-            safepoints: Vec::new(),
-            debug: ExecutableDebugInfo::default(),
-            traps: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ExecutableDebugInfo {
-    pub has_line_tables: bool,
-    pub has_source_spans: bool,
-    pub has_live_value_locations: bool,
-    pub has_safe_debug_callbacks: bool,
-    pub safe_debug_points: Vec<ExecutableDebugPoint>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableDebugPoint {
-    pub instruction_offset: usize,
-    pub debug_point: DebugPointId,
-}
-
 /// Keeps executable pages alive for every installed immutable execution version.
 /// Backend implementations release their pages only when the final owner is dropped.
 pub trait NativeCodeOwner: fmt::Debug {}
-
-/// Compiler output pairs executable metadata with its memory lifetime.
-/// Sharing is within the host thread, matching prepared programs and runtime
-/// installations; this contract does not authorize cross-thread execution.
-#[derive(Debug, Clone)]
-pub struct NativeCompilationProduct {
-    pub artifact: ExecutableFunctionArtifact,
-    pub owner: Rc<dyn NativeCodeOwner>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeType {

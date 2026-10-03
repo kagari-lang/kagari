@@ -4,7 +4,7 @@ use crate::{
     gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, iter::NativeIter},
     value::Value,
 };
-use kagari_abi::types::AbiType;
+use kagari_contract::types::Ty;
 use std::collections::HashSet;
 
 fn invalid() -> RuntimeError {
@@ -40,7 +40,7 @@ impl GcHeap {
                         let mut objects = self.objects.borrow_mut();
                         let (loops, dependencies) = match self.object_mut(&mut objects, id) {
                             Some(HeapObject::Native(object))
-                                if matches!(object.ty, AbiType::Iter(_)) =>
+                                if matches!(object.ty, Ty::Iter(_)) =>
                             {
                                 let iter = object.payload_mut::<NativeIter>()?;
                                 iter.guard = None;

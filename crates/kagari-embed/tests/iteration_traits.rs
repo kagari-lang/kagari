@@ -129,7 +129,7 @@ fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 
 #[test]
 fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
-    use kagari_abi::{operations::IterOp, scalar::BuiltinType, types::AbiType};
+    use kagari_contract::{operations::IterOp, scalar::BuiltinType, types::Ty};
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -171,13 +171,13 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     let array = rt
         .alloc_array(
             &loaded,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(20), Value::I32(22)],
         )
         .unwrap();
     let root = rt.root_value(Value::Array(array)).unwrap();
-    let item = AbiType::Builtin(BuiltinType::I32);
-    let ty = AbiType::Iter(Box::new(item.clone()));
+    let item = Ty::Builtin(BuiltinType::I32);
+    let ty = Ty::Iter(Box::new(item.clone()));
     let cancellation = kagari_common::cancellation::CancellationToken::default();
     let options = ExecutionOptions {
         cancellation: cancellation.clone(),
@@ -188,7 +188,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         .iter_operation(
             &loaded,
             &root.value(),
-            &AbiType::Array(Box::new(item), CollectionAccess::Mutable),
+            &Ty::Array(Box::new(item), CollectionAccess::Mutable),
             IterOp::New,
         )
         .unwrap();
@@ -356,8 +356,8 @@ fn main()->i32 {
 
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
-    use kagari_abi::{scalar::BuiltinType, standard::surface::StandardEnum, types::AbiType};
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+    use kagari_contract::{scalar::BuiltinType, standard::surface::StandardEnum, types::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -385,7 +385,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             0 => {
                 program.modules[root].native_imports[import]
                     .signature
-                    .params[0] = AbiType::Builtin(BuiltinType::I32)
+                    .params[0] = Ty::Builtin(BuiltinType::I32)
             }
             1 => {
                 let instruction = program.modules[root]
@@ -406,8 +406,8 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             _ => {
                 program.modules[root].native_imports[import]
                     .signature
-                    .params[0] = AbiType::Array(
-                    Box::new(AbiType::StandardEnum {
+                    .params[0] = Ty::Array(
+                    Box::new(Ty::StandardEnum {
                         kind: StandardEnum::Option,
                         args: vec![],
                     }),

@@ -12,9 +12,9 @@ use crate::{
     module::LoadedModule,
     value::Value,
 };
-use kagari_abi::types::{AbiType, GenericParameterAbi, NominalAbiType};
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::{GenericParam, NominalTy, Ty};
 use std::{cell::OnceCell, rc::Rc};
 
 pub(crate) enum MethodSelection {
@@ -27,8 +27,8 @@ pub(crate) enum MethodSelection {
 
 pub(crate) struct BoundReceiver {
     receiver: Value,
-    concrete_type: AbiType<DefinitionId>,
-    interface: NominalAbiType<DefinitionId>,
+    concrete_type: Ty<DefinitionId>,
+    interface: NominalTy<DefinitionId>,
 }
 
 impl RootedInterfaceMethod {
@@ -44,8 +44,8 @@ impl RootedInterfaceMethod {
         root: RootedValue,
         operation: Rc<BoundOperation>,
         receiver: Value,
-        concrete_type: AbiType<DefinitionId>,
-        interface: NominalAbiType<DefinitionId>,
+        concrete_type: Ty<DefinitionId>,
+        interface: NominalTy<DefinitionId>,
     ) -> Self {
         let mut method = Self::selected(root, MethodSelection::Operation(operation));
         method.bound_receiver = Some(BoundReceiver {
@@ -79,21 +79,21 @@ impl RootedInterfaceMethod {
         }
     }
 
-    pub fn concrete_type(&self) -> &AbiType<DefinitionId> {
+    pub fn concrete_type(&self) -> &Ty<DefinitionId> {
         match &self.selection {
             MethodSelection::Interface { snapshot, .. } => &snapshot.concrete_type,
             MethodSelection::Operation(_) => &self.bound_receiver().concrete_type,
         }
     }
 
-    pub fn interface_type(&self) -> &NominalAbiType<DefinitionId> {
+    pub fn interface_type(&self) -> &NominalTy<DefinitionId> {
         match &self.selection {
             MethodSelection::Interface { snapshot, .. } => &snapshot.interface_type,
             MethodSelection::Operation(_) => &self.bound_receiver().interface,
         }
     }
 
-    pub(crate) fn interface_expression(&self) -> &NominalAbiType<DefinitionId> {
+    pub(crate) fn interface_expression(&self) -> &NominalTy<DefinitionId> {
         match &self.selection {
             MethodSelection::Interface { snapshot, .. } => &snapshot.interface_expression,
             MethodSelection::Operation(_) => &self.bound_receiver().interface,
@@ -119,7 +119,7 @@ impl RootedInterfaceMethod {
         }
     }
 
-    pub fn parameter_types(&self) -> &[AbiType<DefinitionId>] {
+    pub fn parameter_types(&self) -> &[Ty<DefinitionId>] {
         if let Some(application) = &self.application {
             return &application.signature.params;
         }
@@ -134,7 +134,7 @@ impl RootedInterfaceMethod {
         }
     }
 
-    pub fn return_type(&self) -> &AbiType<DefinitionId> {
+    pub fn return_type(&self) -> &Ty<DefinitionId> {
         if let Some(application) = &self.application {
             return &application.signature.result;
         }
@@ -149,7 +149,7 @@ impl RootedInterfaceMethod {
         }
     }
 
-    pub(crate) fn type_parameters(&self) -> &[GenericParameterAbi<DefinitionId>] {
+    pub(crate) fn type_parameters(&self) -> &[GenericParam<DefinitionId>] {
         match &self.selection {
             MethodSelection::Interface { snapshot, slot } => {
                 &snapshot.methods[*slot]
@@ -165,7 +165,7 @@ impl RootedInterfaceMethod {
         }
     }
 
-    pub(crate) fn entry_parameters(&self) -> &[GenericParameterAbi<DefinitionId>] {
+    pub(crate) fn entry_parameters(&self) -> &[GenericParam<DefinitionId>] {
         match &self.selection {
             MethodSelection::Interface { snapshot, slot } => {
                 &snapshot.methods[*slot]
@@ -181,7 +181,7 @@ impl RootedInterfaceMethod {
         }
     }
 
-    pub(crate) fn entry_arguments(&self) -> &[AbiType<DefinitionId>] {
+    pub(crate) fn entry_arguments(&self) -> &[Ty<DefinitionId>] {
         match &self.selection {
             MethodSelection::Interface { snapshot, slot } => {
                 &snapshot.methods[*slot]

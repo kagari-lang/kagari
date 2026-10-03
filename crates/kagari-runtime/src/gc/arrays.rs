@@ -8,9 +8,9 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::types::AbiType;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::Ty;
 use std::{mem, ops::Bound, rc::Rc};
 
 fn invalid() -> RuntimeError {
@@ -24,7 +24,7 @@ impl GcHeap {
     pub(crate) fn alloc_array(
         &self,
         owner: &LoadedModule,
-        element: AbiType<DefinitionId>,
+        element: Ty<DefinitionId>,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.alloc_array_with_contract(Rc::new(StorageType::prepare(element, owner)?), elements)
@@ -39,7 +39,7 @@ impl GcHeap {
         let owner = contract.owner.clone();
         let element = contract.ty.clone();
         let values = self.prepare_array_values(&contract, elements)?;
-        let ty = AbiType::Array(Box::new(element.clone()), CollectionAccess::Mutable);
+        let ty = Ty::Array(Box::new(element.clone()), CollectionAccess::Mutable);
         let object = self.sequence_storage.prepare_payload(
             self,
             &ty,
@@ -57,7 +57,7 @@ impl GcHeap {
     pub(crate) fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,
-        element: AbiType<DefinitionId>,
+        element: Ty<DefinitionId>,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
@@ -93,7 +93,7 @@ impl GcHeap {
             self.ensure_execution_allowed()?;
             values.append_repeated(value.clone(), (count - start).min(1024))?;
         }
-        let ty = AbiType::Array(Box::new(element.clone()), CollectionAccess::Mutable);
+        let ty = Ty::Array(Box::new(element.clone()), CollectionAccess::Mutable);
         let object = self.sequence_storage.prepare_payload(
             self,
             &ty,
@@ -159,7 +159,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Array(..)) {
+        if !matches!(object.ty, Ty::Array(..)) {
             return None;
         }
         Some(object.payload::<SequencePayload>().ok()?.contract.clone())
@@ -386,7 +386,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Array(..)) {
+        if !matches!(object.ty, Ty::Array(..)) {
             return None;
         }
         let sequence = object.payload::<SequencePayload>().ok()?;
@@ -406,7 +406,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Array(..)) {
+        if !matches!(object.ty, Ty::Array(..)) {
             return None;
         }
         let values = &mut object.payload_mut::<SequencePayload>().ok()?.values;

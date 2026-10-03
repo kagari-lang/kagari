@@ -1,16 +1,18 @@
 use crate::{module::CallableTarget, program::ModuleRef};
-use kagari_abi::{
-    callable::{interface::InterfaceCallContract, shared::SharedCall},
-    ids::FunctionRef,
-    numeric::{NumericConversion, NumericOperation},
-    operations::{IterOp, StandardEnumOp},
-    representation::ValueType,
-    standard::RuntimePrimitive,
-    types::{AbiType, NominalAbiType},
-};
 use kagari_common::identity::DefinitionPath;
 use kagari_common::identity::reference::DefinitionReference;
 use serde::{Deserialize, Serialize};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::{interface::InterfaceCallContract, shared::SharedCall},
+        ids::FunctionRef,
+        numeric::{NumericConversion, NumericOperation},
+        operations::{IterOp, StandardEnumOp},
+        standard::RuntimePrimitive,
+        types::{NominalTy, Ty},
+    },
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Register(u16);
@@ -110,8 +112,8 @@ impl StructId {
 ))]
 pub struct FieldRef<I = DefinitionPath> {
     pub structure: StructId,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-    pub arguments: Vec<AbiType<I>>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+    pub arguments: Vec<Ty<I>>,
     pub slot: u32,
 }
 
@@ -196,7 +198,7 @@ pub enum CallTarget<I = DefinitionPath> {
     Register(Register),
     ClosureRegister {
         register: Register,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
         params: Vec<ValueType>,
         return_type: ValueType,
     },
@@ -258,18 +260,18 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         dst: Register,
         original: Register,
         error: Register,
-        ty: AbiType<I>,
+        ty: Ty<I>,
     },
     Iter {
         dst: Register,
         value: Option<Register>,
-        ty: AbiType<I>,
+        ty: Ty<I>,
         op: IterOp,
     },
     StandardEnum {
         dst: Register,
         value: Option<Register>,
-        ty: AbiType<I>,
+        ty: Ty<I>,
         op: StandardEnumOp,
     },
     LoadConst {
@@ -310,7 +312,7 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
     Call {
         dst: Option<Register>,
         callee: CallTarget<I>,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         args: Vec<Register>,
     },
     BeginIteration {
@@ -319,38 +321,38 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
     EndIteration,
     MakeTuple {
         dst: Register,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         elements: Vec<Register>,
     },
     RangeBound {
         dst: Register,
         value: Register,
-        range: AbiType<I>,
-        bound: AbiType<I>,
+        range: Ty<I>,
+        bound: Ty<I>,
         upper: bool,
     },
     MakeRange {
         dst: Register,
         start: Option<Register>,
         end: Option<Register>,
-        ty: AbiType<I>,
+        ty: Ty<I>,
     },
     RepeatArray {
-        element: AbiType<I>,
+        element: Ty<I>,
         dst: Register,
         value: Register,
         count: Register,
     },
     MakeArray {
-        element: AbiType<I>,
+        element: Ty<I>,
         dst: Register,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         elements: Vec<Register>,
     },
     MakeClosure {
         dst: Register,
         function: FunctionRef,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         captures: Vec<Register>,
     },
     MakeCell {
@@ -368,48 +370,48 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
     UpcastInterface {
         dst: Register,
         value: Register,
-        source: NominalAbiType<I>,
-        target: NominalAbiType<I>,
+        source: NominalTy<I>,
+        target: NominalTy<I>,
     },
     MakeInterface {
         dst: Register,
         value: Register,
         module: ModuleRef,
         implementation: InterfaceTableRef,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType<I>>,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        arguments: Vec<Ty<I>>,
     },
     MakeStruct {
         dst: Register,
         structure: StructId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType<I>>,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        arguments: Vec<Ty<I>>,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         fields: Vec<Register>,
     },
     MakeEnum {
         dst: Register,
         enumeration: EnumId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType<I>>,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        arguments: Vec<Ty<I>>,
         variant: u32,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         fields: Vec<Register>,
     },
     TestEnumVariant {
         dst: Register,
         value: Register,
         enumeration: EnumId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType<I>>,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        arguments: Vec<Ty<I>>,
         variant: u32,
     },
     ReadEnumPayload {
         dst: Register,
         value: Register,
         enumeration: EnumId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-        arguments: Vec<AbiType<I>>,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        arguments: Vec<Ty<I>>,
         variant: u32,
         index: u32,
     },
@@ -437,13 +439,13 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         dst: Register,
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         dynamic_args: Vec<Register>,
     },
     SetPath {
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         dynamic_args: Vec<Register>,
         value: Register,
     },
@@ -451,7 +453,7 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         dst: Option<Register>,
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         dynamic_args: Vec<Register>,
         op: BinaryOp,
         value: Register,
@@ -460,7 +462,7 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         dst: Register,
         root_or_view: Register,
         path: PathId,
-        #[serde(deserialize_with = "kagari_abi::decode_limits::operands")]
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         dynamic_args: Vec<Register>,
     },
     Jump {
@@ -476,7 +478,7 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
 }
 
 impl BytecodeInstruction {
-    pub(crate) fn layout_arguments(&self) -> Option<&[AbiType]> {
+    pub(crate) fn layout_arguments(&self) -> Option<&[Ty]> {
         match self {
             Self::MakeStruct { arguments, .. }
             | Self::MakeEnum { arguments, .. }

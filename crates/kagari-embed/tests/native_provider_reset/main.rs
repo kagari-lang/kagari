@@ -8,12 +8,12 @@ mod library;
 #[path = "../support/native_provider.rs"]
 mod provider;
 use contracts::alter_bindings;
-use kagari_abi::{
-    scalar::BuiltinType,
-    types::{AbiType, FunctionAbi, PublicAbiItem},
-};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::source::SourceFile;
+use kagari_contract::{
+    scalar::BuiltinType,
+    types::{FnDecl, PublicItem, Ty},
+};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -164,18 +164,18 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
 
 #[test]
 fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
-    fn change_result(function: &mut FunctionAbi) {
+    fn change_result(function: &mut FnDecl) {
         if matches!(function.name.as_str(), "len" | "main")
-            && function.return_type == AbiType::Builtin(BuiltinType::USize)
+            && function.return_type == Ty::Builtin(BuiltinType::USize)
         {
-            function.return_type = AbiType::Builtin(BuiltinType::U64);
+            function.return_type = Ty::Builtin(BuiltinType::U64);
         }
     }
     let mut original = artifact("fn main() -> usize { [1, 2].len() }");
     for module in &mut original.program.modules {
         for import in &mut module.native_imports {
-            if import.signature.result == AbiType::Builtin(BuiltinType::USize) {
-                import.signature.result = AbiType::Builtin(BuiltinType::U64);
+            if import.signature.result == Ty::Builtin(BuiltinType::USize) {
+                import.signature.result = Ty::Builtin(BuiltinType::U64);
             }
         }
         for declaration in &mut module.native_declarations {
@@ -188,13 +188,13 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
         }
         for item in &mut module.public_items {
             match item {
-                PublicAbiItem::Function(function) => change_result(function),
-                PublicAbiItem::Trait(record) => {
+                PublicItem::Function(function) => change_result(function),
+                PublicItem::Trait(record) => {
                     for method in &mut record.methods {
                         change_result(method);
                     }
                 }
-                PublicAbiItem::InterfaceTable(table) => {
+                PublicItem::InterfaceTable(table) => {
                     for method in &mut table.methods {
                         change_result(method);
                     }
@@ -204,12 +204,12 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
         }
         for function in &mut module.functions {
             let semantic = &mut function.metadata.semantic;
-            if semantic.result == Some(AbiType::Builtin(BuiltinType::USize)) {
-                semantic.result = Some(AbiType::Builtin(BuiltinType::U64));
+            if semantic.result == Some(Ty::Builtin(BuiltinType::USize)) {
+                semantic.result = Some(Ty::Builtin(BuiltinType::U64));
             }
             for ty in semantic.registers.values_mut() {
-                if *ty == AbiType::Builtin(BuiltinType::USize) {
-                    *ty = AbiType::Builtin(BuiltinType::U64);
+                if *ty == Ty::Builtin(BuiltinType::USize) {
+                    *ty = Ty::Builtin(BuiltinType::U64);
                 }
             }
         }

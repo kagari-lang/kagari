@@ -1,12 +1,6 @@
 //! Executable interface slots use checked declaration applications, without bodies
 //! or per-library method selection for registered native entries.
 use crate::bytecode::{BytecodeLoweringError, defaults::Contracts};
-use kagari_abi::{
-    callable::CallableImplementation,
-    ids::FunctionRef,
-    native_import::NativeImport,
-    types::{AbiType, ConcreteFunctionIdentity, GenericParameterAbi, PublicAbiItem},
-};
 use kagari_bytecode::{
     instruction::NativeImportId,
     module::{CallableTarget, InterfaceMethodSlot, InterfaceTableRecord},
@@ -15,6 +9,12 @@ use kagari_common::identity::table::DefinitionId;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, DefinitionPathSegment},
+};
+use kagari_contract::{
+    callable::CallableImplementation,
+    ids::FunctionRef,
+    native_import::NativeImport,
+    types::{ConcreteFunctionIdentity, GenericParam, PublicItem, Ty},
 };
 use kagari_mir::{
     instruction::Instruction, program::VerifiedMirProgram, verify::VerifiedMirModule,
@@ -30,7 +30,7 @@ pub(super) fn interface_instances(
         .public_items
         .iter()
         .filter_map(|item| {
-            let PublicAbiItem::InterfaceTable(table) = item else {
+            let PublicItem::InterfaceTable(table) = item else {
                 return None;
             };
             Some(ConcreteFunctionIdentity {
@@ -82,16 +82,16 @@ pub(super) fn interface_instances(
 pub(super) fn table_arguments(
     ir: &VerifiedMirModule,
     declaration: &DefinitionId,
-    arguments: &[AbiType<DefinitionId>],
-) -> Vec<AbiType<DefinitionId>> {
-    if arguments.iter().all(AbiType::is_concrete) {
+    arguments: &[Ty<DefinitionId>],
+) -> Vec<Ty<DefinitionId>> {
+    if arguments.iter().all(Ty::is_concrete) {
         return arguments.to_vec();
     }
     ir.abi
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if table.declaration == *declaration => {
+            PublicItem::InterfaceTable(table) if table.declaration == *declaration => {
                 Some(table.generic_params.iter().map(|p| p.as_type()).collect())
             }
             _ => None,
@@ -112,7 +112,7 @@ pub(super) fn collect_interface_tables(
         .iter()
         .flat_map(|module| &module.abi.public_items)
         .filter_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => Some(table),
+            PublicItem::InterfaceTable(table) => Some(table),
             _ => None,
         })
         .flat_map(|table| &table.methods)
@@ -139,7 +139,7 @@ pub(super) fn collect_interface_tables(
                 .public_items
                 .iter()
                 .find_map(|item| match item {
-                    PublicAbiItem::InterfaceTable(table)
+                    PublicItem::InterfaceTable(table)
                         if table.declaration == instance.declaration =>
                     {
                         Some(table.as_ref())
@@ -147,7 +147,7 @@ pub(super) fn collect_interface_tables(
                     _ => None,
                 })
                 .expect("verified interface template");
-            let AbiType::Trait(interface) = &abi.trait_type else {
+            let Ty::Trait(interface) = &abi.trait_type else {
                 unreachable!("verified interface type");
             };
             let mut methods = vec![];
@@ -256,7 +256,7 @@ pub(super) fn collect_interface_tables(
                             entry_arguments = instance.arguments.clone();
                             instance.arguments = (0..instance.arguments.len())
                                 .map(|position| {
-                                    GenericParameterAbi {
+                                    GenericParam {
                                         owner: instance.declaration,
                                         position,
                                     }
@@ -274,7 +274,7 @@ pub(super) fn collect_interface_tables(
                                     .iter()
                                     .enumerate()
                                     .map(|(position, _)| {
-                                        GenericParameterAbi {
+                                        GenericParam {
                                             owner: declaration,
                                             position,
                                         }

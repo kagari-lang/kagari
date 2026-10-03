@@ -1,5 +1,5 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_common::source::SourceFile;
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_embed::{context::JitPolicy, engine::EngineConfig};
 
 use kagari_embed::{
@@ -179,7 +179,7 @@ fn main() { val values = [1, 2]; inspect(values); }
         .unwrap();
     let mut forged = artifact.program.clone();
     let function = &mut forged.modules[root].functions[index];
-    if let Some(AbiType::Trait(interface)) = function.metadata.semantic.params.get_mut(&0) {
+    if let Some(Ty::Trait(interface)) = function.metadata.semantic.params.get_mut(&0) {
         interface.declaration.path.last_mut().unwrap().name = "MutableList".into();
     }
     assert!(verify_program(&forged).is_err());
@@ -192,10 +192,10 @@ fn main() { val values = [1, 2]; inspect(values); }
     assert!(verify_program(&forged).is_err());
     let mut forged = artifact.clone();
     let table = forged.program.modules.iter_mut().flat_map(|module| &mut module.public_items).find_map(|item| match item {
-        kagari_abi::types::PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(interface) if interface.declaration.path.last().unwrap().name == "List") => Some(table),
+        kagari_contract::types::PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(interface) if interface.declaration.path.last().unwrap().name == "List") => Some(table),
         _ => None,
     }).unwrap();
-    if let AbiType::Trait(interface) = &mut table.trait_type {
+    if let Ty::Trait(interface) = &mut table.trait_type {
         interface.declaration.path.last_mut().unwrap().name = "MutableList".into();
     }
     assert!(forged.validate_for_loader(&Default::default()).is_err());
@@ -244,7 +244,7 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
                     .runtime()
                     .alloc_array(
                         &context.runtime().execution_root().unwrap(),
-                        AbiType::Builtin(BuiltinType::I32),
+                        Ty::Builtin(BuiltinType::I32),
                         vec![Value::I32(40)],
                     )
                     .unwrap(),
@@ -275,7 +275,7 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
                     .runtime()
                     .alloc_array(
                         &context.runtime().execution_root().unwrap(),
-                        AbiType::Builtin(BuiltinType::I32),
+                        Ty::Builtin(BuiltinType::I32),
                         vec![],
                     )
                     .unwrap(),

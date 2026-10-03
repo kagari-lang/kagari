@@ -17,7 +17,10 @@ use kagari_hir::{
     types::{TypeId, abi::lower_type},
 };
 
-use kagari_abi::{effects::EffectSet, representation::ValueType, types::AbiType};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{effects::EffectSet, types::Ty},
+};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -198,7 +201,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         })
     }
 
-    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<AbiType, MirLoweringError> {
+    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<Ty, MirLoweringError> {
         let concrete = self
             .planner
             .arguments(

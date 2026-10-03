@@ -145,9 +145,9 @@ fn serializes_kbc_artifact_bytes_for_loader_execution() {
 
 #[test]
 fn fingerprints_public_module_abi_records() {
-    use kagari_abi::{
+    use kagari_contract::{
         scalar::BuiltinType,
-        types::{AbiType, NominalAbiType},
+        types::{NominalTy, Ty},
     };
     let module = common::bytecode_ok(
         r#"
@@ -179,7 +179,7 @@ pub fn greet(player: Player) -> String {
 "#,
     );
 
-    let player = AbiType::Struct(NominalAbiType {
+    let player = Ty::Struct(NominalTy {
         associated_types: Default::default(),
         declaration: module.modules[module.root.index()]
             .structures
@@ -192,16 +192,16 @@ pub fn greet(player: Player) -> String {
     });
     assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
-        PublicAbiItem::Const(item)
-            if item.name == "VERSION" && item.ty == AbiType::Builtin(BuiltinType::I32) && item.value == "const-v1:i32:1"
+        PublicItem::Const(item)
+            if item.name == "VERSION" && item.ty == Ty::Builtin(BuiltinType::I32) && item.value == "const-v1:i32:1"
     )));
     assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
-        PublicAbiItem::Type(item)
+        PublicItem::Type(item)
             if item.name == "Player"
-                && item.kind == TypeAbiKind::Struct
+                && item.kind == TypeDefKind::Struct
                 && item.fields.iter().any(|field| {
-                    field.name == "score" && field.ty == AbiType::Builtin(BuiltinType::I32) && field.mutable
+                    field.name == "score" && field.ty == Ty::Builtin(BuiltinType::I32) && field.mutable
                 })
     )));
     assert!(
@@ -210,34 +210,34 @@ pub fn greet(player: Player) -> String {
             .iter()
             .any(|item| matches!(
                 item,
-                PublicAbiItem::Type(item)
+                PublicItem::Type(item)
                     if item.name == "Status"
-                        && item.kind == TypeAbiKind::Enum
+                        && item.kind == TypeDefKind::Enum
                         && item.variants.iter().any(|variant| variant.name == "Ready")
             ))
     );
     assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
-        PublicAbiItem::Trait(item)
+        PublicItem::Trait(item)
             if item.name == "Display"
                 && item.methods.iter().any(|method| {
-                    method.name == "show" && method.return_type == AbiType::Builtin(BuiltinType::String)
+                    method.name == "show" && method.return_type == Ty::Builtin(BuiltinType::String)
                 })
     )));
     assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
-        PublicAbiItem::InterfaceTable(item)
-            if matches!(&item.trait_type, AbiType::Trait(ty) if ty.declaration.module == module.modules[module.root.index()].identity && ty.declaration.path.last().unwrap().name == "Display")
+        PublicItem::InterfaceTable(item)
+            if matches!(&item.trait_type, Ty::Trait(ty) if ty.declaration.module == module.modules[module.root.index()].identity && ty.declaration.path.last().unwrap().name == "Display")
                 && item.for_type == player
                 && item.methods.iter().any(|method| method.name == "show")
     )));
     let table = module.modules[module.root.index()]
         .public_items
         .iter()
-        .find(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+        .find(|item| matches!(item, PublicItem::InterfaceTable(_)))
         .unwrap();
     let mut same_label = table.clone();
-    let PublicAbiItem::InterfaceTable(other) = &mut same_label else {
+    let PublicItem::InterfaceTable(other) = &mut same_label else {
         unreachable!()
     };
     other.declaration.module.package.0 = "other-package".into();
@@ -249,11 +249,11 @@ pub fn greet(player: Player) -> String {
             .iter()
             .any(|item| matches!(
                 item,
-                PublicAbiItem::Function(item)
+                PublicItem::Function(item)
                     if item.name == "greet"
                         && item.params.len() == 1
                         && item.params[0].ty == player
-                        && item.return_type == AbiType::Builtin(BuiltinType::String)
+                        && item.return_type == Ty::Builtin(BuiltinType::String)
             ))
     );
 

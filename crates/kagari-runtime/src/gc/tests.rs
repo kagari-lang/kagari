@@ -1,6 +1,6 @@
 use crate::{Runtime, layout_fixtures::allocation_owner};
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
+use kagari_contract::scalar::BuiltinType;
+use kagari_contract::types::Ty;
 use {
     crate::host::HostTypeRegistration,
     kagari_common::host_interface::{
@@ -14,16 +14,12 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     let mut runtime = crate::Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let array = runtime
-        .alloc_array(
-            &owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(7)],
-        )
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
     let interface = crate::layout_fixtures::interface_value_with(
         &mut runtime,
-        AbiType::Array(
-            Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
+        Ty::Array(
+            Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
             CollectionAccess::Mutable,
         ),
         Value::Array(array),
@@ -78,7 +74,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     );
 }
 
-fn layout(name: &str, field: &str, ty: AbiType) -> crate::module::StructLayoutRef {
+fn layout(name: &str, field: &str, ty: Ty) -> crate::module::StructLayoutRef {
     crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
 }
 
@@ -179,7 +175,7 @@ fn rejects_ephemeral_values_as_heap_payloads() {
         runtime
             .alloc_array(
                 &owner,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![shared_borrow_value(1)]
             )
             .is_err()
@@ -188,7 +184,7 @@ fn rejects_ephemeral_values_as_heap_payloads() {
         runtime
             .alloc_array(
                 &owner,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![unique_borrow_value(2)]
             )
             .is_err()
@@ -206,7 +202,7 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
         runtime
             .alloc_array(
                 &owner,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![host_root_value(1)]
             )
             .is_err()
@@ -216,8 +212,8 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
             layout(
                 "HostBacked",
                 "path",
-                AbiType::Array(
-                    Box::new(AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)),
+                Ty::Array(
+                    Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
                     CollectionAccess::Mutable
                 )
             ),
@@ -234,18 +230,14 @@ fn rejects_non_storable_heap_mutations() {
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
     let array = runtime
-        .alloc_array(
-            &owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
-        )
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
     let record = heap
         .alloc_struct(
             layout(
                 "Record",
                 "value",
-                AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+                Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
             ),
             vec![Value::I32(1)],
         )
@@ -276,11 +268,7 @@ fn roots_are_explicit_storable_slots() {
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
     let object = runtime
-        .alloc_array(
-            &owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
-        )
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
     let root = heap.root_value(Value::Array(object)).unwrap();
 
@@ -312,17 +300,13 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     let heap = runtime.gc();
     let resources = runtime.resources();
     let array = runtime
-        .alloc_array(
-            &owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
-        )
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
     let before = heap.stats().current_heap_units;
     let mut foreign_runtime = Runtime::default();
     let foreign_owner = allocation_owner(&mut foreign_runtime);
     let foreign = foreign_runtime
-        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     // Payload and receiver rejection must not be relabeled from the index.
     assert_eq!(
@@ -347,7 +331,7 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     let schema = layout(
         "Record",
         "value",
-        AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+        Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
     );
     let object = heap
         .alloc_struct(schema.clone(), vec![Value::I32(7)])

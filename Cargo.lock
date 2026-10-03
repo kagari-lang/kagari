@@ -339,10 +339,7 @@ dependencies = [
 name = "kagari-abi"
 version = "0.1.0"
 dependencies = [
- "bincode",
- "kagari-common",
  "serde",
- "smallvec",
 ]
 
 [[package]]
@@ -352,6 +349,7 @@ dependencies = [
  "bincode",
  "kagari-abi",
  "kagari-common",
+ "kagari-contract",
  "serde",
  "smallvec",
  "thiserror",
@@ -377,6 +375,7 @@ version = "0.1.0"
 dependencies = [
  "kagari-abi",
  "kagari-common",
+ "kagari-contract",
  "kagari-mir",
 ]
 
@@ -394,6 +393,7 @@ dependencies = [
  "kagari-codegen",
  "kagari-common",
  "kagari-compiler",
+ "kagari-contract",
  "kagari-embed",
  "kagari-mir",
  "kagari-runtime",
@@ -417,11 +417,23 @@ dependencies = [
  "kagari-abi",
  "kagari-bytecode",
  "kagari-common",
+ "kagari-contract",
  "kagari-hir",
  "kagari-mir",
  "kagari-syntax",
  "smallvec",
  "thiserror",
+]
+
+[[package]]
+name = "kagari-contract"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "kagari-abi",
+ "kagari-common",
+ "serde",
+ "smallvec",
 ]
 
 [[package]]
@@ -435,6 +447,7 @@ dependencies = [
  "kagari-codegen-cranelift",
  "kagari-common",
  "kagari-compiler",
+ "kagari-contract",
  "kagari-hir",
  "kagari-mir",
  "kagari-runtime",
@@ -450,6 +463,7 @@ version = "0.1.0"
 dependencies = [
  "kagari-abi",
  "kagari-common",
+ "kagari-contract",
  "kagari-syntax",
  "serde",
  "smallvec",
@@ -476,6 +490,7 @@ dependencies = [
  "bincode",
  "kagari-abi",
  "kagari-common",
+ "kagari-contract",
  "serde",
  "smallvec",
  "thiserror",
@@ -490,6 +505,8 @@ dependencies = [
  "kagari-bytecode",
  "kagari-common",
  "kagari-compiler",
+ "kagari-contract",
+ "kagari-hir",
  "kagari-mir",
  "thiserror",
 ]
@@ -511,6 +528,7 @@ dependencies = [
  "kagari-bytecode",
  "kagari-common",
  "kagari-compiler",
+ "kagari-contract",
  "kagari-hir",
  "kagari-mir",
  "kagari-runtime",

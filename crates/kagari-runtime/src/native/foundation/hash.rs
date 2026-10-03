@@ -8,7 +8,7 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::standard::RuntimePrimitive;
+use kagari_contract::standard::RuntimePrimitive;
 
 use std::slice;
 

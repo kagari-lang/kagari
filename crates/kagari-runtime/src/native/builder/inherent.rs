@@ -8,15 +8,15 @@ use crate::{
         types::{FunctionRef, Type},
     },
 };
-use kagari_abi::{callable::CallableImplementation, declaration::ModuleDecl, types::FunctionAbi};
 use kagari_common::identity::DefinitionPath;
+use kagari_contract::{callable::CallableImplementation, declaration::ModuleDecl, types::FnDecl};
 use std::collections::BTreeMap;
 
 pub struct InherentMethodsBuilder {
     pub(crate) owner: DefinitionPath,
     pub(crate) receiver: Type,
     pub(crate) receiver_codec: Option<Codec>,
-    pub(crate) methods: BTreeMap<DefinitionPath, FunctionAbi>,
+    pub(crate) methods: BTreeMap<DefinitionPath, FnDecl>,
     pub(crate) bindings: BTreeMap<DefinitionPath, NativeBinding>,
 }
 

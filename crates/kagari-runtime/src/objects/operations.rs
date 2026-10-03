@@ -9,12 +9,12 @@ use crate::{
     module::LoadedModule,
     objects::calls,
 };
-use kagari_abi::{
+use kagari_bytecode::module::CallableTarget;
+use kagari_contract::{
     callable::witness::OperationWitness,
     native_import::{NativeSignature, callables::NativeCallableRequirement},
-    types::{self as abi, AbiType, PublicAbiItem},
+    types::{self as abi, PublicItem, Ty},
 };
-use kagari_bytecode::module::CallableTarget;
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -72,7 +72,7 @@ impl Runtime {
                 .public_items
                 .iter()
                 .find_map(|item| match item {
-                    PublicAbiItem::InterfaceTable(abi) if abi.declaration == table.declaration => {
+                    PublicItem::InterfaceTable(abi) if abi.declaration == table.declaration => {
                         Some(abi)
                     }
                     _ => None,
@@ -98,7 +98,7 @@ impl Runtime {
                 arguments,
             )?);
             let receiver = environment.resolve(&template.for_type)?;
-            let AbiType::Trait(interface) = environment.resolve(&template.trait_type)? else {
+            let Ty::Trait(interface) = environment.resolve(&template.trait_type)? else {
                 return Err(invalid());
             };
             let contract = owner

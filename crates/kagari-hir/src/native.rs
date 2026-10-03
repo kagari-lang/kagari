@@ -3,17 +3,18 @@ use crate::{
     host::HostFunctionId,
     types::{NominalType, TypeId},
 };
-use kagari_abi::{
-    callable::NativeDefaultApplication, scalar::BuiltinType, standard::surface::StandardEnum,
-    types::native::NativeStorageLayout,
-};
 use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionPath, reference::DefinitionReference},
     range::RangeKind,
 };
+use kagari_contract::{
+    callable::NativeDefaultApplication, scalar::BuiltinType, standard::surface::StandardEnum,
+    types::native::NativeStorageLayout,
+};
 
 pub(crate) mod api;
+pub mod render;
 
 /// Installed entry identity, checked host catalog index or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.

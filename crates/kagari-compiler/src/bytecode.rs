@@ -7,15 +7,6 @@ use crate::bytecode::{
     debug::collect_debug_metadata,
     interfaces::{collect_interface_tables, interface_instances},
 };
-use kagari_abi::{
-    callable::CallableImplementation,
-    ids::FunctionRef,
-    layout::{EnumLayout, StructLayout},
-    native_import::NativeImport,
-    operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
-    representation::ValueType,
-    types::{AbiType, ConcreteFunctionIdentity, NominalAbiType},
-};
 use kagari_bytecode::{
     instruction::{
         BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, EnumId, FieldRef,
@@ -49,6 +40,17 @@ use kagari_mir::{
     verify::VerifiedMirModule,
 };
 use std::{collections::HashMap, slice};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::CallableImplementation,
+        ids::FunctionRef,
+        layout::{EnumLayout, StructLayout},
+        native_import::NativeImport,
+        operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
+        types::{ConcreteFunctionIdentity, NominalTy, Ty},
+    },
+};
 
 #[derive(Debug)]
 pub enum BytecodeLoweringError {
@@ -207,7 +209,7 @@ impl BytecodeLoweringContext<'_> {
     fn interface_ref(
         &mut self,
         implementation: &DefinitionId,
-        arguments: &[AbiType<DefinitionId>],
+        arguments: &[Ty<DefinitionId>],
     ) -> (ModuleRef, InterfaceTableRef) {
         let (module, owner) = if let Some(program) = self.program {
             program
@@ -266,7 +268,7 @@ impl BytecodeLoweringContext<'_> {
         id
     }
 
-    fn structure_id(&self, id: &NominalAbiType<DefinitionId>) -> StructId {
+    fn structure_id(&self, id: &NominalTy<DefinitionId>) -> StructId {
         StructId::new(
             self.structures
                 .iter()

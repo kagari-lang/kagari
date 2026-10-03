@@ -15,13 +15,13 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::{
-    language::{self as standard_traits, Protocol},
-    standard::surface::StandardEnum,
-};
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity,
+};
+use kagari_contract::{
+    language::{self as standard_traits, Protocol},
+    standard::surface::StandardEnum,
 };
 
 impl<'a> BodyChecker<'a> {

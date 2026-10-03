@@ -8,12 +8,12 @@ use crate::{
     session::SessionState,
     value::{EnumTag, MapKey, Value},
 };
-use kagari_abi::{
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{
     operations::{IterOp, StringIterKind},
     scalar::BuiltinType,
-    types::AbiType,
+    types::Ty,
 };
-use kagari_common::identity::table::DefinitionId;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -28,7 +28,7 @@ struct IterTypeScope<'a> {
 #[derive(Debug)]
 pub(super) struct NativeIter {
     pub(super) source: Value,
-    pub(super) item_type: AbiType<DefinitionId>,
+    pub(super) item_type: Ty<DefinitionId>,
     pub(super) item_contract: StorageType,
     pub(super) position: u128,
     pub(super) string: Option<StringTraversal>,
@@ -156,10 +156,10 @@ impl GcHeap {
     pub(super) fn validate_iter(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
-        let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
+        let (Value::GcHandle(id), Ty::Iter(item)) = (value, ty) else {
             return Err(invalid());
         };
         let objects = self.objects.borrow();
@@ -201,12 +201,12 @@ impl GcHeap {
     pub(crate) fn matches_iter_type(
         &self,
         id: HeapObjectId,
-        element: &AbiType<DefinitionId>,
+        element: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
         let objects = self.objects.borrow();
-        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, AbiType::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_scoped(element, owner, environment)))
+        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_scoped(element, owner, environment)))
     }
 
     pub(crate) fn new_iter(
@@ -226,24 +226,20 @@ impl GcHeap {
     fn new_iter_with(
         &self,
         source: &Value,
-        ty: &AbiType<DefinitionId>,
-        traversal: Option<(AbiType<DefinitionId>, StringTraversal)>,
+        ty: &Ty<DefinitionId>,
+        traversal: Option<(Ty<DefinitionId>, StringTraversal)>,
         owner: &LoadedModule,
         scope: Option<IterTypeScope<'_>>,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         let valid = match (source, ty) {
-            (Value::Array(id), AbiType::Array(_, _)) => {
+            (Value::Array(id), Ty::Array(_, _)) => {
                 self.object_kind(*id) == Some(GcObjectKind::Array)
             }
-            (Value::Set(id), AbiType::Set(_, _)) => {
-                self.object_kind(*id) == Some(GcObjectKind::Set)
-            }
-            (Value::Map(id), AbiType::Map { .. }) => {
-                self.object_kind(*id) == Some(GcObjectKind::Map)
-            }
-            (Value::Range(range), AbiType::Range(_, kind)) => kind.has_start() && range.matches(ty),
-            (Value::Str(_), AbiType::Builtin(BuiltinType::String)) => true,
+            (Value::Set(id), Ty::Set(_, _)) => self.object_kind(*id) == Some(GcObjectKind::Set),
+            (Value::Map(id), Ty::Map { .. }) => self.object_kind(*id) == Some(GcObjectKind::Map),
+            (Value::Range(range), Ty::Range(_, kind)) => kind.has_start() && range.matches(ty),
+            (Value::Str(_), Ty::Builtin(BuiltinType::String)) => true,
             _ => false,
         };
         if !valid
@@ -255,13 +251,9 @@ impl GcHeap {
             return Err(invalid());
         }
         let item_type = match ty {
-            AbiType::Range(item, _) | AbiType::Array(item, _) | AbiType::Set(item, _) => {
-                (**item).clone()
-            }
-            AbiType::Map { key, value, .. } => {
-                AbiType::Tuple(vec![(**key).clone(), (**value).clone()])
-            }
-            AbiType::Builtin(BuiltinType::String) => ty.clone(),
+            Ty::Range(item, _) | Ty::Array(item, _) | Ty::Set(item, _) => (**item).clone(),
+            Ty::Map { key, value, .. } => Ty::Tuple(vec![(**key).clone(), (**value).clone()]),
+            Ty::Builtin(BuiltinType::String) => ty.clone(),
             _ => return Err(invalid()),
         };
         let (item_type, string) = match traversal {
@@ -299,7 +291,7 @@ impl GcHeap {
                 .ok_or_else(invalid)?,
             _ => {}
         }
-        let cursor_type = AbiType::Iter(Box::new(item_type.clone()));
+        let cursor_type = Ty::Iter(Box::new(item_type.clone()));
         let payload = NativeIter {
             source: source.clone(),
             item_type,
@@ -323,7 +315,7 @@ impl GcHeap {
     pub(crate) fn new_string_iter(
         &self,
         source: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         kind: StringIterKind,
         owner: &LoadedModule,
     ) -> Result<Value, RuntimeError> {
@@ -336,7 +328,7 @@ impl GcHeap {
         let traversal = StringTraversal::new(kind, fields)?;
         self.new_iter_with(
             &fields[0],
-            &AbiType::Builtin(BuiltinType::String),
+            &Ty::Builtin(BuiltinType::String),
             Some((kind.item_type(), traversal)),
             owner,
             None,
@@ -346,7 +338,7 @@ impl GcHeap {
     pub(crate) fn advance_iter(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         op: IterOp,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -372,7 +364,7 @@ impl GcHeap {
     pub(crate) fn next_iter_item(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
     ) -> Result<Option<Value>, RuntimeError> {
         self.advance_iter_with(value, ty, Ok)
     }
@@ -380,11 +372,11 @@ impl GcHeap {
     fn advance_iter_with<R>(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         finish: impl FnOnce(Option<Value>) -> Result<R, RuntimeError>,
     ) -> Result<R, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
+        let (Value::GcHandle(id), Ty::Iter(item)) = (value, ty) else {
             return Err(invalid());
         };
         let (needs_guard, payload, next_position, string_cursor) = {

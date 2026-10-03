@@ -3,16 +3,19 @@ use crate::{
     gc::GcHeap,
     value::{EnumTag, Value},
 };
-use kagari_abi::{
-    numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
-    representation::ValueType,
-    scalar::BuiltinType,
-};
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_common::{
     arithmetic::{self, ArithmeticError, IntegerBinaryOp},
     integer::{self, IntegerMethod},
     numeric::{self, Number},
+};
+use kagari_contract::representation::builtin_representation;
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
+        scalar::BuiltinType,
+    },
 };
 
 pub fn arithmetic_trap(error: ArithmeticError) -> RuntimeError {
@@ -184,7 +187,7 @@ pub fn convert(
 ) -> Result<Value, RuntimeError> {
     let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
     conversion.contract().ok_or_else(fail)?;
-    if !value.has_representation(ValueType::from_builtin_type(conversion.source)) {
+    if !value.has_representation(builtin_representation(conversion.source)) {
         return Err(fail());
     }
     if conversion.source.integer_layout().is_some() {
@@ -216,7 +219,7 @@ pub fn convert(
     let value = match numeric::cast(value, conversion.target.number_type().ok_or_else(fail)?) {
         Number::F32(v) => Value::F32(v),
         Number::F64(v) => Value::F64(v),
-        Number::Integer(v) => match ValueType::from_builtin_type(conversion.target) {
+        Number::Integer(v) => match builtin_representation(conversion.target) {
             ValueType::I32 => Value::I32(v as i32),
             ValueType::U64 => Value::U64(v as u64),
             _ => Value::I64(v as i64),
@@ -236,7 +239,7 @@ pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, Runti
             "invalid numeric operand type or range",
         )
     };
-    if !value.has_representation(ValueType::from_builtin_type(ty)) {
+    if !value.has_representation(builtin_representation(ty)) {
         return Err(fail());
     }
     let value = match value {
@@ -317,8 +320,8 @@ mod boundary_tests {
 
     #[test]
     fn invalid_direct_native_inputs_return_errors_without_panicking() {
-        use kagari_abi::scalar::BuiltinType as B;
         use kagari_common::integer::IntegerMethod as M;
+        use kagari_contract::scalar::BuiltinType as B;
         let runtime = crate::Runtime::default();
         for (method, ty, args) in [
             (M::RotateLeft, B::U8, [Value::I64(1), Value::I64(-1)]),

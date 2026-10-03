@@ -3,16 +3,16 @@ use crate::{
     frame::types::{TypeEnvironment, compatibility::TypeView},
     module::{EnumVariantRef, LoadedModule, StructLayoutRef},
 };
-use kagari_abi::{
-    layout::{EnumLayout, StructLayout},
-    types::{AbiType, NominalAbiType},
-};
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{
+    layout::{EnumLayout, StructLayout},
+    types::{NominalTy, Ty},
+};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 type LayoutApplications<Id, Layout> =
-    RefCell<HashMap<Id, HashMap<Vec<AbiType<DefinitionId>>, Rc<Layout>>>>;
+    RefCell<HashMap<Id, HashMap<Vec<Ty<DefinitionId>>, Rc<Layout>>>>;
 
 #[derive(Debug, Default)]
 pub(super) struct LayoutCache {
@@ -23,7 +23,7 @@ pub(super) struct LayoutCache {
 impl LoadedModule {
     pub(crate) fn find_struct_layout(
         &self,
-        nominal: &NominalAbiType<DefinitionId>,
+        nominal: &NominalTy<DefinitionId>,
     ) -> Option<StructLayoutRef> {
         self.members().find_map(|owner| {
             let id = owner
@@ -34,7 +34,7 @@ impl LoadedModule {
                 .filter(|(_, layout)| {
                     layout.declaration == nominal.declaration && layout.accepts(&nominal.arguments)
                 })
-                .max_by_key(|(_, layout)| !layout.arguments.iter().all(AbiType::is_concrete))?
+                .max_by_key(|(_, layout)| !layout.arguments.iter().all(Ty::is_concrete))?
                 .0;
             owner.applied_struct_layout(StructId::new(id), &nominal.arguments)
         })
@@ -42,7 +42,7 @@ impl LoadedModule {
 
     pub(crate) fn find_enum_definition(
         &self,
-        nominal: &NominalAbiType<DefinitionId>,
+        nominal: &NominalTy<DefinitionId>,
     ) -> Option<(LoadedModule, EnumId)> {
         self.members().find_map(|owner| {
             let id = owner
@@ -53,7 +53,7 @@ impl LoadedModule {
                 .filter(|(_, layout)| {
                     layout.declaration == nominal.declaration && layout.accepts(&nominal.arguments)
                 })
-                .max_by_key(|(_, layout)| !layout.arguments.iter().all(AbiType::is_concrete))?
+                .max_by_key(|(_, layout)| !layout.arguments.iter().all(Ty::is_concrete))?
                 .0;
             Some((owner, EnumId::new(id)))
         })
@@ -62,9 +62,9 @@ impl LoadedModule {
     pub fn applied_struct_layout(
         &self,
         id: StructId,
-        arguments: &[AbiType<DefinitionId>],
+        arguments: &[Ty<DefinitionId>],
     ) -> Option<StructLayoutRef> {
-        if !arguments.iter().all(AbiType::is_concrete) {
+        if !arguments.iter().all(Ty::is_concrete) {
             return None;
         }
         let template = self.bytecode.structures.get(id.index())?;
@@ -95,10 +95,10 @@ impl LoadedModule {
     pub fn applied_enum_variant(
         &self,
         id: EnumId,
-        arguments: &[AbiType<DefinitionId>],
+        arguments: &[Ty<DefinitionId>],
         variant: u32,
     ) -> Option<EnumVariantRef> {
-        if !arguments.iter().all(AbiType::is_concrete) {
+        if !arguments.iter().all(Ty::is_concrete) {
             return None;
         }
         let template = self.bytecode.enumerations.get(id.index())?;
@@ -134,8 +134,8 @@ impl StructLayoutRef {
         &self.module.bytecode.structures[self.id.index()]
     }
 
-    pub(super) fn type_expression(&self) -> AbiType<DefinitionId> {
-        AbiType::Struct(NominalAbiType {
+    pub(super) fn type_expression(&self) -> Ty<DefinitionId> {
+        Ty::Struct(NominalTy {
             declaration: self.layout().declaration,
             arguments: if self.environment.is_some() {
                 self.template().arguments.clone()
@@ -148,7 +148,7 @@ impl StructLayoutRef {
 
     pub(crate) fn matches_type(
         &self,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -163,7 +163,7 @@ impl StructLayoutRef {
     pub(crate) fn field_type(
         &self,
         slot: usize,
-    ) -> Option<(&AbiType<DefinitionId>, Option<&TypeEnvironment>)> {
+    ) -> Option<(&Ty<DefinitionId>, Option<&TypeEnvironment>)> {
         let layout = if self.environment.is_some() {
             &self.module.bytecode.structures[self.id.index()]
         } else {
@@ -174,8 +174,8 @@ impl StructLayoutRef {
 }
 
 impl EnumVariantRef {
-    fn type_expression(&self) -> AbiType<DefinitionId> {
-        AbiType::Enum(NominalAbiType {
+    fn type_expression(&self) -> Ty<DefinitionId> {
+        Ty::Enum(NominalTy {
             declaration: self.layout().declaration,
             arguments: if self.environment.is_some() {
                 self.module.bytecode.enumerations[self.id.index()]
@@ -190,7 +190,7 @@ impl EnumVariantRef {
 
     pub(crate) fn matches_type(
         &self,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -216,7 +216,7 @@ impl EnumVariantRef {
     pub(crate) fn payload_type(
         &self,
         slot: usize,
-    ) -> Option<(&AbiType<DefinitionId>, Option<&TypeEnvironment>)> {
+    ) -> Option<(&Ty<DefinitionId>, Option<&TypeEnvironment>)> {
         let layout = if self.environment.is_some() {
             &self.module.bytecode.enumerations[self.id.index()]
         } else {

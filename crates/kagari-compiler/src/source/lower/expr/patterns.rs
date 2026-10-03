@@ -12,9 +12,9 @@ use kagari_hir::{
     },
 };
 
-use kagari_abi::{
-    operations::{BinaryOp, StandardEnumOp},
-    representation::ValueType,
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::operations::{BinaryOp, StandardEnumOp},
 };
 
 use kagari_mir::{

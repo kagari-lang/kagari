@@ -1,7 +1,8 @@
 # Kagari Implementation Roadmap
 
-This is the single queue and progress owner for pending work. No code migration
-is currently active. Documentation cleanup does not activate any queued proposal.
+This is the single queue and progress owner for pending work. AC01-AC05 are active
+under the continuous implementation goal. AC01 is complete; AC02 is next and
+AC03-AC05 remain pending. Other queued proposals are outside this goal.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -20,7 +21,7 @@ are implemented. Remaining measured costs and reproduction commands live in
 is recorded by the last implementation checkpoint; this documentation edit does
 not rerun or renew that acceptance.
 
-## Contract and common responsibility cleanup (queued)
+## Contract and common responsibility cleanup
 
 Scope: narrow `kagari-abi` plus source-independent `kagari-contract`.
 Syntax-required traits enter ordinary source analysis with language-role bindings;
@@ -33,12 +34,12 @@ The [architecture proposal](architecture.md#contract-and-common-responsibility-c
 defines the [trait inventory](architecture.md#proposed-core-trait-inventory),
 [ABI data inventory](architecture.md#narrow-abi-data-inventory), authority,
 analysis/registration flows, syntax bridges and dependency rules.
-Implementation remains queued; no new parser support is claimed.
+Implementation is active; language-role parser support remains pending AC02.
 
 Agreed priority: complete **AC01, the ABI/contract split, first**. Source-authored
 core traits and `#[lang]` handling follow in AC02; native-generated declaration
 integration and collection-policy replacement follow in AC03. This documentation
-agreement does not activate Rust implementation. See the
+agreement fixes the implementation sequence. See the
 [implementation order](architecture.md#agreed-implementation-order).
 
 Finite scope: separate physical ABI from portable semantic contracts, replace
@@ -54,7 +55,7 @@ not create extra crates solely to satisfy this list.
 Phases, in order. One implementation request may activate the complete AC01-AC05
 track; that scope does not require a separate approval for each phase:
 
-- [ ] **AC01: Extract the narrow ABI and semantic contract boundary.** Inventory
+- [x] **AC01: Extract the narrow ABI and semantic contract boundary.** Inventory
   every current ABI/common module and its production/build consumers. Retain
   physical representations, helper signatures, entry descriptors and physical roots
   in ABI; extract semantic types, declarations, logical layouts, call records
@@ -179,6 +180,59 @@ remaining errors or limitations. AC01-AC05 checkboxes, current baseline and
 architecture/specifications must reflect the implemented result. An incomplete
 run must identify its unfinished phase and resumable work clearly.
 
+### Active decisions and retained consumers
+
+AC01 extracts `kagari-contract` and migrates direct consumers without forwarding
+exports. ABI depends only on Serde; contract depends on ABI/common and has no
+frontend/build dependency. Native declaration rendering belongs to HIR's
+`native::render`, used only by source tooling and dev consumers. Runtime exposes
+its checked declaration projection rather than generating source. Native products
+pair contract-owned function identities, logical safepoints/slots and debug data
+with ABI-owned `NativeArtifact` and executable page ownership. Register/Local maps
+remain logical coverage; no physical GC publication is claimed.
+
+The AC01 module/consumer audit is:
+
+| Starting modules | Owner and production consumers |
+| --- | --- |
+| `representation`, `native_call`, `version`, physical `native` | ABI; contract lowering, codegen, Cranelift, runtime, VM and SDK |
+| `types`, `callable`, `declaration`, `native_import`, `layout`, `slots`, `contracts` | Contract; HIR/compiler, MIR/bytecode verification, runtime linking and execution metadata |
+| `scalar`, `numeric`, `operations`, `effects`, `standard`, `host`, `ids`, `decode_limits` | Contract; checked semantic/operation facts and bounded portable verification, shared with source and executable consumers |
+| `language`, `language/catalog`, `language/primitive` | Explicit foundation ownership in contract during AC01; Rust authority remains until AC02/AC03 |
+| `declaration/render` | HIR tooling; no executable consumer or ABI dependency on generated source |
+| Common `identity` and its map/metadata/reference/table modules | Portable identity machinery stays common; FileId/Revision/FileSpan source records move to source ownership in AC04 |
+| Common `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Source/tooling ownership move in AC04; shared span coordinates remain available to executable debug metadata |
+| Common `arithmetic`, `integer`, `numeric`, `cancellation`, `decode_limits` | Shared mechanisms stay common; numeric behavior keeps one implementation |
+| Common `host_interface`, `collection`, `range` | Portable host schema/access and range shape facts stay source-independent; AC04 reviews host schema ownership with its executable consumers |
+
+`ModuleDecl` owns authoring registrations (documentation, exports, implementation
+templates and callback requirements); `ModuleContract` owns the serialized checked
+executable subset (public items, private traits and native declarations). They are
+different responsibilities, not equivalent models or compatibility aliases.
+
+The 24/14 trait partition is confirmed by consumers: operators, calls, indexing,
+iteration, formatting and Result propagation select 21 syntax traits; implicit
+value/composite/identity eligibility also needs Eq/Hash/Ord. RangeBounds already
+uses registered implementation selection; range constructors remain syntax
+bindings. Into/TryInto derive from From/TryFrom, and numeric conversion adapters
+retain checked implementation facts. Those library recognition paths remain
+AC03 work, including collection interface identity checks and inherited methods.
+
+Bounded retained representation exceptions: StandardEnum keeps Option/Result
+propagation, enum payload validation and tracing; RangeKind keeps endpoint shape
+validation; CollectionAccess keeps readonly/writable host/reference checks;
+NativeStorageLayout keeps registered payload capabilities and parameter validation.
+NativeTypeConstructor and HIR NativeTypeKind currently also recognize default
+containers and cursor families; their generic library-policy consumers belong to
+AC03. RuntimePrimitive describes checked execution helpers, reviewed in AC04.
+Relocation does not count as replacing these policy consumers.
+
+AC01 acceptance passes: workspace all-target compilation; nine production graphs
+and ABI/contract build graphs; source-free SDK compilation; contract/bytecode and
+Cranelift suites; runtime native execution, native builder, offline types and
+installation access; HIR language contracts; structure, formatting and diff checks.
+No carried build/test error remains. Temporary output lives in `target/ac-cleanup`.
+
 Acceptance includes both sides of the boundary: source-defined operator traits,
 native-generated library traits and application traits use the same record/selection
 machinery; malformed, duplicate, missing or counterfeit language roles are rejected;
@@ -220,10 +274,9 @@ for behavior. Inspect `git status`, relevant diffs and the latest AC checkpoint
 before selecting work. This plan is queued until an implementation request selects
 its scope; documentation agreement is not an instruction to start every track.
 
-The starting status is AC01-AC05 unchecked, with no code split performed. Current
-names and Rust-owned foundation catalogs in source are expected, not evidence
-that the target design was rejected. Start with AC01 when implementing this
-track; complete its acceptance before AC02. Update that status and the checkboxes
+AC01 is complete with the ABI/contract split performed; AC02-AC05 are
+unchecked. Rust-owned foundation catalogs remain deliberately transitional until
+AC02/AC03. Complete AC01 acceptance before AC02. Update the status and checkboxes
 when implementation advances. Record only material decisions, retained transitional
 consumers and carried errors with their command, cause and owning follow-up phase.
 Commit with the phase trailer above so another checkout can resume from Git.
@@ -240,9 +293,9 @@ Current code entrypoints, to be updated when their owners move:
 
 | Work | Starting locations |
 | --- | --- |
-| ABI/contract model and verification | [ABI root](../crates/kagari-abi/src/lib.rs), `types/`, `callable/`, `layout.rs`, `slots.rs`, `contracts.rs`, `native_import/` under that crate |
+| ABI/contract model and verification | [Contract root](../crates/kagari-contract/src/lib.rs), `types/`, `callable/`, `layout.rs`, `slots.rs`, `contracts.rs`, `native_import/` under that crate |
 | Physical representation and native boundary | [Value representations](../crates/kagari-abi/src/representation.rs), [native calls](../crates/kagari-abi/src/native_call.rs), [native products](../crates/kagari-abi/src/native.rs) |
-| Existing foundation definitions and generated source | [Language catalog](../crates/kagari-abi/src/language/catalog/mod.rs), [native declarations](../crates/kagari-abi/src/declaration/mod.rs), [source renderer](../crates/kagari-abi/src/declaration/render.rs) |
+| Existing foundation definitions and generated source | [Language catalog](../crates/kagari-contract/src/language/catalog/mod.rs), [native declarations](../crates/kagari-contract/src/declaration/mod.rs), [source renderer](../crates/kagari-hir/src/native/render.rs) |
 | Attribute analysis and language selection | [Syntax attributes](../crates/kagari-syntax/src/ast/item.rs), [HIR entry](../crates/kagari-hir/src/lib.rs), HIR `lower/`, `language/`, `typeck/` and compiler `source/lower/` |
 | Installation and executable consumers | Runtime `native/`, `loading.rs`, `backend.rs` and `backend/native.rs`; MIR, bytecode, VM, codegen and embed consumers of the old ABI model |
 | Common ownership and dependency validation | [Common root](../crates/kagari-common/src/lib.rs), workspace/crate manifests and [standalone feature checker](../scripts/check_features.py) |

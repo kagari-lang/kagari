@@ -1,8 +1,8 @@
-use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostParameter, HostPassingStyle,
     type_declaration::HostTypeDeclaration, value_type::HostValueType,
 };
+use kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty};
 use kagari_runtime::session::TraceValue;
 
 use kagari_bytecode::{
@@ -125,20 +125,12 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
     let session = runtime.begin_execution(&loaded, options).unwrap();
     let a = Value::Array(
         runtime
-            .alloc_array(
-                &loaded,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(1)],
-            )
+            .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
             .unwrap(),
     );
     let b = Value::Array(
         runtime
-            .alloc_array(
-                &loaded,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(2)],
-            )
+            .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(2)])
             .unwrap(),
     );
     let outer = runtime.host_scope(std::slice::from_ref(&a)).unwrap();
@@ -272,11 +264,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
         .unwrap();
     let value = Value::Array(
         runtime
-            .alloc_array(
-                &loaded,
-                AbiType::Builtin(BuiltinType::I32),
-                vec![Value::I32(3)],
-            )
+            .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
             .unwrap(),
     );
     let scope = runtime.host_scope(&[value]).unwrap();
@@ -336,11 +324,7 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
                 let value = Value::Array(
                     context
                         .runtime()
-                        .alloc_array(
-                            &module,
-                            AbiType::Builtin(BuiltinType::I32),
-                            vec![Value::I32(7)],
-                        )
+                        .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
                         .unwrap(),
                 );
                 context

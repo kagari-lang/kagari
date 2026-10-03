@@ -27,13 +27,13 @@ mod places;
 mod statements;
 mod trait_calls;
 
-use kagari_abi::{language::Protocol, scalar::BuiltinType};
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
     diagnostic::{Diagnostic, DiagnosticKind},
     range::RangeKind,
 };
+use kagari_contract::{language::Protocol, scalar::BuiltinType};
 use std::{
     collections::{HashMap, HashSet},
     mem,

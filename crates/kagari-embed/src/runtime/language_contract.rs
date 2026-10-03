@@ -7,7 +7,7 @@ use {
     kagari_runtime::{error::RuntimeErrorKind, module::LoadedModule, resource::RuntimeLimits},
 };
 
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -444,7 +444,7 @@ fn run(
         let array = runtime
             .alloc_array(
                 &loaded,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 initial.iter().copied().map(Value::I32).collect(),
             )
             .unwrap();

@@ -1,12 +1,12 @@
 //! Reproducible end-to-end interpreter samples; compilation/input creation are excluded.
 //! Run with --ignored --nocapture --test-threads=1. This is not a JIT benchmark.
 mod native_allocations_counter;
-use kagari_abi::{declaration::ModuleDecl, scalar::BuiltinType, types::AbiType};
 use kagari_common::{
     identity::DefinitionPath,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::{declaration::ModuleDecl, scalar::BuiltinType, types::Ty};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{Runtime, RuntimeConfig, module::LoadedModule, value::Value};
 use kagari_vm::vm::Vm;
@@ -93,7 +93,7 @@ fn compare_rust_native_and_script_stable_sorting() {
                     .runtime()
                     .alloc_array(
                         &loaded,
-                        AbiType::Builtin(BuiltinType::I32),
+                        Ty::Builtin(BuiltinType::I32),
                         input.iter().copied().map(Value::I32).collect(),
                     )
                     .unwrap();
@@ -102,7 +102,7 @@ fn compare_rust_native_and_script_stable_sorting() {
                     .runtime()
                     .alloc_array(
                         &loaded,
-                        AbiType::Builtin(BuiltinType::USize),
+                        Ty::Builtin(BuiltinType::USize),
                         vec![Value::U64(0)],
                     )
                     .unwrap();

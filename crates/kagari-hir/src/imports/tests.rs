@@ -29,7 +29,7 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
 
 fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
     let mut expected = names.iter().map(|name| identity(name)).collect::<Vec<_>>();
-    expected.push(kagari_abi::language::module_identity());
+    expected.push(kagari_contract::language::module_identity());
     expected.sort();
     expected
 }
@@ -351,7 +351,7 @@ fn cycles_are_reachable_without_invalidating_dependents() {
             .unwrap()
             .type_at("use pkg::b; fn good() -> i32 { ".len()),
         Some(crate::types::TypeId::Builtin(
-            kagari_abi::scalar::BuiltinType::I32
+            kagari_contract::scalar::BuiltinType::I32
         ))
     );
 }

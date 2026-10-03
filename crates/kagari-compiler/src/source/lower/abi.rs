@@ -5,7 +5,7 @@ use kagari_hir::{
     declarations::DeclarationId,
     hir::item::{
         Item,
-        behavior::{GenericParam, Impl},
+        behavior::{GenericParam as HirGenericParam, Impl},
         function::{Function, FunctionKind},
         storage::Visibility,
     },
@@ -18,16 +18,16 @@ use kagari_hir::{
     },
 };
 
-use kagari_abi::{
+use kagari_common::identity;
+use kagari_contract::{
     callable::{CallableImplementation, NativeDefaultApplication},
     types::{
-        AbiType, AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstAbi,
-        ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-        InterfaceTableAbi, ModuleAbi, NativeDeclaration, ParameterAbi, PublicAbiItem, TraitAbi,
-        TraitContract, TypeAbi, TypeAbiKind, VariantAbi,
+        AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, Constraint,
+        FieldDef, FnDecl, GenericBound, GenericParam, InterfaceTable, ModuleContract,
+        NativeDeclaration, Param, PublicItem, TraitContract, TraitDef, Ty, TypeDef, TypeDefKind,
+        VariantDef,
     },
 };
-use kagari_common::identity;
 
 #[cfg(test)]
 mod tests;
@@ -47,7 +47,7 @@ fn const_abi_value(value: &ScalarValue) -> String {
     }
 }
 
-pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
+pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
     let hir_module = &module.lowered.module;
     let mut public_items = Vec::new();
     let mut trait_contracts = Vec::new();
@@ -63,7 +63,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     continue;
                 };
                 if let Some(abi) = function_abi(module, function) {
-                    public_items.push(PublicAbiItem::Function(abi));
+                    public_items.push(PublicItem::Function(abi));
                 }
             }
             Item::Const(id) => {
@@ -84,7 +84,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     .get(&id)
                     .map(const_abi_value)
                     .expect("checked const fact must exist");
-                public_items.push(PublicAbiItem::Const(ConstAbi {
+                public_items.push(PublicItem::Const(ConstDef {
                     name: const_item.name.clone(),
                     ty,
                     value,
@@ -96,15 +96,15 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 }) else {
                     continue;
                 };
-                public_items.push(PublicAbiItem::Type(TypeAbi {
+                public_items.push(PublicItem::Type(TypeDef {
                     name: struct_item.name.clone(),
-                    kind: TypeAbiKind::Struct,
+                    kind: TypeDefKind::Struct,
                     generic_params: generic_param_abi(module, &struct_item.generic_params),
                     bounds: parameter_bounds(module, &struct_item.generic_params),
                     fields: struct_item
                         .fields
                         .iter()
-                        .map(|field| FieldAbi {
+                        .map(|field| FieldDef {
                             name: field.name.clone(),
                             ty: abi_type(
                                 module,
@@ -132,7 +132,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     .declarations
                     .native_type(id)
                     .expect("checked native type representation");
-                public_items.push(PublicAbiItem::Type(TypeAbi {
+                public_items.push(PublicItem::Type(TypeDef {
                     name: item.name.clone(),
                     kind: lower_native_kind(representation),
                     generic_params: generic_param_abi(module, &item.generic_params),
@@ -147,20 +147,20 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 }) else {
                     continue;
                 };
-                public_items.push(PublicAbiItem::Type(TypeAbi {
+                public_items.push(PublicItem::Type(TypeDef {
                     name: enum_item.name.clone(),
                     kind: module
                         .declarations
                         .native_enum(id)
                         .map(lower_native_kind)
-                        .unwrap_or(TypeAbiKind::Enum),
+                        .unwrap_or(TypeDefKind::Enum),
                     generic_params: generic_param_abi(module, &enum_item.generic_params),
                     bounds: parameter_bounds(module, &enum_item.generic_params),
                     fields: Vec::new(),
                     variants: enum_item
                         .variants
                         .iter()
-                        .map(|variant| VariantAbi {
+                        .map(|variant| VariantDef {
                             name: variant.name.clone(),
                             payload: variant
                                 .payload
@@ -189,11 +189,11 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 else {
                     continue;
                 };
-                let abi = TraitAbi {
+                let abi = TraitDef {
                     associated_consts: trait_item
                         .associated_consts
                         .iter()
-                        .map(|member| AssociatedConstAbi {
+                        .map(|member| AssociatedConstDef {
                             declaration: identity::associated_const_id(
                                 match &module
                                     .declarations
@@ -244,7 +244,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                             else {
                                 unreachable!("nominal trait")
                             };
-                            AssociatedTypeAbi {
+                            AssociatedTypeDef {
                                 generic_params: generic_param_abi(module, &member.generic_params),
                                 parameter_bounds: module
                                     .typed
@@ -290,7 +290,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .collect(),
                 };
                 if trait_item.visibility == Visibility::Public {
-                    public_items.push(PublicAbiItem::Trait(abi));
+                    public_items.push(PublicItem::Trait(abi));
                 } else {
                     trait_contracts.push(TraitContract {
                         declaration: match &module
@@ -333,7 +333,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             for_type.display_name(),
             trait_type.display_name()
         );
-        public_items.push(PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+        public_items.push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
             associated_type_families: module
                 .aggregates
                 .implementation_signature(
@@ -345,13 +345,13 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 .expect("impl signature")
                 .associated_type_families
                 .iter()
-                .map(|(id, family)| AssociatedTypeFamilyAbi {
+                .map(|(id, family)| AssociatedTypeFamily {
                     declaration: id.clone(),
                     generic_params: family
                         .inputs
                         .parameters
                         .iter()
-                        .map(|param| GenericParameterAbi {
+                        .map(|param| GenericParam {
                             owner: param.owner.clone(),
                             position: param.position,
                         })
@@ -363,7 +363,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             associated_consts: impl_block
                 .associated_consts
                 .iter()
-                .map(|member| ConstAbi {
+                .map(|member| ConstDef {
                     name: member.name.clone(),
                     ty: lower_type(
                         &module
@@ -448,7 +448,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             abi.generic_params = typed
                 .generic_params
                 .iter()
-                .map(|parameter| GenericParameterAbi {
+                .map(|parameter| GenericParam {
                     owner: parameter.owner.clone(),
                     position: parameter.position,
                 })
@@ -461,14 +461,14 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             })
         })
         .collect();
-    ModuleAbi {
+    ModuleContract {
         native_declarations,
         public_items,
         trait_contracts,
     }
 }
 
-fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FunctionAbi> {
+fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDecl> {
     let mut result = item
         .methods
         .iter()
@@ -536,7 +536,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<Funct
         let bounds = method
             .bounds
             .iter()
-            .map(|(ty, constraints)| GenericBoundAbi {
+            .map(|(ty, constraints)| GenericBound {
                 ty: normalize(ty),
                 constraints: constraints
                     .iter()
@@ -547,18 +547,18 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<Funct
                             .is_some_and(|inherited| inherited.contains(constraint))
                     })
                     .map(|constraint| match constraint {
-                        ConstraintTarget::Standard(value) => ConstraintAbi::Standard(*value),
+                        ConstraintTarget::Standard(value) => Constraint::Standard(*value),
                         ConstraintTarget::Trait(ty) => {
-                            let AbiType::Trait(ty) = normalize(&TypeId::Trait(ty.clone())) else {
+                            let Ty::Trait(ty) = normalize(&TypeId::Trait(ty.clone())) else {
                                 unreachable!("trait bound");
                             };
-                            ConstraintAbi::Trait(ty)
+                            Constraint::Trait(ty)
                         }
                     })
                     .collect(),
             })
             .collect();
-        result.push(FunctionAbi {
+        result.push(FnDecl {
             method_policy: method.policy,
             name: method.name.clone(),
             implementation: match method.default.clone().expect("selected default method") {
@@ -578,7 +578,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<Funct
             generic_params: method_params
                 .iter()
                 .enumerate()
-                .map(|(position, _)| GenericParameterAbi {
+                .map(|(position, _)| GenericParam {
                     owner: target.clone(),
                     position,
                 })
@@ -587,7 +587,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<Funct
             params: method
                 .params
                 .iter()
-                .map(|param| ParameterAbi {
+                .map(|param| Param {
                     name: param.name.clone(),
                     ty: normalize(&param.ty),
                     mutable: param.writeability.is_var(),
@@ -599,13 +599,13 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<Funct
     result
 }
 
-fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FunctionAbi> {
+fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> {
     let typed = module
         .typed
         .functions
         .iter()
         .find(|typed| typed.id == function.id)?;
-    Some(FunctionAbi {
+    Some(FnDecl {
         method_policy: module
             .declarations
             .target(ResolvedName::Function(function.id))
@@ -625,7 +625,7 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<Function
         params: typed
             .params
             .iter()
-            .map(|param| ParameterAbi {
+            .map(|param| Param {
                 name: param.name.clone(),
                 ty: abi_type(module, &param.ty),
                 mutable: param.writeability.is_var(),
@@ -655,15 +655,15 @@ fn native_implementation_abi(
     CallableImplementation::Native(binding)
 }
 
-fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> AbiType {
+fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> Ty {
     lower_type(&module.aggregates.normalize_type(ty))
 }
 
 fn method_abi(
     module: &AnalyzedModule,
     function: &Function,
-    outer: &[GenericParam],
-) -> Option<FunctionAbi> {
+    outer: &[HirGenericParam],
+) -> Option<FnDecl> {
     let mut method = function_abi(module, function)?;
     let inherited = generic_param_abi(module, outer);
     method
@@ -689,7 +689,7 @@ fn method_abi(
     Some(method)
 }
 
-fn generic_param_abi(module: &AnalyzedModule, params: &[GenericParam]) -> Vec<GenericParameterAbi> {
+fn generic_param_abi(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<GenericParam> {
     params
         .iter()
         .map(|param| {
@@ -701,7 +701,7 @@ fn generic_param_abi(module: &AnalyzedModule, params: &[GenericParam]) -> Vec<Ge
             else {
                 unreachable!("generic declaration identity")
             };
-            GenericParameterAbi {
+            GenericParam {
                 owner: owner.clone(),
                 position: *position,
             }
@@ -709,20 +709,20 @@ fn generic_param_abi(module: &AnalyzedModule, params: &[GenericParam]) -> Vec<Ge
         .collect()
 }
 
-fn constraint_abi(target: ConstraintTarget) -> ConstraintAbi {
+fn constraint_abi(target: ConstraintTarget) -> Constraint {
     match target {
-        ConstraintTarget::Standard(constraint) => ConstraintAbi::Standard(constraint),
-        ConstraintTarget::Trait(ty) => ConstraintAbi::Trait(lower_nominal_type(&ty)),
+        ConstraintTarget::Standard(constraint) => Constraint::Standard(constraint),
+        ConstraintTarget::Trait(ty) => Constraint::Trait(lower_nominal_type(&ty)),
     }
 }
 
-fn parameter_bounds(module: &AnalyzedModule, params: &[GenericParam]) -> Vec<GenericBoundAbi> {
+fn parameter_bounds(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<GenericBound> {
     let identities = generic_param_abi(module, params);
     let bounds = params
         .iter()
         .zip(identities)
-        .map(|(param, id)| GenericBoundAbi {
-            ty: AbiType::Parameter {
+        .map(|(param, id)| GenericBound {
+            ty: Ty::Parameter {
                 owner: id.owner,
                 position: id.position,
             },
@@ -744,11 +744,11 @@ fn parameter_bounds(module: &AnalyzedModule, params: &[GenericParam]) -> Vec<Gen
     canonical_bounds(bounds)
 }
 
-pub(super) fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBoundAbi> {
+pub(super) fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBound> {
     canonical_bounds(
         bounds
             .iter()
-            .map(|(param, targets)| GenericBoundAbi {
+            .map(|(param, targets)| GenericBound {
                 ty: lower_type(param),
                 constraints: targets.iter().cloned().map(constraint_abi).collect(),
             })
@@ -756,9 +756,9 @@ pub(super) fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBoundAbi> {
     )
 }
 
-fn canonical_bounds(mut bounds: Vec<GenericBoundAbi>) -> Vec<GenericBoundAbi> {
+fn canonical_bounds(mut bounds: Vec<GenericBound>) -> Vec<GenericBound> {
     bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
-    let mut merged: Vec<GenericBoundAbi> = Vec::new();
+    let mut merged: Vec<GenericBound> = Vec::new();
     for bound in bounds {
         if let Some(previous) = merged.last_mut()
             && previous.ty == bound.ty

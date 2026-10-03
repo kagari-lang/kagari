@@ -1,11 +1,11 @@
-use kagari_abi::{
-    layout::{StructFieldLayout, StructLayout},
-    types::AbiType,
-};
 use kagari_bytecode::{
     instruction::StructId,
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
+};
+use kagari_contract::{
+    layout::{StructFieldLayout, StructLayout},
+    types::Ty,
 };
 
 use kagari_common::identity::{
@@ -21,18 +21,18 @@ use kagari_runtime::{
 pub fn interface_value(runtime: &mut Runtime) -> Value {
     interface_value_with(
         runtime,
-        AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+        Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
         Value::I32(7),
     )
 }
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
-pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data: Value) -> Value {
-    use kagari_abi::types::{InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi};
+pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Value) -> Value {
     use kagari_bytecode::{
         module::InterfaceTableRecord,
         program::{BytecodeProgram, ModuleRef},
     };
+    use kagari_contract::types::{InterfaceTable, NominalTy, PublicItem, TraitDef};
     let identity = ModuleIdentity::single_file("interface-fixture.kgr");
     let declaration = |kind, name: &str| DefinitionPath {
         module: identity.clone(),
@@ -52,7 +52,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                 modules: vec![BytecodeModule {
                     identity,
                     public_items: vec![
-                        PublicAbiItem::Trait(TraitAbi {
+                        PublicItem::Trait(TraitDef {
                             associated_consts: Vec::new(),
                             supertraits: Vec::new(),
                             associated_types: Vec::new(),
@@ -61,7 +61,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                             bounds: vec![],
                             methods: vec![],
                         }),
-                        PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+                        PublicItem::InterfaceTable(Box::new(InterfaceTable {
                             associated_type_families: Vec::new(),
                             associated_consts: Vec::new(),
                             host_bridge: false,
@@ -69,7 +69,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                             name: String::new(),
                             generic_params: vec![],
                             bounds: vec![],
-                            trait_type: AbiType::Trait(NominalAbiType {
+                            trait_type: Ty::Trait(NominalTy {
                                 associated_types: Default::default(),
                                 declaration: trait_id,
                                 arguments: vec![],
@@ -93,11 +93,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
     runtime.make_interface(&module, 0, data).unwrap()
 }
 
-pub fn layout(
-    runtime: &mut Runtime,
-    name: &str,
-    fields: &[(&str, AbiType, bool)],
-) -> StructLayoutRef {
+pub fn layout(runtime: &mut Runtime, name: &str, fields: &[(&str, Ty, bool)]) -> StructLayoutRef {
     let declaration = DefinitionPath {
         module: ModuleIdentity::single_file("layout-fixture.kgr"),
         path: vec![DefinitionPathSegment {

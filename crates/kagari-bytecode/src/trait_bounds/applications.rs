@@ -3,11 +3,11 @@ use crate::{
     module::BytecodeModule,
     trait_bounds::contract,
 };
-use kagari_abi::callable::witness::OperationWitness;
-use kagari_abi::types::{
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::callable::witness::OperationWitness;
+use kagari_contract::types::{
     applications::ApplicationValidator, native_storage_contract, substitution::TypeTransformError,
 };
-use kagari_common::cancellation::CancellationToken;
 
 pub(super) fn validate(
     module: &BytecodeModule,

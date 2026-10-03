@@ -3,10 +3,6 @@ use crate::{
     error::RuntimeError,
     native::catalog::{DeclarationCatalog, ownership::scope_values},
 };
-use kagari_abi::{
-    declaration::ImplDecl,
-    types::{NativeDeclaration, TraitAbi, TypeAbi},
-};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -16,14 +12,18 @@ use kagari_common::{
         table::DefinitionId,
     },
 };
+use kagari_contract::{
+    declaration::ImplDecl,
+    types::{NativeDeclaration, TraitDef, TypeDef},
+};
 use std::{collections::HashMap, sync::Arc};
 
 type SharedImports<T, U = T> = HashMap<usize, (Arc<DefinitionMap<T>>, Arc<DefinitionMap<U>>)>;
 
 pub(crate) struct CatalogImports {
     context: DefinitionContext,
-    types: SharedImports<TypeAbi<DefinitionId>>,
-    traits: SharedImports<TraitAbi<DefinitionId>>,
+    types: SharedImports<TypeDef<DefinitionId>>,
+    traits: SharedImports<TraitDef<DefinitionId>>,
     declarations: SharedImports<NativeDeclaration<DefinitionId>>,
     implementations: SharedImports<ImplDecl<DefinitionId>>,
 }
@@ -87,8 +87,8 @@ fn shared<T, U>(
 /// Preserve a closed seed's sharing when authoring binding requirements become scoped.
 pub(crate) struct CatalogScopes {
     context: DefinitionContext,
-    types: SharedImports<TypeAbi, TypeAbi<DefinitionId>>,
-    traits: SharedImports<TraitAbi, TraitAbi<DefinitionId>>,
+    types: SharedImports<TypeDef, TypeDef<DefinitionId>>,
+    traits: SharedImports<TraitDef, TraitDef<DefinitionId>>,
     declarations: SharedImports<NativeDeclaration, NativeDeclaration<DefinitionId>>,
     implementations: SharedImports<ImplDecl, ImplDecl<DefinitionId>>,
 }

@@ -1,5 +1,4 @@
 use super::{compile, compile_program};
-use kagari_abi::{representation::ValueType, scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::module::BytecodeModuleSlot;
 use kagari_runtime::{
     Runtime,
@@ -8,6 +7,10 @@ use kagari_runtime::{
 };
 use kagari_vm::vm::Vm;
 use std::collections::HashSet;
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{scalar::BuiltinType, types::Ty},
+};
 
 #[test]
 fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachable_graphs() {
@@ -166,7 +169,7 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
     let (foreign_vm, foreign_owner) = compile("fn main() {}", None);
     let object = foreign_vm
         .runtime()
-        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     let runtime = vm.runtime();
 
@@ -242,11 +245,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     let mut vm = Vm::new(runtime);
     let array = vm
         .runtime()
-        .alloc_array(
-            &old,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(7)],
-        )
+        .alloc_array(&old, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
     {
         let mut instance = vm.runtime().module_instance_mut(&old).unwrap();
@@ -256,11 +255,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     let new = vm.reload_program(&old, "gc.kgr", program).unwrap();
     let other = vm
         .runtime()
-        .alloc_array(
-            &new,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(9)],
-        )
+        .alloc_array(&new, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
         .unwrap();
     vm.runtime().module_instance_mut(&new).unwrap().module_slots[0] = Value::Array(other);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);

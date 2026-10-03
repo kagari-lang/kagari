@@ -1,19 +1,19 @@
 //! Normalize already checked default applications over the portable MIR closure.
 use crate::bytecode::BytecodeLoweringError;
-use kagari_abi::layout::EnumLayout;
-use kagari_abi::types::{
-    ModuleAbi, PublicAbiItem,
-    proofs::{ProofCatalog, implementation::Implementation},
-};
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::type_declaration::HostTypeDeclaration,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
 };
+use kagari_contract::layout::EnumLayout;
+use kagari_contract::types::{
+    ModuleContract, PublicItem,
+    proofs::{ProofCatalog, implementation::Implementation},
+};
 use kagari_mir::verify::VerifiedMirModule;
 
 pub(super) struct Contracts {
-    declarations: Vec<(ModuleIdentity, ModuleAbi)>,
+    declarations: Vec<(ModuleIdentity, ModuleContract)>,
     hosts: Vec<HostTypeDeclaration>,
     enumerations: Vec<EnumLayout>,
 }
@@ -59,7 +59,7 @@ impl Contracts {
             abi.public_items
                 .iter()
                 .filter_map(|item| {
-                    let PublicAbiItem::Trait(contract) = item else {
+                    let PublicItem::Trait(contract) = item else {
                         return None;
                     };
                     Some((
@@ -85,7 +85,7 @@ impl Contracts {
                 .iter()
                 .flat_map(|(_, abi)| &abi.public_items)
                 .filter_map(|item| {
-                    let PublicAbiItem::InterfaceTable(table) = item else {
+                    let PublicItem::InterfaceTable(table) = item else {
                         return None;
                     };
                     (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))

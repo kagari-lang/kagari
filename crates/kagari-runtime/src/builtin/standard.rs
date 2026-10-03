@@ -7,7 +7,7 @@ use crate::{
     value::{EnumTag, MapKey, Value},
     value_semantics,
 };
-use kagari_abi::standard::RuntimePrimitive;
+use kagari_contract::standard::RuntimePrimitive;
 use std::cmp::Ordering;
 #[cfg(test)]
 mod tests;

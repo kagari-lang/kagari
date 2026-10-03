@@ -1,8 +1,3 @@
-use kagari_abi::{
-    callable::{CallableImplementation, witness::OperationWitness},
-    scalar::BuiltinType,
-    types::AbiType,
-};
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register},
@@ -13,6 +8,11 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::bytecode::lower_program_to_bytecode;
+use kagari_contract::{
+    callable::{CallableImplementation, witness::OperationWitness},
+    scalar::BuiltinType,
+    types::Ty,
+};
 use kagari_runtime::{Runtime, value::Value};
 use kagari_vm::vm::Vm;
 
@@ -142,7 +142,7 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
             1 => {
                 import.signature.params.pop().unwrap();
             }
-            2 => import.signature.result = AbiType::Builtin(BuiltinType::I32),
+            2 => import.signature.result = Ty::Builtin(BuiltinType::I32),
             3 => import.requirements.clear(),
             4 => import.instance.arguments.clear(),
             5 => import.instance.declaration.path.last_mut().unwrap().name = "unpublished".into(),
@@ -200,7 +200,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
             .flat_map(|module| &module.native_imports)
             .any(|import| matches!(
                 import.signature.params.first(),
-                Some(kagari_abi::types::AbiType::Array(_, _))
+                Some(kagari_contract::types::Ty::Array(_, _))
             ))
     );
     let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
@@ -301,8 +301,17 @@ fn native_storage_writes_reject_element_type_forgery() {
         .iter_mut()
         .find(|function| function.name == "answer")
         .unwrap();
-    let wrong = function.metadata.semantic.registers.iter().find_map(|(index,ty)| matches!(ty,AbiType::Array(item,_) if item.as_ref() == &AbiType::Builtin(BuiltinType::String)).then_some(Register::new(*index))).unwrap();
-    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if imports[id.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_list_push_fluent") && matches!(&imports[id.index()].signature.params[0], AbiType::Array(item, _) if matches!(item.as_ref(), AbiType::Array(_, _))))).unwrap();
+    let wrong = function
+        .metadata
+        .semantic
+        .registers
+        .iter()
+        .find_map(|(index, ty)| {
+            matches!(ty,Ty::Array(item,_) if item.as_ref() == &Ty::Builtin(BuiltinType::String))
+                .then_some(Register::new(*index))
+        })
+        .unwrap();
+    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if imports[id.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_list_push_fluent") && matches!(&imports[id.index()].signature.params[0], Ty::Array(item, _) if matches!(item.as_ref(), Ty::Array(_, _))))).unwrap();
     let BytecodeInstruction::Call { args, .. } = instruction else {
         unreachable!()
     };

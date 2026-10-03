@@ -3,11 +3,11 @@ use crate::source::{
     lower::{MirLoweringError, instances::InstancePlanner},
     types::{raise_nominal_type, raise_type},
 };
-use kagari_abi::{
-    native_import::{NativeImport, result::NativeResultAdapter},
-    types::{AbiType, ConcreteFunctionIdentity, ConstraintAbi, substitution::TypeSubstitution},
-};
 use kagari_common::span::Span;
+use kagari_contract::{
+    native_import::{NativeImport, result::NativeResultAdapter},
+    types::{ConcreteFunctionIdentity, Constraint, Ty, substitution::TypeSubstitution},
+};
 use kagari_hir::{
     typeck::{GenericBounds, table::ConstraintTarget},
     types::abi::lower_type,
@@ -27,7 +27,7 @@ impl InstancePlanner<'_> {
             return Ok(None);
         };
         let invalid = || MirLoweringError::MissingBinding("native result interface application");
-        let AbiType::Trait(interface) = &import.signature.result else {
+        let Ty::Trait(interface) = &import.signature.result else {
             return Err(invalid());
         };
         let mut substitution = TypeSubstitution::default();
@@ -54,8 +54,8 @@ impl InstancePlanner<'_> {
                         .constraints
                         .iter()
                         .map(|constraint| match constraint {
-                            ConstraintAbi::Standard(kind) => ConstraintTarget::Standard(*kind),
-                            ConstraintAbi::Trait(interface) => {
+                            Constraint::Standard(kind) => ConstraintTarget::Standard(*kind),
+                            Constraint::Trait(interface) => {
                                 ConstraintTarget::Trait(raise_nominal_type(interface))
                             }
                         })

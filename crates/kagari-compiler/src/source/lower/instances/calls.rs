@@ -1,11 +1,11 @@
 //! Plan ordinary calls into canonical shared entries when caller types are symbolic.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_abi::{
+use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_contract::{
     callable::{CallableImplementation, shared::SharedCall},
     native_import::NativeSignature,
     types::ConcreteFunctionIdentity,
 };
-use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
     types::{GenericParameterType, TypeId, TypeSubstitution, abi::lower_type},

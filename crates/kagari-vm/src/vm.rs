@@ -1,9 +1,5 @@
 use kagari_common::identity::table::DefinitionId;
 pub mod native;
-use kagari_abi::{
-    ids::FunctionRef,
-    native::{BackendId, ExecutableFunctionArtifact},
-};
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},
     module::BytecodeModule,
@@ -22,6 +18,10 @@ use std::{
     cell::{Ref, RefCell, RefMut},
     iter,
     rc::Rc,
+};
+use {
+    kagari_abi::native::BackendId,
+    kagari_contract::{ids::FunctionRef, native::ExecutableFunctionArtifact},
 };
 
 use crate::{

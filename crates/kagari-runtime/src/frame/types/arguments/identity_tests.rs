@@ -1,8 +1,8 @@
 use super::*;
-use kagari_abi::{callable::generic::GenericBody, scalar::BuiltinType, types::GenericParameterAbi};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
 };
+use kagari_contract::{callable::generic::GenericBody, scalar::BuiltinType, types::GenericParam};
 
 fn owner(module: &str) -> DefinitionPath {
     DefinitionPath {
@@ -15,8 +15,8 @@ fn owner(module: &str) -> DefinitionPath {
     }
 }
 
-fn binder(definitions: &DefinitionContext, module: &str) -> GenericParameterAbi<DefinitionId> {
-    GenericParameterAbi {
+fn binder(definitions: &DefinitionContext, module: &str) -> GenericParam<DefinitionId> {
+    GenericParam {
         owner: definitions.intern(&owner(module)).unwrap(),
         position: 0,
     }
@@ -24,7 +24,7 @@ fn binder(definitions: &DefinitionContext, module: &str) -> GenericParameterAbi<
 
 fn argument(kind: BuiltinType) -> TypeArgument {
     TypeArgument {
-        ty: AbiType::Builtin(kind),
+        ty: Ty::Builtin(kind),
         definitions: DefinitionContext::new().unwrap().snapshot(),
         origin: None,
     }
@@ -59,15 +59,10 @@ fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
     let mut reversed = body.clone();
     reversed.parameters.reverse();
     assert!(!child.matches(&reversed));
-    let expression = AbiType::Tuple(
-        body.parameters
-            .iter()
-            .map(GenericParameterAbi::as_type)
-            .collect(),
-    );
-    let expected = AbiType::Tuple(vec![
-        AbiType::Builtin(BuiltinType::String),
-        AbiType::Builtin(BuiltinType::I32),
+    let expression = Ty::Tuple(body.parameters.iter().map(GenericParam::as_type).collect());
+    let expected = Ty::Tuple(vec![
+        Ty::Builtin(BuiltinType::String),
+        Ty::Builtin(BuiltinType::I32),
     ]);
     assert_eq!(child.resolve(&expression).unwrap(), expected);
     let types_only = child.types_only();

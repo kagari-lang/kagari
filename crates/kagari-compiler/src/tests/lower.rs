@@ -12,9 +12,9 @@ use {
     kagari_bytecode::instruction::BytecodeInstruction, kagari_common::diagnostic::DiagnosticKind,
 };
 
-use kagari_abi::{
-    operations::{BinaryOp, StandardEnumOp},
-    representation::ValueType,
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::operations::{BinaryOp, StandardEnumOp},
 };
 
 use kagari_mir::{
@@ -989,9 +989,9 @@ fn terminator_values(terminator: &Terminator) -> Vec<MirValue> {
 
 #[test]
 fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
-    use kagari_abi::{representation::ValueType, types::PublicAbiItem};
     use kagari_common::cancellation::CancellationToken;
     use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
+    use {kagari_abi::representation::ValueType, kagari_contract::types::PublicItem};
 
     let checked = common::program_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
     let original = lower_to_mir(checked.root(), &Default::default()).unwrap();
@@ -1001,7 +1001,7 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => Some(table.declaration.clone()),
+            PublicItem::InterfaceTable(table) => Some(table.declaration.clone()),
             _ => None,
         })
         .unwrap();

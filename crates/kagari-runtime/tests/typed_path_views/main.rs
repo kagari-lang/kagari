@@ -1,4 +1,3 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
@@ -11,6 +10,7 @@ use kagari_common::{
         value_type::HostValueType,
     },
 };
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::module::LoadedModule;
 
 use std::sync::{Arc, Mutex};

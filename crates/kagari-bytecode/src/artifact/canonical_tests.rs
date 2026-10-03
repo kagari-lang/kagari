@@ -178,13 +178,13 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
 
 #[test]
 fn oversized_memory_identity_paths_reject_before_fingerprinting() {
-    use kagari_abi::types::AbiType;
     use kagari_common::{
         host_interface::{
             HostInterface, host_type_identity, type_declaration::HostTypeDeclaration,
         },
         identity::MAX_IDENTITY_PATH_SEGMENTS,
     };
+    use kagari_contract::types::Ty;
 
     let valid = BytecodeProgram {
         root: ModuleRef::new(0),
@@ -215,10 +215,10 @@ fn oversized_memory_identity_paths_reject_before_fingerprinting() {
                 id.module.path = vec!["part".into(); MAX_IDENTITY_PATH_SEGMENTS + 1];
                 program.modules[0]
                     .public_items
-                    .push(kagari_abi::types::PublicAbiItem::Const(
-                        kagari_abi::types::ConstAbi {
+                    .push(kagari_contract::types::PublicItem::Const(
+                        kagari_contract::types::ConstDef {
                             name: "bad".into(),
-                            ty: AbiType::Host(id),
+                            ty: Ty::Host(id),
                             value: "0".into(),
                         },
                     ));
@@ -416,20 +416,20 @@ fn decoder_rejects_huge_module_count_before_reading_module_data() {
 
 #[test]
 fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let valid = BytecodeProgram {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
-    let mut deep = AbiType::Builtin(BuiltinType::I32);
+    let mut deep = Ty::Builtin(BuiltinType::I32);
     for _ in 0..64 {
-        deep = AbiType::Array(Box::new(deep), CollectionAccess::Mutable);
+        deep = Ty::Array(Box::new(deep), CollectionAccess::Mutable);
     }
     let mut program = valid.clone();
     program.modules[0]
         .public_items
-        .push(kagari_abi::types::PublicAbiItem::Const(
-            kagari_abi::types::ConstAbi {
+        .push(kagari_contract::types::PublicItem::Const(
+            kagari_contract::types::ConstDef {
                 name: "deep".into(),
                 ty: deep,
                 value: "0".into(),
@@ -454,14 +454,14 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
 
 #[test]
 fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
-    use kagari_abi::{
-        layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
-        scalar::BuiltinType,
-        types::{AbiType, FieldAbi},
-    };
     use kagari_common::{
         host_interface::{path::HostPathDeclaration, type_declaration::PathAccess},
         identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    };
+    use kagari_contract::{
+        layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
+        scalar::BuiltinType,
+        types::{FieldDef, Ty},
     };
 
     let valid = BytecodeProgram {
@@ -487,7 +487,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
             StructFieldLayout {
                 declaration: field_id.clone(),
                 name: "field".into(),
-                ty: AbiType::Builtin(BuiltinType::I32),
+                ty: Ty::Builtin(BuiltinType::I32),
                 mutable: false,
             };
             MAX_ARTIFACT_NESTED_RECORDS + 1
@@ -501,7 +501,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
         arguments: Vec::new(),
         variants: vec![EnumVariantLayout {
             declaration: id(DefinitionKind::Variant),
-            payload: vec![AbiType::Builtin(BuiltinType::I32); MAX_ARTIFACT_NESTED_RECORDS + 1],
+            payload: vec![Ty::Builtin(BuiltinType::I32); MAX_ARTIFACT_NESTED_RECORDS + 1],
         }],
     });
     cases.push(enumeration);
@@ -524,16 +524,16 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
     let mut public_abi = valid.clone();
     public_abi.modules[0]
         .public_items
-        .push(kagari_abi::types::PublicAbiItem::Type(
-            kagari_abi::types::TypeAbi {
+        .push(kagari_contract::types::PublicItem::Type(
+            kagari_contract::types::TypeDef {
                 name: "item".into(),
-                kind: kagari_abi::types::TypeAbiKind::Struct,
+                kind: kagari_contract::types::TypeDefKind::Struct,
                 generic_params: Vec::new(),
                 bounds: Vec::new(),
                 fields: vec![
-                    FieldAbi {
+                    FieldDef {
                         name: "field".into(),
-                        ty: AbiType::Builtin(BuiltinType::I32),
+                        ty: Ty::Builtin(BuiltinType::I32),
                         mutable: false,
                     };
                     MAX_ARTIFACT_NESTED_RECORDS + 1

@@ -1,5 +1,5 @@
 use crate::{error::RuntimeError, value::Value};
-use kagari_abi::operations::StringIterKind;
+use kagari_contract::operations::StringIterKind;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct Cursor {

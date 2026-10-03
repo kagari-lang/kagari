@@ -1,7 +1,7 @@
 use super::*;
 use crate::executor::Executor;
-use kagari_abi::types::{AbiType, NominalAbiType, PublicAbiItem};
 use kagari_bytecode::instruction::StructId;
+use kagari_contract::types::{NominalTy, PublicItem, Ty};
 use kagari_runtime::module::LoadedModule;
 use std::slice;
 
@@ -43,7 +43,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 
 #[test]
 fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
-    use kagari_abi::types::{AbiType, PublicAbiItem};
+    use kagari_contract::types::{PublicItem, Ty};
     let (runtime, loaded) = load_test_module(
         "trait Other {} trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
     );
@@ -52,11 +52,11 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => Some(table),
+            PublicItem::InterfaceTable(table) => Some(table),
             _ => None,
         })
         .unwrap();
-    let AbiType::Trait(interface) = &table.trait_type else {
+    let Ty::Trait(interface) = &table.trait_type else {
         panic!("expected trait interface")
     };
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
@@ -698,7 +698,7 @@ fn check_type_provenance_reload(source: &str) {
         );
         let old_root = runtime.root_value(old_item.clone()).unwrap();
         let current_layout = item_layout(&second);
-        let item_type = AbiType::Struct(NominalAbiType {
+        let item_type = Ty::Struct(NominalTy {
             declaration: current_layout.layout().declaration,
             arguments: vec![],
             associated_types: Default::default(),
@@ -714,8 +714,8 @@ fn check_type_provenance_reload(source: &str) {
             .public_items
             .iter()
             .find_map(|item| match item {
-                PublicAbiItem::InterfaceTable(table) => match &table.trait_type {
-                    AbiType::Trait(ty) => Some(ty),
+                PublicItem::InterfaceTable(table) => match &table.trait_type {
+                    Ty::Trait(ty) => Some(ty),
                     _ => None,
                 },
                 _ => None,
@@ -883,7 +883,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
                 == "Item"
         })
         .unwrap();
-    let ty = AbiType::Struct(NominalAbiType {
+    let ty = Ty::Struct(NominalTy {
         declaration: item.declaration,
         arguments: vec![],
         associated_types: Default::default(),
@@ -893,8 +893,8 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => match &table.trait_type {
-                AbiType::Trait(ty) => Some(ty),
+            PublicItem::InterfaceTable(table) => match &table.trait_type {
+                Ty::Trait(ty) => Some(ty),
                 _ => None,
             },
             _ => None,

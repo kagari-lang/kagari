@@ -1,13 +1,5 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
 
-use kagari_abi::{
-    declaration::ModuleDecl,
-    scalar::BuiltinType,
-    types::{
-        AbiType, GenericParameterAbi, PublicAbiItem, TypeAbi, TypeAbiKind,
-        native::NativeTypeConstructor,
-    },
-};
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -16,6 +8,11 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::{
+    declaration::ModuleDecl,
+    scalar::BuiltinType,
+    types::{GenericParam, PublicItem, Ty, TypeDef, TypeDefKind, native::NativeTypeConstructor},
+};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
 use std::sync::Arc;
@@ -35,10 +32,10 @@ fn main() {
         package: PackageId("demo".into()),
         path: vec!["storage".into()],
     });
-    storage.types.push(TypeAbi {
+    storage.types.push(TypeDef {
         name: "Samples".into(),
-        kind: TypeAbiKind::Native(NativeTypeConstructor::Array),
-        generic_params: vec![GenericParameterAbi {
+        kind: TypeDefKind::Native(NativeTypeConstructor::Array),
+        generic_params: vec![GenericParam {
             owner: storage.definition(DefinitionKind::AssociatedType, "Samples"),
             position: 0,
         }],
@@ -95,7 +92,7 @@ fn main() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => Some(table),
+            PublicItem::InterfaceTable(table) => Some(table),
             _ => None,
         })
         .expect("checked interface declaration");
@@ -131,7 +128,7 @@ fn main() {
         .iter()
         .find(|table| {
             table.declaration != interface.declaration
-                && table.arguments == [AbiType::Builtin(BuiltinType::I32)]
+                && table.arguments == [Ty::Builtin(BuiltinType::I32)]
         })
         .expect("specialized generic interface table");
     assert_eq!(generic_table.methods.len(), 1);
@@ -144,7 +141,7 @@ fn main() {
             .as_ref()
             .unwrap()
             .arguments,
-        [AbiType::Builtin(BuiltinType::I32)]
+        [Ty::Builtin(BuiltinType::I32)]
     );
     println!(
         "interface {} has a stable declaration identity and executable method slot",

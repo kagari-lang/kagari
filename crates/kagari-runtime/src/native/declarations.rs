@@ -6,17 +6,15 @@ use crate::{
         types::{AppliedTrait, MethodRef, ParameterRef, Type},
     },
 };
-use kagari_abi::{
+use kagari_common::identity::DefinitionPath;
+use kagari_contract::{
     callable::{CallableImplementation, MethodPolicy},
     native_import::callables::NativeCallableRequirement,
-    types::{
-        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, ParameterAbi,
-    },
+    types::{Constraint, FnDecl, GenericBound, GenericParam, Param, Ty},
 };
-use kagari_common::identity::DefinitionPath;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(crate) fn normalize_bounds(signature: &mut FunctionAbi) {
+pub(crate) fn normalize_bounds(signature: &mut FnDecl) {
     let mut bounds = BTreeMap::new();
     for bound in signature.bounds.drain(..) {
         bounds
@@ -26,7 +24,7 @@ pub(crate) fn normalize_bounds(signature: &mut FunctionAbi) {
     }
     signature.bounds = bounds
         .into_iter()
-        .map(|(ty, constraints)| GenericBoundAbi {
+        .map(|(ty, constraints)| GenericBound {
             ty,
             constraints: constraints.into_iter().collect(),
         })
@@ -37,7 +35,7 @@ pub(crate) fn normalize_bounds(signature: &mut FunctionAbi) {
 pub struct FunctionDecl {
     pub(crate) documentation: Option<String>,
     pub(crate) name: String,
-    pub(crate) params: Vec<ParameterAbi>,
+    pub(crate) params: Vec<Param>,
     pub(crate) result: Type,
 }
 
@@ -57,7 +55,7 @@ impl FunctionDecl {
     }
 
     pub fn parameter(mut self, name: impl Into<String>, ty: Type) -> Self {
-        self.params.push(ParameterAbi {
+        self.params.push(Param {
             name: name.into(),
             ty: ty.0,
             mutable: false,
@@ -70,8 +68,8 @@ impl FunctionDecl {
         self
     }
 
-    pub(crate) fn lower(self, implementation: CallableImplementation) -> FunctionAbi {
-        FunctionAbi {
+    pub(crate) fn lower(self, implementation: CallableImplementation) -> FnDecl {
+        FnDecl {
             name: self.name,
             params: self.params,
             return_type: self.result.0,
@@ -114,11 +112,11 @@ impl MethodDecl {
         self
     }
 
-    pub(crate) fn lower(mut self, receiver: Type) -> FunctionAbi {
+    pub(crate) fn lower(mut self, receiver: Type) -> FnDecl {
         if self.instance {
             self.signature.params.insert(
                 0,
-                ParameterAbi {
+                Param {
                     name: "self".into(),
                     ty: receiver.0,
                     mutable: false,
@@ -179,8 +177,8 @@ pub struct SelectedCall {
 
 pub struct FunctionBuilder<'a> {
     pub(crate) id: DefinitionPath,
-    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionPath, AbiType>,
-    pub(crate) signature: &'a mut FunctionAbi,
+    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionPath, Ty>,
+    pub(crate) signature: &'a mut FnDecl,
     pub(crate) requirements: &'a mut Vec<NativeCallableRequirement>,
     pub(crate) names: &'a mut Vec<String>,
 }
@@ -191,7 +189,7 @@ impl FunctionBuilder<'_> {
         if self.names.contains(&name) {
             return Err(RuntimeError::metadata_conflict("duplicate type parameter"));
         }
-        let parameter = GenericParameterAbi {
+        let parameter = GenericParam {
             owner: self.id.clone(),
             position: self.names.len(),
         };
@@ -203,7 +201,7 @@ impl FunctionBuilder<'_> {
     }
 
     pub fn parameter(&mut self, name: impl Into<String>, ty: Type) {
-        self.signature.params.push(ParameterAbi {
+        self.signature.params.push(Param {
             name: name.into(),
             ty: ty.0,
             mutable: false,
@@ -221,9 +219,9 @@ impl FunctionBuilder<'_> {
     }
 
     pub fn bound(&mut self, ty: Type, contract: AppliedTrait) {
-        self.signature.bounds.push(GenericBoundAbi {
+        self.signature.bounds.push(GenericBound {
             ty: ty.0,
-            constraints: vec![ConstraintAbi::Trait(contract.ty)],
+            constraints: vec![Constraint::Trait(contract.ty)],
         });
     }
 

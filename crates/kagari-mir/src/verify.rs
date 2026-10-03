@@ -1,15 +1,17 @@
-use kagari_abi::{
-    contracts::{self, ContractError},
-    effects::EffectSet,
-    representation::ValueType,
-    types::AbiType,
-};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId},
     span::Span,
 };
 use std::{collections::HashSet, ops::Deref};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        contracts::{self, ContractError},
+        effects::EffectSet,
+        types::Ty,
+    },
+};
 
 use crate::{
     analysis::FunctionAnalysis,
@@ -200,7 +202,7 @@ pub(crate) fn verify_with_budget(
         if !interfaces.insert(instance)
             || !instance.arguments.iter().enumerate().all(|(position, ty)| {
                 ty.is_concrete()
-                    || matches!(ty, AbiType::Parameter { owner, position: index }
+                    || matches!(ty, Ty::Parameter { owner, position: index }
                     if *owner == instance.declaration && *index == position)
             })
             || !instance.declaration.within_path_limit()

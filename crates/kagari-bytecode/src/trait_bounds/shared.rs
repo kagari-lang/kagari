@@ -5,12 +5,12 @@ use crate::{
     program::BytecodeProgram,
     trait_bounds::callables,
 };
-use kagari_abi::{
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{
     callable::{CallableImplementation, generic::GenericBody},
     native_import::NativeSignature,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog, substitution::TypeTransformError},
 };
-use kagari_common::cancellation::CancellationToken;
 
 pub(crate) struct SharedEntry<'a> {
     pub identity: &'a ConcreteFunctionIdentity,

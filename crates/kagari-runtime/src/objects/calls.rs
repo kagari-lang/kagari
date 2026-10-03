@@ -15,17 +15,17 @@ use crate::{
     native::registry::callable_primitive,
     value::Value,
 };
-use kagari_abi::{
+use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{
     callable::{
         CallableImplementation,
         interface::InterfaceCallContract,
         witness::{OperationWitness, SharedMethodWitness},
     },
     native_import::callables::NativeCallableRequirement,
-    types::{self as abi, AbiType, ConcreteFunctionIdentity},
+    types::{self as abi, ConcreteFunctionIdentity, Ty},
 };
-use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
-use kagari_common::identity::table::DefinitionId;
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -68,8 +68,8 @@ fn resolve_requirement(
     frame: &ExecutionFrame,
     required: &NativeCallableRequirement<DefinitionId>,
 ) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
-    let AbiType::Trait(interface) = frame
-        .resolve_type(&AbiType::Trait(required.interface.clone()))?
+    let Ty::Trait(interface) = frame
+        .resolve_type(&Ty::Trait(required.interface.clone()))?
         .into_owned()
     else {
         return Err(RuntimeError::module_validation("constraint interface type"));
@@ -94,8 +94,8 @@ impl Runtime {
         receiver: &Value,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
-        let AbiType::Trait(interface) = frame
-            .resolve_type(&AbiType::Trait(contract.interface.clone()))?
+        let Ty::Trait(interface) = frame
+            .resolve_type(&Ty::Trait(contract.interface.clone()))?
             .into_owned()
         else {
             return Err(invalid());
@@ -135,12 +135,12 @@ impl Runtime {
             &arguments,
         )?;
         if !TypeView::new(
-            &AbiType::Trait(method.interface_expression().clone()),
+            &Ty::Trait(method.interface_expression().clone()),
             method.implementation(),
             method.receiver_environment().map(Rc::as_ref),
         )
         .compatible(TypeView::new(
-            &AbiType::Trait(contract.interface.clone()),
+            &Ty::Trait(contract.interface.clone()),
             frame.loaded(),
             frame.environment().as_deref(),
         )) {

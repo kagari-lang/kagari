@@ -3,11 +3,14 @@ use crate::{
     instruction::{CallTarget, Constant, Instruction, RuntimeHelper},
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
-use kagari_abi::{
-    contracts::{self, ContractError, RuntimeHelperKind},
-    operations::{self, range_operands_valid},
-    representation::ValueType,
-    types::{AbiType, PublicAbiItem, verify::types_in_scope},
+use kagari_contract::representation::host_representation;
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        contracts::{self, ContractError, RuntimeHelperKind},
+        operations::{self, range_operands_valid},
+        types::{PublicItem, Ty, verify::types_in_scope},
+    },
 };
 
 use kagari_common::host_interface::{HostInterface, type_declaration::PathAccess};
@@ -35,7 +38,7 @@ pub(super) fn verify(
             .map_err(|_| context.error(Error::InvalidHostInterface))?
             != path.contract_fingerprint
             || path.root_ty != ValueType::HostHandle
-            || path.result_ty != ValueType::from_host_type(&resolved.result)
+            || path.result_ty != host_representation(&resolved.result)
             || (!path.read_only && declaration.access != PathAccess::ReadWrite)
         {
             return Err(context.error(Error::InvalidHostInterface));
@@ -422,10 +425,7 @@ pub(super) fn verify(
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             context.expect(value.ty, ValueType::HeapObject, "interface receiver")?;
             if !types_in_scope(
-                [
-                    &AbiType::Trait(source.clone()),
-                    &AbiType::Trait(target.clone()),
-                ],
+                [&Ty::Trait(source.clone()), &Ty::Trait(target.clone())],
                 function
                     .semantic
                     .generic
@@ -444,7 +444,7 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             let table = module.abi.public_items.iter().find_map(|item| match item {
-                PublicAbiItem::InterfaceTable(table) if &table.declaration == implementation => {
+                PublicItem::InterfaceTable(table) if &table.declaration == implementation => {
                     Some(table)
                 }
                 _ => None,

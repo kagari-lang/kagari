@@ -1,6 +1,6 @@
 //! Selected native callbacks must have a matching concrete executable target.
 use crate::module::BytecodeModule;
-use kagari_abi::{
+use kagari_contract::{
     callable::{CallableImplementation, witness::OperationWitness},
     native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
 };

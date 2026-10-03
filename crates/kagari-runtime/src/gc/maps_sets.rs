@@ -9,7 +9,7 @@ use crate::{
     value::{MapKey, Value},
 };
 
-use kagari_abi::types::AbiType;
+use kagari_contract::types::Ty;
 use std::rc::Rc;
 
 fn invalid() -> RuntimeError {
@@ -202,7 +202,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Map { .. }) {
+        if !matches!(object.ty, Ty::Map { .. }) {
             return None;
         }
         let payload = object.payload::<MapPayload>().ok()?;
@@ -218,7 +218,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Set(..)) {
+        if !matches!(object.ty, Ty::Set(..)) {
             return None;
         }
         let payload = object.payload::<SetPayload>().ok()?;
@@ -238,7 +238,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Map { .. }) {
+        if !matches!(object.ty, Ty::Map { .. }) {
             return None;
         }
         Some(f(&object.payload::<MapPayload>().ok()?.entries))
@@ -254,7 +254,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Map { .. }) {
+        if !matches!(object.ty, Ty::Map { .. }) {
             return None;
         }
         let entries = &mut object.payload_mut::<MapPayload>().ok()?.entries;
@@ -275,7 +275,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Set(..)) {
+        if !matches!(object.ty, Ty::Set(..)) {
             return None;
         }
         Some(f(&object.payload::<SetPayload>().ok()?.entries))
@@ -291,7 +291,7 @@ impl GcHeap {
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;
         };
-        if !matches!(object.ty, AbiType::Set(..)) {
+        if !matches!(object.ty, Ty::Set(..)) {
             return None;
         }
         let entries = &mut object.payload_mut::<SetPayload>().ok()?.entries;

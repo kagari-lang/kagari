@@ -1,16 +1,17 @@
 use super::*;
 use crate::analysis::ownership;
+use crate::native::render::declaration_source;
 use crate::tests::native as fixture;
 use crate::{
     aggregates::traits::MethodDefault, declarations::DeclarationId, native::NativeBinding,
     typeck::table::CallTarget, types::NominalType,
 };
-use kagari_abi::{callable::NativeDefaultApplication, scalar::BuiltinType};
 use kagari_common::{
     diagnostic::DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_contract::{callable::NativeDefaultApplication, scalar::BuiltinType};
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     sources
@@ -79,7 +80,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             Some(MethodDefault::Native(NativeBinding::Default(
                 NativeDefaultApplication {
                     declaration: template,
-                    arguments: vec![kagari_abi::types::AbiType::SelfType(iterator.id.clone())],
+                    arguments: vec![kagari_contract::types::Ty::SelfType(iterator.id.clone())],
                 }
             )))
         );
@@ -87,7 +88,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         let source = snapshot.source(method.declaration.location.file).unwrap();
         assert_eq!(
             source.name(),
-            fixture::module().declaration_source().unwrap().uri
+            declaration_source(&fixture::module()).unwrap().uri
         );
         let range = method.declaration.location.range;
         assert_eq!(&source.text()[range.start..range.end], name);

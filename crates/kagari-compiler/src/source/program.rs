@@ -1,9 +1,9 @@
 use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions};
-use kagari_abi::{
-    callable::CallableImplementation,
-    types::{ConcreteFunctionIdentity, GenericParameterAbi},
-};
 use kagari_common::{diagnostic::DiagnosticKind, identity::ModuleIdentity};
+use kagari_contract::{
+    callable::CallableImplementation,
+    types::{ConcreteFunctionIdentity, GenericParam},
+};
 use kagari_hir::program::CheckedProgram;
 use kagari_hir::{resolver::resolved::ResolvedName, typeck::FunctionImplementation};
 use kagari_mir::{
@@ -293,7 +293,7 @@ pub fn lower_program_to_mir(
                             .iter()
                             .enumerate()
                             .map(|(position, _)| {
-                                GenericParameterAbi {
+                                GenericParam {
                                     owner: method.clone(),
                                     position,
                                 }
@@ -349,7 +349,7 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
                 arguments: if matches!(contract.implementation, CallableImplementation::Script) {
                     (0..contract.arguments.len())
                         .map(|position| {
-                            GenericParameterAbi {
+                            GenericParam {
                                 owner: contract.instance.declaration.clone(),
                                 position,
                             }

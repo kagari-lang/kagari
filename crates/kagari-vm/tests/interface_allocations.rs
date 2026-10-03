@@ -1,10 +1,10 @@
 //! Repeated dispatch must not copy metadata for unused interface methods.
 mod native_allocations_counter;
 
-use kagari_abi::declaration::ModuleDecl;
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::declaration::ModuleDecl;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{Runtime, module::LoadedModule, value::Value};
 use kagari_vm::vm::Vm;

@@ -1,17 +1,20 @@
 //! Compiler-independent fixtures for VM native-entry and fallback decisions.
 use std::{ffi::c_void, rc::Rc};
 
-use kagari_abi::{
-    native::{
-        BackendId, BackendTarget, ExecutableDebugInfo, ExecutableDebugPoint, ExecutableEntryPoint,
-        ExecutableFunctionArtifact, NativeCodeOwner, NativeCompilationProduct,
-    },
-    native_call::{JIT_STATUS_OK, JitValue},
-};
 use kagari_bytecode::instruction::{BytecodeInstruction, ConstantOperand, Register};
 use kagari_runtime::{
     Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_poll_execution,
     module::LoadedModule,
+};
+use {
+    kagari_abi::{
+        native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+        native_call::{JIT_STATUS_OK, JitValue},
+    },
+    kagari_contract::native::{
+        ExecutableDebugInfo, ExecutableDebugPoint, ExecutableFunctionArtifact,
+        NativeCompilationProduct,
+    },
 };
 
 use crate::vm::native::PreparedNativeEntry;
@@ -71,7 +74,7 @@ pub(super) fn install_i32<const VALUE: i32>(
         BackendTarget::new("host", usize::BITS as u8),
         function.id,
     );
-    artifact.entry = ExecutableEntryPoint::Native {
+    artifact.code.entry = ExecutableEntryPoint::Native {
         symbol: "constant_i32".into(),
         address: constant_i32::<VALUE> as *const () as usize,
     };

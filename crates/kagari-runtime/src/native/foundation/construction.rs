@@ -8,11 +8,11 @@ use crate::{
     numeric,
     value::{EnumTag, Value},
 };
-use kagari_abi::{
-    numeric::NumericOperation, scalar::BuiltinType, standard::surface::StandardEnum, types::AbiType,
-};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::integer::IntegerOp;
+use kagari_contract::{
+    numeric::NumericOperation, scalar::BuiltinType, standard::surface::StandardEnum, types::Ty,
+};
 use std::{
     num::{IntErrorKind, ParseIntError},
     slice,
@@ -23,14 +23,14 @@ fn invalid() -> RuntimeError {
 }
 
 fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
-    let AbiType::StandardEnum {
+    let Ty::StandardEnum {
         kind: StandardEnum::Result,
         args,
     } = cx.result_type()
     else {
         return Err(invalid());
     };
-    let Some(AbiType::Builtin(target)) = args.first() else {
+    let Some(Ty::Builtin(target)) = args.first() else {
         return Err(invalid());
     };
     Ok(*target)
@@ -77,7 +77,7 @@ fn parse(target: BuiltinType, text: &str) -> NativeResult<Result<Value, u8>> {
 }
 
 pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let AbiType::Array(_, _) = cx.result_type() else {
+    let Ty::Array(_, _) = cx.result_type() else {
         return Err(invalid());
     };
     let result = cx.allocate_result()?;
@@ -98,11 +98,11 @@ pub(super) fn product(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
-    let AbiType::Builtin(kind) = cx.result_type() else {
+    let Ty::Builtin(kind) = cx.result_type() else {
         return Err(invalid());
     };
     let kind = *kind;
-    if matches!(cx.argument_type(0)?, AbiType::Array(_, _)) {
+    if matches!(cx.argument_type(0)?, Ty::Array(_, _)) {
         return scalar_array_aggregate(cx, kind, product);
     }
     let identity = i32::from(product);

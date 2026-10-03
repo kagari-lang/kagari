@@ -16,12 +16,14 @@ use kagari_hir::{
     },
 };
 
-use kagari_abi::{
-    callable::interface::InterfaceCallContract,
-    language::Protocol,
-    native_import::{NativeImport, NativeSignature},
-    representation::ValueType,
-    standard::RuntimePrimitive,
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::interface::InterfaceCallContract,
+        language::Protocol,
+        native_import::{NativeImport, NativeSignature},
+        standard::RuntimePrimitive,
+    },
 };
 
 use kagari_common::host_interface;

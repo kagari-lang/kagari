@@ -5,15 +5,15 @@ use crate::{
     native::enum_display_name,
     typeck::{GenericBounds, associated},
 };
-use kagari_abi::{
-    language::Protocol,
-    scalar::BuiltinType,
-    standard::surface::{self as standard_surface, StandardEnum},
-};
 use kagari_common::{
     collection::CollectionAccess::{self, Mutable, ReadOnly},
     identity::{DefinitionPath, reference::DefinitionReference},
     range::RangeKind,
+};
+use kagari_contract::{
+    language::Protocol,
+    scalar::BuiltinType,
+    standard::surface::{self as standard_surface, StandardEnum},
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},

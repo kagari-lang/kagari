@@ -2,10 +2,10 @@
 use std::sync::Arc;
 mod native_allocations_counter;
 
-use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
@@ -216,7 +216,7 @@ fn warmed_scalar_and_contiguous_i32_boundaries_add_no_allocations() {
         let array = runtime
             .alloc_array(
                 &loaded,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![Value::I32(1); length],
             )
             .unwrap();

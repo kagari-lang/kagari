@@ -1,11 +1,6 @@
 //! Compile once per immutable program/configuration; install separately per runtime.
 use std::rc::Rc;
 
-use kagari_abi::{
-    ids::FunctionRef,
-    native::{ExecutableEntryPoint, NativeCompilationProduct},
-    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
-};
 use kagari_bytecode::program::ModuleRef;
 use kagari_codegen::{
     BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
@@ -18,6 +13,13 @@ use kagari_runtime::{
     module::LoadedModule,
 };
 use kagari_vm::vm::native::PreparedNativeEntry;
+use {
+    kagari_abi::{
+        native::ExecutableEntryPoint,
+        version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+    },
+    kagari_contract::{ids::FunctionRef, native::NativeCompilationProduct},
+};
 
 use crate::{program::PreparedProgram, runtime::KagariRuntime};
 
@@ -152,12 +154,12 @@ impl PreparedProgram {
         let cached = match result {
             Ok(product) => {
                 let descriptor = &product.artifact;
-                if descriptor.backend != key.configuration.backend
-                    || descriptor.target != key.configuration.target
+                if descriptor.code.backend != key.configuration.backend
+                    || descriptor.code.target != key.configuration.target
                     || descriptor.function != key.function
-                    || descriptor.runtime_abi_version != key.runtime_abi
-                    || descriptor.runtime_helper_abi_version != key.helper_abi
-                    || !matches!(descriptor.entry, ExecutableEntryPoint::Native { address, .. } if address != 0)
+                    || descriptor.code.runtime_abi_version != key.runtime_abi
+                    || descriptor.code.runtime_helper_abi_version != key.helper_abi
+                    || !matches!(descriptor.code.entry, ExecutableEntryPoint::Native { address, .. } if address != 0)
                 {
                     return Err(NativePreparationError::InvalidProduct);
                 }

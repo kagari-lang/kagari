@@ -1,7 +1,7 @@
 //! Call-site adaptation for ordinary shared script and native entries.
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
-use kagari_abi::native_import::NativeSignature;
 use kagari_common::span::Span;
+use kagari_contract::native_import::NativeSignature;
 use kagari_hir::{
     callable::AppliedCallSignature,
     declarations::DeclarationId,

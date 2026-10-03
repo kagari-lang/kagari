@@ -4,12 +4,12 @@ use crate::{
     instruction::{CallTarget, Instruction},
     verify::ValidatedMirModule,
 };
-use kagari_abi::{
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{
     callable::CallableImplementation,
     native_import::NativeSignature,
     types::{proofs::ProofCatalog, substitution::TypeTransformError},
 };
-use kagari_common::cancellation::CancellationToken;
 
 pub(super) fn valid(
     caller: &MirModule,

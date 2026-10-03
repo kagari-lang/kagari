@@ -14,7 +14,6 @@ use crate::{
     session::ExecutionSession,
     value::Value,
 };
-use kagari_abi::{ids::FunctionRef, representation::ValueType, types::AbiType};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, LocalSlot, Register},
     module::{BytecodeFunction, CallableTarget},
@@ -25,6 +24,10 @@ use std::{
     cell::{Ref, RefMut},
     fmt::{self, Debug, Formatter},
     rc::Rc,
+};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{ids::FunctionRef, types::Ty},
 };
 
 /// An execution scope over the root session's shared frame stack.
@@ -492,8 +495,8 @@ impl ExecutionFrame {
 
     pub fn resolve_type<'a>(
         &self,
-        ty: &'a AbiType<DefinitionId>,
-    ) -> Result<Cow<'a, AbiType<DefinitionId>>, RuntimeError> {
+        ty: &'a Ty<DefinitionId>,
+    ) -> Result<Cow<'a, Ty<DefinitionId>>, RuntimeError> {
         if ty.is_concrete() {
             return Ok(Cow::Borrowed(ty));
         }
@@ -524,11 +527,11 @@ impl ExecutionFrame {
             .get(&register.index())
             .ok_or_else(|| RuntimeError::module_validation("shared closure call signature"))?;
         let resolved = self.resolve_type(semantic)?;
-        let AbiType::Function { params, result } = resolved.as_ref() else {
+        let Ty::Function { params, result } = resolved.as_ref() else {
             return Err(RuntimeError::module_validation("shared closure call type"));
         };
         Ok((
-            Cow::Owned(params.iter().map(AbiType::representation).collect()),
+            Cow::Owned(params.iter().map(Ty::representation).collect()),
             result.representation(),
         ))
     }

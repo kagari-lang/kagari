@@ -12,11 +12,11 @@ use crate::{
     typeck::{TopLevelTypeIndex, const_budget::ConstBudget, table::TypeTable, ty::display_type_id},
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
 };
+use kagari_contract::scalar::BuiltinType;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 

@@ -6,10 +6,6 @@ use crate::{
         module::NativeModule,
     },
 };
-use kagari_abi::{
-    declaration::ModuleDecl,
-    types::{NativeDeclaration, TraitAbi, TypeAbi},
-};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -18,6 +14,10 @@ use kagari_common::{
         mapping::{DefinitionMapper, DefinitionRecord},
         table::{DefinitionId, DefinitionTable},
     },
+};
+use kagari_contract::{
+    declaration::ModuleDecl,
+    types::{NativeDeclaration, TraitDef, TypeDef},
 };
 use std::sync::Arc;
 
@@ -83,14 +83,14 @@ impl DeclarationCatalog {
         DeclarationCatalog::<DefinitionPath>::collect_authoring(modules)?.scoped()
     }
 
-    pub(crate) fn get(&self, declaration: &DefinitionPath) -> Option<&TraitAbi<DefinitionId>> {
+    pub(crate) fn get(&self, declaration: &DefinitionPath) -> Option<&TraitDef<DefinitionId>> {
         self.traits.get(declaration)
     }
 
     pub(crate) fn insert(
         &mut self,
         id: DefinitionPath,
-        contract: TraitAbi,
+        contract: TraitDef,
     ) -> Result<(), RuntimeError> {
         let contract = self.scope(&contract)?;
         insert_contract(
@@ -104,7 +104,7 @@ impl DeclarationCatalog {
     pub(crate) fn insert_type(
         &mut self,
         id: DefinitionPath,
-        contract: TypeAbi,
+        contract: TypeDef,
     ) -> Result<(), RuntimeError> {
         let contract = self.scope(&contract)?;
         insert_contract(

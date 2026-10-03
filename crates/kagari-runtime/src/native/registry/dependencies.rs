@@ -1,10 +1,10 @@
 //! Match required registration authority against the verified executable closure.
 use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::DeclarationCatalog};
-use kagari_abi::{
-    declaration::ImplDecl,
-    types::{AbiType, InterfaceTableAbi, PublicAbiItem},
-};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{
+    declaration::ImplDecl,
+    types::{InterfaceTable, PublicItem, Ty},
+};
 
 pub(super) fn validate(
     required: &DeclarationCatalog,
@@ -20,8 +20,15 @@ pub(super) fn validate(
             .definitions()
             .resolve(id)
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
-        if !program.modules().iter().any(|module| &module.identity == owner.module() && module.public_items.iter().any(|item| matches!(item, PublicAbiItem::Type(declaration) if declaration == expected))) {
-            return Err(RuntimeError::module_validation("native storage type differs from its registered contract"));
+        if !program.modules().iter().any(|module| {
+            &module.identity == owner.module()
+                && module.public_items.iter().any(
+                    |item| matches!(item, PublicItem::Type(declaration) if declaration == expected),
+                )
+        }) {
+            return Err(RuntimeError::module_validation(
+                "native storage type differs from its registered contract",
+            ));
         }
     }
     for (id, expected) in required.traits.entries() {
@@ -31,9 +38,10 @@ pub(super) fn validate(
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().any(|module| {
             &module.identity == owner.module()
-                && module.public_items.iter().any(
-                    |item| matches!(item, PublicAbiItem::Trait(contract) if contract == expected),
-                )
+                && module
+                    .public_items
+                    .iter()
+                    .any(|item| matches!(item, PublicItem::Trait(contract) if contract == expected))
         }) {
             return Err(RuntimeError::module_validation(format!(
                 "native dependency {} differs from its registered trait contract",
@@ -65,7 +73,7 @@ pub(super) fn validate(
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().filter(|module| &module.identity == owner.module())
             .flat_map(|module| &module.public_items).any(|item| {
-                matches!(item, PublicAbiItem::InterfaceTable(actual) if implementation_matches(&id, expected, actual))
+                matches!(item, PublicItem::InterfaceTable(actual) if implementation_matches(&id, expected, actual))
             }) {
             return Err(RuntimeError::module_validation("native dependency differs from its registered implementation contract"));
         }
@@ -76,7 +84,7 @@ pub(super) fn validate(
 fn implementation_matches(
     id: &DefinitionId,
     expected: &ImplDecl<DefinitionId>,
-    actual: &InterfaceTableAbi<DefinitionId>,
+    actual: &InterfaceTable<DefinitionId>,
 ) -> bool {
     // The compiler materializes omitted defaults on its real executable table.
     // Match the registered header and every explicit native method; defaults are
@@ -88,7 +96,7 @@ fn implementation_matches(
         && actual.for_type == expected.for_type
         && actual.associated_type_families.is_empty()
         && actual.associated_consts.is_empty()
-        && matches!(&actual.trait_type, AbiType::Trait(interface) if Some(interface) == expected.trait_type.as_ref())
+        && matches!(&actual.trait_type, Ty::Trait(interface) if Some(interface) == expected.trait_type.as_ref())
         && expected.methods.iter().all(|method| {
             let mut method = method.clone();
             method

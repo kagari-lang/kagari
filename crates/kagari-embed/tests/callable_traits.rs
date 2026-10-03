@@ -324,8 +324,8 @@ fn main() -> i32 {
 
 #[test]
 fn forged_constraint_operations_are_rejected_before_execution() {
-    use kagari_abi::{callable::witness::OperationWitness, scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+    use kagari_contract::{callable::witness::OperationWitness, scalar::BuiltinType, types::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -362,7 +362,7 @@ fn main() -> i32 { val runner: Invoke = Runner {}; runner.invoke(|x| x * 2) }
                 let OperationWitness::Selected(selected) = &mut contract.operations[0] else {
                     panic!("selected operation");
                 };
-                selected.signature.result = AbiType::Builtin(BuiltinType::Bool);
+                selected.signature.result = Ty::Builtin(BuiltinType::Bool);
             }
             3 => {
                 let OperationWitness::Selected(selected) = &mut contract.operations[0] else {

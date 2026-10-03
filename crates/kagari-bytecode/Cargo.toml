@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 kagari-abi.workspace = true
+kagari-contract.workspace = true
 kagari-common.workspace = true
 serde.workspace = true
 smallvec.workspace = true

@@ -19,11 +19,11 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_abi::{language::Protocol, standard::surface::StandardTypeConstraint};
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
 };
+use kagari_contract::{language::Protocol, standard::surface::StandardTypeConstraint};
 use smallvec::SmallVec;
 
 /// Resolve bounds once in their declaring context, before signatures and bodies.

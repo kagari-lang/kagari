@@ -1,9 +1,9 @@
 //! Run with `cargo run -p kagari-runtime --example collection_iteration`.
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, value::Value};
 
 fn main() {
@@ -20,11 +20,7 @@ fn main() {
 
     let gc = runtime.gc();
     let id = runtime
-        .alloc_array(
-            &owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
-        )
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
     let value = Value::Array(id);
     let iteration = gc.begin_collection_iteration(&value).unwrap();

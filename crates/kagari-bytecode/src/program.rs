@@ -9,13 +9,13 @@ use crate::{
     trait_bounds,
     verifier::{self, BytecodeVerificationError},
 };
-use kagari_abi::{
+use kagari_common::identity::DefinitionKind;
+use kagari_contract::{
     host,
     language::Protocol,
     layout,
-    types::{AbiType, PublicAbiItem, TypeAbiKind, verify},
+    types::{PublicItem, Ty, TypeDefKind, verify},
 };
-use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -44,7 +44,7 @@ impl ModuleRef {
 ))]
 pub struct BytecodeProgram<I = DefinitionPath> {
     pub root: ModuleRef,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::modules")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::modules")]
     pub modules: Vec<BytecodeModule<I>>,
 }
 
@@ -88,7 +88,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
-                matches!(item, PublicAbiItem::Type(ty) if ty.kind == TypeAbiKind::Struct && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+                matches!(item, PublicItem::Type(ty) if ty.kind == TypeDefKind::Struct && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
             }) else { continue; };
             if !layout::struct_abi_matches(
                 slice::from_ref(layout),
@@ -161,7 +161,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
-                matches!(item, PublicAbiItem::Type(ty) if ty.kind == TypeAbiKind::Enum && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+                matches!(item, PublicItem::Type(ty) if ty.kind == TypeDefKind::Enum && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
             }) else { continue; };
             if !layout::enum_abi_matches(
                 slice::from_ref(layout),
@@ -189,22 +189,19 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             closure.push(module);
         }
         for item in &module.public_items {
-            let PublicAbiItem::InterfaceTable(table) = item else {
+            let PublicItem::InterfaceTable(table) = item else {
                 continue;
             };
-            let AbiType::Trait(instance) = &table.trait_type else {
+            let Ty::Trait(instance) = &table.trait_type else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
             if let Some(kind) = Protocol::from_id(&instance.declaration)
-                && (!kind.host_implementable() && matches!(table.for_type, AbiType::Host(_))
+                && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
                     || instance.declaration.module != table.declaration.module
                         && !kind.conversion()
                         && !matches!(
                             table.for_type,
-                            AbiType::NativeObject(_)
-                                | AbiType::Struct(_)
-                                | AbiType::Enum(_)
-                                | AbiType::Host(_)
+                            Ty::NativeObject(_) | Ty::Struct(_) | Ty::Enum(_) | Ty::Host(_)
                         ))
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
@@ -232,10 +229,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let Some(trait_name) = instance.declaration.path.last().map(|part| &part.name) else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            let Some(PublicAbiItem::Trait(interface)) = owner
+            let Some(PublicItem::Trait(interface)) = owner
                 .public_items
                 .iter()
-                .find(|item| matches!(item, PublicAbiItem::Trait(interface) if &interface.name == trait_name))
+                .find(|item| matches!(item, PublicItem::Trait(interface) if &interface.name == trait_name))
             else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };

@@ -5,7 +5,7 @@ use crate::{
     typeck::{GenericBounds, table::ConstraintTarget},
     types::{NominalType, TypeId},
 };
-use kagari_abi::{
+use kagari_contract::{
     language::{Protocol, identity},
     numeric as scalar_numeric,
     scalar::BuiltinType,

@@ -16,15 +16,17 @@ use kagari_hir::{
     types::{NominalType, TypeId, TypeSubstitution, abi::lower_type},
 };
 
-use kagari_abi::{
-    language::Protocol, native_import::NativeImport, representation::ValueType,
-    types::ConcreteFunctionIdentity,
-};
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
     span::Span,
+};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        language::Protocol, native_import::NativeImport, types::ConcreteFunctionIdentity,
+    },
 };
 
 use std::{

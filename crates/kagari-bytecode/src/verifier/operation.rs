@@ -9,11 +9,13 @@ use crate::{
         verify_call_dst, verify_dynamic_path_args, verify_jump, verify_standard_intrinsic_call,
     },
 };
-use kagari_abi::{
-    contracts::{self, RuntimeHelperKind},
-    operations::{self, UnaryOp as MirUnaryOp},
-    representation::ValueType,
-    types::{AbiType, PublicAbiItem, verify::types_in_scope},
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        contracts::{self, RuntimeHelperKind},
+        operations::{self, UnaryOp as MirUnaryOp},
+        types::{PublicItem, Ty, verify::types_in_scope},
+    },
 };
 
 pub(super) fn verify_instruction(
@@ -258,10 +260,7 @@ pub(super) fn verify_instruction(
                 "interface receiver",
             )?;
             if !types_in_scope(
-                [
-                    &AbiType::Trait(source.clone()),
-                    &AbiType::Trait(target.clone()),
-                ],
+                [&Ty::Trait(source.clone()), &Ty::Trait(target.clone())],
                 function
                     .metadata
                     .semantic
@@ -299,7 +298,7 @@ pub(super) fn verify_instruction(
                 .public_items
                 .iter()
                 .find_map(|item| match item {
-                    PublicAbiItem::InterfaceTable(table)
+                    PublicItem::InterfaceTable(table)
                         if table.declaration == linked.declaration =>
                     {
                         let scope = function
@@ -308,7 +307,7 @@ pub(super) fn verify_instruction(
                             .generic
                             .as_ref()
                             .map_or(&[][..], |body| body.parameters.as_slice());
-                        if linked.arguments.iter().all(AbiType::is_concrete)
+                        if linked.arguments.iter().all(Ty::is_concrete)
                             && linked.arguments != *arguments
                         {
                             return None;
@@ -809,11 +808,7 @@ pub(super) fn verify_call(
                     reason: "unbound interface method application",
                 });
             }
-            let params: Vec<_> = signature
-                .params
-                .iter()
-                .map(AbiType::representation)
-                .collect();
+            let params: Vec<_> = signature.params.iter().map(Ty::representation).collect();
             let return_type = signature.result.representation();
             if args.len() != params.len() {
                 return Err(BytecodeVerificationError::InvalidOperation {

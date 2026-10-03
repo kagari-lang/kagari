@@ -9,7 +9,7 @@ use kagari_bytecode::{
 use kagari_common::identity::ModuleIdentity;
 use std::{cell::RefCell, collections::HashMap};
 
-use kagari_abi::{ids::FunctionRef, version::KAGARI_RUNTIME_HELPER_ABI_VERSION};
+use {kagari_abi::version::KAGARI_RUNTIME_HELPER_ABI_VERSION, kagari_contract::ids::FunctionRef};
 
 use crate::{
     module::{ModuleId, ModuleKey},

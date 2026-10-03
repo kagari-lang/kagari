@@ -3,13 +3,13 @@ use crate::{
     frame::types::TypeEnvironment,
     module::{LoadedModule, ModuleKey},
 };
-use kagari_abi::types::{AbiType, NominalAbiType, substitution::TypeSubstitution};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::{NominalTy, Ty, substitution::TypeSubstitution};
 use std::{borrow::Cow, collections::HashSet, ptr};
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeView<'a> {
-    pub(crate) ty: &'a AbiType<DefinitionId>,
+    pub(crate) ty: &'a Ty<DefinitionId>,
     pub(crate) owner: &'a LoadedModule,
     pub(crate) environment: Option<&'a TypeEnvironment>,
     application: Option<&'a Application<'a>>,
@@ -22,13 +22,13 @@ struct Application<'a> {
 
 #[derive(PartialEq, Eq, Hash)]
 struct TypeIdentity {
-    ty: AbiType<DefinitionId>,
+    ty: Ty<DefinitionId>,
     owners: Vec<ModuleKey>,
 }
 
 impl<'a> TypeView<'a> {
     pub(crate) fn new(
-        ty: &'a AbiType<DefinitionId>,
+        ty: &'a Ty<DefinitionId>,
         owner: &'a LoadedModule,
         environment: Option<&'a TypeEnvironment>,
     ) -> Self {
@@ -40,12 +40,12 @@ impl<'a> TypeView<'a> {
         }
     }
 
-    fn child(self, ty: &'a AbiType<DefinitionId>) -> Self {
+    fn child(self, ty: &'a Ty<DefinitionId>) -> Self {
         Self { ty, ..self }
     }
 
     pub(crate) fn normalized(mut self) -> Option<Self> {
-        while let AbiType::Parameter { owner, position } = self.ty {
+        while let Ty::Parameter { owner, position } = self.ty {
             self = if let Some(application) = self.application
                 && application.declaration == owner
             {
@@ -59,7 +59,7 @@ impl<'a> TypeView<'a> {
         Some(self)
     }
 
-    pub(crate) fn closed(self) -> Option<Cow<'a, AbiType<DefinitionId>>> {
+    pub(crate) fn closed(self) -> Option<Cow<'a, Ty<DefinitionId>>> {
         let view = self.normalized()?;
         if view.ty.is_concrete() {
             return Some(Cow::Borrowed(view.ty));
@@ -91,7 +91,7 @@ impl<'a> TypeView<'a> {
         let Some(view) = self.normalized() else {
             return false;
         };
-        if matches!(view.ty, AbiType::Struct(_) | AbiType::Enum(_)) {
+        if matches!(view.ty, Ty::Struct(_) | Ty::Enum(_)) {
             owners.push(view.owner.key());
         }
         children_match(view.ty, view.ty, |a, _| {
@@ -128,7 +128,7 @@ impl<'a> TypeView<'a> {
         {
             return true;
         }
-        if matches!(a.as_ref(), AbiType::Struct(_) | AbiType::Enum(_)) {
+        if matches!(a.as_ref(), Ty::Struct(_) | Ty::Enum(_)) {
             let (Some(a_key), Some(b_key)) = (left.identity(), right.identity()) else {
                 return false;
             };
@@ -155,15 +155,15 @@ impl<'a> TypeView<'a> {
     fn compare_fields(
         self,
         other: Self,
-        closed: &AbiType<DefinitionId>,
+        closed: &Ty<DefinitionId>,
         visited: &mut HashSet<(TypeIdentity, TypeIdentity)>,
     ) -> bool {
         let (Some(left), Some(right)) = (self.application(), other.application()) else {
             return false;
         };
-        let mut compare = |a: &AbiType<DefinitionId>,
+        let mut compare = |a: &Ty<DefinitionId>,
                            a_owner: &LoadedModule,
-                           b: &AbiType<DefinitionId>,
+                           b: &Ty<DefinitionId>,
                            b_owner: &LoadedModule| {
             TypeView {
                 ty: a,
@@ -182,7 +182,7 @@ impl<'a> TypeView<'a> {
             )
         };
         match closed {
-            AbiType::Struct(ty) => {
+            Ty::Struct(ty) => {
                 let (Some(a), Some(b)) = (
                     self.owner.find_struct_layout(ty),
                     other.owner.find_struct_layout(ty),
@@ -196,7 +196,7 @@ impl<'a> TypeView<'a> {
                         },
                     )
             }
-            AbiType::Enum(ty) => {
+            Ty::Enum(ty) => {
                 let (Some(a), Some(b)) = (
                     self.owner.find_enum_definition(ty),
                     other.owner.find_enum_definition(ty),
@@ -233,14 +233,11 @@ impl<'a> TypeView<'a> {
         };
         if matches!(
             closed.as_ref(),
-            AbiType::Host(_)
-                | AbiType::Parameter { .. }
-                | AbiType::SelfType(_)
-                | AbiType::Projection { .. }
+            Ty::Host(_) | Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Projection { .. }
         ) {
             return false;
         }
-        if matches!(closed.as_ref(), AbiType::Struct(_) | AbiType::Enum(_)) {
+        if matches!(closed.as_ref(), Ty::Struct(_) | Ty::Enum(_)) {
             let Some(key) = view.identity() else {
                 return false;
             };
@@ -250,7 +247,7 @@ impl<'a> TypeView<'a> {
             let Some(application) = view.application() else {
                 return false;
             };
-            let mut check = |ty: &AbiType<DefinitionId>, owner: &LoadedModule| {
+            let mut check = |ty: &Ty<DefinitionId>, owner: &LoadedModule| {
                 TypeView {
                     ty,
                     owner,
@@ -260,7 +257,7 @@ impl<'a> TypeView<'a> {
                 .check_heap_type(visited)
             };
             match closed.as_ref() {
-                AbiType::Struct(ty) => {
+                Ty::Struct(ty) => {
                     let Some(layout) = view.owner.find_struct_layout(ty) else {
                         return false;
                     };
@@ -273,7 +270,7 @@ impl<'a> TypeView<'a> {
                         return false;
                     }
                 }
-                AbiType::Enum(ty) => {
+                Ty::Enum(ty) => {
                     let Some((owner, id)) = view.owner.find_enum_definition(ty) else {
                         return false;
                     };
@@ -295,23 +292,23 @@ impl<'a> TypeView<'a> {
     }
 }
 
-fn nominal(ty: &AbiType<DefinitionId>) -> Option<&NominalAbiType<DefinitionId>> {
+fn nominal(ty: &Ty<DefinitionId>) -> Option<&NominalTy<DefinitionId>> {
     match ty {
-        AbiType::Struct(ty) | AbiType::Enum(ty) => Some(ty),
+        Ty::Struct(ty) | Ty::Enum(ty) => Some(ty),
         _ => None,
     }
 }
 
 fn children_match<'a>(
-    left: &'a AbiType<DefinitionId>,
-    right: &'a AbiType<DefinitionId>,
-    mut test: impl FnMut(&'a AbiType<DefinitionId>, &'a AbiType<DefinitionId>) -> bool,
+    left: &'a Ty<DefinitionId>,
+    right: &'a Ty<DefinitionId>,
+    mut test: impl FnMut(&'a Ty<DefinitionId>, &'a Ty<DefinitionId>) -> bool,
 ) -> bool {
     match (left, right) {
-        (AbiType::Struct(a), AbiType::Struct(b))
-        | (AbiType::Enum(a), AbiType::Enum(b))
-        | (AbiType::Trait(a), AbiType::Trait(b))
-        | (AbiType::NativeObject(a), AbiType::NativeObject(b)) => {
+        (Ty::Struct(a), Ty::Struct(b))
+        | (Ty::Enum(a), Ty::Enum(b))
+        | (Ty::Trait(a), Ty::Trait(b))
+        | (Ty::NativeObject(a), Ty::NativeObject(b)) => {
             a.arguments
                 .iter()
                 .zip(&b.arguments)
@@ -321,28 +318,28 @@ fn children_match<'a>(
                     .zip(b.associated_types.values())
                     .all(|(a, b)| test(a, b))
         }
-        (AbiType::Tuple(a), AbiType::Tuple(b))
-        | (AbiType::StandardEnum { args: a, .. }, AbiType::StandardEnum { args: b, .. }) => {
+        (Ty::Tuple(a), Ty::Tuple(b))
+        | (Ty::StandardEnum { args: a, .. }, Ty::StandardEnum { args: b, .. }) => {
             a.iter().zip(b).all(|(a, b)| test(a, b))
         }
-        (AbiType::Array(a, _), AbiType::Array(b, _))
-        | (AbiType::Set(a, _), AbiType::Set(b, _))
-        | (AbiType::Iter(a), AbiType::Iter(b))
-        | (AbiType::Range(a, _), AbiType::Range(b, _)) => test(a, b),
+        (Ty::Array(a, _), Ty::Array(b, _))
+        | (Ty::Set(a, _), Ty::Set(b, _))
+        | (Ty::Iter(a), Ty::Iter(b))
+        | (Ty::Range(a, _), Ty::Range(b, _)) => test(a, b),
         (
-            AbiType::Map {
+            Ty::Map {
                 key: a, value: av, ..
             },
-            AbiType::Map {
+            Ty::Map {
                 key: b, value: bv, ..
             },
         ) => test(a, b) && test(av, bv),
         (
-            AbiType::Function {
+            Ty::Function {
                 params: a,
                 result: ar,
             },
-            AbiType::Function {
+            Ty::Function {
                 params: b,
                 result: br,
             },

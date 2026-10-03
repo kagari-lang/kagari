@@ -10,6 +10,7 @@ source = ["dep:kagari-hir", "dep:kagari-syntax"]
 
 [dependencies]
 kagari-abi.workspace = true
+kagari-contract.workspace = true
 kagari-common.workspace = true
 kagari-mir.workspace = true
 kagari-bytecode.workspace = true

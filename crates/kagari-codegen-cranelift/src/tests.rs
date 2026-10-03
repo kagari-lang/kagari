@@ -1,8 +1,4 @@
 use super::*;
-use kagari_abi::{
-    native::{ExecutableEntryPoint, ExecutableSafepointKind},
-    native_call::JIT_POLL_EXECUTION_SYMBOL,
-};
 use kagari_common::source::SourceFile;
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode, native_links::build_native_links,
@@ -15,6 +11,10 @@ use kagari_runtime::{
     jit_abi::native_helper_symbols, resource::RuntimeLimits, value::Value,
 };
 use std::rc::Rc;
+use {
+    kagari_abi::{native::ExecutableEntryPoint, native_call::JIT_POLL_EXECUTION_SYMBOL},
+    kagari_contract::native::ExecutableSafepointKind,
+};
 
 fn mir(source: &str) -> VerifiedMirProgram {
     let checked = KagariEngine::default()
@@ -84,7 +84,7 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
         let mir = mir(&format!("fn main() -> {ty} {{ {body} }}"));
         let code = compile(&mut backend, &mir).unwrap();
         assert!(
-            matches!(code.artifact.entry, ExecutableEntryPoint::Native { address, .. } if address != 0)
+            matches!(code.artifact.code.entry, ExecutableEntryPoint::Native { address, .. } if address != 0)
         );
         let expected_points = root(&mir).functions[0].blocks[0].instructions.len() + 1;
         assert_eq!(code.artifact.safepoints.len(), expected_points);
@@ -176,7 +176,7 @@ fn checked_i32_traps_keep_the_exact_mir_point() {
     ] {
         let mir = mir(&format!("fn main() -> i32 {{ {expression} }}"));
         let code = Rc::new(compile(&mut CraneliftBackend::for_host().unwrap(), &mir).unwrap());
-        let overflow_offset = code.artifact.traps.last().unwrap().instruction_offset;
+        let overflow_offset = code.artifact.code.traps.last().unwrap().instruction_offset;
         {
             let mut runtime = runtime();
             let module = runtime

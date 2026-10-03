@@ -4,12 +4,12 @@ use crate::{
     resolver::{resolved::ResolvedName, table::NameResolution},
 };
 
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_contract::scalar::BuiltinType;
 
 fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
     let mut sources = SourceDatabase::default();

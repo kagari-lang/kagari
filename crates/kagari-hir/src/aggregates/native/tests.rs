@@ -7,15 +7,15 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_abi::{
-    language::{self, Protocol},
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-};
 use kagari_common::{
     collection::CollectionAccess,
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_contract::{
+    language::{self, Protocol},
+    scalar::BuiltinType,
+    standard::surface::StandardEnum,
 };
 
 fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {

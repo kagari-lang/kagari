@@ -6,7 +6,7 @@ use crate::{
     value::{EnumTag, Value},
 };
 
-use kagari_abi::types as abi;
+use kagari_contract::types as abi;
 use std::{
     cmp::Ordering,
     fmt::{self, Error, Write},
@@ -299,24 +299,24 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
 
 #[cfg(test)]
 mod tests {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::EnumId;
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
 
     use super::*;
 
     #[test]
     fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
-        use kagari_abi::{
-            layout::{EnumLayout, EnumVariantLayout},
-            scalar::BuiltinType,
-            types::AbiType,
-        };
         use kagari_bytecode::{
             module::BytecodeModule,
             program::{BytecodeProgram, ModuleRef},
         };
         use kagari_common::identity::{
             DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        };
+        use kagari_contract::{
+            layout::{EnumLayout, EnumVariantLayout},
+            scalar::BuiltinType,
+            types::Ty,
         };
 
         let identity = ModuleIdentity::single_file("enum-equality.kgr");
@@ -357,10 +357,10 @@ mod tests {
                         variants: if extra_variant {
                             vec![
                                 variant("Added", Vec::new()),
-                                variant("Data", vec![AbiType::Builtin(BuiltinType::I32)]),
+                                variant("Data", vec![Ty::Builtin(BuiltinType::I32)]),
                             ]
                         } else {
-                            vec![variant("Data", vec![AbiType::Builtin(BuiltinType::I32)])]
+                            vec![variant("Data", vec![Ty::Builtin(BuiltinType::I32)])]
                         },
                     },
                     EnumLayout {
@@ -380,7 +380,7 @@ mod tests {
                                     }])
                                     .collect(),
                             },
-                            payload: vec![AbiType::Builtin(BuiltinType::I32)],
+                            payload: vec![Ty::Builtin(BuiltinType::I32)],
                         }],
                     },
                 ],
@@ -428,30 +428,18 @@ mod tests {
         assert!(script_equal(gc, &a, &b).unwrap());
         let array = Value::Array(
             runtime
-                .alloc_array(
-                    &owner,
-                    AbiType::Builtin(BuiltinType::I32),
-                    vec![Value::I32(3)],
-                )
+                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
                 .unwrap(),
         );
         assert!(script_equal(gc, &make(array.clone()), &make(array)).unwrap());
         let first = make(Value::Array(
             runtime
-                .alloc_array(
-                    &owner,
-                    AbiType::Builtin(BuiltinType::I32),
-                    vec![Value::I32(3)],
-                )
+                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
                 .unwrap(),
         ));
         let second = make(Value::Array(
             runtime
-                .alloc_array(
-                    &owner,
-                    AbiType::Builtin(BuiltinType::I32),
-                    vec![Value::I32(3)],
-                )
+                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
                 .unwrap(),
         ));
         assert!(!script_equal(gc, &first, &second).unwrap());

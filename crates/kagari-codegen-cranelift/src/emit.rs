@@ -16,23 +16,27 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module, default_libcall_names};
-use kagari_abi::{
-    ids::FunctionRef,
-    native::{
-        ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint,
-        ExecutableSafepointKind, ExecutableStackMap, ExecutableTrap, NativeCodeOwner,
-        NativeCompilationProduct, NativeType,
-    },
-    native_call::{JIT_POLL_EXECUTION_SYMBOL, JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK},
-    operations::{BinaryOp, UnaryOp},
-    representation::ValueType,
-};
 use kagari_codegen::{BackendConfiguration, BackendFunctionInput, diagnostic::BackendCompileError};
 use kagari_mir::{
     function::MirFunction,
     instruction::{Instruction, Terminator},
 };
 use std::{fmt, rc::Rc, sync::Arc};
+use {
+    kagari_abi::{
+        native::{ExecutableEntryPoint, ExecutableTrap, NativeCodeOwner, NativeType},
+        native_call::{JIT_POLL_EXECUTION_SYMBOL, JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK},
+        representation::ValueType,
+    },
+    kagari_contract::{
+        ids::FunctionRef,
+        native::{
+            ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind,
+            ExecutableStackMap, NativeCompilationProduct,
+        },
+        operations::{BinaryOp, UnaryOp},
+    },
+};
 
 struct CodeMemory(Option<JITModule>);
 
@@ -224,9 +228,9 @@ pub(super) fn compile(
         configuration.target.clone(),
         FunctionRef::new(function.id.index()),
     );
-    artifact.entry = ExecutableEntryPoint::Native { symbol, address };
+    artifact.code.entry = ExecutableEntryPoint::Native { symbol, address };
     artifact.safepoints = safepoints;
-    artifact.traps = traps;
+    artifact.code.traps = traps;
     Ok(NativeCompilationProduct {
         artifact,
         owner: Rc::new(memory),

@@ -24,7 +24,6 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_abi::declaration::ModuleDecl;
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::{
@@ -42,6 +41,7 @@ use kagari_common::{
     source::SourceFile,
     source_database::SourceSnapshot,
 };
+use kagari_contract::declaration::ModuleDecl;
 use kagari_syntax::{
     ast::item::SourceFile as AstSourceFile,
     parser::{Parse, ParseLimits},

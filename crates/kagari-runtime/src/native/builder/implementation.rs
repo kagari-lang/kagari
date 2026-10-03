@@ -8,18 +8,18 @@ use crate::{
         types::{AppliedTrait, ParameterRef, Receiver, Type},
     },
 };
-use kagari_abi::{
-    declaration::{ImplDecl, ModuleDecl},
-    types::{GenericParameterAbi, substitution::TypeSubstitution},
-};
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_contract::{
+    declaration::{ImplDecl, ModuleDecl},
+    types::{GenericParam, substitution::TypeSubstitution},
+};
 use std::collections::BTreeMap;
 
 pub struct ImplementationBuilder<'module> {
     module: &'module mut ModuleBuilder,
     receiver: Type,
     receiver_codec: Option<Codec>,
-    parameters: Vec<GenericParameterAbi>,
+    parameters: Vec<GenericParam>,
     parameter_names: Vec<String>,
 }
 
@@ -44,15 +44,12 @@ impl<'module> ImplementationBuilder<'module> {
         let parameters: Vec<_> = self
             .parameters
             .iter()
-            .map(|parameter| GenericParameterAbi {
+            .map(|parameter| GenericParam {
                 owner: owner.clone(),
                 position: parameter.position,
             })
             .collect();
-        let arguments: Vec<_> = parameters
-            .iter()
-            .map(GenericParameterAbi::as_type)
-            .collect();
+        let arguments: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
         let mut substitution = TypeSubstitution::default();
         for (source, target) in self.parameters.iter().zip(&arguments) {
             substitution.bind(&source.owner, source.position, target);
@@ -113,7 +110,7 @@ impl<'module> ImplementationBuilder<'module> {
                     ));
                 }
                 let parameters: Vec<_> = (0..reference.parameter_names.len())
-                    .map(|position| GenericParameterAbi {
+                    .map(|position| GenericParam {
                         owner: owner.clone(),
                         position,
                     })
@@ -181,15 +178,12 @@ impl<'module> ImplementationBuilder<'module> {
         let parameters: Vec<_> = self
             .parameters
             .iter()
-            .map(|parameter| GenericParameterAbi {
+            .map(|parameter| GenericParam {
                 owner: id.clone(),
                 position: parameter.position,
             })
             .collect();
-        let arguments: Vec<_> = parameters
-            .iter()
-            .map(GenericParameterAbi::as_type)
-            .collect();
+        let arguments: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
         let mut substitution = TypeSubstitution::default();
         for (source, target) in self.parameters.iter().zip(&arguments) {
             substitution.bind(&source.owner, source.position, target);

@@ -1,10 +1,10 @@
 use super::*;
 use crate::hir::{expr::ExprKind, ty::TypeKind};
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_contract::scalar::BuiltinType;
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())

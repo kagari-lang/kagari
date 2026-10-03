@@ -14,11 +14,6 @@ use crate::{
         storage::NativeStorage,
     },
 };
-use kagari_abi::{
-    callable::CallableImplementation,
-    declaration::{ModuleDecl, render::DeclarationSource},
-    types::TypeAbiKind,
-};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -27,6 +22,9 @@ use kagari_common::{
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
     },
+};
+use kagari_contract::{
+    callable::CallableImplementation, declaration::ModuleDecl, types::TypeDefKind,
 };
 use std::{collections::BTreeMap, iter, rc::Rc, sync::Arc};
 
@@ -68,7 +66,7 @@ impl NativeModule {
             || owned.types.iter().any(|(id, ty)| {
                 storage
                     .get(&id)
-                    .is_none_or(|storage| ty.kind != TypeAbiKind::NativeStorage(storage.layout()))
+                    .is_none_or(|storage| ty.kind != TypeDefKind::NativeStorage(storage.layout()))
             })
         {
             return Err(RuntimeError::metadata_conflict(
@@ -160,13 +158,6 @@ impl NativeModule {
         self.declaration
             .to_paths(&CancellationToken::default())
             .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))
-    }
-
-    pub fn declaration_source(&self) -> DeclarationSource {
-        self.to_declaration()
-            .expect("checked module identity ownership")
-            .declaration_source()
-            .expect("checked module presentation")
     }
 
     pub fn catalog(&self) -> DeclarationCatalog {

@@ -5,18 +5,6 @@ use crate::{
     },
     program::ModuleRef,
 };
-use kagari_abi::{
-    effects::EffectSet,
-    ids::{DebugPointId, FunctionRef},
-    layout::{EnumLayout, StructLayout},
-    native_import::NativeImport,
-    representation::ValueType,
-    slots::SemanticSlots,
-    types::{
-        AbiType, ConcreteFunctionIdentity, NativeDeclaration, NominalAbiType, PublicAbiItem,
-        TraitContract,
-    },
-};
 use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     host_interface::HostInterface,
@@ -24,6 +12,19 @@ use kagari_common::{
     span::Span,
 };
 use serde::{Deserialize, Serialize};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        effects::EffectSet,
+        ids::{DebugPointId, FunctionRef},
+        layout::{EnumLayout, StructLayout},
+        native_import::NativeImport,
+        slots::SemanticSlots,
+        types::{
+            ConcreteFunctionIdentity, NativeDeclaration, NominalTy, PublicItem, TraitContract, Ty,
+        },
+    },
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(
@@ -31,36 +32,36 @@ use serde::{Deserialize, Serialize};
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct BytecodeModule<I = DefinitionPath> {
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub dependencies: Vec<ModuleRef>,
     pub host_interface: HostInterface<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub native_imports: Vec<NativeImport<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub native_declarations: Vec<NativeDeclaration<I>>,
     pub identity: ModuleIdentity,
     pub source_name: String,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub module_slots: BytecodeModuleSlotBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub constants: ConstantPool,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub types: BytecodeTypeTable,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub structures: Vec<StructLayout<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub enumerations: Vec<EnumLayout<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub interface_tables: Vec<InterfaceTableRecord<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub paths: PathTable,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub function_table: FunctionTable<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub public_items: PublicItemTable<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub trait_contracts: Vec<TraitContract<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::functions")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::functions")]
     pub functions: BytecodeFunctionBuffer<I>,
 }
 
@@ -94,7 +95,7 @@ pub struct BytecodeFunction<I = DefinitionPath> {
     pub register_count: u16,
     pub local_count: u16,
     pub metadata: FunctionMetadata<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
     pub instructions: BytecodeInstructionBuffer<I>,
 }
 
@@ -106,15 +107,15 @@ pub struct BytecodeFunction<I = DefinitionPath> {
 pub struct FunctionMetadata<I = DefinitionPath> {
     /// Explicit logical charges in emission order; one entry per executable point.
     pub semantic: SemanticSlots<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: TypeLayoutBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
     pub roots: RootSlotLayout,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetBuffer,
     pub effects: EffectSet,
     pub debug: BytecodeDebugMetadata,
@@ -129,7 +130,7 @@ pub struct FunctionRecord<I = DefinitionPath> {
     pub id: FunctionRef,
     pub identity: Option<ConcreteFunctionIdentity<I>>,
     pub name: String,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub effects: EffectSet,
@@ -138,9 +139,9 @@ pub struct FunctionRecord<I = DefinitionPath> {
 /// Conservative frame roots, indexed by verified local and register slots.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RootSlotLayout {
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: Vec<LocalSlot>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub registers: Vec<Register>,
 }
 
@@ -173,13 +174,13 @@ pub struct InterfaceTableRecord<I = DefinitionPath> {
     pub view: Option<InterfaceViewRecord<I>>,
     /// Ordered impl arguments. An empty record for a generic template retains
     /// static method instances and cannot be selected by MakeInterface.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-    pub arguments: Vec<AbiType<I>>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+    pub arguments: Vec<Ty<I>>,
     pub declaration: I,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub methods: Vec<InterfaceMethodSlot<I>>,
     /// Preselected ancestor tables, including their receiver argument mappings.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub parents: Vec<InterfaceParentRecord<I>>,
 }
 
@@ -189,7 +190,7 @@ pub struct InterfaceTableRecord<I = DefinitionPath> {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct InterfaceParentRecord<I = DefinitionPath> {
-    pub interface: NominalAbiType<I>,
+    pub interface: NominalTy<I>,
     pub implementation: ConcreteFunctionIdentity<I>,
     pub view: bool,
 }
@@ -200,9 +201,9 @@ pub struct InterfaceParentRecord<I = DefinitionPath> {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct InterfaceViewRecord<I = DefinitionPath> {
-    pub interface: NominalAbiType<I>,
+    pub interface: NominalTy<I>,
     /// Only changed return representations have an adapter; raw slots remain exact.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub results: Vec<InterfaceResultAdapter<I>>,
 }
 
@@ -227,8 +228,8 @@ pub struct InterfaceMethodSlot<I = DefinitionPath> {
     /// Arguments for the target's shared entry, expressed in the table and
     /// method binder scopes. Receiver arguments are captured when boxing;
     /// method arguments are supplied by each call.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
-    pub arguments: Vec<AbiType<I>>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+    pub arguments: Vec<Ty<I>>,
 }
 
 /// A checked executable entry owned by the module carrying this target.
@@ -243,15 +244,15 @@ pub struct BytecodeDebugMetadata {
     pub source_uri: Option<String>,
     pub source_module: Option<ModuleRef>,
     pub function_span: Span,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub source_spans: InstructionSourceSpanBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub line_table: LineTableBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub safe_debug_points: SafeDebugPointBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub local_live_ranges: LocalLiveRangeBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub captured_bindings: CapturedBindingDebugBuffer,
     pub frame_layout: FrameLayout,
 }
@@ -310,11 +311,11 @@ pub struct CapturedBindingDebugInfo {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrameLayout {
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub params: TypeLayoutBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: TypeLayoutBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
 }
 
@@ -332,9 +333,9 @@ pub type PathTable = Vec<PathRecord>;
 
 pub type FunctionTable<I = DefinitionPath> = Vec<FunctionRecord<I>>;
 
-pub type PublicItemRecord<I = DefinitionPath> = PublicAbiItem<I>;
+pub type PublicItemRecord<I = DefinitionPath> = PublicItem<I>;
 
-pub type PublicItemTable<I = DefinitionPath> = Vec<PublicAbiItem<I>>;
+pub type PublicItemTable<I = DefinitionPath> = Vec<PublicItem<I>>;
 
 pub type TypeLayoutBuffer = Vec<ValueType>;
 

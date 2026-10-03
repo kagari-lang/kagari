@@ -14,13 +14,13 @@ use crate::{
     typeck::{scalar::ScalarValue, table::TypeTable},
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     arithmetic::{self, IntegerBinaryOp},
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
     integer::{self, IntegerOp},
 };
+use kagari_contract::scalar::BuiltinType;
 use std::collections::HashMap;
 
 use smallvec::SmallVec;

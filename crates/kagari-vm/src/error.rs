@@ -1,9 +1,9 @@
-use kagari_abi::ids::FunctionRef;
 use kagari_bytecode::{
     instruction::{CallTarget, ModuleSlot},
     verifier::BytecodeVerificationError,
 };
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     backend::BackendInvocationError,
     builtin::BuiltinError,

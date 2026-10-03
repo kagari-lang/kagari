@@ -4,7 +4,7 @@ use crate::{
     native::sequence::SequencePayload,
     value::Value,
 };
-use kagari_abi::types::AbiType;
+use kagari_contract::types::Ty;
 use std::ops::Bound;
 
 fn invalid() -> RuntimeError {
@@ -68,7 +68,7 @@ impl GcHeap {
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
             return Err(invalid());
         };
-        if !matches!(object.ty, AbiType::Array(..)) {
+        if !matches!(object.ty, Ty::Array(..)) {
             return Err(invalid());
         }
         let values = &mut object.payload_mut::<SequencePayload>()?.values;
@@ -97,7 +97,7 @@ impl GcHeap {
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
             return Err(invalid());
         };
-        if !matches!(object.ty, AbiType::Array(..)) {
+        if !matches!(object.ty, Ty::Array(..)) {
             return Err(invalid());
         }
         object.payload_mut::<SequencePayload>()?.values.reverse();

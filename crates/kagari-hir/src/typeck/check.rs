@@ -30,7 +30,7 @@ use crate::{
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 
-use kagari_abi::{
+use kagari_contract::{
     scalar::BuiltinType,
     standard::surface::{self as standard_surface, StandardTypeConstraint},
 };

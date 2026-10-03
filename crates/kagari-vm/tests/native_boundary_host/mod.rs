@@ -1,5 +1,4 @@
 use super::compile_program;
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
@@ -10,6 +9,7 @@ use kagari_common::{
         HostFunctionDeclaration, HostParameter, HostPassingStyle, value_type::HostValueType as Type,
     },
 };
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::module::LoadedModule;
 use kagari_vm::vm::Vm;
 
@@ -203,11 +203,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
         ))
         .unwrap();
     let array = runtime
-        .alloc_array(
-            &owner,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(7)],
-        )
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
     let value = Value::Tuple(vec![Value::Array(array)]);
     assert_eq!(
@@ -223,7 +219,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
         other
             .alloc_array(
                 &other_owner,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![Value::I32(7)],
             )
             .unwrap(),
@@ -281,11 +277,7 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
         );
         assert!(
             runtime
-                .alloc_array(
-                    &owner,
-                    AbiType::Builtin(BuiltinType::I32),
-                    vec![value.clone()]
-                )
+                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![value.clone()])
                 .is_err()
         );
         drop(scope);

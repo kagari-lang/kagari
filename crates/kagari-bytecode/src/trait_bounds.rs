@@ -13,23 +13,23 @@ use crate::{
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
     verifier::BytecodeVerificationError,
 };
-use kagari_abi::{
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+};
+use kagari_contract::{
     callable::interface::InterfaceCallContract,
     language::Protocol,
     types::{
-        self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
-        TraitAbi, inheritance as trait_inheritance,
+        self as abi, GenericBound, GenericParam, NominalTy, PublicItem, TraitDef, Ty,
+        inheritance as trait_inheritance,
         proofs::{ProofCatalog, host_application, implementation::Implementation},
         substitution::TypeTransformError,
         verify,
     },
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
-};
 
-fn contract<'a>(id: &DefinitionPath, closure: &[&'a BytecodeModule]) -> Option<&'a TraitAbi> {
+fn contract<'a>(id: &DefinitionPath, closure: &[&'a BytecodeModule]) -> Option<&'a TraitDef> {
     let owner = closure.iter().find(|module| module.identity == id.module)?;
     abi::trait_contract(
         &owner.identity,
@@ -41,10 +41,10 @@ fn contract<'a>(id: &DefinitionPath, closure: &[&'a BytecodeModule]) -> Option<&
 
 /// Read the bounded applied parent closure from portable trait contracts.
 pub fn interface_ancestors(
-    interface: &NominalAbiType,
-    receiver: &AbiType,
+    interface: &NominalTy,
+    receiver: &Ty,
     closure: &[&BytecodeModule],
-) -> Option<Vec<NominalAbiType>> {
+) -> Option<Vec<NominalTy>> {
     trait_inheritance::trait_closure(interface, receiver, &CancellationToken::default(), &|id| {
         contract(id, closure)
     })
@@ -53,10 +53,10 @@ pub fn interface_ancestors(
 
 /// Checked dynamic surfaces; concrete implementation proofs use raw ancestry.
 pub fn interface_views(
-    interface: &NominalAbiType,
-    receiver: &AbiType,
+    interface: &NominalTy,
+    receiver: &Ty,
     closure: &[&BytecodeModule],
-) -> Option<Vec<NominalAbiType>> {
+) -> Option<Vec<NominalTy>> {
     trait_inheritance::interface_views(interface, receiver, &CancellationToken::default(), &|id| {
         contract(id, closure)
     })
@@ -64,19 +64,18 @@ pub fn interface_views(
 }
 
 fn executable_interface(
-    scope: &[GenericParameterAbi],
-    applied: &NominalAbiType,
-    receiver: &AbiType,
+    scope: &[GenericParam],
+    applied: &NominalTy,
+    receiver: &Ty,
     closure: &[&BytecodeModule],
 ) -> bool {
-    let Some(preserved) = interface_ancestors(applied, &AbiType::Trait(applied.clone()), closure)
-    else {
+    let Some(preserved) = interface_ancestors(applied, &Ty::Trait(applied.clone()), closure) else {
         return false;
     };
     if interface_ancestors(applied, receiver, closure).as_ref() != Some(&preserved) {
         return false;
     }
-    let Some(views) = interface_views(applied, &AbiType::Trait(applied.clone()), closure) else {
+    let Some(views) = interface_views(applied, &Ty::Trait(applied.clone()), closure) else {
         return false;
     };
     for view in views {
@@ -114,7 +113,7 @@ fn executable_interface(
                 arguments: method
                     .generic_params
                     .iter()
-                    .map(GenericParameterAbi::as_type)
+                    .map(GenericParam::as_type)
                     .collect(),
             };
             if !call
@@ -142,9 +141,9 @@ fn executable_interface(
     true
 }
 
-fn declarations(module: &BytecodeModule) -> impl Iterator<Item = (DefinitionPath, &TraitAbi)> {
+fn declarations(module: &BytecodeModule) -> impl Iterator<Item = (DefinitionPath, &TraitDef)> {
     let public = module.public_items.iter().filter_map(|item| {
-        let PublicAbiItem::Trait(record) = item else {
+        let PublicItem::Trait(record) = item else {
             return None;
         };
         Some((
@@ -205,7 +204,7 @@ fn linked_bounds_match(
         .iter()
         .flat_map(|dependency| &dependency.public_items)
         .filter_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if !table.host_bridge => Some(table.as_ref()),
+            PublicItem::InterfaceTable(table) if !table.host_bridge => Some(table.as_ref()),
             _ => None,
         })
         .collect();
@@ -261,7 +260,7 @@ fn linked_bounds_match(
                 };
                 let body = function.metadata.semantic.generic.as_ref();
                 let Some(table) = target.public_items.iter().find_map(|item| match item {
-                    PublicAbiItem::InterfaceTable(table)
+                    PublicItem::InterfaceTable(table)
                         if table.declaration == linked.declaration =>
                     {
                         table.instantiate_in(
@@ -367,19 +366,19 @@ fn linked_bounds_match(
     }
     // Validate unused declaration graphs and constructor references too.
     for (id, record) in closure.iter().flat_map(|module| declarations(module)) {
-        let applied = NominalAbiType {
+        let applied = NominalTy {
             declaration: id.clone(),
             arguments: record
                 .generic_params
                 .iter()
-                .map(GenericParameterAbi::as_type)
+                .map(GenericParam::as_type)
                 .collect(),
             associated_types: Default::default(),
         };
-        catalog.ancestry(&applied, &AbiType::SelfType(id), &cancel)?;
+        catalog.ancestry(&applied, &Ty::SelfType(id), &cancel)?;
     }
     for table in tables {
-        let AbiType::Trait(applied) = &table.trait_type else {
+        let Ty::Trait(applied) = &table.trait_type else {
             return Ok(false);
         };
         if !parents_proven(
@@ -400,7 +399,7 @@ fn linked_bounds_match(
         for implementation in &host.trait_implementations {
             if !parents_proven(
                 &host_application(implementation),
-                &AbiType::Host(host.id.clone()),
+                &Ty::Host(host.id.clone()),
                 &[],
                 &catalog,
                 closure,
@@ -411,10 +410,10 @@ fn linked_bounds_match(
         }
     }
     for item in &module.public_items {
-        let PublicAbiItem::InterfaceTable(table) = item else {
+        let PublicItem::InterfaceTable(table) = item else {
             continue;
         };
-        let AbiType::Trait(interface) = &table.trait_type else {
+        let Ty::Trait(interface) = &table.trait_type else {
             return Ok(false);
         };
         let Some(record) = contract(&interface.declaration, closure) else {
@@ -438,7 +437,7 @@ fn linked_bounds_match(
             return Ok(false);
         }
         if !table.host_bridge
-            && matches!(table.for_type, AbiType::Host(_))
+            && matches!(table.for_type, Ty::Host(_))
             && catalog.implementation_count(interface, &table.for_type, &table.bounds, &cancel)?
                 != 1
         {
@@ -453,14 +452,14 @@ fn linked_bounds_match(
             continue;
         }
         let Some(table) = module.public_items.iter().find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+            PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
                 table.instantiate_in(&linked.arguments, &table.generic_params)
             }
             _ => None,
         }) else {
             return Ok(false);
         };
-        let AbiType::Trait(interface) = &table.trait_type else {
+        let Ty::Trait(interface) = &table.trait_type else {
             return Ok(false);
         };
         if catalog.implementation_count(interface, &table.for_type, &table.bounds, &cancel)? != 1 {
@@ -471,15 +470,15 @@ fn linked_bounds_match(
 }
 
 fn parents_proven(
-    interface: &NominalAbiType,
-    receiver: &AbiType,
-    bounds: &[GenericBoundAbi],
+    interface: &NominalTy,
+    receiver: &Ty,
+    bounds: &[GenericBound],
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
     // Offline host declarations may advertise traits outside this program.
-    if matches!(receiver, AbiType::Host(_))
+    if matches!(receiver, Ty::Host(_))
         && Protocol::from_id(&interface.declaration).is_none()
         && contract(&interface.declaration, closure).is_none()
     {
@@ -510,8 +509,7 @@ fn instruction_contracts_match(
             .map(move |instruction| (function, instruction))
     }) {
         if let BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
-            let Some(parents) = interface_views(source, &AbiType::Trait(source.clone()), closure)
-            else {
+            let Some(parents) = interface_views(source, &Ty::Trait(source.clone()), closure) else {
                 return false;
             };
             if !parents.contains(target) {
@@ -535,7 +533,7 @@ fn instruction_contracts_match(
                 return false;
             };
             let Some(table) = target.public_items.iter().find_map(|item| match item {
-                PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+                PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
                     table.instantiate_in(
                         arguments,
                         function
@@ -550,7 +548,7 @@ fn instruction_contracts_match(
             }) else {
                 return false;
             };
-            let AbiType::Trait(applied) = &table.trait_type else {
+            let Ty::Trait(applied) = &table.trait_type else {
                 return false;
             };
             if !executable_interface(

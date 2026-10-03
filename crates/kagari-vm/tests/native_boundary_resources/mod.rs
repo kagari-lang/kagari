@@ -1,5 +1,5 @@
 use super::compile_program;
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeError,
@@ -114,7 +114,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     assert_eq!(runtime.resources().counters().current_heap_units, 0);
 
     runtime
-        .alloc_array(&fixture.loaded, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&fixture.loaded, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     assert_eq!(runtime.resources().counters().current_heap_units, 1);
 }

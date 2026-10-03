@@ -6,11 +6,14 @@ use kagari_hir::{
     types::{TypeId, abi::lower_nominal_type},
 };
 
-use kagari_abi::{
-    callable::interface::InterfaceCallContract, language::Protocol, numeric::NumericOperation,
-    operations::BinaryOp, representation::ValueType, scalar::BuiltinType, types::NominalAbiType,
-};
 use kagari_common::identity;
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::interface::InterfaceCallContract, language::Protocol, numeric::NumericOperation,
+        operations::BinaryOp, scalar::BuiltinType, types::NominalTy,
+    },
+};
 
 use kagari_mir::{
     ids::LocalId,
@@ -42,8 +45,8 @@ enum ProjectionKind {
     Index(MirValue),
     InterfaceIndex {
         index: MirValue,
-        read: NominalAbiType,
-        write: Option<NominalAbiType>,
+        read: NominalTy,
+        write: Option<NominalTy>,
     },
 }
 

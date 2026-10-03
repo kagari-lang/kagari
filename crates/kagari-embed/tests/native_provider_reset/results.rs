@@ -1,6 +1,6 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::source::SourceFile;
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -162,10 +162,7 @@ fn forged_native_result_conversions_are_rejected() {
             .unwrap();
         match corruption {
             0 => import.result_adapter = None,
-            1 => {
-                import.result_adapter.as_mut().unwrap().receiver =
-                    AbiType::Builtin(BuiltinType::I32)
-            }
+            1 => import.result_adapter.as_mut().unwrap().receiver = Ty::Builtin(BuiltinType::I32),
             2 => import
                 .result_adapter
                 .as_mut()

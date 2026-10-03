@@ -12,7 +12,7 @@ use crate::{
     value::{EnumTag, Value},
     value_semantics,
 };
-use kagari_abi::{scalar::BuiltinType, standard::RuntimePrimitive, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, standard::RuntimePrimitive, types::Ty};
 use std::cmp::Ordering;
 
 pub(super) struct Comparison<'call> {
@@ -95,7 +95,7 @@ impl<'call> Comparison<'call> {
         }
         macro_rules! scalars {
             ($($kind:ident:$ty:ty),+) => { match operation.params[0] {
-                $(AbiType::Builtin(BuiltinType::$kind) => values.with_slice_mut::<$ty, _>(|items| { items.sort(); Ok(()) })?,)+
+                $(Ty::Builtin(BuiltinType::$kind) => values.with_slice_mut::<$ty, _>(|items| { items.sort(); Ok(()) })?,)+
                 _ => return Ok(false),
             } };
         }

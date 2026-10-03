@@ -1,15 +1,18 @@
 //! Installation and invocation of trusted compiler products without a compiler dependency.
 use std::{mem, rc::Rc, sync::Arc};
 
-use kagari_abi::{
-    native::{ExecutableEntryPoint, ExecutableFunctionArtifact, NativeCompilationProduct},
-    native_call::{
-        JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INTEGER_OVERFLOW,
-        JIT_STATUS_INVALID_HEAP_REFERENCE, JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK,
-        JIT_STATUS_RESOURCE_LIMIT, JitCompiledFunction, JitValue,
+use {
+    kagari_abi::{
+        native::ExecutableEntryPoint,
+        native_call::{
+            JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INTEGER_OVERFLOW,
+            JIT_STATUS_INVALID_HEAP_REFERENCE, JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK,
+            JIT_STATUS_RESOURCE_LIMIT, JitCompiledFunction, JitValue,
+        },
+        representation::ValueType,
+        version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
     },
-    representation::ValueType,
-    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+    kagari_contract::native::{ExecutableFunctionArtifact, NativeCompilationProduct},
 };
 
 use crate::{
@@ -159,7 +162,7 @@ impl Runtime {
         &self,
         installed: &InstalledNativeFunction,
     ) -> Result<Value, BackendInvocationError> {
-        let ExecutableEntryPoint::Native { address, .. } = installed.artifact().entry else {
+        let ExecutableEntryPoint::Native { address, .. } = installed.artifact().code.entry else {
             unreachable!("installation validates the entry")
         };
         // SAFETY: installation establishes code lifetime and ABI; the sealed handle
@@ -199,8 +202,8 @@ fn validate_product(
     artifact: &ExecutableFunctionArtifact,
 ) -> Result<(), BackendInvocationError> {
     let unsupported = |reason: &str| BackendInvocationError::UnsupportedArtifact(reason.into());
-    if artifact.runtime_abi_version != KAGARI_RUNTIME_ABI_VERSION
-        || artifact.runtime_helper_abi_version != KAGARI_RUNTIME_HELPER_ABI_VERSION
+    if artifact.code.runtime_abi_version != KAGARI_RUNTIME_ABI_VERSION
+        || artifact.code.runtime_helper_abi_version != KAGARI_RUNTIME_HELPER_ABI_VERSION
     {
         return Err(unsupported(
             "native product ABI version differs from this runtime",
@@ -212,10 +215,11 @@ fn validate_product(
         .get(artifact.function.index())
         .filter(|function| function.id == artifact.function)
         .ok_or_else(|| unsupported("native function is absent from the verified module"))?;
-    if !matches!(artifact.entry, ExecutableEntryPoint::Native { address, .. } if address != 0) {
+    if !matches!(artifact.code.entry, ExecutableEntryPoint::Native { address, .. } if address != 0)
+    {
         return Err(unsupported("native product has no resolved entry"));
     }
-    if usize::from(artifact.target.pointer_width) != usize::BITS as usize {
+    if usize::from(artifact.code.target.pointer_width) != usize::BITS as usize {
         return Err(unsupported(
             "native target pointer width differs from this host",
         ));
@@ -235,6 +239,7 @@ fn validate_product(
         .iter()
         .any(|point| point.instruction_offset >= function.instructions.len())
         || artifact
+            .code
             .traps
             .iter()
             .any(|trap| trap.instruction_offset >= function.instructions.len())

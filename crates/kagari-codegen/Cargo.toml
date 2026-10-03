@@ -6,5 +6,6 @@ license.workspace = true
 
 [dependencies]
 kagari-abi.workspace = true
+kagari-contract.workspace = true
 kagari-common.workspace = true
 kagari-mir.workspace = true

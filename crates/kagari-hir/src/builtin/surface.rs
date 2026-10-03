@@ -1,7 +1,7 @@
 //! Core scalar operations over closed engine representation facts.
 use crate::language::semantics as traits;
 use crate::types::TypeId;
-use kagari_abi::{
+use kagari_contract::{
     language::Protocol,
     scalar::BuiltinType,
     standard::surface::{BuiltinTypeFamily, builtin_type_spec},

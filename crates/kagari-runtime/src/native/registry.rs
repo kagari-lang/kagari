@@ -12,14 +12,6 @@ use crate::{
         storage::NativeStorage,
     },
 };
-use kagari_abi::{
-    callable::{CallableImplementation, witness::OperationWitness},
-    language::Protocol,
-    native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
-    native_import::{NativeImport, NativeSignature},
-    standard::RuntimePrimitive,
-    types::{AbiType, NativeDeclaration, verify::validate_native_declarations},
-};
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget, program::ModuleRef};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -29,6 +21,16 @@ use kagari_common::{
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
     },
+};
+use kagari_contract::{
+    callable::{CallableImplementation, witness::OperationWitness},
+    language::Protocol,
+    native_import::{
+        NativeImport, NativeSignature,
+        callables::{NativeCallableApplication, NativeCallableOrigin},
+    },
+    standard::RuntimePrimitive,
+    types::{NativeDeclaration, Ty, verify::validate_native_declarations},
 };
 use std::{collections::HashSet, rc::Rc, slice};
 
@@ -290,7 +292,7 @@ pub(crate) fn callable_primitive(
             .signature
             .params
             .iter()
-            .all(|ty| matches!(ty, AbiType::Builtin(_)))
+            .all(|ty| matches!(ty, Ty::Builtin(_)))
     {
         let member = &callable.requirement.member;
         [

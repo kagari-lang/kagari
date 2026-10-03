@@ -4,12 +4,12 @@ use crate::source::lower::{
     abi::checked_bounds,
     instances::{Instance, InstancePlanner},
 };
-use kagari_abi::{
+use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_contract::{
     callable::{generic::GenericBody, witness::OperationWitness},
     native_import::callables::NativeCallableRequirement,
-    types::GenericParameterAbi,
+    types::GenericParam,
 };
-use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
     typeck::{GenericBounds, TypedFunction, table::ConstraintTarget},
@@ -259,7 +259,7 @@ impl Instance {
                 let TypeId::Generic(parameter) = argument else {
                     return None;
                 };
-                Some(GenericParameterAbi {
+                Some(GenericParam {
                     owner: parameter.owner.clone(),
                     position: parameter.position,
                 })

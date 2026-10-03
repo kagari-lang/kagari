@@ -9,12 +9,15 @@ use cranelift_codegen::{
     settings::{self, Configurable, Flags},
 };
 use cranelift_native::builder as native_builder;
-use kagari_abi::native::{BackendId, BackendTarget, NativeCompilationProduct};
 use kagari_codegen::{
     BackendConfiguration, BackendFunctionInput, CodegenBackend,
     diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
 };
 use std::{fmt, sync::Arc};
+use {
+    kagari_abi::native::{BackendId, BackendTarget},
+    kagari_contract::native::NativeCompilationProduct,
+};
 
 pub struct CraneliftBackend {
     isa: Arc<dyn TargetIsa>,

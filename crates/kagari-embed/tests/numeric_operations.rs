@@ -1,5 +1,5 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_common::source::SourceFile;
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_embed::{context::JitPolicy, engine::EngineConfig};
 use std::{cell::RefCell, rc::Rc};
 
@@ -183,11 +183,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         .unwrap();
     let memory = runtime
         .runtime()
-        .alloc_array(
-            &loaded,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(7)],
-        )
+        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
     let root = runtime.runtime().root_value(Value::Array(memory)).unwrap();
     *memory_slot.borrow_mut() = Some(memory);
@@ -271,8 +267,8 @@ fn casts_respect_early_return_and_nested_generics() {
 
 #[test]
 fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
-    use kagari_abi::scalar::BuiltinType;
     use kagari_bytecode::instruction::BytecodeInstruction;
+    use kagari_contract::scalar::BuiltinType;
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(

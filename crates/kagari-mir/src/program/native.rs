@@ -5,18 +5,18 @@ use crate::{
     program::shared,
     verify::ValidatedMirModule,
 };
-use kagari_abi::{
-    callable::CallableImplementation,
-    native_import::{NativeSignature, callables::NativeCallableOrigin},
-    types::{
-        ConcreteFunctionIdentity, GenericParameterAbi, PublicAbiItem,
-        proofs::{ProofCatalog, implementation::Implementation},
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
-};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+};
+use kagari_contract::{
+    callable::CallableImplementation,
+    native_import::{NativeSignature, callables::NativeCallableOrigin},
+    types::{
+        ConcreteFunctionIdentity, GenericParam, PublicItem,
+        proofs::{ProofCatalog, implementation::Implementation},
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
 };
 
 pub(super) fn validate(
@@ -28,7 +28,7 @@ pub(super) fn validate(
         .iter()
         .flat_map(|module| &module.abi.public_items)
         .filter_map(|item| {
-            if let PublicAbiItem::InterfaceTable(table) = item {
+            if let PublicItem::InterfaceTable(table) = item {
                 (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))
             } else {
                 None
@@ -37,7 +37,7 @@ pub(super) fn validate(
         .collect();
     let declarations = closure.iter().flat_map(|module| {
         let public = module.abi.public_items.iter().filter_map(|item| {
-            let PublicAbiItem::Trait(record) = item else {
+            let PublicItem::Trait(record) = item else {
                 return None;
             };
             Some((
@@ -90,7 +90,7 @@ pub(super) fn validate(
                     .filter(|owner| owner.identity == implementation.module)
                     .flat_map(|owner| &owner.abi.public_items)
                     .find_map(|item| match item {
-                        PublicAbiItem::InterfaceTable(table)
+                        PublicItem::InterfaceTable(table)
                             if table.declaration == *implementation =>
                         {
                             table.instantiate_in(
@@ -249,7 +249,7 @@ fn native_slots_valid(
         .public_items
         .iter()
         .filter_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if table.generic_params.is_empty() => {
+            PublicItem::InterfaceTable(table) if table.generic_params.is_empty() => {
                 Some(ConcreteFunctionIdentity {
                     declaration: table.declaration.clone(),
                     arguments: vec![],
@@ -263,7 +263,7 @@ fn native_slots_valid(
             continue;
         }
         let Some(template) = module.abi.public_items.iter().find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if table.declaration == instance.declaration => {
+            PublicItem::InterfaceTable(table) if table.declaration == instance.declaration => {
                 Some(table)
             }
             _ => None,
@@ -344,7 +344,7 @@ fn native_slots_valid(
                         != body
                             .parameters
                             .iter()
-                            .map(GenericParameterAbi::as_type)
+                            .map(GenericParam::as_type)
                             .collect::<Vec<_>>()
                 {
                     continue;

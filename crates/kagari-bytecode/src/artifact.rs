@@ -11,16 +11,6 @@ use kagari_common::identity::reference::DefinitionReference;
 mod limits;
 
 use bincode::{DefaultOptions, ErrorKind, Options};
-use kagari_abi::{
-    decode_limits::{
-        MAX_FUNCTIONS, MAX_INSTRUCTIONS, MAX_MODULES, MAX_NESTED_RECORDS, MAX_TABLE_RECORDS,
-    },
-    effects::EffectSet,
-    ids::FunctionRef,
-    representation::ValueType,
-    slots::SemanticSlots,
-    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
-};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::{
@@ -34,6 +24,20 @@ use kagari_common::{
     },
 };
 use std::io::{self, Write};
+use {
+    kagari_abi::{
+        representation::ValueType,
+        version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+    },
+    kagari_contract::{
+        decode_limits::{
+            MAX_FUNCTIONS, MAX_INSTRUCTIONS, MAX_MODULES, MAX_NESTED_RECORDS, MAX_TABLE_RECORDS,
+        },
+        effects::EffectSet,
+        ids::FunctionRef,
+        slots::SemanticSlots,
+    },
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -513,11 +517,11 @@ impl ArtifactFingerprint {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactTables {
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub sections: ArtifactSectionBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub source_files: SourceFileTable,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub debug_names: DebugNameTable,
 }
 
@@ -659,17 +663,17 @@ pub struct VerificationMetadata<I = DefinitionPath> {
     pub bytecode_verified: bool,
     /// Root-member summaries. Dependency metadata remains in its BytecodeModule;
     /// all members are verified before these derived summaries are accepted.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub function_layouts: FunctionLayoutBuffer<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub function_effects: FunctionEffectBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetMetadataBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub typed_path_fingerprints: PathFingerprintBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
     pub host_interface_fingerprint: ArtifactFingerprint,
     pub loader: LoaderValidationMetadata,
@@ -764,12 +768,12 @@ impl VerificationMetadata {
 pub struct FunctionLayoutMetadata<I = DefinitionPath> {
     pub semantic: SemanticSlots<I>,
     pub function: FunctionRef,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: Vec<ValueType>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub registers: Vec<ValueType>,
     pub roots: RootSlotLayout,
 }
@@ -783,7 +787,7 @@ pub struct FunctionEffectMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlFlowTargetMetadata {
     pub function: FunctionRef,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub targets: Vec<JumpTarget>,
 }
 
@@ -810,11 +814,11 @@ pub struct LoaderValidationMetadata {
     pub module_identity: ModuleIdentity,
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub typed_path_fingerprints: PathFingerprintBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
 }
 
@@ -869,11 +873,11 @@ impl Default for ArtifactCompatibility {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DebugMetadata {
     pub stripped: bool,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub source_files: SourceFileTable,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub debug_names: DebugNameTable,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub functions: Vec<BytecodeDebugMetadata>,
 }
 
@@ -898,7 +902,7 @@ impl DebugMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactSignatures {
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub signatures: Vec<ArtifactSignature>,
 }
 

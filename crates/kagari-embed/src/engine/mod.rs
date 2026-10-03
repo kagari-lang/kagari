@@ -6,14 +6,15 @@ use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, runtime::KagariRuntime,
 };
 
-use kagari_abi::declaration::render::DeclarationSource;
 #[cfg(feature = "source")]
 use kagari_common::source_database::SourceDatabase;
 #[cfg(feature = "source")]
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{
-    Runtime, RuntimeConfig, error::RuntimeError, library::collections, native::module::NativeModule,
-};
+#[cfg(feature = "source")]
+use kagari_hir::native::render::{DeclarationSource, declaration_source};
+#[cfg(feature = "source")]
+use kagari_runtime::library::collections;
+use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::module::NativeModule};
 #[cfg(feature = "source")]
 use std::{cell::RefCell, sync::Arc};
 
@@ -26,6 +27,7 @@ pub struct EngineConfig {
 pub struct KagariEngine {
     config: EngineConfig,
     native_modules: Vec<NativeModule>,
+    #[cfg(feature = "source")]
     foundation: NativeModule,
     #[cfg(feature = "source")]
     sources: RefCell<SourceDatabase>,
@@ -51,6 +53,7 @@ impl KagariEngine {
         native_modules: Vec<NativeModule>,
     ) -> Result<Self, RuntimeError> {
         let mut validation = Runtime::new(config.default_runtime.clone());
+        #[cfg(feature = "source")]
         let foundation = collections::module()?;
         for module in &native_modules {
             module.install(&mut validation)?;
@@ -69,6 +72,7 @@ impl KagariEngine {
         Ok(Self {
             config,
             native_modules,
+            #[cfg(feature = "source")]
             foundation,
             #[cfg(feature = "source")]
             sources: RefCell::default(),
@@ -77,14 +81,15 @@ impl KagariEngine {
         })
     }
 
+    #[cfg(feature = "source")]
     pub fn native_declaration_sources(&self) -> Vec<DeclarationSource> {
-        [self.foundation.declaration_source()]
+        [&self.foundation]
             .into_iter()
-            .chain(
-                self.native_modules
-                    .iter()
-                    .map(NativeModule::declaration_source),
-            )
+            .chain(&self.native_modules)
+            .map(|module| {
+                declaration_source(&module.to_declaration().expect("checked module identities"))
+                    .expect("checked module presentation")
+            })
             .collect()
     }
 

@@ -1,5 +1,5 @@
-use kagari_abi::native_import::NativeImport;
 use kagari_bytecode::{module::CallableTarget, program::verify_program};
+use kagari_contract::native_import::NativeImport;
 use {
     kagari_common::host_interface::type_declaration::PathAccess, kagari_embed::context::JitPolicy,
     kagari_vm::reentry::reenter,
@@ -261,8 +261,8 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
 
 #[test]
 fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
-    use kagari_abi::types::{AbiType, PublicAbiItem};
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, NativeImportId};
+    use kagari_contract::types::{PublicItem, Ty};
     let (_, artifact, _, _) = fixture();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
@@ -276,25 +276,25 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                     HostValueType::F32
             }
             2 => {
-                let PublicAbiItem::InterfaceTable(table) = module
+                let PublicItem::InterfaceTable(table) = module
                     .public_items
                     .iter_mut()
-                    .find(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+                    .find(|item| matches!(item, PublicItem::InterfaceTable(_)))
                     .unwrap()
                 else {
                     unreachable!()
                 };
-                let AbiType::Trait(interface) = &mut table.trait_type else {
+                let Ty::Trait(interface) = &mut table.trait_type else {
                     unreachable!()
                 };
                 *interface.associated_types.values_mut().next().unwrap() =
-                    AbiType::Builtin(kagari_abi::scalar::BuiltinType::I64);
+                    Ty::Builtin(kagari_contract::scalar::BuiltinType::I64);
             }
             3 => {
-                let PublicAbiItem::InterfaceTable(table) = module
+                let PublicItem::InterfaceTable(table) = module
                     .public_items
                     .iter_mut()
-                    .find(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+                    .find(|item| matches!(item, PublicItem::InterfaceTable(_)))
                     .unwrap()
                 else {
                     unreachable!()

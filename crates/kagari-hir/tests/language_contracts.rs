@@ -1,17 +1,17 @@
-use kagari_abi::language::catalog as language;
-use kagari_abi::{
-    language::primitive,
-    language::{self as identities, Protocol},
-    scalar::BuiltinType,
-    types::{AbiType, ConstraintAbi, PublicAbiItem, inheritance, verify},
-};
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
     identity::{DefinitionPath, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_contract::language::catalog as language;
+use kagari_contract::{
+    language::{self as identities, Protocol, primitive},
+    scalar::BuiltinType,
+    types::{Constraint, PublicItem, Ty, inheritance, verify},
+};
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::native::render::declaration_source;
 
 #[test]
 fn portable_language_catalog_has_complete_contracts() {
@@ -21,8 +21,8 @@ fn portable_language_catalog_has_complete_contracts() {
         .traits
         .iter()
         .cloned()
-        .map(PublicAbiItem::Trait)
-        .chain(module.types.iter().cloned().map(PublicAbiItem::Type))
+        .map(PublicItem::Trait)
+        .chain(module.types.iter().cloned().map(PublicItem::Type))
         .collect();
     verify::validate(&items, &module.identity, &CancellationToken::default()).unwrap();
     for protocol in Protocol::ALL {
@@ -44,7 +44,7 @@ fn portable_language_catalog_has_complete_contracts() {
         })
         .unwrap();
     assert!(
-        matches!(&iter.bounds[..], [ConstraintAbi::Trait(required)] if Protocol::from_id(&required.declaration) == Some(Protocol::Iterator))
+        matches!(&iter.bounds[..], [Constraint::Trait(required)] if Protocol::from_id(&required.declaration) == Some(Protocol::Iterator))
     );
     for kind in ["Map", "Set", "MutableMap", "MutableSet"] {
         assert!(
@@ -63,7 +63,7 @@ fn portable_language_catalog_has_complete_contracts() {
                 .constraints
                 .iter()
                 .map(|bound| match bound {
-                    ConstraintAbi::Trait(interface) => Protocol::from_id(&interface.declaration),
+                    Constraint::Trait(interface) => Protocol::from_id(&interface.declaration),
                     _ => None,
                 })
                 .collect::<Vec<_>>(),
@@ -74,7 +74,7 @@ fn portable_language_catalog_has_complete_contracts() {
             ]
         );
     }
-    let generated = module.declaration_source().unwrap();
+    let generated = declaration_source(&module).unwrap();
     assert!(generated.text.contains("type Iter: Iterator<Item ="));
     assert!(generated.text.contains("trait FromIterator<T0>"));
     assert!(generated.text.contains("fn from_iter<M0>(source: M0)"));
@@ -116,7 +116,7 @@ fn language_records_are_available_without_native_modules() {
         .unwrap();
     assert!(matches!(
         array.generic_params[0].as_type(),
-        AbiType::Parameter { position: 0, .. }
+        Ty::Parameter { position: 0, .. }
     ));
 }
 
@@ -128,8 +128,8 @@ fn portable_collection_view_preserves_concrete_iterator_proofs() {
             Protocol::from_id(id).is_some_and(|protocol| protocol.name() == contract.name)
         })
     };
-    let list = primitive::applied(Protocol::List, vec![AbiType::Builtin(BuiltinType::I32)]);
-    let receiver = AbiType::Trait(list.clone());
+    let list = primitive::applied(Protocol::List, vec![Ty::Builtin(BuiltinType::I32)]);
+    let receiver = Ty::Trait(list.clone());
     let cancel = CancellationToken::default();
     let original = inheritance::trait_closure(&list, &receiver, &cancel, &lookup).unwrap();
     let views = inheritance::interface_views(&list, &receiver, &cancel, &lookup).unwrap();
@@ -143,18 +143,15 @@ fn portable_collection_view_preserves_concrete_iterator_proofs() {
         .iter()
         .find(|parent| Protocol::from_id(&parent.declaration) == Some(Protocol::Iterable))
         .unwrap();
-    assert!(
-        matches!(&view.associated_types[&iter], AbiType::Trait(iterator)
+    assert!(matches!(&view.associated_types[&iter], Ty::Trait(iterator)
         if Protocol::from_id(&iterator.declaration) == Some(Protocol::Iterator)
-            && iterator.associated_types[&associated_type_id(&iterator.declaration, "Item")] == AbiType::Builtin(BuiltinType::I32))
-    );
+            && iterator.associated_types[&associated_type_id(&iterator.declaration, "Item")] == Ty::Builtin(BuiltinType::I32)));
     let mut actual = original.clone();
-    actual.associated_types.insert(
-        iter,
-        AbiType::Iter(Box::new(AbiType::Builtin(BuiltinType::I32))),
-    );
-    let receiver = AbiType::Array(
-        Box::new(AbiType::Builtin(BuiltinType::I32)),
+    actual
+        .associated_types
+        .insert(iter, Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32))));
+    let receiver = Ty::Array(
+        Box::new(Ty::Builtin(BuiltinType::I32)),
         CollectionAccess::Mutable,
     );
     assert_eq!(
@@ -285,7 +282,7 @@ fn iterable_requires_a_real_iterator_with_the_same_item() {
 #[test]
 fn list_method_navigation_uses_language_owned_declarations() {
     let module = language::declarations();
-    let generated = module.declaration_source().unwrap();
+    let generated = declaration_source(&module).unwrap();
     let source =
         "fn main() { val values: List<i32> = [2,1]; values.sorted_by_key(|value| value); }";
     let mut sources = SourceDatabase::default();
@@ -312,7 +309,7 @@ fn list_method_navigation_uses_language_owned_declarations() {
 
 #[test]
 fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
-    let generated = language::declarations().declaration_source().unwrap();
+    let generated = declaration_source(&language::declarations()).unwrap();
     let source = "fn main() { val text = \"é🙂\"; text.slice(0usize, 2usize); text. }";
     let mut sources = SourceDatabase::default();
     let file = sources

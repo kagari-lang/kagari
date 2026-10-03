@@ -1,16 +1,16 @@
 //! Validate entry argument mappings and signatures in each interface slot.
 use crate::module::{BytecodeModule, CallableTarget};
-use kagari_abi::{
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{
     callable::CallableImplementation,
     native_import::NativeSignature,
     types::{
-        AbiType, ConcreteFunctionIdentity, PublicAbiItem,
+        ConcreteFunctionIdentity, PublicItem, Ty,
         proofs::ProofCatalog,
         substitution::{TypeSubstitution, TypeTransformError},
         verify::types_in_scope,
     },
 };
-use kagari_common::cancellation::CancellationToken;
 
 pub(super) fn valid(
     module: &BytecodeModule,
@@ -19,7 +19,7 @@ pub(super) fn valid(
 ) -> Result<bool, TypeTransformError> {
     for table in &module.interface_tables {
         let Some(abi) = module.public_items.iter().find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(abi) if abi.declaration == table.declaration => Some(abi),
+            PublicItem::InterfaceTable(abi) if abi.declaration == table.declaration => Some(abi),
             _ => None,
         }) else {
             return Ok(false);
@@ -89,7 +89,7 @@ pub(super) fn valid(
             for (parameter, argument) in abi.generic_params.iter().zip(&table.arguments) {
                 applied.bind(&parameter.owner, parameter.position, argument);
             }
-            let normalize = |ty: &AbiType, substitution: &TypeSubstitution| {
+            let normalize = |ty: &Ty, substitution: &TypeSubstitution| {
                 catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
             };
             let expected = NativeSignature {

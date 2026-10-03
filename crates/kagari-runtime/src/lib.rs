@@ -3,10 +3,10 @@ mod loading;
 mod objects;
 use frame::types::TypeEnvironment;
 use host::HostCallContext;
-use kagari_abi::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::host_interface::path::HostPathDeclaration;
 use kagari_common::identity::map::DefinitionContext;
+use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
 use reflection::ReflectionError;
 use session::{ExecutionEntry, SessionState};
 use std::{

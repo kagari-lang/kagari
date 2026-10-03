@@ -203,7 +203,7 @@ fn imported_defaults_keep_the_trait_module_constant_resolution() {
 
 #[test]
 fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_contract::types::PublicItem;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("constants.kgr", "pub trait Limit { const VALUE: i32; } struct Number {} impl Limit for Number { const VALUE: i32 = 42; } fn main() -> i32 { Number::VALUE }"),  Default::default()).unwrap();
     for mutation in 0..4 {
@@ -214,7 +214,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    if let PublicAbiItem::Trait(record) = item {
+                    if let PublicItem::Trait(record) = item {
                         Some(record)
                     } else {
                         None
@@ -233,7 +233,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    if let PublicAbiItem::InterfaceTable(table) = item {
+                    if let PublicItem::InterfaceTable(table) = item {
                         Some(table)
                     } else {
                         None
@@ -255,10 +255,10 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         .public_items
         .iter()
         .find_map(|item| {
-            let PublicAbiItem::InterfaceTable(table) = item else {
+            let PublicItem::InterfaceTable(table) = item else {
                 return None;
             };
-            let kagari_abi::types::AbiType::Trait(interface) = &table.trait_type else {
+            let kagari_contract::types::Ty::Trait(interface) = &table.trait_type else {
                 return None;
             };
             Some(interface.declaration.clone())
@@ -268,7 +268,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         .public_items
         .iter_mut()
         .find_map(|item| {
-            if let PublicAbiItem::Trait(record) = item {
+            if let PublicItem::Trait(record) = item {
                 Some(record)
             } else {
                 None
@@ -277,9 +277,9 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         .unwrap();
     record
         .associated_consts
-        .push(kagari_abi::types::AssociatedConstAbi {
+        .push(kagari_contract::types::AssociatedConstDef {
             declaration: kagari_common::identity::associated_const_id(&identity, "VALUE"),
-            ty: kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+            ty: kagari_contract::types::Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
             default_value: Some("const-v1:i32:42".into()),
         });
     assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());

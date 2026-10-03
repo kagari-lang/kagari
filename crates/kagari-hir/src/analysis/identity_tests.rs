@@ -551,7 +551,7 @@ fn erroneous_field_type_keeps_its_identity_without_unknown_member_cascades() {
     assert_eq!(analysis.type_at(offset), Some(TypeId::Error));
     assert_eq!(
         analysis.type_at(text.find("p.good").unwrap() + 2),
-        Some(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32))
+        Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
     );
 }
 
@@ -743,7 +743,7 @@ fn bound_navigation_retains_valid_references_beside_unknown_constraints() {
     );
     assert_eq!(
         analysis.type_at(text.find("7 }").unwrap()),
-        Some(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32))
+        Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
     );
 }
 
@@ -861,7 +861,7 @@ fn implicit_self_types_belong_to_their_trait() {
     let TypeId::SelfType(owner) = &first else {
         unreachable!();
     };
-    let concrete = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
+    let concrete = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
     let nested = TypeId::Tuple(vec![first.clone(), second.clone(), generic.clone()]);
     assert_eq!(
         nested.with_self(owner, &concrete),
@@ -1005,8 +1005,8 @@ fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
 #[test]
 fn checked_analysis_retains_compact_named_and_generic_metadata() {
     use crate::types::abi::lower_type;
-    use kagari_abi::types::AbiType;
     use kagari_common::identity::mapping::DefinitionMappingError;
+    use kagari_contract::types::Ty;
 
     let source = SourceFile::new(
         "compact.kgr",
@@ -1039,7 +1039,7 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
     );
     assert_eq!(
         lower_type(&function.return_type),
-        AbiType::Parameter { owner, position: 0 }
+        Ty::Parameter { owner, position: 0 }
     );
     let field = first
         .declarations
@@ -1091,7 +1091,7 @@ fn independently_constructed_hir_types_observe_conversion_bounds() {
         mapping::{DefinitionMappingError, DefinitionRecord},
         metadata::scope_record,
     };
-    let mut ty = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
+    let mut ty = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
     for _ in 0..65 {
         ty = TypeId::Tuple(vec![ty]);
     }

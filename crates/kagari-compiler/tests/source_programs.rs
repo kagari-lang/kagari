@@ -1,8 +1,8 @@
-use kagari_abi::{
-    scalar::BuiltinType,
-    types::{AbiType, ConcreteFunctionIdentity, ConstraintAbi, PublicAbiItem},
-};
 use kagari_bytecode::program::verify_program as Kagaribytecodeverify_program;
+use kagari_contract::{
+    scalar::BuiltinType,
+    types::{ConcreteFunctionIdentity, Constraint, PublicItem, Ty},
+};
 use kagari_mir::{
     codec::{decode_program, encode_program},
     instruction::{CallTarget, Instruction},
@@ -95,11 +95,11 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         .collect::<Vec<_>>();
     assert_eq!(methods.len(), 2);
     assert!(methods.iter().any(|function| {
-        function.instance.arguments == [AbiType::Builtin(BuiltinType::Bool)]
+        function.instance.arguments == [Ty::Builtin(BuiltinType::Bool)]
             && ir.function(&function.instance).is_some()
     }));
     assert!(methods.iter().any(|function| {
-        function.instance.arguments == [AbiType::Builtin(BuiltinType::I32)]
+        function.instance.arguments == [Ty::Builtin(BuiltinType::I32)]
             && ir.function(&function.instance).is_some()
     }));
     let mut forged = ir.clone().into_unverified();
@@ -116,7 +116,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
             _ => None,
         })
         .unwrap();
-    contract.arguments[0] = AbiType::Builtin(BuiltinType::F32);
+    contract.arguments[0] = Ty::Builtin(BuiltinType::F32);
     assert!(matches!(
         verify_program(ir.root().clone(), forged, &Default::default())
             .unwrap_err()
@@ -207,7 +207,7 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
             "{name}"
         );
     }
-    let PublicAbiItem::Trait(interface) = roots[0]
+    let PublicItem::Trait(interface) = roots[0]
         .public_items
         .iter()
         .find(|item| item.name() == "Api")
@@ -216,7 +216,7 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
         panic!("trait")
     };
     assert!(
-        matches!(&interface.methods[0].bounds[0].constraints[0], ConstraintAbi::Trait(id) if id.declaration.module.path == ["root"] && id.declaration.path.last().unwrap().name == "LeftMarker")
+        matches!(&interface.methods[0].bounds[0].constraints[0], Constraint::Trait(id) if id.declaration.module.path == ["root"] && id.declaration.path.last().unwrap().name == "LeftMarker")
     );
 }
 
@@ -307,7 +307,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
             .iter()
             .all(|layout| layout.declaration.module.package == PackageId("kagari-core".into()))
     );
-    let PublicAbiItem::Type(template) = owner
+    let PublicItem::Type(template) = owner
         .public_items
         .iter_mut()
         .find(|item| item.name() == "Packet")
@@ -315,7 +315,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     else {
         unreachable!()
     };
-    template.variants[0].payload[0] = AbiType::Builtin(BuiltinType::Bool);
+    template.variants[0].payload[0] = Ty::Builtin(BuiltinType::Bool);
     assert!(Kagaribytecodeverify_program(&program).is_err());
     let error = lower_program_to_mir(
         &checked,

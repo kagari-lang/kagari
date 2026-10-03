@@ -1,7 +1,7 @@
 use super::*;
 use crate::{declarations::DeclarationId, typeck::scalar::ScalarValue};
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_contract::scalar::BuiltinType;
 
 #[test]
 fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes() {

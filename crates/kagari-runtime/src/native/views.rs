@@ -12,8 +12,8 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::types::AbiType;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::Ty;
 
 /// A generic value keeps the exact closed Kagari type of its rooted argument.
 /// Use a scalar copy or an explicit owning root when retaining it in Rust.
@@ -21,7 +21,7 @@ pub struct ValueHandle<'call> {
     heap: &'call GcHeap,
     arguments: ArgumentView<'call>,
     slot: usize,
-    ty: &'call AbiType<DefinitionId>,
+    ty: &'call Ty<DefinitionId>,
 }
 
 impl<'call> ValueHandle<'call> {
@@ -37,7 +37,7 @@ impl<'call> ValueHandle<'call> {
         })
     }
 
-    pub fn declared_type(&self) -> &'call AbiType<DefinitionId> {
+    pub fn declared_type(&self) -> &'call Ty<DefinitionId> {
         self.ty
     }
 
@@ -82,7 +82,7 @@ impl<'call> ValueHandle<'call> {
 pub struct SequenceHandle<'call> {
     heap: &'call GcHeap,
     id: HeapObjectId,
-    ty: &'call AbiType<DefinitionId>,
+    ty: &'call Ty<DefinitionId>,
     _arguments: ArgumentView<'call>,
 }
 
@@ -100,7 +100,7 @@ impl<'call> SequenceHandle<'call> {
         })
     }
 
-    pub fn declared_type(&self) -> &'call AbiType<DefinitionId> {
+    pub fn declared_type(&self) -> &'call Ty<DefinitionId> {
         self.ty
     }
 

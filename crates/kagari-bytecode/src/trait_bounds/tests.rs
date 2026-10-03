@@ -1,10 +1,10 @@
 use super::*;
-use kagari_abi::{
+use kagari_common::identity::{ModuleIdentity, associated_type_id};
+use kagari_contract::{
     language::primitive,
     scalar::BuiltinType,
-    types::{AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstraintAbi, InterfaceTableAbi},
+    types::{AssociatedTypeDef, AssociatedTypeFamily, Constraint, InterfaceTable},
 };
-use kagari_common::identity::{ModuleIdentity, associated_type_id};
 
 fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
     DefinitionPath {
@@ -17,16 +17,16 @@ fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
     }
 }
 
-fn applied(name: &str) -> NominalAbiType {
-    NominalAbiType {
+fn applied(name: &str) -> NominalTy {
+    NominalTy {
         declaration: id(DefinitionKind::Trait, name),
         arguments: vec![],
         associated_types: Default::default(),
     }
 }
 
-fn record(name: &str) -> TraitAbi {
-    TraitAbi {
+fn record(name: &str) -> TraitDef {
+    TraitDef {
         name: name.into(),
         generic_params: vec![],
         bounds: vec![],
@@ -37,14 +37,14 @@ fn record(name: &str) -> TraitAbi {
     }
 }
 
-fn table(name: &str, interface: NominalAbiType) -> InterfaceTableAbi {
-    InterfaceTableAbi {
+fn table(name: &str, interface: NominalTy) -> InterfaceTable {
+    InterfaceTable {
         declaration: id(DefinitionKind::Impl, name),
         name: name.into(),
         generic_params: vec![],
         bounds: vec![],
-        trait_type: AbiType::Trait(interface),
-        for_type: AbiType::Builtin(BuiltinType::I32),
+        trait_type: Ty::Trait(interface),
+        for_type: Ty::Builtin(BuiltinType::I32),
         methods: vec![],
         associated_consts: vec![],
         associated_type_families: vec![],
@@ -52,7 +52,7 @@ fn table(name: &str, interface: NominalAbiType) -> InterfaceTableAbi {
     }
 }
 
-fn module(items: Vec<PublicAbiItem>) -> BytecodeModule {
+fn module(items: Vec<PublicItem>) -> BytecodeModule {
     BytecodeModule {
         identity: ModuleIdentity::single_file("linked.kgr"),
         public_items: items,
@@ -65,7 +65,7 @@ fn with_hash_bounds(module: &BytecodeModule) -> bool {
         identity: primitive::applied(Protocol::Hash, vec![])
             .declaration
             .module,
-        public_items: vec![PublicAbiItem::Trait(record("Hash"))],
+        public_items: vec![PublicItem::Trait(record("Hash"))],
         ..Default::default()
     };
     verify_trait_bounds(module, &[module, &protocol], None).is_ok()
@@ -76,44 +76,44 @@ fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implemen
     let mut declaration = record("Read");
     let mut interface = applied("Read");
     let member = associated_type_id(&interface.declaration, "Item");
-    declaration.associated_types.push(AssociatedTypeAbi {
+    declaration.associated_types.push(AssociatedTypeDef {
         declaration: member.clone(),
         generic_params: vec![],
         parameter_bounds: vec![],
-        bounds: vec![ConstraintAbi::Trait(primitive::applied(
+        bounds: vec![Constraint::Trait(primitive::applied(
             Protocol::Hash,
             vec![],
         ))],
     });
     interface
         .associated_types
-        .insert(member.clone(), AbiType::Builtin(BuiltinType::I32));
+        .insert(member.clone(), Ty::Builtin(BuiltinType::I32));
     let implementation = table("read", interface);
     let mut module = module(vec![
-        PublicAbiItem::Trait(declaration.clone()),
-        PublicAbiItem::InterfaceTable(Box::new(implementation.clone())),
+        PublicItem::Trait(declaration.clone()),
+        PublicItem::InterfaceTable(Box::new(implementation.clone())),
     ]);
     assert!(with_hash_bounds(&module));
-    let PublicAbiItem::InterfaceTable(corrupt) = &mut module.public_items[1] else {
+    let PublicItem::InterfaceTable(corrupt) = &mut module.public_items[1] else {
         unreachable!()
     };
-    let AbiType::Trait(corrupt_interface) = &mut corrupt.trait_type else {
+    let Ty::Trait(corrupt_interface) = &mut corrupt.trait_type else {
         unreachable!()
     };
     corrupt_interface
         .associated_types
-        .insert(member, AbiType::Builtin(BuiltinType::F32));
+        .insert(member, Ty::Builtin(BuiltinType::F32));
     assert!(!with_hash_bounds(&module));
     declaration.supertraits.push(applied("Parent"));
     module.public_items = vec![
-        PublicAbiItem::Trait(declaration),
-        PublicAbiItem::Trait(record("Parent")),
-        PublicAbiItem::InterfaceTable(Box::new(implementation)),
+        PublicItem::Trait(declaration),
+        PublicItem::Trait(record("Parent")),
+        PublicItem::InterfaceTable(Box::new(implementation)),
     ];
     assert!(!with_hash_bounds(&module));
     module
         .public_items
-        .push(PublicAbiItem::InterfaceTable(Box::new(table(
+        .push(PublicItem::InterfaceTable(Box::new(table(
             "parent",
             applied("Parent"),
         ))));
@@ -124,47 +124,47 @@ fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implemen
 fn linked_family_bounds_use_declared_input_assumptions_and_check_unused_projections() {
     let interface = applied("Family");
     let member = associated_type_id(&interface.declaration, "Item");
-    let parameter = GenericParameterAbi {
+    let parameter = GenericParam {
         owner: member.clone(),
         position: 0,
     };
-    let hash = ConstraintAbi::Trait(primitive::applied(Protocol::Hash, vec![]));
+    let hash = Constraint::Trait(primitive::applied(Protocol::Hash, vec![]));
     let mut declaration = record("Family");
-    declaration.associated_types.push(AssociatedTypeAbi {
+    declaration.associated_types.push(AssociatedTypeDef {
         declaration: member.clone(),
         generic_params: vec![parameter.clone()],
-        parameter_bounds: vec![GenericBoundAbi {
+        parameter_bounds: vec![GenericBound {
             ty: parameter.as_type(),
             constraints: vec![hash.clone()],
         }],
         bounds: vec![hash],
     });
     let mut implementation = table("family", interface.clone());
-    let input = GenericParameterAbi {
+    let input = GenericParam {
         owner: associated_type_id(&implementation.declaration, "Item"),
         position: 0,
     };
     implementation
         .associated_type_families
-        .push(AssociatedTypeFamilyAbi {
+        .push(AssociatedTypeFamily {
             declaration: member.clone(),
             generic_params: vec![input.clone()],
             bounds: vec![],
             value: input.as_type(),
         });
     let mut module = module(vec![
-        PublicAbiItem::Trait(declaration),
-        PublicAbiItem::InterfaceTable(Box::new(implementation)),
+        PublicItem::Trait(declaration),
+        PublicItem::InterfaceTable(Box::new(implementation)),
     ]);
     assert!(with_hash_bounds(&module));
-    let PublicAbiItem::InterfaceTable(table) = &mut module.public_items[1] else {
+    let PublicItem::InterfaceTable(table) = &mut module.public_items[1] else {
         unreachable!()
     };
-    table.associated_type_families[0].value = AbiType::Projection {
+    table.associated_type_families[0].value = Ty::Projection {
         receiver: Box::new(table.for_type.clone()),
         interface: Box::new(interface),
         member,
-        arguments: vec![AbiType::Builtin(BuiltinType::F32)],
+        arguments: vec![Ty::Builtin(BuiltinType::F32)],
     };
     assert!(!with_hash_bounds(&module));
 }

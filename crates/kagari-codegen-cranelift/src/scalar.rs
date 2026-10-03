@@ -1,15 +1,15 @@
 //! Scalar legalization for the existing Unit/Bool/i32 native subset.
 use cranelift_codegen::ir::{self, InstBuilder, MemFlags, condcodes::IntCC, types};
 use cranelift_frontend::FunctionBuilder;
-use kagari_abi::{
-    native_call::{
-        JIT_STATUS_OK, JIT_VALUE_TAG_BOOL, JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitValue,
-    },
-    operations::{BinaryOp, UnaryOp},
-};
 use kagari_codegen::diagnostic::BackendCompileError;
 use kagari_mir::{ids::TempId, instruction::Constant};
 use std::mem::offset_of;
+use {
+    kagari_abi::native_call::{
+        JIT_STATUS_OK, JIT_VALUE_TAG_BOOL, JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitValue,
+    },
+    kagari_contract::operations::{BinaryOp, UnaryOp},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LoweredValue {

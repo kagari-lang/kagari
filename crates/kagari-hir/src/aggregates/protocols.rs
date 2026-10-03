@@ -6,13 +6,13 @@ use crate::{
         abi::{lower_nominal_type, lower_type},
     },
 };
-use kagari_abi::{
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{
     language::Protocol,
     native_import::{
         NativeSignature, callables::NativeCallableRequirement, protocol::adapter_contract,
     },
 };
-use kagari_common::cancellation::CancellationToken;
 
 pub struct ImplicitProtocolApplication {
     pub kind: Protocol,

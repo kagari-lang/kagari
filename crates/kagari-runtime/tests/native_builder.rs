@@ -1,4 +1,5 @@
-use kagari_abi::scalar::BuiltinType;
+use kagari_contract::scalar::BuiltinType;
+use kagari_hir::native::render::declaration_source;
 use kagari_runtime::native::{
     binding::{Codec, NativeBinding, NativeResult},
     builder::ModuleBuilder,
@@ -34,7 +35,9 @@ fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
     module.bind(function, add).unwrap();
     let module = module.finish().unwrap();
     module.install(&mut Runtime::default()).unwrap();
-    let text = module.declaration_source().text;
+    let text = declaration_source(&module.to_declaration().unwrap())
+        .unwrap()
+        .text;
     assert!(
         text.contains("fn add(left: i32, right: i32) -> i32"),
         "{text}"
@@ -79,13 +82,13 @@ fn finalization_rejects_a_declaration_without_an_entry() {
 
 #[test]
 fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations() {
-    use kagari_abi::{
+    use kagari_common::identity::ModuleIdentity;
+    use kagari_contract::{
         declaration::{ImplDecl, ModuleDecl},
         language,
-        types::AbiType,
+        types::Ty,
     };
-    use kagari_common::identity::ModuleIdentity;
-    let string = AbiType::Builtin(BuiltinType::String);
+    let string = Ty::Builtin(BuiltinType::String);
     let mut owner = ModuleDecl::new(language::module_identity());
     assert!(owner.owns_inherent_receiver(&string));
     owner.implementations.push(ImplDecl {
@@ -219,8 +222,8 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
     module.install(&mut runtime).unwrap();
     assert!(module.install(&mut runtime).is_err());
     assert!(
-        module
-            .declaration_source()
+        declaration_source(&module.to_declaration().unwrap())
+            .unwrap()
             .text
             .contains("type Output = usize")
     );

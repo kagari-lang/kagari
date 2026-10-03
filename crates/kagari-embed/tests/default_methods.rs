@@ -1,4 +1,4 @@
-use kagari_abi::{
+use kagari_contract::{
     callable::CallableImplementation,
     language::{self, Protocol},
 };
@@ -374,7 +374,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    let kagari_abi::types::PublicAbiItem::Trait(contract) = item else {
+                    let kagari_contract::types::PublicItem::Trait(contract) = item else {
                         return None;
                     };
                     Some(contract)
@@ -393,7 +393,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    if let kagari_abi::types::PublicAbiItem::InterfaceTable(table) = item {
+                    if let kagari_contract::types::PublicItem::InterfaceTable(table) = item {
                         Some(table)
                     } else {
                         None
@@ -410,8 +410,8 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
 
 #[test]
 fn forged_shared_generic_environments_and_applications_are_rejected_without_source() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -445,7 +445,7 @@ fn main() -> i32 { val source: Capture = Number {}; val get = source.capture(42)
             if mutation == 0 {
                 contract.arguments.clear();
             } else {
-                contract.arguments[0] = AbiType::Builtin(BuiltinType::String);
+                contract.arguments[0] = Ty::Builtin(BuiltinType::String);
             }
         } else {
             let function = module
@@ -500,8 +500,8 @@ fn main() -> i32 {
 
 #[test]
 fn shared_list_table_mappings_are_checked_without_source() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::BytecodeInstruction;
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -533,7 +533,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
                     _ => None,
                 })
                 .unwrap();
-            arguments[0] = AbiType::Builtin(BuiltinType::String);
+            arguments[0] = Ty::Builtin(BuiltinType::String);
         } else if mutation == 5 {
             let view = program
                 .modules
@@ -556,11 +556,10 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
                 1 => table.methods[0].arguments.clear(),
                 2 => table.parents.clear(),
                 3 => {
-                    table.parents[0].implementation.arguments[0] =
-                        AbiType::Builtin(BuiltinType::String)
+                    table.parents[0].implementation.arguments[0] = Ty::Builtin(BuiltinType::String)
                 }
                 4 => {
-                    let AbiType::Parameter { position, .. } = &mut table.arguments[0] else {
+                    let Ty::Parameter { position, .. } = &mut table.arguments[0] else {
                         panic!("shared table binder")
                     };
                     *position += 1;
@@ -620,8 +619,8 @@ fn main() -> i32 {
 
 #[test]
 fn shared_function_call_arguments_and_operations_are_verified_without_source() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -654,12 +653,12 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
             .unwrap();
         match mutation {
             0 => call.arguments.clear(),
-            1 => call.signature.params[0] = AbiType::Builtin(BuiltinType::I32),
+            1 => call.signature.params[0] = Ty::Builtin(BuiltinType::I32),
             2 => call.operations.clear(),
             3 => call.operations.push(call.operations[0].clone()),
             4 => call.instance.declaration.path.last_mut().unwrap().name = "forged".into(),
             5 => {
-                let AbiType::Parameter { position, .. } = &mut call.arguments[0] else {
+                let Ty::Parameter { position, .. } = &mut call.arguments[0] else {
                     panic!("caller binder")
                 };
                 *position += 1;
@@ -780,8 +779,8 @@ fn main() -> i32 {
 
 #[test]
 fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::BytecodeInstruction;
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -817,12 +816,12 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
             .unwrap();
         match mutation {
             0 => {
-                let AbiType::Parameter { position, .. } = &mut target.arguments[0] else {
+                let Ty::Parameter { position, .. } = &mut target.arguments[0] else {
                     panic!("shared binder")
                 };
                 *position += 1;
             }
-            1 => target.arguments[0] = AbiType::Builtin(BuiltinType::String),
+            1 => target.arguments[0] = Ty::Builtin(BuiltinType::String),
             2 => target.arguments.clear(),
             3 => std::mem::swap(source, target),
             _ => unreachable!(),
@@ -941,8 +940,8 @@ fn main() -> i32 {
 
 #[test]
 fn shared_nominal_layout_applications_are_verified_without_source() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     use kagari_bytecode::instruction::BytecodeInstruction;
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -975,7 +974,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.read(source.wrap(42)) }
             } else {
                 &mut layout.fields[0].ty
             };
-            let AbiType::Parameter { position, .. } = ty else {
+            let Ty::Parameter { position, .. } = ty else {
                 panic!("layout binder")
             };
             *position += 1;
@@ -985,11 +984,10 @@ fn main() -> i32 { val source: Wrap = Source {}; source.read(source.wrap(42)) }
                 .iter_mut()
                 .flat_map(|module| &mut module.structures)
                 .find(|layout| {
-                    !layout.arguments.is_empty()
-                        && layout.arguments.iter().all(AbiType::is_concrete)
+                    !layout.arguments.is_empty() && layout.arguments.iter().all(Ty::is_concrete)
                 })
                 .unwrap();
-            layout.fields[0].ty = AbiType::Builtin(BuiltinType::String);
+            layout.fields[0].ty = Ty::Builtin(BuiltinType::String);
         } else {
             let arguments = program
                 .modules
@@ -1013,12 +1011,12 @@ fn main() -> i32 { val source: Wrap = Source {}; source.read(source.wrap(42)) }
             if mutation == 2 {
                 arguments.clear();
             } else if mutation == 3 {
-                let AbiType::Parameter { position, .. } = &mut arguments[0] else {
+                let Ty::Parameter { position, .. } = &mut arguments[0] else {
                     panic!("caller binder")
                 };
                 *position += 1;
             } else {
-                arguments[0] = AbiType::Builtin(BuiltinType::String);
+                arguments[0] = Ty::Builtin(BuiltinType::String);
             }
         }
         assert!(
@@ -1058,8 +1056,8 @@ fn main() -> i32 {
 
 #[test]
 fn forged_shared_constraint_method_selections_are_rejected_without_source() {
-    use kagari_abi::callable::witness::OperationWitness;
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+    use kagari_contract::callable::witness::OperationWitness;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

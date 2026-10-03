@@ -195,7 +195,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
                     let value = runtime
                         .alloc_array(
                             &read_allocation,
-                            AbiType::Builtin(BuiltinType::I32),
+                            Ty::Builtin(BuiltinType::I32),
                             vec![Value::I32(1)],
                         )
                         .unwrap();
@@ -223,7 +223,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     let next = runtime
         .alloc_array(
             &allocation,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(2)],
         )
         .unwrap();
@@ -242,7 +242,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     let mut foreign = Runtime::default();
     let foreign_owner = allocation_owner(&mut foreign);
     let other = foreign
-        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     assert!(
         runtime

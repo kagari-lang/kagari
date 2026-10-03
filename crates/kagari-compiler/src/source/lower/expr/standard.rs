@@ -1,5 +1,5 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
-use kagari_abi::operations::StandardEnumOp;
+use kagari_contract::operations::StandardEnumOp;
 use kagari_hir::types::{TypeId, abi::lower_type};
 use kagari_mir::instruction::{Instruction, MirValue};
 use std::slice;

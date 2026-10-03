@@ -17,9 +17,9 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::types::{AbiType, native::NativeStorageLayout};
 use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::{Ty, native::NativeStorageLayout};
 use std::{
     any::{Any, TypeId},
     fmt::{self, Debug},
@@ -43,7 +43,7 @@ pub trait NativePayload: Any + Debug {
 pub struct StorageContext<'call> {
     pub(crate) runtime: &'call Runtime,
     pub(crate) owner: &'call LoadedModule,
-    pub(crate) ty: &'call AbiType<DefinitionId>,
+    pub(crate) ty: &'call Ty<DefinitionId>,
     pub(crate) scope: Option<&'call TypeArgument>,
     pub(crate) selected: &'call [LinkedOperation],
 }
@@ -53,10 +53,7 @@ impl<'call> StorageContext<'call> {
         self.runtime.gc()
     }
 
-    pub fn resolve_type<I: DefinitionReference>(
-        &self,
-        ty: &AbiType<I>,
-    ) -> NativeResult<TypeArgument> {
+    pub fn resolve_type<I: DefinitionReference>(&self, ty: &Ty<I>) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()
@@ -110,7 +107,7 @@ impl<'call> StorageContext<'call> {
             })
     }
 
-    pub fn ty(&self) -> &'call AbiType<DefinitionId> {
+    pub fn ty(&self) -> &'call Ty<DefinitionId> {
         self.ty
     }
 }
@@ -226,7 +223,7 @@ impl NativeStorage {
     pub(crate) fn prepare_payload<S: NativePayload>(
         &self,
         heap: &GcHeap,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         payload: S,
         owner: &LoadedModule,
     ) -> NativeResult<NativeObject> {
@@ -241,7 +238,7 @@ impl NativeStorage {
     fn object(
         &self,
         heap: &GcHeap,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         payload: Box<dyn Any>,
         owner: &LoadedModule,
     ) -> NativeResult<NativeObject> {
@@ -273,7 +270,7 @@ impl NativeStorage {
 pub(crate) struct NativeObject {
     pub(crate) storage: NativeStorage,
     payload: Box<dyn Any>,
-    pub(crate) ty: AbiType<DefinitionId>,
+    pub(crate) ty: Ty<DefinitionId>,
     _owner: LoadedModule,
     pub(crate) scope: Option<TypeArgument>,
 }
@@ -296,7 +293,7 @@ impl NativeObject {
 
     pub(crate) fn matches(
         &self,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {

@@ -12,17 +12,19 @@ use kagari_hir::{
     types::TypeId,
 };
 
-use kagari_abi::{
-    language::{Protocol, identity},
-    native_import::callables::NativeCallableRequirement,
-    representation::ValueType,
-    scalar::BuiltinType,
-    standard::{RuntimePrimitive, surface::StandardEnum},
-};
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
 use kagari_hir::{
     language::semantics::ProtocolSemantics,
     types::abi::{lower_nominal_type, lower_type},
+};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        language::{Protocol, identity},
+        native_import::callables::NativeCallableRequirement,
+        scalar::BuiltinType,
+        standard::{RuntimePrimitive, surface::StandardEnum},
+    },
 };
 
 use kagari_mir::{

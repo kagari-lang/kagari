@@ -5,37 +5,36 @@ use crate::{
         binding::NativeResult, builder::trait_builder::TraitBuilder, declarations::normalize_bounds,
     },
 };
-use kagari_abi::{
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_contract::{
     callable::{CallableImplementation, NativeDefaultApplication},
     declaration::ModuleDecl,
     native_import::NativeSignature,
     types::{
-        AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
-        substitution::TypeSubstitution,
+        Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution,
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use std::collections::BTreeMap;
 
 impl TraitBuilder<'_> {
     pub(super) fn lower_defaults(&mut self) -> NativeResult<()> {
         let cancel = CancellationToken::default();
         let invalid = |_| RuntimeError::metadata_conflict("invalid native default substitution");
-        let receiver = AbiType::SelfType(self.id.clone());
-        let mut interface = NominalAbiType {
+        let receiver = Ty::SelfType(self.id.clone());
+        let mut interface = NominalTy {
             declaration: self.id.clone(),
             arguments: self
                 .declaration
                 .generic_params
                 .iter()
-                .map(GenericParameterAbi::as_type)
+                .map(GenericParam::as_type)
                 .collect(),
             associated_types: BTreeMap::new(),
         };
         let base = interface.clone();
         let mut assumptions = self.declaration.bounds.clone();
         for output in &self.declaration.associated_types {
-            let projection = AbiType::Projection {
+            let projection = Ty::Projection {
                 receiver: Box::new(receiver.clone()),
                 interface: Box::new(base.clone()),
                 member: output.declaration.clone(),
@@ -45,15 +44,15 @@ impl TraitBuilder<'_> {
                 .associated_types
                 .insert(output.declaration.clone(), projection.clone());
             if !output.bounds.is_empty() {
-                assumptions.push(GenericBoundAbi {
+                assumptions.push(GenericBound {
                     ty: projection,
                     constraints: output.bounds.clone(),
                 });
             }
         }
-        assumptions.push(GenericBoundAbi {
+        assumptions.push(GenericBound {
             ty: receiver.clone(),
-            constraints: vec![ConstraintAbi::Trait(interface)],
+            constraints: vec![Constraint::Trait(interface)],
         });
         let mut lowered = vec![];
         for (index, method) in self.declaration.methods.iter().enumerate() {
@@ -99,19 +98,16 @@ impl TraitBuilder<'_> {
                         .generic_params
                         .iter()
                         .chain(&method.generic_params)
-                        .map(GenericParameterAbi::as_type),
+                        .map(GenericParam::as_type),
                 )
                 .collect();
             let parameters: Vec<_> = (0..arguments.len())
-                .map(|position| GenericParameterAbi {
+                .map(|position| GenericParam {
                     owner: id.clone(),
                     position,
                 })
                 .collect();
-            let types: Vec<_> = parameters
-                .iter()
-                .map(GenericParameterAbi::as_type)
-                .collect();
+            let types: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
             let mut substitution = TypeSubstitution::default();
             substitution.bind_receiver(&self.id, &types[0]);
             for (parameter, ty) in self

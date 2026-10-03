@@ -12,7 +12,7 @@ pub struct SourceOrigin {
     pub byte_len: usize,
     /// Strictly increasing offsets. Missing coordinates preserve source offsets
     /// that have no line position (for example, the LF byte of a CRLF pair).
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub positions: Vec<SourcePosition>,
 }
 
@@ -38,11 +38,11 @@ pub struct MirFunctionDebugMetadata {
     pub source: Option<SourceOrigin>,
     pub source_module: Option<ModuleIdentity>,
     pub source_span: Span,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: MirLocalDebugBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub captured_bindings: CapturedBindingDebugBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub lexical_scopes: Vec<MirLexicalScope>,
 }
 

@@ -350,11 +350,11 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_enum_operations_are_rejected_before_execution() {
-    use kagari_abi::{
-        operations::StandardEnumOp, scalar::BuiltinType,
-        standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
-    };
     use kagari_bytecode::instruction::BytecodeInstruction;
+    use kagari_contract::{
+        operations::StandardEnumOp, scalar::BuiltinType,
+        standard::surface::StandardEnum as StandardEnumKind, types::Ty,
+    };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),
@@ -376,16 +376,16 @@ fn malformed_standard_enum_operations_are_rejected_before_execution() {
         match case {
             0 => *op = StandardEnumOp::Make(9),
             1 => {
-                *ty = AbiType::StandardEnum {
+                *ty = Ty::StandardEnum {
                     kind: StandardEnumKind::Result,
-                    args: vec![AbiType::Builtin(BuiltinType::I32)],
+                    args: vec![Ty::Builtin(BuiltinType::I32)],
                 }
             }
             2 => *value = None,
             3 => {
-                *ty = AbiType::StandardEnum {
+                *ty = Ty::StandardEnum {
                     kind: StandardEnumKind::Option,
-                    args: vec![AbiType::StandardEnum {
+                    args: vec![Ty::StandardEnum {
                         kind: StandardEnumKind::Result,
                         args: vec![],
                     }],

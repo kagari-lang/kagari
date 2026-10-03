@@ -1,6 +1,6 @@
-use kagari_abi::native_import::NativeImport;
-use kagari_abi::{ids::FunctionRef, representation::ValueType};
 use kagari_bytecode::{module::RootSlotLayout, program::ModuleRef};
+use kagari_contract::native_import::NativeImport;
+use {kagari_abi::representation::ValueType, kagari_contract::ids::FunctionRef};
 
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantOperand},

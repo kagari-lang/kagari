@@ -12,13 +12,13 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::associated_const_id,
     span::Span,
 };
+use kagari_contract::scalar::BuiltinType;
 use std::collections::HashSet;
 
 fn error(name: &str, reason: &str, span: Span) -> Diagnostic {

@@ -1,5 +1,5 @@
-use kagari_abi::declaration::DeclarationError;
 use kagari_common::{cancellation::Cancelled, identity::mapping::DefinitionMappingError};
+use kagari_contract::declaration::DeclarationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AnalysisError {

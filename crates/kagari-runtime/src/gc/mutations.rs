@@ -11,7 +11,7 @@ use crate::{
 };
 
 use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {
@@ -42,7 +42,7 @@ impl GcHeap {
         else {
             return Err(invalid());
         };
-        if !matches!(buffer_object.ty, AbiType::Array(..)) {
+        if !matches!(buffer_object.ty, Ty::Array(..)) {
             return Err(invalid());
         }
         let input_payload = buffer_object.payload::<SequencePayload>()?;
@@ -59,7 +59,7 @@ impl GcHeap {
             let HeapObject::Native(original) = source else {
                 return Err(invalid());
             };
-            if !matches!(original.ty, AbiType::Array(..)) {
+            if !matches!(original.ty, Ty::Array(..)) {
                 return Err(invalid());
             }
             let payload = original.payload::<SequencePayload>()?;
@@ -77,7 +77,7 @@ impl GcHeap {
                 values: input.copy_range(0, input.len())?,
             })?)
         } else {
-            if input_payload.element != AbiType::Builtin(BuiltinType::Bool) {
+            if input_payload.element != Ty::Builtin(BuiltinType::Bool) {
                 return Err(invalid());
             }
             if (0..input.len()).any(|index| !matches!(input.get(index), Some(Value::Bool(_)))) {
@@ -87,7 +87,7 @@ impl GcHeap {
                 .filter(|index| matches!(input.get(*index), Some(Value::Bool(true))))
                 .count();
             match source {
-                HeapObject::Native(original) if matches!(original.ty, AbiType::Array(..)) => {
+                HeapObject::Native(original) if matches!(original.ty, Ty::Array(..)) => {
                     let payload = original.payload::<SequencePayload>()?;
                     if payload.values.len() != input.len() {
                         return Err(invalid());
@@ -106,7 +106,7 @@ impl GcHeap {
                         values: copy,
                     })?)
                 }
-                HeapObject::Native(original) if matches!(original.ty, AbiType::Map { .. }) => {
+                HeapObject::Native(original) if matches!(original.ty, Ty::Map { .. }) => {
                     let payload = original.payload::<MapPayload>()?;
                     let values = &payload.entries;
                     if values.len() != input.len() {
@@ -127,7 +127,7 @@ impl GcHeap {
                         entries: copy,
                     })?)
                 }
-                HeapObject::Native(original) if matches!(original.ty, AbiType::Set(..)) => {
+                HeapObject::Native(original) if matches!(original.ty, Ty::Set(..)) => {
                     let payload = original.payload::<SetPayload>()?;
                     let values = &payload.entries;
                     if values.len() != input.len() {

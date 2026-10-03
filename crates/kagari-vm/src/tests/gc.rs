@@ -8,7 +8,7 @@ use {
     kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction},
 };
 
-use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
+use kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty};
 use kagari_runtime::{
     Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
 };
@@ -170,11 +170,7 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
     let loaded = runtime.load_program("gc.kgr", module).unwrap();
     let dead = runtime
-        .alloc_array(
-            &loaded,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(7)],
-        )
+        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
     let native =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));

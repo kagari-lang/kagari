@@ -8,8 +8,8 @@ use crate::{
         types::{ParameterRef, Type, TypeRef},
     },
 };
-use kagari_abi::types::{AbiType, GenericParameterAbi, TypeAbi, TypeAbiKind};
 use kagari_common::identity::{DefinitionKind, DefinitionPath};
+use kagari_contract::types::{GenericParam, Ty, TypeDef, TypeDefKind};
 use std::sync::Arc;
 
 pub struct TypeBuilder<'module> {
@@ -17,7 +17,7 @@ pub struct TypeBuilder<'module> {
     id: DefinitionPath,
     name: String,
     parameter_names: Vec<String>,
-    parameters: Vec<GenericParameterAbi>,
+    parameters: Vec<GenericParam>,
     storage: Option<NativeStorage>,
 }
 
@@ -43,7 +43,7 @@ impl<'module> TypeBuilder<'module> {
                 "duplicate native type parameter",
             ));
         }
-        let parameter = GenericParameterAbi {
+        let parameter = GenericParam {
             owner: self.id.clone(),
             position: self.parameters.len(),
         };
@@ -55,7 +55,7 @@ impl<'module> TypeBuilder<'module> {
     }
 
     pub fn sequence_storage(&mut self, element: &ParameterRef) -> NativeResult<()> {
-        let AbiType::Parameter { owner, position } = element.ty.abi() else {
+        let Ty::Parameter { owner, position } = element.ty.abi() else {
             return Err(RuntimeError::metadata_conflict(
                 "sequence element must be a declared type parameter",
             ));
@@ -99,9 +99,9 @@ impl<'module> TypeBuilder<'module> {
                 "duplicate native type declaration",
             ));
         }
-        let declaration = TypeAbi {
+        let declaration = TypeDef {
             name: self.name,
-            kind: TypeAbiKind::NativeStorage(storage.layout()),
+            kind: TypeDefKind::NativeStorage(storage.layout()),
             generic_params: self.parameters,
             bounds: vec![],
             fields: vec![],

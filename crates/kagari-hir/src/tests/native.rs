@@ -1,18 +1,16 @@
 //! Application-owned declaration fixtures; no runtime or bundled-library implementation.
 use crate::analysis::AnalysisDatabase;
-use kagari_abi::{
+use crate::native::render::declaration_source;
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionKind, ModuleIdentity, PackageId, associated_type_id},
+};
+use kagari_contract::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
     declaration::{ImplDecl, ModuleDecl},
     language::{self, Protocol, primitive},
     scalar::BuiltinType,
-    types::{
-        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
-        ParameterAbi, TraitAbi,
-    },
-};
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::{DefinitionKind, ModuleIdentity, PackageId, associated_type_id},
+    types::{Constraint, FnDecl, GenericBound, GenericParam, NominalTy, Param, TraitDef, Ty},
 };
 use std::sync::Arc;
 
@@ -24,22 +22,22 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
     module.dependencies.insert(language::module_identity());
     for (name, arity) in [("choose", 3), ("echo", 1)] {
         let id = module.definition(DefinitionKind::Function, name);
-        let parameter = GenericParameterAbi {
+        let parameter = GenericParam {
             owner: id.clone(),
             position: 0,
         };
         module
             .documentation
             .insert(id.clone(), format!("Registered generic {name} function."));
-        module.functions.push(FunctionAbi {
+        module.functions.push(FnDecl {
             name: name.into(),
             implementation: CallableImplementation::Native(id),
             method_policy: MethodPolicy::default(),
             generic_params: vec![parameter.clone()],
             bounds: if name == "choose" {
-                vec![GenericBoundAbi {
+                vec![GenericBound {
                     ty: parameter.as_type(),
-                    constraints: vec![ConstraintAbi::Trait(primitive::applied(
+                    constraints: vec![Constraint::Trait(primitive::applied(
                         Protocol::Hash,
                         vec![],
                     ))],
@@ -48,7 +46,7 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
                 vec![]
             },
             params: (0..arity)
-                .map(|i| ParameterAbi {
+                .map(|i| Param {
                     name: format!("value{i}"),
                     ty: parameter.as_type(),
                     mutable: false,
@@ -58,7 +56,7 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
         });
     }
     let owner = module.definition(DefinitionKind::Trait, "NativeRead");
-    let interface = NominalAbiType {
+    let interface = NominalTy {
         declaration: owner.clone(),
         arguments: vec![],
         associated_types: Default::default(),
@@ -66,36 +64,36 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
     let mut methods = Vec::new();
     for (name, overridable) in [("read", true), ("fixed", false)] {
         let template = module.definition(DefinitionKind::Function, &format!("default_{name}"));
-        let parameter = GenericParameterAbi {
+        let parameter = GenericParam {
             owner: template.clone(),
             position: 0,
         };
-        let body = FunctionAbi {
+        let body = FnDecl {
             name: format!("default_{name}"),
             implementation: CallableImplementation::Native(template.clone()),
             method_policy: MethodPolicy::default(),
             generic_params: vec![parameter.clone()],
-            bounds: vec![GenericBoundAbi {
+            bounds: vec![GenericBound {
                 ty: parameter.as_type(),
-                constraints: vec![ConstraintAbi::Trait(interface.clone())],
+                constraints: vec![Constraint::Trait(interface.clone())],
             }],
-            params: vec![ParameterAbi {
+            params: vec![Param {
                 name: "value".into(),
                 ty: parameter.as_type(),
                 mutable: false,
             }],
-            return_type: AbiType::Builtin(BuiltinType::I32),
+            return_type: Ty::Builtin(BuiltinType::I32),
         };
         let mut method = body.clone();
         method.name = name.into();
         method.generic_params.clear();
         method.bounds.clear();
         method.params[0].name = "self".into();
-        method.params[0].ty = AbiType::SelfType(owner.clone());
+        method.params[0].ty = Ty::SelfType(owner.clone());
         method.method_policy.override_allowed = overridable;
         method.implementation = CallableImplementation::NativeDefault(NativeDefaultApplication {
             declaration: template.clone(),
-            arguments: vec![AbiType::SelfType(owner.clone())],
+            arguments: vec![Ty::SelfType(owner.clone())],
         });
         module.private_functions.insert(template);
         module.documentation.insert(
@@ -105,7 +103,7 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
         module.functions.push(body);
         methods.push(method);
     }
-    module.traits.push(TraitAbi {
+    module.traits.push(TraitDef {
         name: "NativeRead".into(),
         generic_params: vec![],
         bounds: vec![],
@@ -127,7 +125,7 @@ pub(crate) fn database() -> AnalysisDatabase {
 #[test]
 fn native_fixture_source_is_a_valid_offline_declaration() {
     for module in [module(), text_items_module()] {
-        let generated = module.declaration_source().unwrap();
+        let generated = declaration_source(&module).unwrap();
         let source = kagari_common::source::SourceFile::new(&generated.uri, &generated.text);
         let parsed = kagari_syntax::parser::parse_declarations(
             &source,
@@ -153,7 +151,7 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
     });
     module.dependencies.insert(language::module_identity());
     let owner = module.definition(DefinitionKind::Trait, "TextItems");
-    let interface = NominalAbiType {
+    let interface = NominalTy {
         declaration: owner.clone(),
         arguments: vec![],
         associated_types: Default::default(),
@@ -161,46 +159,46 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
     let mut required = primitive::applied(Protocol::Iterable, vec![]);
     required.associated_types.insert(
         associated_type_id(&required.declaration, "Item"),
-        AbiType::Builtin(BuiltinType::String),
+        Ty::Builtin(BuiltinType::String),
     );
-    module.traits.push(TraitAbi {
+    module.traits.push(TraitDef {
         name: "TextItems".into(),
         generic_params: vec![],
         bounds: vec![],
         supertraits: vec![],
         associated_types: vec![],
         associated_consts: vec![],
-        methods: vec![FunctionAbi {
+        methods: vec![FnDecl {
             name: "text_items".into(),
             implementation: CallableImplementation::Required,
             method_policy: MethodPolicy::default(),
             generic_params: vec![],
-            bounds: vec![GenericBoundAbi {
-                ty: AbiType::SelfType(owner.clone()),
-                constraints: vec![ConstraintAbi::Trait(required.clone())],
+            bounds: vec![GenericBound {
+                ty: Ty::SelfType(owner.clone()),
+                constraints: vec![Constraint::Trait(required.clone())],
             }],
-            params: vec![ParameterAbi {
+            params: vec![Param {
                 name: "self".into(),
-                ty: AbiType::SelfType(owner),
+                ty: Ty::SelfType(owner),
                 mutable: false,
             }],
-            return_type: AbiType::Builtin(BuiltinType::USize),
+            return_type: Ty::Builtin(BuiltinType::USize),
         }],
     });
     for family in 0..4 {
         let owner = module.implementation_id(module.implementations.len());
-        let parameter = GenericParameterAbi {
+        let parameter = GenericParam {
             owner: owner.clone(),
             position: 0,
         };
         let item = parameter.as_type();
         let receiver = match family {
-            0 => AbiType::Array(Box::new(item), CollectionAccess::Mutable),
-            1 => AbiType::Trait(primitive::applied(Protocol::List, vec![item])),
-            2 => AbiType::Trait(primitive::applied(Protocol::MutableList, vec![item])),
-            _ => AbiType::Iter(Box::new(item)),
+            0 => Ty::Array(Box::new(item), CollectionAccess::Mutable),
+            1 => Ty::Trait(primitive::applied(Protocol::List, vec![item])),
+            2 => Ty::Trait(primitive::applied(Protocol::MutableList, vec![item])),
+            _ => Ty::Iter(Box::new(item)),
         };
-        let method = FunctionAbi {
+        let method = FnDecl {
             name: "text_items".into(),
             implementation: CallableImplementation::Native(ModuleDecl::method_id(
                 &owner,
@@ -208,16 +206,16 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
             )),
             method_policy: MethodPolicy::default(),
             generic_params: vec![parameter.clone()],
-            bounds: vec![GenericBoundAbi {
+            bounds: vec![GenericBound {
                 ty: receiver.clone(),
-                constraints: vec![ConstraintAbi::Trait(required.clone())],
+                constraints: vec![Constraint::Trait(required.clone())],
             }],
-            params: vec![ParameterAbi {
+            params: vec![Param {
                 name: "self".into(),
                 ty: receiver.clone(),
                 mutable: false,
             }],
-            return_type: AbiType::Builtin(BuiltinType::USize),
+            return_type: Ty::Builtin(BuiltinType::USize),
         };
         module.implementations.push(ImplDecl {
             generic_params: vec![parameter],

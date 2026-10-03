@@ -306,7 +306,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         !executable
             .public_items
             .iter()
-            .any(|item| matches!(item, kagari_abi::types::PublicAbiItem::Trait(_)))
+            .any(|item| matches!(item, kagari_contract::types::PublicItem::Trait(_)))
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {

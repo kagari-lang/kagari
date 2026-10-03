@@ -1,4 +1,4 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -145,11 +145,7 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
     options.cancellation = token.clone();
     let session = runtime.begin_execution(&module, options.clone()).unwrap();
     let object = runtime
-        .alloc_array(
-            &module,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(42)],
-        )
+        .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(42)])
         .unwrap();
     token.cancel();
     assert_eq!(
@@ -158,7 +154,7 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
     );
     assert_eq!(
         runtime
-            .alloc_array(&module, AbiType::Builtin(BuiltinType::I32), vec![])
+            .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::Cancelled
@@ -198,7 +194,7 @@ fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
         let array = runtime
             .alloc_array(
                 &module,
-                AbiType::Builtin(BuiltinType::Unit),
+                Ty::Builtin(BuiltinType::Unit),
                 vec![Value::Unit; depth as usize],
             )
             .unwrap();
@@ -346,15 +342,15 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let old_object = runtime
         .alloc_array(
             &baseline,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(7)],
         )
         .unwrap();
     let old_object = runtime
         .alloc_array(
             &baseline,
-            AbiType::Array(
-                Box::new(AbiType::Builtin(BuiltinType::I32)),
+            Ty::Array(
+                Box::new(Ty::Builtin(BuiltinType::I32)),
                 CollectionAccess::Mutable,
             ),
             vec![Value::Array(old_object)],
@@ -388,11 +384,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
                 let inner = Value::Array(
                     context
                         .runtime()
-                        .alloc_array(
-                            &owner,
-                            AbiType::Builtin(BuiltinType::I32),
-                            vec![Value::I32(42)],
-                        )
+                        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(42)])
                         .unwrap(),
                 );
                 Ok(Value::Array(
@@ -400,8 +392,8 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
                         .runtime()
                         .alloc_array(
                             &owner,
-                            AbiType::Array(
-                                Box::new(AbiType::Builtin(BuiltinType::I32)),
+                            Ty::Array(
+                                Box::new(Ty::Builtin(BuiltinType::I32)),
                                 CollectionAccess::Mutable,
                             ),
                             vec![inner],
@@ -487,7 +479,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
     let old_object = runtime
         .alloc_array(
             &baseline,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(7)],
         )
         .unwrap();
@@ -506,15 +498,15 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
         let inner = runtime
             .alloc_array(
                 candidate.module(),
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![Value::I32(42)],
             )
             .unwrap();
         let local = runtime
             .alloc_array(
                 candidate.module(),
-                AbiType::Array(
-                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                Ty::Array(
+                    Box::new(Ty::Builtin(BuiltinType::I32)),
                     CollectionAccess::Mutable,
                 ),
                 vec![Value::Array(inner)],

@@ -6,7 +6,6 @@ use crate::{
         MirVerificationError, MirVerificationErrorKind, ValidatedMirModule, VerifiedMirModule,
     },
 };
-use kagari_abi::types::{AbiType, PublicAbiItem, TraitAbi};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -16,6 +15,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable, DefinitionTableBuilder, DefinitionTableError},
     },
 };
+use kagari_contract::types::{PublicItem, TraitDef, Ty};
 use std::slice;
 
 pub(crate) fn mapping_error(cause: DefinitionMappingError) -> MirVerificationError {
@@ -73,18 +73,18 @@ pub(crate) fn scope_modules(
                 .check()
                 .map_err(|_| DefinitionMappingError::Cancelled)?;
             match item {
-                PublicAbiItem::Trait(contract) => {
+                PublicItem::Trait(contract) => {
                     let root = builder.intern_root(&module.identity)?;
                     let owner =
                         builder.intern_child(root, DefinitionKind::Trait, &contract.name, 0)?;
                     trait_members(&mut builder, owner, contract)?;
                 }
-                PublicAbiItem::InterfaceTable(table) => {
+                PublicItem::InterfaceTable(table) => {
                     let owner = builder.intern_path(&table.declaration)?;
                     for method in &table.methods {
                         builder.intern_child(owner, DefinitionKind::Method, &method.name, 0)?;
                     }
-                    if let AbiType::Trait(interface) = &table.trait_type {
+                    if let Ty::Trait(interface) = &table.trait_type {
                         let owner = builder.intern_path(&interface.declaration)?;
                         for method in &table.methods {
                             builder.intern_child(owner, DefinitionKind::Method, &method.name, 0)?;
@@ -114,7 +114,7 @@ pub(crate) fn scope_modules(
 fn trait_members(
     builder: &mut DefinitionTableBuilder,
     owner: DefinitionId,
-    contract: &TraitAbi,
+    contract: &TraitDef,
 ) -> Result<(), DefinitionMappingError> {
     for method in &contract.methods {
         builder.intern_child(owner, DefinitionKind::Method, &method.name, 0)?;

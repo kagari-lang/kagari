@@ -1,5 +1,5 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_vm::reentry::reenter;
 
@@ -64,7 +64,7 @@ fn main() {
                 call.runtime()
                     .alloc_array(
                         &call.runtime().execution_root().unwrap(),
-                        AbiType::Builtin(BuiltinType::I32),
+                        Ty::Builtin(BuiltinType::I32),
                         vec![Value::I32(3)],
                     )
                     .unwrap(),

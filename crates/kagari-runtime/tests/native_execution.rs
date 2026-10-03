@@ -7,18 +7,6 @@ use std::{
     },
 };
 
-use kagari_abi::{
-    ids::FunctionRef,
-    layout::StructLayout,
-    native::{
-        BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
-        ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap, NativeCodeOwner,
-        NativeCompilationProduct,
-    },
-    native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
-    representation::ValueType,
-    types::{AbiType, NominalAbiType},
-};
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::BytecodeInstruction,
@@ -35,6 +23,22 @@ use kagari_runtime::{
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     value::Value,
+};
+use {
+    kagari_abi::{
+        native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+        native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
+        representation::ValueType,
+    },
+    kagari_contract::{
+        ids::FunctionRef,
+        layout::StructLayout,
+        native::{
+            ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind,
+            ExecutableStackMap, NativeCompilationProduct,
+        },
+        types::{NominalTy, Ty},
+    },
 };
 
 #[derive(Debug)]
@@ -127,7 +131,7 @@ fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Rc<NativeCo
         BackendTarget::new("host-fixture", usize::BITS as u8),
         FunctionRef::new(0),
     );
-    artifact.entry = ExecutableEntryPoint::Native {
+    artifact.code.entry = ExecutableEntryPoint::Native {
         symbol: "fixture".into(),
         address: entry as usize,
     };
@@ -250,7 +254,7 @@ fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
     let mut runtime = runtime();
     let module = runtime.load_program("native", program()).unwrap();
     let mut code = product(execute, Arc::default());
-    Rc::get_mut(&mut code).unwrap().artifact.entry = ExecutableEntryPoint::Unresolved;
+    Rc::get_mut(&mut code).unwrap().artifact.code.entry = ExecutableEntryPoint::Unresolved;
     assert!(matches!(
         unsafe { runtime.install_native_function(&module, code) },
         Err(BackendInvocationError::UnsupportedArtifact(_))
@@ -435,9 +439,9 @@ fn incompatible_native_abis_are_rejected_before_installation() {
         let mut code = product(execute, Arc::default());
         let artifact = &mut Rc::get_mut(&mut code).unwrap().artifact;
         if helper {
-            artifact.runtime_helper_abi_version = "previous-helper".into();
+            artifact.code.runtime_helper_abi_version = "previous-helper".into();
         } else {
-            artifact.runtime_abi_version = "previous-runtime".into();
+            artifact.code.runtime_abi_version = "previous-runtime".into();
         }
         assert!(matches!(
             unsafe { runtime.install_native_function(&module, code) },
@@ -600,7 +604,7 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     assert_eq!(b.definitions().resolve(b_id).unwrap().to_path(), path);
     assert!(a.verified_program().same_version(b.verified_program()));
     assert!(a.verified_program().same_version(&verified));
-    let foreign = AbiType::Struct(NominalAbiType {
+    let foreign = Ty::Struct(NominalTy {
         declaration: a_id,
         arguments: vec![],
         associated_types: Default::default(),
@@ -618,7 +622,7 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     drop(verified);
     assert_eq!(a.definitions().resolve(a_id).unwrap().to_path(), path);
     assert!(a.verified_program().same_version(b.verified_program()));
-    let ty = AbiType::Struct(NominalAbiType {
+    let ty = Ty::Struct(NominalTy {
         declaration: b_id,
         arguments: vec![],
         associated_types: Default::default(),

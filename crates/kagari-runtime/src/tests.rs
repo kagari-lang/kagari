@@ -13,12 +13,14 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 
-use kagari_abi::{
-    callable::CallableImplementation,
-    ids::FunctionRef,
-    representation::ValueType,
-    scalar::BuiltinType,
-    types::{AbiType, FunctionAbi, PublicAbiItem},
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::CallableImplementation,
+        ids::FunctionRef,
+        scalar::BuiltinType,
+        types::{FnDecl, PublicItem, Ty},
+    },
 };
 
 #[test]
@@ -36,7 +38,7 @@ fn corrupted_collection_root_quarantines_the_runtime() {
     let mut foreign_runtime = Runtime::default();
     let owner = crate::layout_fixtures::allocation_owner(&mut foreign_runtime);
     let foreign = foreign_runtime
-        .alloc_array(&owner, AbiType::Builtin(BuiltinType::I32), Vec::new())
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), Vec::new())
         .unwrap();
     runtime.module_instance_mut(&loaded).unwrap().module_slots = vec![value::Value::Array(foreign)];
 
@@ -70,14 +72,14 @@ fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
 
 fn module_with_public_function(return_type: BuiltinType) -> BytecodeModule {
     BytecodeModule {
-        public_items: vec![PublicAbiItem::Function(FunctionAbi {
+        public_items: vec![PublicItem::Function(FnDecl {
             method_policy: Default::default(),
             implementation: CallableImplementation::Script,
             name: "main".to_owned(),
             generic_params: Vec::new(),
             bounds: Vec::new(),
             params: Vec::new(),
-            return_type: AbiType::Builtin(return_type),
+            return_type: Ty::Builtin(return_type),
         })],
         ..BytecodeModule::default()
     }
@@ -664,7 +666,7 @@ fn heap_mutations_update_runtime_resource_counters() {
     let array = runtime
         .alloc_array(
             &owner,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![value::Value::I32(1)],
         )
         .unwrap();

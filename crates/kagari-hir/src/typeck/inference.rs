@@ -1,8 +1,8 @@
 use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
-use kagari_abi::language::Protocol;
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
+use kagari_contract::language::Protocol;
 
 /// Infer only the callee's parameters. Repeated occurrences are checked against
 /// the resulting signature by the caller; no source spelling participates.
@@ -127,10 +127,10 @@ fn collection_inputs(ty: &TypeId) -> Option<(Protocol, Vec<&TypeId>)> {
 mod tests {
     use super::*;
     use crate::{language::semantics::ProtocolSemantics, types::NominalType};
-    use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
+    use kagari_contract::scalar::BuiltinType;
 
     #[test]
     fn collection_context_infers_slots_across_native_and_declared_views() {

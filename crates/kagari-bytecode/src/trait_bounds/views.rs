@@ -7,22 +7,21 @@ use crate::{
     program::ModuleRef,
     trait_bounds::{contract, executable_interface},
 };
-use kagari_abi::{
-    callable::interface::InterfaceCallContract,
-    language::Protocol,
-    native_import::{NativeImport, result::NativeResultAdapter},
-    types::{
-        AbiType, ConcreteFunctionIdentity, GenericParameterAbi, InterfaceTableAbi, NominalAbiType,
-        PublicAbiItem,
-        inheritance::{erased_iterator_view, interface_views},
-        matching::match_implementation,
-        substitution::TypeTransformError,
-    },
-};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, reference::DefinitionReference,
+    },
+};
+use kagari_contract::{
+    callable::interface::InterfaceCallContract,
+    language::Protocol,
+    native_import::{NativeImport, result::NativeResultAdapter},
+    types::{
+        ConcreteFunctionIdentity, GenericParam, InterfaceTable, NominalTy, PublicItem, Ty,
+        inheritance::{erased_iterator_view, interface_views},
+        matching::match_implementation,
+        substitution::TypeTransformError,
     },
 };
 
@@ -48,7 +47,7 @@ pub fn links(
     let table = template
         .instantiate_in(&linked.arguments, &template.generic_params)
         .ok_or(invalid)?;
-    let AbiType::Trait(interface) = &table.trait_type else {
+    let Ty::Trait(interface) = &table.trait_type else {
         return Err(invalid);
     };
     let lookup = |id: &DefinitionPath| contract(id, closure);
@@ -101,7 +100,7 @@ pub fn links(
                 if signature.result == raw_method.return_type {
                     continue;
                 }
-                let AbiType::Trait(result) = signature.result else {
+                let Ty::Trait(result) = signature.result else {
                     return Err(invalid);
                 };
                 let selected = select(
@@ -137,9 +136,9 @@ pub fn links(
 }
 
 fn select(
-    interface: &NominalAbiType,
-    receiver: &AbiType,
-    scope: &[GenericParameterAbi],
+    interface: &NominalTy,
+    receiver: &Ty,
+    scope: &[GenericParam],
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
 ) -> Result<InterfaceParentRecord, TypeTransformError> {
@@ -164,7 +163,7 @@ fn select(
                 .map(|p| substitution.parameter(&p.owner, p.position).cloned())
                 .collect::<Option<Vec<_>>>()
                 .ok_or(invalid)?;
-            let key = if arguments.iter().all(AbiType::is_concrete) {
+            let key = if arguments.iter().all(Ty::is_concrete) {
                 arguments.clone()
             } else {
                 template
@@ -177,7 +176,7 @@ fn select(
                 continue;
             }
             let applied = template.instantiate_in(&arguments, scope).ok_or(invalid)?;
-            let AbiType::Trait(actual) = &applied.trait_type else {
+            let Ty::Trait(actual) = &applied.trait_type else {
                 return Err(invalid);
             };
             let view = if actual == interface {
@@ -223,9 +222,9 @@ pub(super) fn valid(
 fn template<'a, I: DefinitionReference>(
     module: &'a BytecodeModule<I>,
     linked: &InterfaceTableRecord<I>,
-) -> Option<&'a InterfaceTableAbi<I>> {
+) -> Option<&'a InterfaceTable<I>> {
     module.public_items.iter().find_map(|item| match item {
-        PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+        PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
             Some(table.as_ref())
         }
         _ => None,
@@ -250,18 +249,13 @@ pub fn native_result_target<I: DefinitionReference>(
         let Some(template) = template(owner, linked) else {
             return false;
         };
-        let arguments = if adapter
-            .implementation
-            .arguments
-            .iter()
-            .all(AbiType::is_concrete)
-        {
+        let arguments = if adapter.implementation.arguments.iter().all(Ty::is_concrete) {
             adapter.implementation.arguments.clone()
         } else {
             template
                 .generic_params
                 .iter()
-                .map(GenericParameterAbi::as_type)
+                .map(GenericParam::as_type)
                 .collect()
         };
         linked.arguments == arguments
@@ -273,7 +267,7 @@ pub(super) fn native_result_valid(import: &NativeImport, closure: &[&BytecodeMod
     let Some(adapter) = &import.result_adapter else {
         return true;
     };
-    let AbiType::Trait(interface) = &import.signature.result else {
+    let Ty::Trait(interface) = &import.signature.result else {
         return false;
     };
     let scope = import

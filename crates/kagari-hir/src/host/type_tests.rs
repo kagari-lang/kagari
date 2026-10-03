@@ -462,7 +462,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     );
     assert_eq!(
         file.type_at(incomplete.rfind('7').unwrap()),
-        Some(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32))
+        Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
     );
 }
 

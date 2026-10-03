@@ -1,4 +1,6 @@
 //! Direct declaration import. Generated CST is presentation only, not semantic input.
+use crate::native::render::declaration_source;
+use crate::native::render::{DeclarationSource, NativeBoundSite, parameter_spelling};
 use crate::{
     hir::{
         ids::{BodyOwner, EnumId, FunctionId, HirOwner, OpaqueTypeId, TypeRefId, VariantId},
@@ -19,25 +21,22 @@ use crate::{
     lower::{LoweredModule, context::Lowerer},
     native::{NativeBinding, NativeTypeKind},
 };
-use kagari_abi::{
-    callable::{CallableImplementation, MethodPolicy},
-    declaration::{
-        DeclarationError, ModuleDecl,
-        render::{DeclarationSource, NativeBoundSite, parameter_spelling},
-    },
-    scalar::BuiltinType,
-    standard::surface::builtin_type_spec,
-    types::{
-        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
-        TypeAbiKind, native::NativeTypeConstructor,
-    },
-};
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
     span::Span,
+};
+use kagari_contract::{
+    callable::{CallableImplementation, MethodPolicy},
+    declaration::{DeclarationError, ModuleDecl},
+    scalar::BuiltinType,
+    standard::surface::builtin_type_spec,
+    types::{
+        Constraint, FnDecl, GenericBound, GenericParam as ContractGenericParam, NominalTy, Ty,
+        TypeDefKind, native::NativeTypeConstructor,
+    },
 };
 use kagari_syntax::parser::{Parse, ParseLimits, parse_declarations};
 use std::{
@@ -52,7 +51,7 @@ pub(crate) fn import(
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
     definition.validate()?;
-    let generated = definition.declaration_source()?;
+    let generated = declaration_source(&definition)?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())
@@ -161,8 +160,8 @@ impl Importer<'_> {
         let generated = self.generated;
         for ty in &definition.types {
             let (constructor, layout) = match ty.kind {
-                TypeAbiKind::Native(constructor) => (Some(constructor), None),
-                TypeAbiKind::NativeStorage(layout) => (None, Some(layout)),
+                TypeDefKind::Native(constructor) => (Some(constructor), None),
+                TypeDefKind::NativeStorage(layout) => (None, Some(layout)),
                 _ => return Err(DeclarationError("missing native representation".into())),
             };
             let owner = definition.definition(
@@ -466,7 +465,7 @@ impl Importer<'_> {
     fn generics(
         &mut self,
         owner: &DefinitionPath,
-        params: &[GenericParameterAbi],
+        params: &[ContractGenericParam],
     ) -> Vec<GenericParam> {
         params
             .iter()
@@ -485,7 +484,7 @@ impl Importer<'_> {
     fn function(
         &mut self,
         owner: &DefinitionPath,
-        function: &FunctionAbi,
+        function: &FnDecl,
         kind: FunctionKind,
         generic_params: Vec<GenericParam>,
         receiver: Option<TypeRefId>,
@@ -555,7 +554,7 @@ impl Importer<'_> {
 
     fn bounds(
         &mut self,
-        bounds: &[GenericBoundAbi],
+        bounds: &[GenericBound],
         sites: &[NativeBoundSite],
     ) -> Result<Vec<TraitBound>, DeclarationError> {
         let mut result = vec![];
@@ -569,7 +568,7 @@ impl Importer<'_> {
                 .collect::<Result<_, _>>()?;
             result.push(TraitBound {
                 target: match &bound.ty {
-                    AbiType::Parameter { owner, position } => parameter_spelling(owner, *position),
+                    Ty::Parameter { owner, position } => parameter_spelling(owner, *position),
                     _ => String::new(),
                 },
                 target_ref,
@@ -581,12 +580,12 @@ impl Importer<'_> {
 
     fn constraint_ref(
         &mut self,
-        constraint: &ConstraintAbi,
+        constraint: &Constraint,
         span: Span,
     ) -> Result<TraitRef, DeclarationError> {
         let ty = match constraint {
-            ConstraintAbi::Trait(trait_type) => self.nominal_type(trait_type, span)?,
-            ConstraintAbi::Standard(kind) => {
+            Constraint::Trait(trait_type) => self.nominal_type(trait_type, span)?,
+            Constraint::Standard(kind) => {
                 let name = kind
                     .source_bound_name()
                     .ok_or_else(|| DeclarationError("native bound has no source name".into()))?;
@@ -603,7 +602,7 @@ impl Importer<'_> {
 
     fn nominal_type(
         &mut self,
-        nominal: &NominalAbiType,
+        nominal: &NominalTy,
         span: Span,
     ) -> Result<TypeRefId, DeclarationError> {
         let name = nominal
@@ -676,25 +675,25 @@ impl Importer<'_> {
         ))
     }
 
-    fn ty(&mut self, ty: &AbiType, span: Span) -> Result<TypeRefId, DeclarationError> {
+    fn ty(&mut self, ty: &Ty, span: Span) -> Result<TypeRefId, DeclarationError> {
         let kind = match ty {
-            AbiType::Builtin(BuiltinType::String) => TypeKind::Named(self.representation_name(
+            Ty::Builtin(BuiltinType::String) => TypeKind::Named(self.representation_name(
                 NativeTypeConstructor::String,
                 "String",
                 span,
             )?),
-            AbiType::Builtin(kind) => TypeKind::Named(
+            Ty::Builtin(kind) => TypeKind::Named(
                 builtin_type_spec(*kind)
                     .ok_or_else(|| DeclarationError("unknown native scalar".into()))?
                     .name
                     .into(),
             ),
-            AbiType::Parameter { owner, position } => {
+            Ty::Parameter { owner, position } => {
                 TypeKind::Named(parameter_spelling(owner, *position))
             }
-            AbiType::SelfType(_) => TypeKind::Named("Self".into()),
-            AbiType::Trait(ty) | AbiType::NativeObject(ty) => return self.nominal_type(ty, span),
-            AbiType::Projection {
+            Ty::SelfType(_) => TypeKind::Named("Self".into()),
+            Ty::Trait(ty) | Ty::NativeObject(ty) => return self.nominal_type(ty, span),
+            Ty::Projection {
                 receiver,
                 interface,
                 member,
@@ -713,7 +712,7 @@ impl Importer<'_> {
                     .name
                     .clone(),
             },
-            AbiType::Array(item, access) => {
+            Ty::Array(item, access) => {
                 let arg = self.ty(item, span)?;
                 if *access == CollectionAccess::ReadOnly {
                     TypeKind::Array(arg)
@@ -729,7 +728,7 @@ impl Importer<'_> {
                     }
                 }
             }
-            AbiType::Map {
+            Ty::Map {
                 key,
                 value,
                 access: CollectionAccess::Mutable,
@@ -742,41 +741,41 @@ impl Importer<'_> {
                 positional_after_binding: false,
                 callable_syntax: false,
             },
-            AbiType::Set(item, CollectionAccess::Mutable) => TypeKind::Generic {
+            Ty::Set(item, CollectionAccess::Mutable) => TypeKind::Generic {
                 name: self.representation_name(NativeTypeConstructor::Set, "HashSet", span)?,
                 args: [self.ty(item, span)?].into_iter().collect(),
                 bindings: vec![],
                 positional_after_binding: false,
                 callable_syntax: false,
             },
-            AbiType::Function { params, result } => TypeKind::Function {
+            Ty::Function { params, result } => TypeKind::Function {
                 params: params
                     .iter()
                     .map(|ty| self.ty(ty, span))
                     .collect::<Result<_, _>>()?,
                 result: self.ty(result, span)?,
             },
-            AbiType::Iter(item) => TypeKind::Generic {
+            Ty::Iter(item) => TypeKind::Generic {
                 name: self.representation_name(NativeTypeConstructor::Iter, "Iter", span)?,
                 args: [self.ty(item, span)?].into_iter().collect(),
                 bindings: vec![],
                 positional_after_binding: false,
                 callable_syntax: false,
             },
-            AbiType::Tuple(items) => TypeKind::Tuple(
+            Ty::Tuple(items) => TypeKind::Tuple(
                 items
                     .iter()
                     .map(|ty| self.ty(ty, span))
                     .collect::<Result<_, _>>()?,
             ),
-            AbiType::StandardEnum { kind, args } if args.is_empty() => {
+            Ty::StandardEnum { kind, args } if args.is_empty() => {
                 TypeKind::Named(self.representation_name(
                     NativeTypeConstructor::Enum(*kind),
                     &format!("{kind:?}"),
                     span,
                 )?)
             }
-            AbiType::StandardEnum { kind, args } => TypeKind::Generic {
+            Ty::StandardEnum { kind, args } => TypeKind::Generic {
                 name: self.representation_name(
                     NativeTypeConstructor::Enum(*kind),
                     &format!("{kind:?}"),
@@ -790,7 +789,7 @@ impl Importer<'_> {
                 positional_after_binding: false,
                 callable_syntax: false,
             },
-            AbiType::Range(item, kind) => {
+            Ty::Range(item, kind) => {
                 let name = self.representation_name(
                     NativeTypeConstructor::Range(*kind),
                     kind.name(),
@@ -823,7 +822,7 @@ impl Importer<'_> {
             .definition
             .types
             .iter()
-            .find(|ty| ty.kind == TypeAbiKind::Native(constructor))
+            .find(|ty| ty.kind == TypeDefKind::Native(constructor))
         {
             return Ok(owned.name.clone());
         }
@@ -834,7 +833,7 @@ impl Importer<'_> {
                 module
                     .types
                     .iter()
-                    .filter(move |ty| ty.kind == TypeAbiKind::Native(constructor))
+                    .filter(move |ty| ty.kind == TypeDefKind::Native(constructor))
                     .map(move |ty| (module, ty))
             })
             .collect();

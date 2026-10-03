@@ -14,6 +14,7 @@ kagari-codegen = { workspace = true, optional = true }
 kagari-compiler = { workspace = true, default-features = false, optional = true }
 kagari-mir = { workspace = true, optional = true }
 kagari-abi.workspace = true
+kagari-contract.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true
 kagari-hir = { workspace = true, optional = true }

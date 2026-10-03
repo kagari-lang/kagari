@@ -294,7 +294,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
         let array = runtime
             .alloc_array(
                 &allocation,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![Value::I32(1)],
             )
             .unwrap();
@@ -318,11 +318,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                                 "panic" => panic!("broken host commit invariant"),
                                 "execute" => runtime.resources().poll_execution().unwrap_err(),
                                 "allocate" => runtime
-                                    .alloc_array(
-                                        &allocation,
-                                        AbiType::Builtin(BuiltinType::I32),
-                                        vec![],
-                                    )
+                                    .alloc_array(&allocation, Ty::Builtin(BuiltinType::I32), vec![])
                                     .unwrap_err(),
                                 "collect" => runtime.collect_garbage().unwrap_err(),
                                 "root" => {
@@ -356,7 +352,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
 
         assert_eq!(
             runtime
-                .alloc_array(&allocation, AbiType::Builtin(BuiltinType::I32), vec![])
+                .alloc_array(&allocation, Ty::Builtin(BuiltinType::I32), vec![])
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::EngineFault
@@ -379,11 +375,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
         let unaffected_owner = allocation_owner(&mut unaffected);
         assert!(
             unaffected
-                .alloc_array(
-                    &unaffected_owner,
-                    AbiType::Builtin(BuiltinType::I32),
-                    vec![]
-                )
+                .alloc_array(&unaffected_owner, Ty::Builtin(BuiltinType::I32), vec![])
                 .is_ok()
         );
     }

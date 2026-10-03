@@ -2,18 +2,18 @@ use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
 };
-use kagari_abi::callable::witness::OperationWitness;
+use kagari_contract::callable::witness::OperationWitness;
 
-use kagari_abi::types::{
-    TraitAbi, TypeAbi, applications::ApplicationValidator, substitution::TypeTransformError,
-};
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_contract::types::{
+    TraitDef, TypeDef, applications::ApplicationValidator, substitution::TypeTransformError,
+};
 
 pub(super) fn validate<'a>(
     module: &MirModule,
     cancel: &CancellationToken,
-    lookup: impl Fn(&DefinitionPath) -> Option<&'a TraitAbi>,
-    storage: impl Fn(&DefinitionPath) -> Option<&'a TypeAbi>,
+    lookup: impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
+    storage: impl Fn(&DefinitionPath) -> Option<&'a TypeDef>,
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(cancel, lookup, storage);
     validator.declarations(&module.abi.public_items, &module.abi.trait_contracts)?;

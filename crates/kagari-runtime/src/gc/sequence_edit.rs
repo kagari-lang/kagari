@@ -118,7 +118,7 @@ fn invalid() -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use crate::{Runtime, error::RuntimeError, layout_fixtures::allocation_owner, value::Value};
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
         let id = runtime
             .alloc_array(
                 &owner,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 vec![Value::I32(1), Value::I32(2)],
             )
             .unwrap();
@@ -164,7 +164,7 @@ mod tests {
         let id = runtime
             .alloc_array(
                 &owner,
-                AbiType::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 (0..5).map(Value::I32).collect(),
             )
             .unwrap();

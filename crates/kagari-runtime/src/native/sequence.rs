@@ -10,11 +10,11 @@ use crate::{
     },
     value::Value,
 };
-use kagari_abi::{
-    scalar::BuiltinType,
-    types::{AbiType, native::NativeStorageLayout},
-};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{
+    scalar::BuiltinType,
+    types::{Ty, native::NativeStorageLayout},
+};
 use std::{any::Any, collections::TryReserveError, rc::Rc};
 
 #[derive(Debug)]
@@ -39,9 +39,9 @@ pub(crate) enum SequenceStorage {
 macro_rules! storage {
     ($($variant:ident:$ty:ty),+) => {
         impl SequenceStorage {
-            pub(crate) fn empty(element: &AbiType<DefinitionId>) -> Self {
+            pub(crate) fn empty(element: &Ty<DefinitionId>) -> Self {
                 match element {
-                    $(AbiType::Builtin(BuiltinType::$variant) => Self::$variant(Vec::new()),)+
+                    $(Ty::Builtin(BuiltinType::$variant) => Self::$variant(Vec::new()),)+
                     _ => Self::Traced(Vec::new()),
                 }
             }
@@ -188,7 +188,7 @@ impl SequenceStorage {
 
 #[derive(Debug)]
 pub(crate) struct SequencePayload {
-    pub(crate) element: AbiType<DefinitionId>,
+    pub(crate) element: Ty<DefinitionId>,
     pub(crate) contract: Rc<StorageType>,
     pub(crate) values: SequenceStorage,
     pub(crate) leased_units: Option<usize>,
@@ -210,8 +210,8 @@ impl NativeStorage {
     pub(crate) fn sequence(element: usize) -> Self {
         Self::with_layout(NativeStorageLayout::Sequence { element }, move |context| {
             let item = match context.ty() {
-                AbiType::NativeObject(nominal) => nominal.arguments.get(element),
-                AbiType::Array(item, _) if element == 0 => Some(item.as_ref()),
+                Ty::NativeObject(nominal) => nominal.arguments.get(element),
+                Ty::Array(item, _) if element == 0 => Some(item.as_ref()),
                 _ => None,
             }
             .ok_or_else(|| RuntimeError::module_validation("sequence element type"))?;

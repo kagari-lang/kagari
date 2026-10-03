@@ -1,18 +1,17 @@
 use crate::{module::BytecodeModule, trait_bounds::contract};
-use kagari_abi::types::{
-    AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, InterfaceTableAbi,
-    NominalAbiType, TraitAbi,
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::types::{
+    Constraint, GenericBound, GenericParam, InterfaceTable, NominalTy, TraitDef, Ty,
     applications::ApplicationValidator,
     native_storage_contract,
     proofs::{ProofCatalog, host_application},
     substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
 };
-use kagari_common::cancellation::CancellationToken;
 
 /// Discharge family parameter bounds after validating the carried applications.
 fn projection_bounds_valid(
-    ty: &AbiType,
-    assumptions: &[GenericBoundAbi],
+    ty: &Ty,
+    assumptions: &[GenericBound],
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
@@ -36,7 +35,7 @@ fn projection_bounds_valid(
         }
         remaining -= 1;
         match ty {
-            AbiType::Projection {
+            Ty::Projection {
                 receiver,
                 interface,
                 member,
@@ -78,25 +77,19 @@ fn projection_bounds_valid(
                 pending.extend(interface.associated_types.values());
                 pending.extend(arguments);
             }
-            AbiType::NativeObject(n)
-            | AbiType::Struct(n)
-            | AbiType::Enum(n)
-            | AbiType::Trait(n) => {
+            Ty::NativeObject(n) | Ty::Struct(n) | Ty::Enum(n) | Ty::Trait(n) => {
                 pending.extend(&n.arguments);
                 pending.extend(n.associated_types.values());
             }
-            AbiType::Tuple(items) | AbiType::StandardEnum { args: items, .. } => {
-                pending.extend(items)
-            }
-            AbiType::Function { params, result } => {
+            Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => pending.extend(items),
+            Ty::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::Array(item, _)
-            | AbiType::Set(item, _)
-            | AbiType::Iter(item)
-            | AbiType::Range(item, _) => pending.push(item),
-            AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
+                pending.push(item)
+            }
+            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             _ => {}
         }
     }
@@ -104,9 +97,9 @@ fn projection_bounds_valid(
 }
 
 pub(super) fn associated_bounds_match(
-    table: &InterfaceTableAbi,
-    interface: &NominalAbiType,
-    record: &TraitAbi,
+    table: &InterfaceTable,
+    interface: &NominalTy,
+    record: &TraitDef,
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
@@ -134,7 +127,7 @@ pub(super) fn associated_bounds_match(
             family_inputs = family
                 .generic_params
                 .iter()
-                .map(GenericParameterAbi::as_type)
+                .map(GenericParam::as_type)
                 .collect::<Vec<_>>();
             for (parameter, actual) in member.generic_params.iter().zip(&family_inputs) {
                 substitution.bind(&parameter.owner, parameter.position, actual);
@@ -153,15 +146,15 @@ pub(super) fn associated_bounds_match(
             .iter()
             .map(|constraint| {
                 Ok(match constraint {
-                    ConstraintAbi::Standard(value) => ConstraintAbi::Standard(*value),
-                    ConstraintAbi::Trait(required) => {
-                        let ty = substitution.apply(&AbiType::Trait(required.clone()), cancel)?;
-                        let AbiType::Trait(required) =
+                    Constraint::Standard(value) => Constraint::Standard(*value),
+                    Constraint::Trait(required) => {
+                        let ty = substitution.apply(&Ty::Trait(required.clone()), cancel)?;
+                        let Ty::Trait(required) =
                             resolve_associated_outputs(&ty, interface, cancel)?
                         else {
                             return Err(TypeTransformError::InvalidContract);
                         };
-                        ConstraintAbi::Trait(required)
+                        Constraint::Trait(required)
                     }
                 })
             })
@@ -191,7 +184,7 @@ pub(super) fn host_bounds_match(
                 return Ok(false);
             };
             let applied = host_application(implementation);
-            let receiver = AbiType::Host(host.id.clone());
+            let receiver = Ty::Host(host.id.clone());
             let mut substitution = TypeSubstitution::default();
             substitution.bind_receiver(&applied.declaration, &receiver);
             for (parameter, actual) in record.generic_params.iter().zip(&applied.arguments) {
@@ -202,12 +195,12 @@ pub(super) fn host_bounds_match(
                 let Some(actual) = applied.associated_types.get(&member.declaration) else {
                     return Ok(false);
                 };
-                obligations.push(GenericBoundAbi {
+                obligations.push(GenericBound {
                     ty: actual.clone(),
                     constraints: member.bounds.clone(),
                 });
             }
-            let normalize = |ty: &AbiType| {
+            let normalize = |ty: &Ty| {
                 let ty = resolve_associated_outputs(ty, &applied, cancel)?;
                 catalog.normalize(&substitution.apply(&ty, cancel)?, cancel)
             };
@@ -215,15 +208,14 @@ pub(super) fn host_bounds_match(
                 let actual = normalize(&bound.ty)?;
                 for constraint in bound.constraints {
                     let proven = match constraint {
-                        ConstraintAbi::Standard(required) => catalog.constraints_hold(
+                        Constraint::Standard(required) => catalog.constraints_hold(
                             &actual,
-                            &[ConstraintAbi::Standard(required)],
+                            &[Constraint::Standard(required)],
                             &[],
                             cancel,
                         )?,
-                        ConstraintAbi::Trait(required) => {
-                            let AbiType::Trait(required) = normalize(&AbiType::Trait(required))?
-                            else {
+                        Constraint::Trait(required) => {
+                            let Ty::Trait(required) = normalize(&Ty::Trait(required))? else {
                                 return Ok(false);
                             };
                             catalog.implementation_count(&required, &actual, &[], cancel)? == 1

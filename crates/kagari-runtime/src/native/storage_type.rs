@@ -6,19 +6,19 @@ use crate::{
     module::LoadedModule,
     value::Value,
 };
-use kagari_abi::types::AbiType;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::types::Ty;
 
 #[derive(Debug)]
 pub(crate) struct StorageType {
-    pub(crate) ty: AbiType<DefinitionId>,
+    pub(crate) ty: Ty<DefinitionId>,
     pub(crate) owner: LoadedModule,
     scope: Option<TypeArgument>,
 }
 
 impl StorageType {
     pub(crate) fn prepare(
-        ty: AbiType<DefinitionId>,
+        ty: Ty<DefinitionId>,
         owner: &LoadedModule,
     ) -> Result<Self, RuntimeError> {
         Self::checked(Self {
@@ -55,13 +55,13 @@ impl StorageType {
         }
     }
 
-    pub(crate) fn matches(&self, ty: &AbiType<DefinitionId>, owner: &LoadedModule) -> bool {
+    pub(crate) fn matches(&self, ty: &Ty<DefinitionId>, owner: &LoadedModule) -> bool {
         self.matches_scoped(ty, owner, None)
     }
 
     pub(crate) fn matches_scoped(
         &self,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {

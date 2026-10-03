@@ -26,16 +26,18 @@ mod calls;
 mod patterns;
 mod shared;
 
-use kagari_abi::{
-    language::Protocol,
-    numeric::NumericConversion,
-    operations::{StandardEnumOp, UnaryOp},
-    representation::ValueType,
-    scalar::BuiltinType,
-    standard::RuntimePrimitive,
-    types::AbiType,
-};
 use kagari_common::collection::CollectionAccess;
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        language::Protocol,
+        numeric::NumericConversion,
+        operations::{StandardEnumOp, UnaryOp},
+        scalar::BuiltinType,
+        standard::RuntimePrimitive,
+        types::Ty,
+    },
+};
 
 mod equality;
 mod native_calls;
@@ -450,7 +452,7 @@ impl FunctionLowerer<'_, '_> {
                 let residual = if matches!(
                     &ty,
                     kagari_hir::types::TypeId::StandardEnum {
-                        kind: kagari_abi::standard::surface::StandardEnum::Result,
+                        kind: kagari_contract::standard::surface::StandardEnum::Result,
                         ..
                     }
                 ) {
@@ -498,7 +500,7 @@ impl FunctionLowerer<'_, '_> {
                 };
                 let array = self.alloc_temp(ValueType::HeapObject);
                 self.emit(Instruction::MakeArray {
-                    element: AbiType::Builtin(BuiltinType::String),
+                    element: Ty::Builtin(BuiltinType::String),
                     dst: array,
                     elements,
                 });

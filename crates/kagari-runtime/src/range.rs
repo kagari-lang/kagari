@@ -8,8 +8,8 @@ use crate::{
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 
-use kagari_abi::{operations, scalar::BuiltinType, types::AbiType};
 use kagari_common::{integer, range::RangeKind};
+use kagari_contract::{operations, scalar::BuiltinType, types::Ty};
 use std::ops::Bound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,14 +27,14 @@ fn invalid() -> RuntimeError {
 
 impl RangeValue {
     pub fn new(
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         start: Option<&Value>,
         end: Option<&Value>,
     ) -> Result<Self, RuntimeError> {
-        let AbiType::Range(element, kind) = ty else {
+        let Ty::Range(element, kind) = ty else {
             return Err(invalid());
         };
-        let AbiType::Builtin(item) = element.as_ref() else {
+        let Ty::Builtin(item) = element.as_ref() else {
             return Err(invalid());
         };
         if kind.has_start() != start.is_some()
@@ -62,8 +62,8 @@ impl RangeValue {
         &self,
         gc: &GcHeap,
         definitions: &DefinitionTable,
-        range: &AbiType<DefinitionId>,
-        bound: &AbiType<DefinitionId>,
+        range: &Ty<DefinitionId>,
+        bound: &Ty<DefinitionId>,
         upper: bool,
     ) -> Result<Value, RuntimeError> {
         if !self.matches(range)
@@ -92,8 +92,8 @@ impl RangeValue {
         .map(Value::Enum)
     }
 
-    pub(crate) fn matches(&self, ty: &AbiType<DefinitionId>) -> bool {
-        matches!(ty, AbiType::Range(item, kind) if *kind == self.kind && **item == AbiType::Builtin(self.item))
+    pub(crate) fn matches(&self, ty: &Ty<DefinitionId>) -> bool {
+        matches!(ty, Ty::Range(item, kind) if *kind == self.kind && **item == Ty::Builtin(self.item))
     }
 
     fn endpoint(&self, bits: u64) -> i128 {
@@ -176,7 +176,7 @@ mod tests {
                 vec![Value::U64(u64::MAX - 1), Value::U64(u64::MAX)],
             ),
         ] {
-            let ty = AbiType::Range(Box::new(AbiType::Builtin(item)), RangeKind::Inclusive);
+            let ty = Ty::Range(Box::new(Ty::Builtin(item)), RangeKind::Inclusive);
             let range = RangeValue::new(&ty, Some(&start), Some(&end)).unwrap();
             for (offset, value) in expected.iter().enumerate() {
                 assert_eq!(range.at(offset as u128).unwrap().as_ref(), Some(value));
@@ -184,8 +184,8 @@ mod tests {
             assert_eq!(range.at(expected.len() as u128).unwrap(), None);
             assert!(RangeValue::new(&ty, None, Some(&end)).is_err());
         }
-        let ty = AbiType::Range(
-            Box::new(AbiType::Builtin(BuiltinType::I64)),
+        let ty = Ty::Range(
+            Box::new(Ty::Builtin(BuiltinType::I64)),
             RangeKind::Inclusive,
         );
         let range = RangeValue::new(
@@ -199,7 +199,7 @@ mod tests {
             Some(Value::I64(i64::MAX))
         );
         assert_eq!(range.at(u64::MAX as u128 + 1).unwrap(), None);
-        let ty = AbiType::Range(Box::new(AbiType::Builtin(BuiltinType::U8)), RangeKind::From);
+        let ty = Ty::Range(Box::new(Ty::Builtin(BuiltinType::U8)), RangeKind::From);
         let range = RangeValue::new(&ty, Some(&Value::I64(255)), None).unwrap();
         assert_eq!(range.at(0).unwrap(), Some(Value::I64(255)));
         assert!(range.at(1).is_err());

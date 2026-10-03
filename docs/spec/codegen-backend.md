@@ -21,8 +21,10 @@ checked HIR --compiler source--> verified MIR --compiler core--> verified byteco
   encoding and bounded public optimization passes. It does not depend on HIR.
 - `kagari-compiler` owns source lowering, reachable monomorphization, MIR-to-bytecode
   emission, canonical artifact correspondence and native link construction.
-- `kagari-abi` owns executable types/layouts, helper signatures, native calling
-  representations, version constants, descriptors and code ownership contracts.
+- `kagari-abi` owns physical representations, helper signatures, native calling
+  conventions, version constants, physical descriptors and executable page owners.
+- `kagari-contract` owns semantic types/layouts, checked call/operation contracts
+  and the native product's logical function, safepoint and debug metadata.
 - `kagari-codegen` owns the compilation interface and diagnostics. It consumes MIR
   and ABI, without runtime, bytecode, frontend or concrete backend dependencies.
 - `kagari-codegen-cranelift` owns MIR-to-CLIF legalization, host ISA selection,
@@ -79,7 +81,8 @@ host code. Safe descriptor validation cannot prove arbitrary executable pointers
 or machine instructions correct.
 
 `NativeCompilationProduct` combines an `ExecutableFunctionArtifact` with an
-`Rc<dyn NativeCodeOwner>`. Descriptors identify backend, target, function, entry
+`Rc<dyn NativeCodeOwner>`. Its `artifact.code` is the ABI-owned `NativeArtifact`;
+function identities and logical stack/debug maps live in contract. Descriptors identify backend, target, function, entry
 address, runtime/helper versions, safepoints, traps and debug metadata. The owner
 keeps callable pages alive independently of backend destruction or later compilation.
 The baseline is local to one host thread; the owner makes no Send/Sync promise.

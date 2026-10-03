@@ -1,4 +1,5 @@
 //! Versioned fixed-width encoding of resolved path contracts, independent of slots.
+use kagari_contract::representation::host_representation;
 
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
 use kagari_common::host_interface::{
@@ -72,7 +73,7 @@ impl HostRegistry {
                         RuntimeError::typed_path_validation("missing path result contract")
                     })?;
                 if required.root_ty != ValueType::HostHandle
-                    || required.result_ty != ValueType::from_host_type(&result)
+                    || required.result_ty != host_representation(&result)
                     || (!required.read_only && actual.access != PathAccess::ReadWrite)
                 {
                     return Err(RuntimeError::typed_path_validation(
@@ -119,7 +120,7 @@ impl HostRegistry {
                             RuntimeError::typed_path_validation("missing path parameter contract")
                         })?;
                     if function.metadata.registers.get(argument.index()).copied()
-                        != Some(ValueType::from_host_type(&expected))
+                        != Some(host_representation(&expected))
                     {
                         return Err(RuntimeError::typed_path_validation(
                             "path dynamic argument type differs from its binding",

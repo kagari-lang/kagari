@@ -3,23 +3,23 @@ mod dependencies;
 pub(crate) mod import;
 mod ownership;
 use crate::error::RuntimeError;
-use kagari_abi::{
-    declaration::{ImplDecl, ModuleDecl},
-    types::{NativeDeclaration, TraitAbi, TypeAbi, TypeAbiKind},
-};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath,
     map::{DefinitionContext, DefinitionMap},
     reference::DefinitionReference,
     table::{DefinitionId, DefinitionTableError},
 };
+use kagari_contract::{
+    declaration::{ImplDecl, ModuleDecl},
+    types::{NativeDeclaration, TraitDef, TypeDef, TypeDefKind},
+};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone)]
 pub struct DeclarationCatalog<I = DefinitionId> {
-    pub(crate) types: Arc<DefinitionMap<TypeAbi<I>>>,
-    pub(crate) traits: Arc<DefinitionMap<TraitAbi<I>>>,
+    pub(crate) types: Arc<DefinitionMap<TypeDef<I>>>,
+    pub(crate) traits: Arc<DefinitionMap<TraitDef<I>>>,
     pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration<I>>>,
     pub(crate) implementations: Arc<DefinitionMap<ImplDecl<I>>>,
 }
@@ -43,7 +43,7 @@ impl DeclarationCatalog<DefinitionPath> {
         let mut result = Self::default();
         for module in modules {
             for ty in &module.types {
-                if matches!(ty.kind, TypeAbiKind::NativeStorage(_)) {
+                if matches!(ty.kind, TypeDefKind::NativeStorage(_)) {
                     result.insert_type(
                         module.definition(DefinitionKind::AssociatedType, &ty.name),
                         ty.clone(),
@@ -71,14 +71,14 @@ impl DeclarationCatalog<DefinitionPath> {
         Ok(result)
     }
 
-    pub(crate) fn get(&self, declaration: &DefinitionPath) -> Option<&TraitAbi> {
+    pub(crate) fn get(&self, declaration: &DefinitionPath) -> Option<&TraitDef> {
         self.traits.get(declaration)
     }
 
     pub(crate) fn insert(
         &mut self,
         declaration: DefinitionPath,
-        contract: TraitAbi,
+        contract: TraitDef,
     ) -> Result<(), RuntimeError> {
         if let Some(previous) = self.traits.get(&declaration) {
             if previous != &contract {
@@ -97,7 +97,7 @@ impl DeclarationCatalog<DefinitionPath> {
     pub(crate) fn insert_type(
         &mut self,
         id: DefinitionPath,
-        declaration: TypeAbi,
+        declaration: TypeDef,
     ) -> Result<(), RuntimeError> {
         if let Some(previous) = self.types.get(&id) {
             if previous != &declaration {

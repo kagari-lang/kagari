@@ -9,7 +9,7 @@ use crate::{
     native::api as native_api,
     resolver::resolved::DeclarationNames,
 };
-use kagari_abi::language;
+use kagari_contract::language;
 
 use kagari_common::{
     cancellation::CancellationToken,

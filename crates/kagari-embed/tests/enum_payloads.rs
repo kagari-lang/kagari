@@ -1,7 +1,7 @@
-use kagari_abi::{
+use kagari_contract::{
     language::{self as standard_traits, Protocol},
     scalar::BuiltinType,
-    types::{AbiType, PublicAbiItem},
+    types::{PublicItem, Ty},
 };
 use {kagari_bytecode::instruction::EnumId, kagari_runtime::module::LoadedModule};
 
@@ -118,11 +118,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
 
     let array = runtime
         .runtime()
-        .alloc_array(
-            &loaded,
-            AbiType::Builtin(BuiltinType::I32),
-            vec![Value::I32(1)],
-        )
+        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
     let wrong = runtime
         .runtime()
@@ -253,22 +249,22 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::Type(ty) if ty.name == "Event" => Some(&ty.variants[1]),
+            PublicItem::Type(ty) if ty.name == "Event" => Some(&ty.variants[1]),
             _ => None,
         })
         .unwrap();
     assert!(
-        matches!(&variant.payload[0], AbiType::Struct(id) if id.declaration.module == module.identity && id.declaration.path[0].name == "Point")
+        matches!(&variant.payload[0], Ty::Struct(id) if id.declaration.module == module.identity && id.declaration.path[0].name == "Point")
     );
-    let AbiType::Tuple(payload) = &variant.payload[1] else {
+    let Ty::Tuple(payload) = &variant.payload[1] else {
         panic!("tuple payload")
     };
-    assert_eq!(payload[0], AbiType::Builtin(BuiltinType::I32));
-    let AbiType::Trait(list) = &payload[1] else {
+    assert_eq!(payload[0], Ty::Builtin(BuiltinType::I32));
+    let Ty::Trait(list) = &payload[1] else {
         panic!("list interface payload")
     };
     assert_eq!(list.declaration, standard_traits::identity(Protocol::List));
-    assert_eq!(list.arguments, vec![AbiType::Builtin(BuiltinType::String)]);
+    assert_eq!(list.arguments, vec![Ty::Builtin(BuiltinType::String)]);
     let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
     decoded.validate_for_loader(&Default::default()).unwrap();
     assert_eq!(

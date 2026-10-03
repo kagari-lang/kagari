@@ -3,11 +3,11 @@ use crate::source::{
     lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer},
     types::raise_type,
 };
-use kagari_abi::{
+use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_contract::{
     native_import::{NativeImport, NativeSignature},
     types::{ConcreteFunctionIdentity, substitution::TypeSubstitution},
 };
-use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     callable::AppliedCallSignature,

@@ -1,8 +1,4 @@
 //! Inspect a checked generic trait implementation without starting a runtime.
-use kagari_abi::{
-    scalar::BuiltinType,
-    types::{AbiType, PublicAbiItem},
-};
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
     module::CallableTarget,
@@ -12,6 +8,10 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::{
+    scalar::BuiltinType,
+    types::{PublicItem, Ty},
+};
 use kagari_hir::analysis::AnalysisDatabase;
 
 fn main() {
@@ -36,12 +36,12 @@ fn main() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) => Some(table),
+            PublicItem::InterfaceTable(table) => Some(table),
             _ => None,
         })
         .expect("implementation ABI");
-    assert!(matches!(&table.trait_type, AbiType::Trait(ty)
-        if ty.arguments == [AbiType::Builtin(BuiltinType::I32)]));
+    assert!(matches!(&table.trait_type, Ty::Trait(ty)
+        if ty.arguments == [Ty::Builtin(BuiltinType::I32)]));
     let executable = bytecode
         .interface_tables
         .iter()

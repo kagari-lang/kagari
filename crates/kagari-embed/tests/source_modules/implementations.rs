@@ -131,11 +131,11 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         .find(|module| module.identity.path == ["api"])
         .unwrap();
     let method = api.public_items.iter_mut().find_map(|item| match item {
-        kagari_abi::types::PublicAbiItem::Trait(interface) => interface.methods.first_mut(),
+        kagari_contract::types::PublicItem::Trait(interface) => interface.methods.first_mut(),
         _ => None,
     });
     method.unwrap().return_type =
-        kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
+        kagari_contract::types::Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool);
     assert!(matches!(
         verify_program(&wrong_contract),
         Err(BytecodeVerificationError::InvalidInterfaceTable)

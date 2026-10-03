@@ -17,11 +17,11 @@ use crate::{
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 
-use kagari_abi::language::{self as standard_traits, Protocol};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionPath, reference::DefinitionReference},
 };
+use kagari_contract::language::{self as standard_traits, Protocol};
 use std::{
     collections::{BTreeMap, HashSet},
     iter,
@@ -842,10 +842,10 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
 mod search_tests {
     use super::*;
     use crate::{typeck::table::ConstraintTarget, types::TypeId};
-    use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
     };
+    use kagari_contract::scalar::BuiltinType;
 
     fn definition(kind: DefinitionKind, name: &str) -> DefinitionPath {
         DefinitionPath {

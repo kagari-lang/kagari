@@ -7,16 +7,16 @@ use crate::{
     native::binding::NativeResult,
     value::Value,
 };
-use kagari_abi::{native_import::NativeImport, types::AbiType};
 use kagari_bytecode::{program::ModuleRef, trait_bounds::views::native_result_target};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{native_import::NativeImport, types::Ty};
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LinkedResultAdapter {
     owner: ModuleRef,
     table: usize,
-    arguments: Vec<AbiType<DefinitionId>>,
+    arguments: Vec<Ty<DefinitionId>>,
     applied: Option<Vec<TypeArgument>>,
 }
 

@@ -16,8 +16,9 @@ use kagari_common::{cancellation::CancellationToken, collection::CollectionAcces
 use kagari_hir::types::abi::lower_type;
 
 use crate::{source::lower::lower_to_mir, tests::common};
-use kagari_abi::{
-    contracts::ContractError, effects::EffectSet, operations::BinaryOp, representation::ValueType,
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{contracts::ContractError, effects::EffectSet, operations::BinaryOp},
 };
 
 use kagari_mir::{
@@ -69,12 +70,12 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
     );
     for foreign_owner in [false, true] {
         let mut bytecode = original.clone();
-        let kagari_abi::types::PublicAbiItem::Type(template) =
+        let kagari_contract::types::PublicItem::Type(template) =
             &mut bytecode.modules[bytecode.root.index()].public_items[0]
         else {
             unreachable!()
         };
-        let kagari_abi::types::AbiType::Parameter { owner, position } =
+        let kagari_contract::types::Ty::Parameter { owner, position } =
             &mut template.variants[0].payload[0]
         else {
             unreachable!()
@@ -99,7 +100,7 @@ fn layout_templates_require_scoped_instruction_arguments() {
             .structures
             .first_mut()
         {
-            layout.arguments[0] = kagari_abi::types::AbiType::Parameter {
+            layout.arguments[0] = kagari_contract::types::Ty::Parameter {
                 owner: layout.declaration.clone(),
                 position: 0,
             };
@@ -110,7 +111,7 @@ fn layout_templates_require_scoped_instruction_arguments() {
                 .iter_mut()
                 .find(|layout| layout.declaration.module == member.identity)
                 .unwrap();
-            layout.arguments[0] = kagari_abi::types::AbiType::Parameter {
+            layout.arguments[0] = kagari_contract::types::Ty::Parameter {
                 owner: layout.declaration.clone(),
                 position: 0,
             };
@@ -152,9 +153,9 @@ fn layout_templates_require_scoped_instruction_arguments() {
 
 #[test]
 fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
-    use kagari_abi::{
+    use kagari_contract::{
         scalar::BuiltinType,
-        types::{AbiType, NominalAbiType},
+        types::{NominalTy, Ty},
     };
     use kagari_hir::types::{NominalType, TypeId};
     let source =
@@ -175,17 +176,17 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
         )],
     };
     let encoded = lower_type(&TypeId::Struct(nominal));
-    let expected = AbiType::Struct(NominalAbiType {
+    let expected = Ty::Struct(NominalTy {
         associated_types: Default::default(),
         declaration,
-        arguments: vec![AbiType::Array(
-            Box::new(AbiType::Builtin(BuiltinType::I32)),
+        arguments: vec![Ty::Array(
+            Box::new(Ty::Builtin(BuiltinType::I32)),
             CollectionAccess::Mutable,
         )],
     });
     assert_eq!(encoded, expected);
     let bytes = bincode::serialize(&encoded).unwrap();
-    assert_eq!(bincode::deserialize::<AbiType>(&bytes).unwrap(), encoded);
+    assert_eq!(bincode::deserialize::<Ty>(&bytes).unwrap(), encoded);
     let bare = &module.enumerations[enumeration].variants[0].payload[0];
     assert_ne!(
         ArtifactFingerprint::of_serialized(&encoded),
@@ -212,7 +213,7 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
 fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let source = "enum Event { Data(i32) } fn main() -> Event { Event::Data(7) }";
     let mut public = crate::tests::common::bytecode_ok(&format!("pub {source}"));
-    let kagari_abi::types::PublicAbiItem::Type(ty) =
+    let kagari_contract::types::PublicItem::Type(ty) =
         &mut public.modules[public.root.index()].public_items[0]
     else {
         panic!("enum ABI")
@@ -237,7 +238,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let mut absent = module.enumerations[enumeration].declaration.clone();
     absent.path[0].name = "Absent".into();
     module.enumerations[enumeration].variants[0].payload[0] =
-        kagari_abi::types::AbiType::Enum(kagari_abi::types::NominalAbiType {
+        kagari_contract::types::Ty::Enum(kagari_contract::types::NominalTy {
             associated_types: Default::default(),
             declaration: absent,
             arguments: Vec::new(),
@@ -773,9 +774,9 @@ fn verification_observes_cancellation_even_for_empty_modules() {
 
 #[test]
 fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
-    use kagari_abi::{
+    use kagari_contract::{
         scalar::BuiltinType,
-        types::{AbiType, FieldAbi, PublicAbiItem, TypeAbiKind, VariantAbi},
+        types::{FieldDef, PublicItem, Ty, TypeDefKind, VariantDef},
     };
     for source in [
         "pub struct Box<T> { val value: T } fn main() {}",
@@ -795,24 +796,24 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
         let bytecode = common::bytecode_ok(source);
         for mutation in 0..5 {
             let mut invalid = original.clone();
-            let PublicAbiItem::Type(template) = &mut invalid.abi.public_items[0] else {
+            let PublicItem::Type(template) = &mut invalid.abi.public_items[0] else {
                 unreachable!()
             };
             match mutation {
                 0 => template.name.clear(),
-                1 if template.kind == TypeAbiKind::Struct => template.fields[0].name.clear(),
+                1 if template.kind == TypeDefKind::Struct => template.fields[0].name.clear(),
                 1 => template.variants[0].name.clear(),
-                2 if template.kind == TypeAbiKind::Struct => {
+                2 if template.kind == TypeDefKind::Struct => {
                     template.fields.push(template.fields[0].clone())
                 }
                 2 => template.variants.push(template.variants[0].clone()),
-                3 if template.kind == TypeAbiKind::Struct => template.variants.push(VariantAbi {
+                3 if template.kind == TypeDefKind::Struct => template.variants.push(VariantDef {
                     name: "Unexpected".into(),
                     payload: vec![],
                 }),
-                3 => template.fields.push(FieldAbi {
+                3 => template.fields.push(FieldDef {
                     name: "unexpected".into(),
-                    ty: AbiType::Builtin(BuiltinType::I32),
+                    ty: Ty::Builtin(BuiltinType::I32),
                     mutable: false,
                 }),
                 _ => {
@@ -837,7 +838,7 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
 
 #[test]
 fn public_layout_matching_observes_cancellation_including_empty_inputs() {
-    use kagari_abi::layout::{enum_abi_matches, struct_abi_matches};
+    use kagari_contract::layout::{enum_abi_matches, struct_abi_matches};
     let mut source = String::new();
     for index in 0..128 {
         source.push_str(&format!(

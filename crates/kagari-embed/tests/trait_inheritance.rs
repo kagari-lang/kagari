@@ -245,7 +245,7 @@ fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
 
 #[test]
 fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected() {
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_contract::types::PublicItem;
     let artifact = compile("pub trait Parent {} pub trait Child: Parent {} struct S {} impl Parent for S {} impl Child for S {} fn main() {}").unwrap();
     for cycle in [true, false] {
         let mut program = artifact.program.clone();
@@ -255,23 +255,21 @@ fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected()
                 .public_items
                 .iter()
                 .find_map(|item| match item {
-                    PublicAbiItem::Trait(ty) if ty.name == "Child" => {
-                        Some(ty.supertraits[0].clone())
-                    }
+                    PublicItem::Trait(ty) if ty.name == "Child" => Some(ty.supertraits[0].clone()),
                     _ => None,
                 })
                 .unwrap();
-            let PublicAbiItem::Trait(ty) = module
+            let PublicItem::Trait(ty) = module
                 .public_items
                 .iter_mut()
-                .find(|item| matches!(item, PublicAbiItem::Trait(ty) if ty.name == "Parent"))
+                .find(|item| matches!(item, PublicItem::Trait(ty) if ty.name == "Parent"))
                 .unwrap()
             else {
                 unreachable!()
             };
             ty.supertraits.push(parent);
         } else {
-            module.public_items.retain(|item| !matches!(item, PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_abi::types::AbiType::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
+            module.public_items.retain(|item| !matches!(item, PublicItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_contract::types::Ty::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
         }
         assert!(verify_program(&program).is_err());
     }

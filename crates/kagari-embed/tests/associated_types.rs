@@ -238,9 +238,9 @@ fn trait_inputs_and_associated_outputs_remain_distinct() {
 
 #[test]
 fn tampered_associated_schemas_and_bounds_are_rejected() {
-    use kagari_abi::{
+    use kagari_contract::{
         standard::surface::StandardTypeConstraint,
-        types::{AbiType, ConstraintAbi, PublicAbiItem},
+        types::{Constraint, PublicItem, Ty},
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
@@ -249,14 +249,14 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
         let module = &mut program.modules[program.root.index()];
         for item in &mut module.public_items {
             match item {
-                PublicAbiItem::InterfaceTable(table) => {
-                    let AbiType::Trait(instance) = &mut table.trait_type else {
+                PublicItem::InterfaceTable(table) => {
+                    let Ty::Trait(instance) = &mut table.trait_type else {
                         panic!("trait instance");
                     };
                     match mutation {
                         0 => {
                             *instance.associated_types.values_mut().next().unwrap() =
-                                AbiType::Builtin(kagari_abi::scalar::BuiltinType::F32);
+                                Ty::Builtin(kagari_contract::scalar::BuiltinType::F32);
                         }
                         1 => {
                             instance.associated_types.clear();
@@ -264,10 +264,10 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
                         _ => {}
                     }
                 }
-                PublicAbiItem::Trait(contract) if mutation == 2 => {
+                PublicItem::Trait(contract) if mutation == 2 => {
                     contract.associated_types[0].bounds = vec![
-                        ConstraintAbi::Standard(StandardTypeConstraint::HashKey),
-                        ConstraintAbi::Standard(StandardTypeConstraint::HashKey),
+                        Constraint::Standard(StandardTypeConstraint::HashKey),
+                        Constraint::Standard(StandardTypeConstraint::HashKey),
                     ];
                 }
                 _ => {}
@@ -361,7 +361,7 @@ fn generic_interface_conversion_checks_implementation_bounds() {
 
 #[test]
 fn interface_instance_bounds_are_checked_without_method_slots() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"),  Default::default()).unwrap();
     let mut program = artifact.program.clone();
@@ -371,7 +371,7 @@ fn interface_instance_bounds_are_checked_without_method_slots() {
         .find(|table| !table.arguments.is_empty())
         .unwrap();
     assert!(table.methods.is_empty());
-    table.arguments[0] = AbiType::Builtin(BuiltinType::F32);
+    table.arguments[0] = Ty::Builtin(BuiltinType::F32);
     assert!(verify_program(&program).is_err());
     execute_artifact(&engine, artifact);
 }
@@ -429,7 +429,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
 
 #[test]
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
     for mutation in 0..6 {
@@ -440,16 +440,14 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
             .position(|table| !table.arguments.is_empty())
             .unwrap();
         match mutation {
-            0 => tables[index]
-                .arguments
-                .push(AbiType::Builtin(BuiltinType::I32)),
+            0 => tables[index].arguments.push(Ty::Builtin(BuiltinType::I32)),
             1 => tables[index].methods.clear(),
             2 => {
                 let duplicate = tables[index].clone();
                 tables.push(duplicate);
             }
             3 => tables[index].methods = tables[index + 1].methods.clone(),
-            4 => tables[index].arguments[0] = AbiType::Builtin(BuiltinType::F32),
+            4 => tables[index].arguments[0] = Ty::Builtin(BuiltinType::F32),
             5 => {
                 tables.remove(index);
             }

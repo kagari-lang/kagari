@@ -1,12 +1,12 @@
 use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
 use instances::InstancePlanner;
-use kagari_abi::{
-    host as module_host,
-    types::{AbiType, ConcreteFunctionIdentity},
-};
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::mapping::DefinitionMappingError,
+};
+use kagari_contract::{
+    host as module_host,
+    types::{ConcreteFunctionIdentity, Ty},
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
@@ -137,7 +137,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         if request.declaration.module != *module.lowered.source.module_identity() {
             return Err(MirLoweringError::MissingBinding("requested instance owner"));
         }
-        if request.arguments.iter().all(AbiType::is_concrete)
+        if request.arguments.iter().all(Ty::is_concrete)
             && planner.prepare_native_target(
                 &request.declaration,
                 &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),

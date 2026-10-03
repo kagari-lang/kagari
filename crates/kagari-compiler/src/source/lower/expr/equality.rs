@@ -1,11 +1,5 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use bincode::{DefaultOptions, Options};
-use kagari_abi::{
-    language::Protocol,
-    operations::{BinaryOp, StandardEnumOp},
-    representation::ValueType,
-    standard::{RuntimePrimitive, surface::StandardEnum},
-};
 use kagari_hir::{
     aggregates::implementations::ImplementationSearchError,
     language::semantics::ProtocolSemantics,
@@ -18,6 +12,14 @@ use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
 };
 use std::{collections::HashSet, fmt::Write};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        language::Protocol,
+        operations::{BinaryOp, StandardEnumOp},
+        standard::{RuntimePrimitive, surface::StandardEnum},
+    },
+};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn has_custom_protocol(&self, ty: &TypeId) -> Result<bool, MirLoweringError> {

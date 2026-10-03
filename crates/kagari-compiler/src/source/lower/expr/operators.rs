@@ -14,16 +14,18 @@ use kagari_hir::{
     },
 };
 
-use kagari_abi::{
-    callable::interface::InterfaceCallContract,
-    language::Protocol,
-    numeric::{NumericConversion, NumericOperation},
-    operations::{BinaryOp, StandardEnumOp, UnaryOp},
-    representation::ValueType,
-    scalar::BuiltinType,
-    standard::RuntimePrimitive,
-};
 use kagari_common::{identity::DefinitionPath, integer::IntegerOp};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::interface::InterfaceCallContract,
+        language::Protocol,
+        numeric::{NumericConversion, NumericOperation},
+        operations::{BinaryOp, StandardEnumOp, UnaryOp},
+        scalar::BuiltinType,
+        standard::RuntimePrimitive,
+    },
+};
 
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,

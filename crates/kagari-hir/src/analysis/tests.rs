@@ -1,6 +1,6 @@
 use super::*;
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_contract::scalar::BuiltinType;
 
 #[test]
 fn body_edits_reuse_other_bodies_but_signatures_invalidate_them() {

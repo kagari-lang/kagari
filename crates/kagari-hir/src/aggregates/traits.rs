@@ -8,11 +8,11 @@ use crate::{
     typeck::{FunctionImplementation, GenericBounds, ModuleSignatures, table::ConstraintTarget},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
-use kagari_abi::callable::MethodPolicy;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionPath, FileSpan, ModuleIdentity, reference::DefinitionReference},
 };
+use kagari_contract::callable::MethodPolicy;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,

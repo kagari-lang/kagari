@@ -1,11 +1,11 @@
 use crate::{source::types::raise_type, tests::common::bytecode_ok};
 use bincode::Options;
-use kagari_abi::{
+use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
+use kagari_contract::{
     scalar::BuiltinType,
     standard::surface::StandardEnum as StandardEnumKind,
-    types::{AbiType, GenericParameterAbi, NominalAbiType, PublicAbiItem},
+    types::{GenericParam, NominalTy, PublicItem, Ty},
 };
-use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
 
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
@@ -44,9 +44,9 @@ fn interface_tables_require_distinct_local_impl_identities() {
     let table_index = original.modules[original.root.index()]
         .public_items
         .iter()
-        .position(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
+        .position(|item| matches!(item, PublicItem::InterfaceTable(_)))
         .expect("checked interface table");
-    let PublicAbiItem::InterfaceTable(table) =
+    let PublicItem::InterfaceTable(table) =
         &original.modules[original.root.index()].public_items[table_index]
     else {
         unreachable!()
@@ -60,7 +60,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
     assert!(table.declaration.path[0].name.is_empty());
     for corruption in 0..3 {
         let mut module = original.clone();
-        let PublicAbiItem::InterfaceTable(table) =
+        let PublicItem::InterfaceTable(table) =
             &mut module.modules[module.root.index()].public_items[table_index]
         else {
             unreachable!()
@@ -77,15 +77,15 @@ fn interface_tables_require_distinct_local_impl_identities() {
     }
     for corruption in 0..3 {
         let mut module = original.clone();
-        let PublicAbiItem::InterfaceTable(table) =
+        let PublicItem::InterfaceTable(table) =
             &mut module.modules[module.root.index()].public_items[table_index]
         else {
             unreachable!()
         };
         match corruption {
-            0 => table.methods[0].return_type = AbiType::Builtin(BuiltinType::Bool),
+            0 => table.methods[0].return_type = Ty::Builtin(BuiltinType::Bool),
             1 => table.methods[0].params[0].mutable = true,
-            _ => table.methods[0].params[0].ty = AbiType::Builtin(BuiltinType::I32),
+            _ => table.methods[0].params[0].ty = Ty::Builtin(BuiltinType::I32),
         }
         assert!(matches!(
             verify_program(&module),
@@ -93,12 +93,12 @@ fn interface_tables_require_distinct_local_impl_identities() {
         ));
     }
     let mut wrong_trait = original.clone();
-    let PublicAbiItem::InterfaceTable(table) =
+    let PublicItem::InterfaceTable(table) =
         &mut wrong_trait.modules[wrong_trait.root.index()].public_items[table_index]
     else {
         unreachable!()
     };
-    let AbiType::Trait(reference) = &mut table.trait_type else {
+    let Ty::Trait(reference) = &mut table.trait_type else {
         unreachable!()
     };
     reference.declaration.path[0].occurrence = 1;
@@ -118,7 +118,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
     ));
     for corruption in 0..3 {
         let mut module = original.clone();
-        let PublicAbiItem::InterfaceTable(table) =
+        let PublicItem::InterfaceTable(table) =
             &mut module.modules[module.root.index()].public_items[table_index]
         else {
             unreachable!()
@@ -146,10 +146,10 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
         let (functions, traits) = module.modules[module.root.index()]
             .public_items
             .split_at_mut(1);
-        let PublicAbiItem::Function(function) = &mut functions[0] else {
+        let PublicItem::Function(function) = &mut functions[0] else {
             panic!("public function")
         };
-        let PublicAbiItem::Trait(interface) = &mut traits[0] else {
+        let PublicItem::Trait(interface) = &mut traits[0] else {
             panic!("public trait")
         };
         match corruption {
@@ -161,29 +161,28 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
                     .0 = "foreign".into()
             }
             1 => {
-                if let AbiType::Parameter { position, .. } = &mut interface.methods[0].params[1].ty
-                {
+                if let Ty::Parameter { position, .. } = &mut interface.methods[0].params[1].ty {
                     *position = 99;
                 }
             }
             2 => {
                 function.return_type =
-                    AbiType::SelfType(owner(&identity, &[], DefinitionKind::Trait, "Identity"))
+                    Ty::SelfType(owner(&identity, &[], DefinitionKind::Trait, "Identity"))
             }
             3 => {
-                function.return_type = AbiType::StandardEnum {
+                function.return_type = Ty::StandardEnum {
                     kind: StandardEnumKind::Result,
-                    args: vec![AbiType::Builtin(BuiltinType::I32)],
+                    args: vec![Ty::Builtin(BuiltinType::I32)],
                 }
             }
             4 => {
-                function.return_type = AbiType::Struct(NominalAbiType {
+                function.return_type = Ty::Struct(NominalTy {
                     associated_types: Default::default(),
                     declaration: owner(&identity, &[], DefinitionKind::Trait, "Identity"),
                     arguments: vec![],
                 })
             }
-            5 => function.generic_params.push(GenericParameterAbi {
+            5 => function.generic_params.push(GenericParam {
                 owner: owner(&identity, &[], DefinitionKind::Function, "plain"),
                 position: 0,
             }),
@@ -205,12 +204,12 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
     }
     let mut module = original;
     let identity = module.modules[module.root.index()].identity.clone();
-    let PublicAbiItem::Trait(interface) = &mut module.modules[module.root.index()].public_items[1]
+    let PublicItem::Trait(interface) = &mut module.modules[module.root.index()].public_items[1]
     else {
         panic!("public trait")
     };
     interface.methods[0].return_type =
-        AbiType::SelfType(owner(&identity, &[], DefinitionKind::Trait, "Other"));
+        Ty::SelfType(owner(&identity, &[], DefinitionKind::Trait, "Other"));
     assert!(matches!(
         verify_program(&module),
         Err(BytecodeVerificationError::InvalidPublicAbi)
@@ -221,14 +220,14 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
 fn collection_access_survives_checked_host_and_wire_conversions() {
     use kagari_common::collection::CollectionAccess::{Mutable, ReadOnly};
     use kagari_common::host_interface::value_type::HostValueType;
-    let integer = AbiType::Builtin(BuiltinType::I32);
+    let integer = Ty::Builtin(BuiltinType::I32);
     for access in [ReadOnly, Mutable] {
         for ty in [
-            AbiType::Array(Box::new(integer.clone()), access),
-            AbiType::Set(Box::new(integer.clone()), access),
-            AbiType::Map {
+            Ty::Array(Box::new(integer.clone()), access),
+            Ty::Set(Box::new(integer.clone()), access),
+            Ty::Map {
                 key: Box::new(integer.clone()),
-                value: Box::new(AbiType::Array(Box::new(integer.clone()), ReadOnly)),
+                value: Box::new(Ty::Array(Box::new(integer.clone()), ReadOnly)),
                 access,
             },
         ] {
@@ -236,7 +235,7 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
             assert_eq!(checked.collection_access(), Some(access));
             assert_eq!(lower_type(&checked), ty);
             let bytes = codec().serialize(&ty).unwrap();
-            assert_eq!(codec().deserialize::<AbiType>(&bytes).unwrap(), ty);
+            assert_eq!(codec().deserialize::<Ty>(&bytes).unwrap(), ty);
         }
         for host in [
             HostValueType::Array(Box::new(HostValueType::I32), access),
@@ -248,13 +247,13 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
             },
         ] {
             assert_eq!(
-                raise_type(&AbiType::from_host_type(&host)).collection_access(),
+                raise_type(&Ty::from_host_type(&host)).collection_access(),
                 Some(access)
             );
         }
     }
-    let readonly = AbiType::Array(Box::new(integer.clone()), ReadOnly);
-    let mutable = AbiType::Array(Box::new(integer), Mutable);
+    let readonly = Ty::Array(Box::new(integer.clone()), ReadOnly);
+    let mutable = Ty::Array(Box::new(integer), Mutable);
     assert_ne!(
         codec().serialize(&readonly).unwrap(),
         codec().serialize(&mutable).unwrap()

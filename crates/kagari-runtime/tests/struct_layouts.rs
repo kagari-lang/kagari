@@ -6,7 +6,7 @@ use kagari_common::collection::CollectionAccess;
 #[path = "support/layouts.rs"]
 mod layouts;
 
-use kagari_abi::types::AbiType;
+use kagari_contract::types::Ty;
 
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
 
@@ -19,12 +19,12 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         &[
             (
                 "x",
-                AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+                Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
                 true,
             ),
             (
                 "fixed",
-                AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool),
+                Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool),
                 false,
             ),
         ],
@@ -93,7 +93,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -103,7 +103,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -148,7 +148,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -202,7 +202,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         "Point",
         &[(
             "x",
-            AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
             false,
         )],
     );
@@ -221,26 +221,26 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
 
 #[test]
 fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
-    use kagari_abi::{scalar::BuiltinType, types::NominalAbiType};
     use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+    use kagari_contract::{scalar::BuiltinType, types::NominalTy};
     let mut runtime = Runtime::default();
     let leaf = layouts::layout(
         &mut runtime,
         "Leaf",
-        &[("x", AbiType::Builtin(BuiltinType::I32), true)],
+        &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
     let wrapper = layouts::layout(
         &mut runtime,
         "Wrapper",
-        &[("items", AbiType::Builtin(BuiltinType::I32), true)],
+        &[("items", Ty::Builtin(BuiltinType::I32), true)],
     );
     let wrong = layouts::layout(
         &mut runtime,
         "Other",
-        &[("x", AbiType::Builtin(BuiltinType::I32), true)],
+        &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
     let wrong_owner = wrong.module().clone();
-    let wrong_type = AbiType::Struct(NominalAbiType {
+    let wrong_type = Ty::Struct(NominalTy {
         declaration: wrong.layout().declaration,
         arguments: vec![],
         associated_types: Default::default(),
@@ -254,9 +254,9 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
             .structures[0]
             .clone(),
     );
-    bytecode.structures[0].fields[0].ty = AbiType::Array(
-        Box::new(AbiType::Tuple(vec![
-            AbiType::Struct(NominalAbiType {
+    bytecode.structures[0].fields[0].ty = Ty::Array(
+        Box::new(Ty::Tuple(vec![
+            Ty::Struct(NominalTy {
                 associated_types: Default::default(),
                 declaration: leaf
                     .module()
@@ -266,7 +266,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
                     .to_path(),
                 arguments: vec![],
             }),
-            AbiType::Builtin(BuiltinType::Bool),
+            Ty::Builtin(BuiltinType::Bool),
         ])),
         CollectionAccess::Mutable,
     );
@@ -282,7 +282,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let wrapper = module.struct_layout(StructId::new(0)).unwrap();
     let leaf = module.struct_layout(StructId::new(1)).unwrap();
     let valid = Value::Struct(runtime.alloc_struct(leaf, vec![Value::I32(42)]).unwrap());
-    let AbiType::Array(element, _) = &wrapper.layout().fields[0].ty else {
+    let Ty::Array(element, _) = &wrapper.layout().fields[0].ty else {
         panic!("array field")
     };
     let element = (**element).clone();
@@ -298,22 +298,22 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let target = runtime
         .alloc_struct(wrapper.clone(), vec![initial.clone()])
         .unwrap();
-    let AbiType::Tuple(mut wrong_member_type) = element.clone() else {
+    let Ty::Tuple(mut wrong_member_type) = element.clone() else {
         panic!("tuple element")
     };
-    wrong_member_type[1] = AbiType::Builtin(BuiltinType::I32);
+    wrong_member_type[1] = Ty::Builtin(BuiltinType::I32);
     for (owner, ty, values) in [
         (
             &wrong_owner,
-            AbiType::Tuple(vec![wrong_type, AbiType::Builtin(BuiltinType::Bool)]),
+            Ty::Tuple(vec![wrong_type, Ty::Builtin(BuiltinType::Bool)]),
             vec![Value::Tuple(vec![wrong_value, Value::Bool(true)])],
         ),
         (
             &module,
-            AbiType::Tuple(wrong_member_type.clone()),
+            Ty::Tuple(wrong_member_type.clone()),
             vec![Value::Tuple(vec![valid, Value::I32(1)])],
         ),
-        (&module, AbiType::Tuple(wrong_member_type), vec![]),
+        (&module, Ty::Tuple(wrong_member_type), vec![]),
     ] {
         let invalid = Value::Array(runtime.alloc_array(owner, ty, values).unwrap());
         let before = runtime.resources().counters();

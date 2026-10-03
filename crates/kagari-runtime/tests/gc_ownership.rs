@@ -1,9 +1,9 @@
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::collection::CollectionAccess;
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::module::LoadedModule;
 use kagari_runtime::{
     Runtime, error::RuntimeErrorKind, value::Value, value_semantics::script_equal,
@@ -30,14 +30,14 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     let own = first
         .alloc_array(
             &first_owner,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(1)],
         )
         .unwrap();
     let foreign = second
         .alloc_array(
             &second_owner,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(2)],
         )
         .unwrap();
@@ -68,8 +68,8 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
         first
             .alloc_array(
                 &first_owner,
-                AbiType::Array(
-                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                Ty::Array(
+                    Box::new(Ty::Builtin(BuiltinType::I32)),
                     CollectionAccess::Mutable
                 ),
                 vec![Value::Array(foreign)]
@@ -91,7 +91,7 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
     let object = runtime
         .alloc_array(
             &runtime_owner,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(42)],
         )
         .unwrap();
@@ -111,7 +111,7 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
     assert!(runtime.gc().array_len(object).is_none());
     assert!(runtime.root_value(naked_copy).is_none());
     let next = runtime
-        .alloc_array(&runtime_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&runtime_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     assert_eq!(next.index(), object.index());
     assert!(next.generation() > object.generation());
@@ -128,12 +128,12 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
     let mut foreign = Runtime::default();
     let foreign_owner = allocation_owner(&mut foreign);
     let array = runtime
-        .alloc_array(&runtime_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&runtime_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     let root = runtime.root_value(Value::Array(array)).unwrap();
     assert!(root.set(foreign.gc(), Value::Unit).is_none());
     let other = foreign
-        .alloc_array(&foreign_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     assert!(root.set(runtime.gc(), Value::Array(other)).is_none());
     let slots = runtime
@@ -162,7 +162,7 @@ fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_stora
     let object = runtime
         .alloc_array(
             &runtime_owner,
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(7)],
         )
         .unwrap();
@@ -189,10 +189,10 @@ fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
     let mut second = Runtime::default();
     let second_owner = allocation_owner(&mut second);
     let a = first
-        .alloc_array(&first_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&first_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     let b = second
-        .alloc_array(&second_owner, AbiType::Builtin(BuiltinType::I32), vec![])
+        .alloc_array(&second_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(a)).unwrap());
     assert!(identity_equal(first.gc(), &Value::Array(a), &Value::Array(b)).is_err());

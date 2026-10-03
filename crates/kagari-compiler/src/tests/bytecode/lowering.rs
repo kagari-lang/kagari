@@ -1,5 +1,5 @@
 use crate::tests::bytecode::*;
-use kagari_abi::effects::EffectSet;
+use kagari_contract::effects::EffectSet;
 
 use kagari_bytecode::{
     instruction::ConstantOperand, module::FunctionRecord, program::verify_program,

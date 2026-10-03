@@ -3,7 +3,7 @@ use crate::{
     passes::Work,
     verify::{MirVerificationError, VerifiedMirModule},
 };
-use kagari_abi::effects::EffectSet;
+use kagari_contract::effects::EffectSet;
 
 /// A backwards local sweep uses sealed live-outs, preserving cross-block uses.
 /// Skipping operands of removed operations also removes dead producer chains in

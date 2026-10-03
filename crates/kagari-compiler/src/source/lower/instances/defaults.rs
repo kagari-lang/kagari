@@ -3,8 +3,8 @@ use crate::source::{
     lower::{MirLoweringError, instances::InstancePlanner},
     types::raise_type,
 };
-use kagari_abi::native_import::NativeImport;
 use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_contract::native_import::NativeImport;
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     native::NativeBinding,

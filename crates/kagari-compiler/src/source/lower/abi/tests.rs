@@ -1,16 +1,16 @@
 use super::collect_module_abi;
-use kagari_abi::{
+use kagari_common::{
+    identity::associated_type_id,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_contract::{
     callable::CallableImplementation,
     language::{self as traits, Protocol},
     standard::surface::StandardEnum,
     types::{
-        self as abi, AbiType, NominalAbiType, PublicAbiItem, TypeAbiKind,
-        inheritance::trait_closure, native::NativeTypeConstructor, verify,
+        self as abi, NominalTy, PublicItem, Ty, TypeDefKind, inheritance::trait_closure,
+        native::NativeTypeConstructor, verify,
     },
-};
-use kagari_common::{
-    identity::associated_type_id,
-    source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
@@ -43,7 +43,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         );
         let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
-            matches!(item, PublicAbiItem::Type(ty) if matches!(ty.kind, TypeAbiKind::Native(_)))
+            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_)))
         }).collect();
         verify::validate(
             &native,
@@ -52,17 +52,17 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         )
         .unwrap();
         for item in &native {
-            let PublicAbiItem::Type(ty) = item else {
+            let PublicItem::Type(ty) = item else {
                 unreachable!()
             };
             assert!(ty.fields.is_empty());
             match ty.kind {
-                TypeAbiKind::Native(NativeTypeConstructor::Map) => {
+                TypeDefKind::Native(NativeTypeConstructor::Map) => {
                     assert_eq!(ty.name, "HashMap");
                     assert_eq!(ty.generic_params.len(), 2);
                     seen_map = true;
                 }
-                TypeAbiKind::Native(NativeTypeConstructor::Enum(StandardEnum::Result)) => {
+                TypeDefKind::Native(NativeTypeConstructor::Enum(StandardEnum::Result)) => {
                     assert_eq!(ty.name, "Result");
                     assert_eq!(
                         ty.variants
@@ -150,7 +150,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     }
     assert_eq!(contracts.len(), Protocol::ALL.len());
     for (id, record) in &contracts {
-        let interface = NominalAbiType {
+        let interface = NominalTy {
             declaration: id.clone(),
             arguments: record
                 .generic_params
@@ -162,7 +162,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
         assert!(
             trait_closure(
                 &interface,
-                &AbiType::SelfType(id.clone()),
+                &Ty::SelfType(id.clone()),
                 &Default::default(),
                 &|id| contracts.get(id)
             )
@@ -173,8 +173,8 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     }
     let add = traits::identity(Protocol::Add);
     let method = &contracts[&add].methods[0];
-    assert_eq!(method.params[0].ty, AbiType::SelfType(add.clone()));
-    let AbiType::Projection {
+    assert_eq!(method.params[0].ty, Ty::SelfType(add.clone()));
+    let Ty::Projection {
         receiver,
         interface,
         member,
@@ -183,7 +183,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     else {
         panic!("source-owned operator output projection");
     };
-    assert_eq!(**receiver, AbiType::SelfType(add.clone()));
+    assert_eq!(**receiver, Ty::SelfType(add.clone()));
     assert_eq!(interface.declaration, add);
     assert_eq!(*member, associated_type_id(&add, "Output"));
     assert!(arguments.is_empty());

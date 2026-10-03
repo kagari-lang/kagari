@@ -1,10 +1,10 @@
 //! Encode checked HIR types into portable semantic facts.
 use crate::types::{NominalType, TypeId};
-use kagari_abi::types::{AbiType, NominalAbiType};
 use kagari_common::identity::reference::DefinitionReference;
+use kagari_contract::types::{NominalTy, Ty};
 
-pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> NominalAbiType<I> {
-    NominalAbiType {
+pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> NominalTy<I> {
+    NominalTy {
         associated_types: ty
             .associated_types
             .iter()
@@ -15,48 +15,48 @@ pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> Nomina
     }
 }
 
-pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> AbiType<I> {
+pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
     match ty {
         TypeId::Projection {
             receiver,
             interface,
             member,
             arguments,
-        } => AbiType::Projection {
+        } => Ty::Projection {
             arguments: arguments.iter().map(lower_type).collect(),
             receiver: Box::new(lower_type(receiver)),
             interface: Box::new(lower_nominal_type(interface)),
             member: member.clone(),
         },
-        TypeId::Host(id) => AbiType::Host(id.clone()),
-        TypeId::Builtin(ty) => AbiType::Builtin(*ty),
-        TypeId::Tuple(elements) => AbiType::Tuple(elements.iter().map(lower_type).collect()),
-        TypeId::Function { params, result } => AbiType::Function {
+        TypeId::Host(id) => Ty::Host(id.clone()),
+        TypeId::Builtin(ty) => Ty::Builtin(*ty),
+        TypeId::Tuple(elements) => Ty::Tuple(elements.iter().map(lower_type).collect()),
+        TypeId::Function { params, result } => Ty::Function {
             params: params.iter().map(lower_type).collect(),
             result: Box::new(lower_type(result)),
         },
-        TypeId::Range(element, kind) => AbiType::Range(Box::new(lower_type(element)), *kind),
-        TypeId::Iter(element) => AbiType::Iter(Box::new(lower_type(element))),
-        TypeId::Array(element, access) => AbiType::Array(Box::new(lower_type(element)), *access),
-        TypeId::Map { key, value, access } => AbiType::Map {
+        TypeId::Range(element, kind) => Ty::Range(Box::new(lower_type(element)), *kind),
+        TypeId::Iter(element) => Ty::Iter(Box::new(lower_type(element))),
+        TypeId::Array(element, access) => Ty::Array(Box::new(lower_type(element)), *access),
+        TypeId::Map { key, value, access } => Ty::Map {
             key: Box::new(lower_type(key)),
             value: Box::new(lower_type(value)),
             access: *access,
         },
-        TypeId::Set(element, access) => AbiType::Set(Box::new(lower_type(element)), *access),
-        TypeId::NativeObject(ty) => AbiType::NativeObject(lower_nominal_type(ty)),
-        TypeId::Struct(ty) => AbiType::Struct(lower_nominal_type(ty)),
-        TypeId::Enum(ty) => AbiType::Enum(lower_nominal_type(ty)),
-        TypeId::Trait(ty) => AbiType::Trait(lower_nominal_type(ty)),
-        TypeId::StandardEnum { kind, args } => AbiType::StandardEnum {
+        TypeId::Set(element, access) => Ty::Set(Box::new(lower_type(element)), *access),
+        TypeId::NativeObject(ty) => Ty::NativeObject(lower_nominal_type(ty)),
+        TypeId::Struct(ty) => Ty::Struct(lower_nominal_type(ty)),
+        TypeId::Enum(ty) => Ty::Enum(lower_nominal_type(ty)),
+        TypeId::Trait(ty) => Ty::Trait(lower_nominal_type(ty)),
+        TypeId::StandardEnum { kind, args } => Ty::StandardEnum {
             kind: *kind,
             args: args.iter().map(lower_type).collect(),
         },
-        TypeId::Generic(parameter) => AbiType::Parameter {
+        TypeId::Generic(parameter) => Ty::Parameter {
             owner: parameter.owner.clone(),
             position: parameter.position,
         },
-        TypeId::SelfType(owner) => AbiType::SelfType(owner.clone()),
+        TypeId::SelfType(owner) => Ty::SelfType(owner.clone()),
         TypeId::Inference(_) | TypeId::Unknown | TypeId::Error => {
             unreachable!("non-concrete type reached concrete ABI encoding")
         }

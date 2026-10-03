@@ -20,20 +20,22 @@ use crate::{
 };
 use kagari_bytecode::module::CallableTarget;
 
-use kagari_abi::{
-    ids::FunctionRef,
-    operations::IterOp,
-    representation::ValueType,
-    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, substitution::TypeSubstitution},
-};
 use kagari_common::identity::{DefinitionKind, reference::DefinitionReference};
 use std::{cell::OnceCell, rc::Rc, slice};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        ids::FunctionRef,
+        operations::IterOp,
+        types::{self as abi, NominalTy, PublicItem, Ty, substitution::TypeSubstitution},
+    },
+};
 
 impl Runtime {
     pub fn alloc_array(
         &self,
         owner: &LoadedModule,
-        element: AbiType<DefinitionId>,
+        element: Ty<DefinitionId>,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.validate_loaded_module(owner)?;
@@ -44,7 +46,7 @@ impl Runtime {
     pub fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,
-        element: AbiType<DefinitionId>,
+        element: Ty<DefinitionId>,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
@@ -157,9 +159,7 @@ impl Runtime {
             .interface_tables
             .get(table_index)
             .ok_or_else(invalid)?;
-        if linked.arguments.iter().all(AbiType::is_concrete)
-            && linked.arguments != concrete_arguments
-        {
+        if linked.arguments.iter().all(Ty::is_concrete) && linked.arguments != concrete_arguments {
             return Err(invalid());
         }
         let template = implementation
@@ -167,7 +167,7 @@ impl Runtime {
             .public_items
             .iter()
             .find_map(|item| match item {
-                PublicAbiItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+                PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
                     Some(table.as_ref())
                 }
                 _ => None,
@@ -193,7 +193,7 @@ impl Runtime {
         if !concrete_type.is_concrete() {
             return Err(invalid());
         }
-        let AbiType::Trait(interface_type) = &table.trait_type else {
+        let Ty::Trait(interface_type) = &table.trait_type else {
             return Err(invalid());
         };
         if !table.trait_type.is_concrete() {
@@ -339,7 +339,7 @@ impl Runtime {
             interface_expression: match view {
                 Some(view) => view.interface.clone(),
                 None => match &template.trait_type {
-                    AbiType::Trait(ty) => ty.clone(),
+                    Ty::Trait(ty) => ty.clone(),
                     _ => return Err(invalid()),
                 },
             },
@@ -391,7 +391,7 @@ impl Runtime {
     fn parent_snapshot(
         &self,
         snapshot: &InterfaceValueSnapshot,
-        target: &NominalAbiType<DefinitionId>,
+        target: &NominalTy<DefinitionId>,
     ) -> Result<Rc<InterfaceValueSnapshot>, RuntimeError> {
         let parent = snapshot
             .parents
@@ -495,7 +495,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         value: &value::Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         op: IterOp,
     ) -> Result<value::Value, RuntimeError> {
         let ty = self
@@ -518,13 +518,13 @@ impl Runtime {
             IterOp::String(kind) => self.gc.new_string_iter(value, ty.ty(), kind, owner),
             IterOp::New => {
                 let item = ty.derive(self, owner, |ty| match ty {
-                    AbiType::Range(item, _) | AbiType::Array(item, _) | AbiType::Set(item, _) => {
+                    Ty::Range(item, _) | Ty::Array(item, _) | Ty::Set(item, _) => {
                         Some((**item).clone())
                     }
-                    AbiType::Map { key, value, .. } => {
-                        Some(AbiType::Tuple(vec![(**key).clone(), (**value).clone()]))
+                    Ty::Map { key, value, .. } => {
+                        Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
                     }
-                    AbiType::Builtin(_) => Some(ty.clone()),
+                    Ty::Builtin(_) => Some(ty.clone()),
                     _ => None,
                 })?;
                 self.gc.new_iter(value, ty, item, owner)
@@ -656,8 +656,8 @@ impl Runtime {
     pub fn upcast_interface(
         &self,
         value: &value::Value,
-        source: &NominalAbiType<DefinitionId>,
-        target: &NominalAbiType<DefinitionId>,
+        source: &NominalTy<DefinitionId>,
+        target: &NominalTy<DefinitionId>,
     ) -> Result<value::Value, RuntimeError> {
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
@@ -680,7 +680,7 @@ impl Runtime {
     pub fn resolve_interface_method_slot(
         &self,
         value: &Value,
-        interface: &NominalAbiType<DefinitionId>,
+        interface: &NominalTy<DefinitionId>,
         slot: usize,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
@@ -803,20 +803,20 @@ impl Runtime {
     pub(super) fn matches_interface_method_abi(
         &self,
         value: &value::Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         implementation: &LoadedModule,
     ) -> bool {
         if !self.gc.validate_value(value) {
             return false;
         }
         match (value, ty) {
-            (Value::Tuple(values), AbiType::Tuple(types)) => {
+            (Value::Tuple(values), Ty::Tuple(types)) => {
                 values.len() == types.len()
                     && values.iter().zip(types).all(|(value, ty)| {
                         self.matches_interface_method_abi(value, ty, implementation)
                     })
             }
-            (Value::HostRoot(root), AbiType::Host(id)) => {
+            (Value::HostRoot(root), Ty::Host(id)) => {
                 self.host.matches_root(*root)
                     && implementation.host_type(*id) == Some(root.type_id())
             }

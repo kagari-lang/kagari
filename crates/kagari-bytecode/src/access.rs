@@ -1,13 +1,13 @@
 //! Access-flow validation runs after physical operand and layout validation.
+use kagari_contract::representation::builtin_representation;
 
-use kagari_abi::{
+use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
+use kagari_contract::{
     operations::{IterOp, StandardEnumOp},
-    representation::ValueType,
     scalar::BuiltinType as B,
     standard::{RuntimePrimitive as S, surface::StandardEnum},
-    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, access},
+    types::{self as abi, NominalTy, PublicItem, Ty, access},
 };
-use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
 
 use crate::{
     instruction::{BytecodeInstruction as I, CallTarget, ConstantOperand, Register, RuntimeHelper},
@@ -19,12 +19,12 @@ use crate::{
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {
-    ty: Option<AbiType>,
+    ty: Option<Ty>,
     access: Option<Access>,
 }
 
 impl Fact {
-    fn typed(ty: AbiType) -> Self {
+    fn typed(ty: Ty) -> Self {
         let access = ty.collection_access();
         Self {
             ty: Some(ty),
@@ -33,7 +33,7 @@ impl Fact {
     }
 }
 
-fn flows(source: &Fact, target: &AbiType) -> bool {
+fn flows(source: &Fact, target: &Ty) -> bool {
     if source.access == Some(Access::ReadOnly)
         && target.collection_access() == Some(Access::Mutable)
     {
@@ -116,10 +116,10 @@ pub(super) fn verify(
             .collect::<Vec<_>>()
             .join("::");
         if let Some(abi) = module.public_items.iter().find_map(|item| match item {
-            PublicAbiItem::Function(abi) if abi.name == name => Some(abi),
+            PublicItem::Function(abi) if abi.name == name => Some(abi),
             _ => None,
         }) {
-            let apply = |ty: &AbiType| ty.instantiate(&identity.declaration, &identity.arguments);
+            let apply = |ty: &Ty| ty.instantiate(&identity.declaration, &identity.arguments);
             if abi.params.len() != semantic.params.len()
                 || abi
                     .params
@@ -189,19 +189,17 @@ pub(super) fn verify(
                         _ => None,
                     };
                     let ty = if let Some(value) = number
-                        && let Some(AbiType::Builtin(declared)) =
-                            semantic.registers.get(&dst.index())
+                        && let Some(Ty::Builtin(declared)) = semantic.registers.get(&dst.index())
                         && declared
                             .integer_bounds()
                             .is_some_and(|(min, max)| (min..=max).contains(&value))
-                        && ValueType::from_builtin_type(*declared)
-                            == ValueType::from_builtin_type(ty)
+                        && builtin_representation(*declared) == builtin_representation(ty)
                     {
                         *declared
                     } else {
                         ty
                     };
-                    produced = Some((*dst, Fact::typed(AbiType::Builtin(ty))));
+                    produced = Some((*dst, Fact::typed(Ty::Builtin(ty))));
                 }
                 I::Move { dst, src } => {
                     if let Some(value) = get(*src) {
@@ -246,7 +244,7 @@ pub(super) fn verify(
                     end,
                     ty,
                 } => {
-                    let AbiType::Range(item, _) = ty else {
+                    let Ty::Range(item, _) = ty else {
                         return Err(invalid());
                     };
                     for register in start.iter().chain(end) {
@@ -288,12 +286,12 @@ pub(super) fn verify(
                         ) {
                             return Err(invalid());
                         }
-                        if !flows(&count, &AbiType::Builtin(B::USize)) {
+                        if !flows(&count, &Ty::Builtin(B::USize)) {
                             return Err(invalid());
                         }
                         produced = Some((
                             *dst,
-                            Fact::typed(AbiType::Array(Box::new(element.clone()), Access::Mutable)),
+                            Fact::typed(Ty::Array(Box::new(element.clone()), Access::Mutable)),
                         ));
                     }
                 }
@@ -318,7 +316,7 @@ pub(super) fn verify(
                         }
                         produced = Some((
                             *dst,
-                            Fact::typed(AbiType::Array(Box::new(element.clone()), Access::Mutable)),
+                            Fact::typed(Ty::Array(Box::new(element.clone()), Access::Mutable)),
                         ));
                     }
                 }
@@ -331,7 +329,7 @@ pub(super) fn verify(
                         produced = Some((
                             *dst,
                             members
-                                .map(|m| Fact::typed(AbiType::Tuple(m)))
+                                .map(|m| Fact::typed(Ty::Tuple(m)))
                                 .unwrap_or_default(),
                         ));
                     }
@@ -341,7 +339,7 @@ pub(super) fn verify(
                         .apply(&field.arguments, &Default::default())
                         .ok_or_else(invalid)?;
                     if let Some(Fact {
-                        ty: Some(AbiType::Struct(ty)),
+                        ty: Some(Ty::Struct(ty)),
                         ..
                     }) = get(*base)
                         && (ty.declaration != layout.declaration
@@ -359,7 +357,7 @@ pub(super) fn verify(
                         .apply(&field.arguments, &Default::default())
                         .ok_or_else(invalid)?;
                     if let Some(Fact {
-                        ty: Some(AbiType::Struct(ty)),
+                        ty: Some(Ty::Struct(ty)),
                         ..
                     }) = get(*base)
                         && (ty.declaration != layout.declaration
@@ -385,7 +383,7 @@ pub(super) fn verify(
                         .apply(arguments, &Default::default())
                         .ok_or_else(invalid)?;
                     if let Some(Fact {
-                        ty: Some(AbiType::Enum(ty)),
+                        ty: Some(Ty::Enum(ty)),
                         ..
                     }) = get(*value)
                         && (ty.declaration != layout.declaration
@@ -403,8 +401,8 @@ pub(super) fn verify(
                 I::ReadAggregateIndex { dst, base, index } => {
                     if let Some(base) = get(*base) {
                         let ty = match base.ty {
-                            Some(AbiType::Array(item, _)) => Some(*item),
-                            Some(AbiType::Tuple(items)) => {
+                            Some(Ty::Array(item, _)) => Some(*item),
+                            Some(Ty::Tuple(items)) => {
                                 if let Some(index) = constants[index.index()] {
                                     items.get(index).cloned()
                                 } else if items.windows(2).all(|pair| pair[0] == pair[1]) {
@@ -423,8 +421,7 @@ pub(super) fn verify(
                         if base.access == Some(Access::ReadOnly) {
                             return Err(invalid());
                         }
-                        if let (Some(AbiType::Array(item, _)), Some(value)) =
-                            (&base.ty, get(*value))
+                        if let (Some(Ty::Array(item, _)), Some(value)) = (&base.ty, get(*value))
                             && !flows(&value, item)
                         {
                             return Err(invalid());
@@ -438,7 +435,7 @@ pub(super) fn verify(
                     {
                         return Err(invalid());
                     }
-                    if let AbiType::StandardEnum { args, .. } = ty {
+                    if let Ty::StandardEnum { args, .. } = ty {
                         match op {
                             StandardEnumOp::Make(index) => {
                                 let member = if args.len() == 2 { *index as usize } else { 0 };
@@ -456,7 +453,7 @@ pub(super) fn verify(
                                     args.get(member).cloned().map(|ty| (*dst, Fact::typed(ty)));
                             }
                             StandardEnumOp::Test(_) => {
-                                produced = Some((*dst, Fact::typed(AbiType::Builtin(B::Bool))))
+                                produced = Some((*dst, Fact::typed(Ty::Builtin(B::Bool))))
                             }
                         }
                     }
@@ -468,19 +465,19 @@ pub(super) fn verify(
                         return Err(invalid());
                     }
                     let item = match ty {
-                        AbiType::Tuple(_) if matches!(op, IterOp::String(_)) => {
+                        Ty::Tuple(_) if matches!(op, IterOp::String(_)) => {
                             let IterOp::String(kind) = op else {
                                 unreachable!()
                             };
                             Some(kind.item_type())
                         }
-                        AbiType::Builtin(B::String) => Some(AbiType::Builtin(B::String)),
-                        AbiType::Range(item, _)
-                        | AbiType::Array(item, _)
-                        | AbiType::Set(item, _)
-                        | AbiType::Iter(item) => Some((**item).clone()),
-                        AbiType::Map { key, value, .. } => {
-                            Some(AbiType::Tuple(vec![(**key).clone(), (**value).clone()]))
+                        Ty::Builtin(B::String) => Some(Ty::Builtin(B::String)),
+                        Ty::Range(item, _)
+                        | Ty::Array(item, _)
+                        | Ty::Set(item, _)
+                        | Ty::Iter(item) => Some((**item).clone()),
+                        Ty::Map { key, value, .. } => {
+                            Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
                         }
                         _ => None,
                     };
@@ -488,12 +485,12 @@ pub(super) fn verify(
                         (
                             *dst,
                             Fact::typed(match op {
-                                IterOp::New | IterOp::String(_) => AbiType::Iter(Box::new(item)),
-                                IterOp::Next => AbiType::StandardEnum {
+                                IterOp::New | IterOp::String(_) => Ty::Iter(Box::new(item)),
+                                IterOp::Next => Ty::StandardEnum {
                                     kind: StandardEnum::Option,
                                     args: vec![item],
                                 },
-                                _ => AbiType::Builtin(B::Unit),
+                                _ => Ty::Builtin(B::Unit),
                             }),
                         )
                     });
@@ -516,7 +513,7 @@ pub(super) fn verify(
                     }
                     produced = Some((
                         *dst,
-                        Fact::typed(AbiType::Struct(NominalAbiType {
+                        Fact::typed(Ty::Struct(NominalTy {
                             declaration: layout.declaration.clone(),
                             arguments: layout.arguments.clone(),
                             associated_types: Default::default(),
@@ -545,7 +542,7 @@ pub(super) fn verify(
                     }
                     produced = Some((
                         *dst,
-                        Fact::typed(AbiType::Enum(NominalAbiType {
+                        Fact::typed(Ty::Enum(NominalTy {
                             declaration: layout.declaration.clone(),
                             arguments: layout.arguments.clone(),
                             associated_types: Default::default(),
@@ -572,7 +569,7 @@ pub(super) fn verify(
                         .collect::<Option<Vec<_>>>();
                     let ty = params
                         .zip(signature.result.clone())
-                        .map(|(params, result)| AbiType::Function {
+                        .map(|(params, result)| Ty::Function {
                             params,
                             result: Box::new(result),
                         });
@@ -596,7 +593,7 @@ pub(super) fn verify(
                         .public_items
                         .iter()
                         .find_map(|item| match item {
-                            PublicAbiItem::InterfaceTable(table)
+                            PublicItem::InterfaceTable(table)
                                 if table.declaration == linked.declaration =>
                             {
                                 table.instantiate_in(
@@ -626,11 +623,11 @@ pub(super) fn verify(
                     target,
                 } => {
                     if let Some(value) = get(*value)
-                        && !flows(&value, &AbiType::Trait(source.clone()))
+                        && !flows(&value, &Ty::Trait(source.clone()))
                     {
                         return Err(invalid());
                     }
-                    produced = Some((*dst, Fact::typed(AbiType::Trait(target.clone()))));
+                    produced = Some((*dst, Fact::typed(Ty::Trait(target.clone()))));
                 }
                 I::Convert {
                     dst,
@@ -665,7 +662,7 @@ pub(super) fn verify(
                     produced = Some((*dst, Fact::typed(output)));
                 }
                 I::MapResultError { dst, error, ty, .. } => {
-                    if let (Some(value), AbiType::StandardEnum { args, .. }) = (get(*error), ty)
+                    if let (Some(value), Ty::StandardEnum { args, .. }) = (get(*error), ty)
                         && !flows(&value, &args[1])
                     {
                         return Err(invalid());
@@ -680,7 +677,7 @@ pub(super) fn verify(
                         .iter()
                         .filter_map(|p| p.contract(&module.host_interface).ok())
                         .find(|p| p.fingerprint().ok() == Some(record.contract_fingerprint))
-                        .map(|p| AbiType::from_host_type(&p.result));
+                        .map(|p| Ty::from_host_type(&p.result));
                     if let (Some(value), Some(expected)) = (get(*value), ty)
                         && !flows(&value, &expected)
                     {
@@ -695,7 +692,7 @@ pub(super) fn verify(
                         .iter()
                         .filter_map(|p| p.contract(&module.host_interface).ok())
                         .find(|p| p.fingerprint().ok() == Some(record.contract_fingerprint))
-                        .map(|p| AbiType::from_host_type(&p.result));
+                        .map(|p| Ty::from_host_type(&p.result));
                     produced = Some((*dst, ty.map(Fact::typed).unwrap_or_default()));
                 }
                 I::MakeCell { dst, value } => {
@@ -725,13 +722,15 @@ pub(super) fn verify(
                     match callee {
                         CallTarget::RuntimePrimitive(intrinsic) => {
                             if *intrinsic == S::StringPartsJoin {
-                                if facts[0].ty.as_ref().is_some_and(|ty| !matches!(ty,
-                                    AbiType::Array(item, _) if **item == AbiType::Builtin(B::String))) {
+                                if facts[0].ty.as_ref().is_some_and(|ty| {
+                                    !matches!(ty,
+                                    Ty::Array(item, _) if **item == Ty::Builtin(B::String))
+                                }) {
                                     return Err(invalid());
                                 }
-                                result = Fact::typed(AbiType::Builtin(B::String));
+                                result = Fact::typed(Ty::Builtin(B::String));
                             } else if matches!(intrinsic, S::ValueDebug | S::ValueDisplay) {
-                                result = Fact::typed(AbiType::Builtin(B::String));
+                                result = Fact::typed(Ty::Builtin(B::String));
                             }
                         }
                         CallTarget::Shared { contract, .. } => {
@@ -784,14 +783,14 @@ pub(super) fn verify(
                                 if !flows(&facts[0], required) {
                                     return Err(invalid());
                                 }
-                            } else if let Some(AbiType::Trait(actual)) = &facts[0].ty {
+                            } else if let Some(Ty::Trait(actual)) = &facts[0].ty {
                                 let modules: Vec<_> = program.map_or_else(
                                     || vec![module],
                                     |program| program.modules.iter().collect(),
                                 );
                                 if !trait_bounds::interface_views(
                                     actual,
-                                    &AbiType::Trait(actual.clone()),
+                                    &Ty::Trait(actual.clone()),
                                     &modules,
                                 )
                                 .is_some_and(|parents| parents.contains(interface))
@@ -823,7 +822,7 @@ pub(super) fn verify(
                             RuntimeHelper::ReflectGetField(name)
                             | RuntimeHelper::ReflectSetField(name),
                         ) => {
-                            if let Some(AbiType::Struct(nominal)) = &facts[0].ty
+                            if let Some(Ty::Struct(nominal)) = &facts[0].ty
                                 && let Some(field) = module
                                     .structures
                                     .iter()
@@ -850,7 +849,7 @@ pub(super) fn verify(
                             if facts[0].access == Some(Access::ReadOnly) {
                                 return Err(invalid());
                             }
-                            if let Some(AbiType::Array(item, _)) = &facts[0].ty
+                            if let Some(Ty::Array(item, _)) = &facts[0].ty
                                 && !flows(&facts[2], item)
                             {
                                 return Err(invalid());
@@ -860,7 +859,7 @@ pub(super) fn verify(
                         CallTarget::ClosureRegister { register, .. } => {
                             if let Some(Fact {
                                 ty:
-                                    Some(AbiType::Function {
+                                    Some(Ty::Function {
                                         params,
                                         result: output,
                                     }),

@@ -5,7 +5,7 @@ use kagari_bytecode::{
     verifier::BytecodeVerificationError,
 };
 
-use kagari_abi::{contracts::ContractError, representation::ValueType};
+use {kagari_abi::representation::ValueType, kagari_contract::contracts::ContractError};
 
 use kagari_mir::{
     ids::TempId,

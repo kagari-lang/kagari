@@ -1,7 +1,7 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
-use kagari_abi::{standard::surface::StandardEnum as StandardEnumKind, types::AbiType};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{standard::surface::StandardEnum as StandardEnumKind, types::Ty};
 
 use crate::{
     Runtime,
@@ -233,10 +233,10 @@ impl Runtime {
         owner: &LoadedModule,
         original: &Value,
         error: Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
     ) -> Result<Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
-        if let AbiType::StandardEnum {
+        if let Ty::StandardEnum {
             kind: StandardEnumKind::Result,
             args,
         } = ty

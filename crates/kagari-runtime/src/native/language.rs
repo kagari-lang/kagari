@@ -4,13 +4,13 @@ use crate::native::{
     catalog::DeclarationCatalog,
     types::{TraitRef, Type},
 };
-use kagari_abi::{
+use kagari_common::collection::CollectionAccess;
+use kagari_contract::{
     declaration::ModuleDecl,
     language::{self, Protocol, catalog},
     standard::surface::StandardEnum,
-    types::AbiType,
+    types::Ty,
 };
-use kagari_common::collection::CollectionAccess;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -98,15 +98,15 @@ impl LanguageContracts {
     }
 
     pub fn array_list(&self, item: Type) -> Type {
-        Type(AbiType::Array(Box::new(item.0), CollectionAccess::Mutable))
+        Type(Ty::Array(Box::new(item.0), CollectionAccess::Mutable))
     }
 
     pub fn collection_cursor(&self, item: Type) -> Type {
-        Type(AbiType::Iter(Box::new(item.0)))
+        Type(Ty::Iter(Box::new(item.0)))
     }
 
     pub fn hash_map(&self, key: Type, value: Type) -> Type {
-        Type(AbiType::Map {
+        Type(Ty::Map {
             key: Box::new(key.0),
             value: Box::new(value.0),
             access: CollectionAccess::Mutable,
@@ -114,18 +114,18 @@ impl LanguageContracts {
     }
 
     pub fn hash_set(&self, item: Type) -> Type {
-        Type(AbiType::Set(Box::new(item.0), CollectionAccess::Mutable))
+        Type(Ty::Set(Box::new(item.0), CollectionAccess::Mutable))
     }
 
     pub fn option(&self, item: Type) -> Type {
-        Type(AbiType::StandardEnum {
+        Type(Ty::StandardEnum {
             kind: StandardEnum::Option,
             args: vec![item.0],
         })
     }
 
     pub fn ordering(&self) -> Type {
-        Type(AbiType::StandardEnum {
+        Type(Ty::StandardEnum {
             kind: StandardEnum::Ordering,
             args: vec![],
         })

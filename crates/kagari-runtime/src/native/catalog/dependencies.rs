@@ -1,15 +1,15 @@
 //! Retain referenced contracts, not arbitrary authority from an authoring view.
 use crate::{error::RuntimeError, native::catalog::DeclarationCatalog};
-use kagari_abi::{
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_contract::{
     callable::CallableImplementation,
     declaration::ModuleDecl,
     types::{
-        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, NativeDeclaration, NominalAbiType,
+        Constraint, FnDecl, GenericBound, NativeDeclaration, NominalTy, Ty,
         matching::{ImplementationPattern, match_pattern},
         proofs::{ProofCatalog, implementation::Implementation},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use std::{collections::BTreeSet, iter};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -17,7 +17,7 @@ enum Reference {
     Type(DefinitionPath),
     Trait(DefinitionPath),
     Template(DefinitionPath),
-    Obligation(AbiType, NominalAbiType),
+    Obligation(Ty, NominalTy),
     Implementation(DefinitionPath),
 }
 
@@ -35,7 +35,7 @@ pub(crate) struct DependencyClosure {
 }
 
 impl References {
-    fn nominal(&mut self, nominal: &NominalAbiType) -> Result<(), RuntimeError> {
+    fn nominal(&mut self, nominal: &NominalTy) -> Result<(), RuntimeError> {
         self.pending
             .push(Reference::Trait(nominal.declaration.clone()));
         for ty in nominal
@@ -48,7 +48,7 @@ impl References {
         Ok(())
     }
 
-    fn ty(&mut self, ty: &AbiType) -> Result<(), RuntimeError> {
+    fn ty(&mut self, ty: &Ty) -> Result<(), RuntimeError> {
         if !ty.within_wire_limits() {
             return Err(RuntimeError::metadata_conflict(
                 "oversized native dependency type",
@@ -57,22 +57,22 @@ impl References {
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {
             match ty {
-                AbiType::NativeObject(nominal)
-                | AbiType::Trait(nominal)
-                | AbiType::Struct(nominal)
-                | AbiType::Enum(nominal) => {
-                    if matches!(ty, AbiType::NativeObject(_)) {
+                Ty::NativeObject(nominal)
+                | Ty::Trait(nominal)
+                | Ty::Struct(nominal)
+                | Ty::Enum(nominal) => {
+                    if matches!(ty, Ty::NativeObject(_)) {
                         self.pending
                             .push(Reference::Type(nominal.declaration.clone()));
                     }
-                    if matches!(ty, AbiType::Trait(_)) {
+                    if matches!(ty, Ty::Trait(_)) {
                         self.pending
                             .push(Reference::Trait(nominal.declaration.clone()));
                     }
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
                 }
-                AbiType::Projection {
+                Ty::Projection {
                     receiver,
                     interface,
                     arguments,
@@ -85,45 +85,39 @@ impl References {
                     pending.extend(interface.associated_types.values());
                     pending.extend(arguments);
                 }
-                AbiType::Array(item, _)
-                | AbiType::Set(item, _)
-                | AbiType::Iter(item)
-                | AbiType::Range(item, _) => pending.push(item),
-                AbiType::Map { key, value, .. } => {
+                Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
+                    pending.push(item)
+                }
+                Ty::Map { key, value, .. } => {
                     pending.push(key);
                     pending.push(value);
                 }
-                AbiType::Tuple(items) | AbiType::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
-                AbiType::Function { params, result } => {
+                Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => pending.extend(items),
+                Ty::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
                 }
-                AbiType::Builtin(_)
-                | AbiType::Parameter { .. }
-                | AbiType::SelfType(_)
-                | AbiType::Host { .. } => {}
+                Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Host { .. } => {}
             }
         }
         Ok(())
     }
 
-    fn constraints(&mut self, constraints: &[ConstraintAbi]) -> Result<(), RuntimeError> {
+    fn constraints(&mut self, constraints: &[Constraint]) -> Result<(), RuntimeError> {
         for constraint in constraints {
-            if let ConstraintAbi::Trait(nominal) = constraint {
+            if let Constraint::Trait(nominal) = constraint {
                 self.nominal(nominal)?;
             }
         }
         Ok(())
     }
 
-    fn bounds(&mut self, bounds: &[GenericBoundAbi]) -> Result<(), RuntimeError> {
+    fn bounds(&mut self, bounds: &[GenericBound]) -> Result<(), RuntimeError> {
         for bound in bounds {
             self.ty(&bound.ty)?;
             self.constraints(&bound.constraints)?;
             for constraint in &bound.constraints {
-                if let ConstraintAbi::Trait(interface) = constraint {
+                if let Constraint::Trait(interface) = constraint {
                     self.pending
                         .push(Reference::Obligation(bound.ty.clone(), interface.clone()));
                 }
@@ -132,7 +126,7 @@ impl References {
         Ok(())
     }
 
-    fn function(&mut self, function: &FunctionAbi) -> Result<(), RuntimeError> {
+    fn function(&mut self, function: &FnDecl) -> Result<(), RuntimeError> {
         self.bounds(&function.bounds)?;
         for ty in function
             .params
@@ -156,7 +150,7 @@ impl References {
         self.function(&declaration.function)?;
         if let Some(receiver) = &declaration.concrete_result {
             self.ty(receiver)?;
-            if let AbiType::Trait(interface) = &declaration.function.return_type {
+            if let Ty::Trait(interface) = &declaration.function.return_type {
                 self.pending
                     .push(Reference::Obligation(receiver.clone(), interface.clone()));
             }
@@ -342,7 +336,7 @@ impl DeclarationCatalog<DefinitionPath> {
         })?;
         for declaration in self.declarations.values() {
             if let Some(receiver) = &declaration.concrete_result {
-                let AbiType::Trait(interface) = &declaration.function.return_type else {
+                let Ty::Trait(interface) = &declaration.function.return_type else {
                     return Err(RuntimeError::metadata_conflict(
                         "native concrete result requires an interface return",
                     ));
@@ -350,7 +344,7 @@ impl DeclarationCatalog<DefinitionPath> {
                 if !catalog
                     .constraints_hold(
                         receiver,
-                        &[ConstraintAbi::Trait(interface.clone())],
+                        &[Constraint::Trait(interface.clone())],
                         &declaration.function.bounds,
                         &CancellationToken::default(),
                     )

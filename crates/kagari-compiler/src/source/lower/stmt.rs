@@ -15,9 +15,11 @@ use kagari_hir::{
     types::TypeId,
 };
 
-use kagari_abi::{
-    language::Protocol, operations::StandardEnumOp, representation::ValueType,
-    standard::surface::StandardEnum,
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        language::Protocol, operations::StandardEnumOp, standard::surface::StandardEnum,
+    },
 };
 
 use kagari_mir::instruction::{Instruction, MirValue, Terminator};

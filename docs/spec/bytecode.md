@@ -904,7 +904,7 @@ belong to the remaining R10/R14 work.
 
 Source nominal host types use `ValueType::HostHandle`, separate from `HeapObject`.
 Opaque host call operands/results must match that representation; general equality
-is invalid for it. Host identity remains in `AbiType::Host` and the required host
+is invalid for it. Host identity remains in `Ty::Host` and the required host
 declaration table, never in a display-string fallback. Signature-only references
 and member reference closure participate in mandatory linking. This representation
 does not enable storing host handles in default script-owned heap payloads.

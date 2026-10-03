@@ -9,10 +9,6 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 
-use kagari_abi::{
-    host::satisfies_standard_constraint, language::Protocol, scalar::BuiltinType,
-    standard::surface::StandardEnum,
-};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     diagnostic::{Diagnostic, DiagnosticKind},
@@ -26,6 +22,10 @@ use kagari_common::{
     },
     identity::{DefinitionPath, ModuleIdentity},
     span::Span,
+};
+use kagari_contract::{
+    host::satisfies_standard_constraint, language::Protocol, scalar::BuiltinType,
+    standard::surface::StandardEnum,
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},

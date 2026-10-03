@@ -1,3 +1,4 @@
+use kagari_hir::native::render::declaration_source;
 use std::sync::Arc;
 mod library_mapping;
 mod list_failures;
@@ -295,7 +296,7 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
 #[test]
 fn generated_library_declarations_supply_navigation_docs_and_exported_signatures() {
     let library = collections::module().unwrap();
-    let generated = library.declaration_source();
+    let generated = declaration_source(&library.to_declaration().unwrap()).unwrap();
     let text = "use std::collections::map; fn main() { val values = map([2,1], |value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources

@@ -1,10 +1,10 @@
-use kagari_abi::ids::{DebugPointId, FunctionRef};
 use kagari_bytecode::{
     instruction::LocalSlot,
     module::{BytecodeFunction, CallableTarget, SafeDebugPoint},
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
+use kagari_contract::ids::{DebugPointId, FunctionRef};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},

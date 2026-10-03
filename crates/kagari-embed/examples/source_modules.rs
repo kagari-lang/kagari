@@ -1,6 +1,6 @@
 //! Query source dependencies, then encode, load and execute their shared program.
 
-use kagari_abi::types::{AbiType, PublicAbiItem};
+use kagari_contract::types::{PublicItem, Ty};
 
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
@@ -103,7 +103,7 @@ fn main() {
     let encoded = artifact.to_bytes().unwrap();
     let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
     let root_bytecode = &decoded.program.modules[decoded.program.root.index()];
-    let PublicAbiItem::Function(make) = root_bytecode
+    let PublicItem::Function(make) = root_bytecode
         .public_items
         .iter()
         .find(|item| item.name() == "make")
@@ -111,7 +111,7 @@ fn main() {
     else {
         panic!("public make signature")
     };
-    let AbiType::Struct(result) = &make.return_type else {
+    let Ty::Struct(result) = &make.return_type else {
         panic!("nominal return type")
     };
     assert_eq!(result.declaration.module, identity("shared"));

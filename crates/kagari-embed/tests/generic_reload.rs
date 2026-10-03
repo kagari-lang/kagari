@@ -1,7 +1,7 @@
 #![cfg(feature = "source")]
-use kagari_abi::declaration::ModuleDecl;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::source::SourceFile;
+use kagari_contract::declaration::ModuleDecl;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine};
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 use kagari_vm::vm::Vm;

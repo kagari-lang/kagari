@@ -1,5 +1,5 @@
 use super::compile_program;
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{Runtime, value::Value};
 use kagari_vm::vm::Vm;
 
@@ -56,7 +56,7 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     let local = runtime
         .alloc_array(
             candidate.module(),
-            AbiType::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(1)],
         )
         .unwrap();

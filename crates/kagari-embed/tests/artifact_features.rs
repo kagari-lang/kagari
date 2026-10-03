@@ -170,14 +170,6 @@ fn portable_fixture_matches_source_emission() {
 #[cfg(feature = "native")]
 mod native {
     use super::*;
-    use kagari_abi::{
-        ids::FunctionRef,
-        native::{
-            BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
-            NativeCodeOwner, NativeCompilationProduct,
-        },
-        native_call::{JIT_STATUS_OK, JitValue},
-    };
     use kagari_codegen::{
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
     };
@@ -185,6 +177,16 @@ mod native {
     use kagari_runtime::jit_abi::jit_poll_execution;
     use kagari_vm::vm::JitExecutionStatus;
     use std::{ffi::c_void, rc::Rc};
+    use {
+        kagari_abi::{
+            native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+            native_call::{JIT_STATUS_OK, JitValue},
+        },
+        kagari_contract::{
+            ids::FunctionRef,
+            native::{ExecutableFunctionArtifact, NativeCompilationProduct},
+        },
+    };
 
     #[derive(Debug)]
     struct StaticCode;
@@ -242,7 +244,7 @@ mod native {
                 config.target,
                 FunctionRef::new(input.function_ref().index()),
             );
-            artifact.entry = ExecutableEntryPoint::Native {
+            artifact.code.entry = ExecutableEntryPoint::Native {
                 symbol: "forty_two".into(),
                 address: forty_two as *const () as usize,
             };

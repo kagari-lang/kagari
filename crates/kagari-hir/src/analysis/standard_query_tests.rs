@@ -1,11 +1,12 @@
 //! Source query regressions, including native implementations and protocol views.
+use crate::native::render::declaration_source;
 
 use crate::{
     analysis::ownership, declarations::DeclarationId, language::semantics::ProtocolSemantics,
     types::TypeId,
 };
-use kagari_abi::language::Protocol;
 use kagari_common::collection::CollectionAccess;
+use kagari_contract::language::Protocol;
 
 #[cfg(test)]
 mod tests {
@@ -73,7 +74,7 @@ mod tests {
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
-        let item_type = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
+        let item_type = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));
         let authoring_catalog = analysis.to_unverified(&Default::default()).unwrap();
         let catalog = &authoring_catalog.facts().aggregates;
@@ -163,8 +164,8 @@ mod tests {
             .to_unverified(&Default::default())
             .unwrap();
         let catalog = &authoring_catalog.facts().aggregates;
-        let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
-        let string = TypeId::Builtin(kagari_abi::scalar::BuiltinType::String);
+        let integer = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
+        let string = TypeId::Builtin(kagari_contract::scalar::BuiltinType::String);
         let target = TypeId::Map {
             key: Box::new(integer.clone()),
             value: Box::new(string.clone()),
@@ -216,8 +217,7 @@ mod tests {
                 .source(metadata.declaration.location.file)
                 .unwrap()
                 .name(),
-            kagari_abi::language::catalog::shared()
-                .declaration_source()
+            declaration_source(&kagari_contract::language::catalog::shared())
                 .unwrap()
                 .uri
         );
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(
             signature.result,
             TypeId::Array(
-                Box::new(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32)),
+                Box::new(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable
             )
         );
@@ -284,7 +284,7 @@ mod tests {
         assert!(signature.parameters.is_empty());
         assert_eq!(
             signature.result,
-            TypeId::Builtin(kagari_abi::scalar::BuiltinType::USize)
+            TypeId::Builtin(kagari_contract::scalar::BuiltinType::USize)
         );
     }
 
@@ -351,8 +351,7 @@ mod trait_tests {
                     .source(api.declaration.location.file)
                     .unwrap()
                     .name(),
-                crate::tests::native::module()
-                    .declaration_source()
+                declaration_source(&crate::tests::native::module())
                     .unwrap()
                     .uri
             );
@@ -370,7 +369,7 @@ mod trait_tests {
             assert!(signature.parameters.is_empty());
             assert_eq!(
                 signature.result,
-                TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32)
+                TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)
             );
         }
     }
@@ -461,7 +460,7 @@ mod interpolation_queries {
         assert_eq!(original.name, "value");
         assert_eq!(
             old.file(file).unwrap().type_at(offset),
-            Some(TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32))
+            Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
         );
         let prefix = "// shifted 😀\r\n";
         sources
@@ -545,7 +544,7 @@ mod collection_access_tests {
 
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
-        use kagari_abi::language::Protocol as S;
+        use kagari_contract::language::Protocol as S;
         let mut sources = SourceDatabase::default();
         let root = sources
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -559,7 +558,7 @@ mod collection_access_tests {
             .to_unverified(&Default::default())
             .unwrap();
         let catalog = &authoring_catalog.facts().aggregates;
-        let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
+        let integer = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
         let receivers = [
             TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),
             TypeId::Map {

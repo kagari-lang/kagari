@@ -1,13 +1,5 @@
 use std::{ffi::c_void, rc::Rc};
 
-use kagari_abi::{
-    ids::FunctionRef,
-    native::{
-        BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
-        NativeCodeOwner, NativeCompilationProduct,
-    },
-    native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
-};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{
@@ -22,6 +14,16 @@ use kagari_runtime::{
 use kagari_vm::{
     error::VmError,
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
+};
+use {
+    kagari_abi::{
+        native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+        native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
+    },
+    kagari_contract::{
+        ids::FunctionRef,
+        native::{ExecutableFunctionArtifact, NativeCompilationProduct},
+    },
 };
 
 fn compile(source: &str, optimize: bool) -> BytecodeProgram {
@@ -88,7 +90,7 @@ fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> Prepa
         BackendTarget::new("host", usize::BITS as u8),
         FunctionRef::new(0),
     );
-    artifact.entry = ExecutableEntryPoint::Native {
+    artifact.code.entry = ExecutableEntryPoint::Native {
         symbol: "fixture".into(),
         address: entry as usize,
     };

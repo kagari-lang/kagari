@@ -8,7 +8,7 @@ use crate::{
     },
     gc::interfaces::MethodApplication,
 };
-use kagari_abi::native_import::NativeSignature;
+use kagari_contract::native_import::NativeSignature;
 use std::{rc::Rc, slice};
 
 impl Runtime {

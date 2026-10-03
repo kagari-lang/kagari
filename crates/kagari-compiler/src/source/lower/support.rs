@@ -13,14 +13,16 @@ use kagari_hir::{
     },
 };
 
-use kagari_abi::{
-    language::{self as standard_traits, Protocol},
-    operations::{BinaryOp, UnaryOp},
-    representation::ValueType,
-    scalar::BuiltinType,
-    types::{AbiType, NominalAbiType},
-};
 use kagari_common::identity::DefinitionPath;
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        language::{self as standard_traits, Protocol},
+        operations::{BinaryOp, UnaryOp},
+        scalar::BuiltinType,
+        types::{NominalTy, Ty},
+    },
+};
 
 use kagari_mir::{
     ids::LocalId,
@@ -163,7 +165,7 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    pub(crate) fn array_element_type(&self, expr_id: ExprId) -> Result<AbiType, MirLoweringError> {
+    pub(crate) fn array_element_type(&self, expr_id: ExprId) -> Result<Ty, MirLoweringError> {
         let ty = self
             .analyzed
             .typed
@@ -220,7 +222,7 @@ impl FunctionLowerer<'_, '_> {
         })
     }
 
-    pub(crate) fn nominal_instance(&self, ty: &TypeId) -> Result<NominalAbiType, MirLoweringError> {
+    pub(crate) fn nominal_instance(&self, ty: &TypeId) -> Result<NominalTy, MirLoweringError> {
         let types = self.planner.arguments(
             slice::from_ref(ty),
             &self.instance.substitution,
@@ -244,10 +246,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(lower_nominal_type(ty))
     }
 
-    pub(crate) fn expr_nominal_instance(
-        &self,
-        id: ExprId,
-    ) -> Result<NominalAbiType, MirLoweringError> {
+    pub(crate) fn expr_nominal_instance(&self, id: ExprId) -> Result<NominalTy, MirLoweringError> {
         let ty = self
             .analyzed
             .typed

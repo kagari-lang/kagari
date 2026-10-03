@@ -1,16 +1,15 @@
 //! Compile checked host mappings into ordinary verified interface call bridges.
 
 use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
-use kagari_abi::{
+use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_contract::{
     callable::CallableImplementation,
     native_import::NativeImport,
     slots::SemanticSlots,
     types::{
-        AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi,
-        PublicAbiItem,
+        ConcreteFunctionIdentity, FnDecl, InterfaceTable, ModuleContract, Param, PublicItem, Ty,
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
 use kagari_hir::{
     AnalyzedModule,
     types::{
@@ -28,7 +27,7 @@ use kagari_mir::{
 pub(super) fn collect(
     planner: &mut InstancePlanner<'_>,
     module: &AnalyzedModule,
-    abi: &mut ModuleAbi,
+    abi: &mut ModuleContract,
     functions: &mut Vec<MirFunction>,
 ) -> Result<(), MirLoweringError> {
     for (declaration, receiver, interface, span) in planner.host_interfaces.clone() {
@@ -70,14 +69,14 @@ pub(super) fn collect(
             let params: Vec<_> = host_call
                 .params
                 .iter()
-                .map(|param| ParameterAbi {
+                .map(|param| Param {
                     name: param.name.clone(),
                     mutable: false,
-                    ty: AbiType::from_host_type(&param.ty),
+                    ty: Ty::from_host_type(&param.ty),
                 })
                 .collect();
-            let result_type = AbiType::from_host_type(&host_call.return_type);
-            methods.push(FunctionAbi {
+            let result_type = Ty::from_host_type(&host_call.return_type);
+            methods.push(FnDecl {
                 method_policy: Default::default(),
                 implementation: CallableImplementation::Script,
                 name: method.name.clone(),
@@ -212,7 +211,7 @@ pub(super) fn collect(
             functions.push(function);
         }
         abi.public_items
-            .push(PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {
+            .push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
                 associated_type_families: Vec::new(),
                 associated_consts: Vec::new(),
                 host_bridge: true,
@@ -224,7 +223,7 @@ pub(super) fn collect(
                 ),
                 generic_params: Vec::new(),
                 bounds: Vec::new(),
-                trait_type: AbiType::Trait(lower_nominal_type(&interface)),
+                trait_type: Ty::Trait(lower_nominal_type(&interface)),
                 for_type: lower_type(&receiver),
                 methods,
             })));

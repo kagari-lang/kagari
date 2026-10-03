@@ -12,7 +12,7 @@ use crate::{
     tests::common::{self, check_module},
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
+use kagari_contract::scalar::BuiltinType;
 
 mod diagnostics;
 mod standard;

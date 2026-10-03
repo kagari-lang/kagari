@@ -1,4 +1,4 @@
-use kagari_abi::ids::FunctionRef;
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     error::RuntimeError, gc::RootedValue, host::HostCallContext, module::LoadedModule, value::Value,
 };

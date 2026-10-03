@@ -1,15 +1,18 @@
-use kagari_abi::{
-    numeric::NumericOperation,
-    operations::{BinaryOp, UnaryOp},
-    representation::ValueType,
-    scalar::BuiltinType,
-    types::AbiType,
-};
 use kagari_common::{
     arithmetic::{self, IntegerBinaryOp},
     integer::{self, IntegerOp},
 };
+use kagari_contract::representation::builtin_representation;
 use std::cmp::Ordering;
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        numeric::NumericOperation,
+        operations::{BinaryOp, UnaryOp},
+        scalar::BuiltinType,
+        types::Ty,
+    },
+};
 
 use crate::instruction::Constant;
 
@@ -55,9 +58,9 @@ impl Scalar {
         }
     }
 
-    pub(super) fn fits(self, ty: Option<&AbiType>) -> bool {
+    pub(super) fn fits(self, ty: Option<&Ty>) -> bool {
         match (ty, self.integer()) {
-            (Some(AbiType::Builtin(kind)), Some(value)) => kind
+            (Some(Ty::Builtin(kind)), Some(value)) => kind
                 .integer_bounds()
                 .is_none_or(|(min, max)| min <= value && value <= max),
             _ => true,
@@ -144,7 +147,7 @@ impl Scalar {
         };
         let (bits, signed) = operation.input.integer_layout()?;
         let result = integer::integer_operation(operation.op, lhs, rhs, bits, signed).ok()?;
-        Some(match ValueType::from_builtin_type(operation.input) {
+        Some(match builtin_representation(operation.input) {
             ValueType::I32 => Self::I32(result.try_into().ok()?),
             ValueType::I64 => Self::I64(result.try_into().ok()?),
             ValueType::U64 => Self::U64(result.try_into().ok()?),
@@ -159,7 +162,7 @@ impl Scalar {
             Self::U64(_) => ValueType::U64,
             _ => return None,
         };
-        if representation != ValueType::from_builtin_type(kind) {
+        if representation != builtin_representation(kind) {
             return None;
         }
         let value = self.integer()?;

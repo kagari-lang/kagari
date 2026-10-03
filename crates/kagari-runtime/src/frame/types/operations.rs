@@ -1,10 +1,10 @@
 //! Shared receiver selections and call-local witnesses retain their supplying group.
 use crate::frame::types::BoundOperation;
-use kagari_abi::{
-    native_import::callables::NativeCallableRequirement,
-    types::{AbiType, NominalAbiType},
-};
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{
+    native_import::callables::NativeCallableRequirement,
+    types::{NominalTy, Ty},
+};
 use std::{collections::HashMap, rc::Rc};
 
 #[derive(Debug, Default)]
@@ -16,14 +16,14 @@ struct ReceiverMethods {
 #[derive(Debug)]
 pub(crate) struct ReceiverOperations {
     entries: Vec<Rc<BoundOperation>>,
-    index: HashMap<NominalAbiType<DefinitionId>, HashMap<AbiType<DefinitionId>, ReceiverMethods>>,
+    index: HashMap<NominalTy<DefinitionId>, HashMap<Ty<DefinitionId>, ReceiverMethods>>,
 }
 
 impl ReceiverOperations {
     pub(crate) fn new(entries: Vec<BoundOperation>) -> Rc<Self> {
         let mut index: HashMap<
-            NominalAbiType<DefinitionId>,
-            HashMap<AbiType<DefinitionId>, ReceiverMethods>,
+            NominalTy<DefinitionId>,
+            HashMap<Ty<DefinitionId>, ReceiverMethods>,
         > = HashMap::new();
         for (position, operation) in entries.iter().enumerate() {
             let methods = index
@@ -55,16 +55,16 @@ impl ReceiverOperations {
 
     fn methods(
         &self,
-        receiver: &AbiType<DefinitionId>,
-        interface: &NominalAbiType<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        interface: &NominalTy<DefinitionId>,
     ) -> Option<&ReceiverMethods> {
         self.index.get(interface)?.get(receiver)
     }
 
     fn slot(
         &self,
-        receiver: &AbiType<DefinitionId>,
-        interface: &NominalAbiType<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        interface: &NominalTy<DefinitionId>,
         slot: u32,
     ) -> Option<&Rc<BoundOperation>> {
         let position = self
@@ -128,8 +128,8 @@ impl OperationBindings {
 
     pub(crate) fn operation_slot(
         &self,
-        receiver: &AbiType<DefinitionId>,
-        interface: &NominalAbiType<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        interface: &NominalTy<DefinitionId>,
         slot: u32,
     ) -> Option<&Rc<BoundOperation>> {
         self.segments.iter().find_map(|segment| match segment {

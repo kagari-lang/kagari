@@ -20,10 +20,10 @@ use crate::{
         types::{FunctionRef, Receiver},
     },
 };
-use kagari_abi::{
+use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
+use kagari_contract::{
     callable::CallableImplementation, declaration::ModuleDecl, native_import::NativeSignature,
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]

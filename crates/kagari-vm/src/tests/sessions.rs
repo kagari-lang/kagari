@@ -3,7 +3,7 @@ use crate::{
     tests::{common::compile_test_bytecode, native_fixtures},
     vm::Vm,
 };
-use kagari_abi::{scalar::BuiltinType, types::AbiType};
+use kagari_contract::{scalar::BuiltinType, types::Ty};
 use {
     crate::reentry::reenter,
     kagari_runtime::{host::HostBorrowKind, module::LoadedModule},
@@ -172,7 +172,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 });
                 runtime.register_host_function(HostFunction::new(standard_log(), move |context, args| {
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
-                    let temporary = Value::Array(context.runtime().alloc_array(&context.runtime().execution_root().unwrap(), AbiType::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
+                    let temporary = Value::Array(context.runtime().alloc_array(&context.runtime().execution_root().unwrap(), Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
                     context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
                     context.runtime().collect_garbage().unwrap();
                     assert!(context.runtime().gc().validate_value(&temporary));
@@ -262,7 +262,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         .unwrap();
     let foreign_value = Value::Array(
         foreign
-            .alloc_array(&foreign_module, AbiType::Builtin(BuiltinType::I32), vec![])
+            .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
             .unwrap(),
     );
     let mut runtime = runtime();
@@ -273,7 +273,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         if let Some(root) = runtime.execution_root() {
                 assert!(foreign.gc().validate_value(&foreign_value));
                 assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
-                let stale = Value::Array(runtime.alloc_array(&root, AbiType::Builtin(BuiltinType::I32), vec![]).unwrap());
+                let stale = Value::Array(runtime.alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
                 runtime.collect_garbage().unwrap();
                 assert!(matches!(reenter(context, &root, echo, &[stale]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
         }

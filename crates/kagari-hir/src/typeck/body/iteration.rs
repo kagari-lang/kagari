@@ -4,8 +4,8 @@ use crate::{
     typeck::{BodyTypeEnv, body::BodyChecker, table::ResolvedIteration},
     types::TypeId,
 };
-use kagari_abi::language::Protocol;
 use kagari_common::identity::associated_type_id;
+use kagari_contract::language::Protocol;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_iteration(

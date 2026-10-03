@@ -3,11 +3,11 @@ mod dispatch;
 mod native;
 mod value_ops;
 
-use kagari_abi::ids::FunctionRef;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Register},
     program::ModuleRef,
 };
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
     frame::{ExecutionFrame, ExecutionStack},

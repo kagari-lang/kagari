@@ -3,12 +3,12 @@ use crate::source::{
     lower::{MirLoweringError, instances::InstancePlanner},
     types::raise_type,
 };
-use kagari_abi::{
+use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_contract::{
     callable::{CallableImplementation, generic::GenericBody},
     native_import::{NativeImport, NativeSignature},
-    types::{ConcreteFunctionIdentity, GenericParameterAbi, substitution::TypeSubstitution},
+    types::{ConcreteFunctionIdentity, GenericParam, substitution::TypeSubstitution},
 };
-use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::types::{TypeId, abi::lower_type};
 
 impl InstancePlanner<'_> {
@@ -85,7 +85,7 @@ impl InstancePlanner<'_> {
                 let TypeId::Generic(parameter) = argument else {
                     return None;
                 };
-                Some(GenericParameterAbi {
+                Some(GenericParam {
                     owner: parameter.owner.clone(),
                     position: parameter.position,
                 })

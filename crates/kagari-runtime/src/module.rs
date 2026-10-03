@@ -19,7 +19,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
 
-use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
+use kagari_contract::layout::{EnumLayout, EnumVariantLayout, StructLayout};
 
 use kagari_common::{
     cancellation::CancellationToken,

@@ -3,6 +3,7 @@ members = [
     "benchmarks/lua-comparison",
     "crates/kagari-codegen",
     "crates/kagari-abi",
+    "crates/kagari-contract",
     "crates/kagari-cli",
     "crates/kagari-common",
     "crates/kagari-embed",
@@ -25,6 +26,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 kagari-codegen = { path = "crates/kagari-codegen" }
 kagari-abi = { path = "crates/kagari-abi" }
+kagari-contract = { path = "crates/kagari-contract" }
 kagari-common = { path = "crates/kagari-common" }
 kagari-embed = { path = "crates/kagari-embed", default-features = false }
 kagari-hir = { path = "crates/kagari-hir" }

@@ -9,10 +9,10 @@ mod native_boundary_resources;
 mod native_boundary_sessions;
 mod native_boundary_storage;
 mod support;
-use kagari_abi::types::AbiType;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::types::Ty;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::gc::mutations::PreparedCollectionCommit;
 use kagari_runtime::{
@@ -601,7 +601,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .runtime()
         .alloc_array(
             &loaded,
-            AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool),
+            Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool),
             vec![Value::Bool(true); 3],
         )
         .unwrap();
@@ -616,7 +616,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .runtime()
         .alloc_array(
             &loaded,
-            AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool),
+            Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool),
             vec![Value::Bool(true), Value::Bool(false), Value::Bool(true)],
         )
         .unwrap();
@@ -669,7 +669,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
 
 #[test]
 fn every_scalar_layout_is_selected_from_the_declared_array_element() {
-    use kagari_abi::scalar::BuiltinType;
+    use kagari_contract::scalar::BuiltinType;
     let language = LanguageContracts::default();
     let mut builder = ModuleBuilder::new("example::scalar_arrays", &language);
     let calls = Rc::new(Cell::new(0));

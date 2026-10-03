@@ -1,6 +1,6 @@
 //! Built-in conversions follow Rust's portable From matrix.
 use crate::types::TypeId;
-use kagari_abi::{numeric, scalar::BuiltinType};
+use kagari_contract::{numeric, scalar::BuiltinType};
 
 pub fn try_error(source: BuiltinType, target: BuiltinType) -> Option<TypeId> {
     let kind = numeric::conversion_error(source, target)?;

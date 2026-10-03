@@ -1,18 +1,20 @@
-use kagari_abi::{
-    callable::witness::OperationWitness,
-    effects::EffectSet,
-    layout::{EnumLayout, StructLayout},
-    native_import::{NativeImport, callables::NativeCallableApplication},
-    representation::ValueType,
-    slots::SemanticSlots,
-    types::{ConcreteFunctionIdentity, ModuleAbi, NominalAbiType},
-};
 use kagari_common::identity::DefinitionPath;
 use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     host_interface::type_declaration::HostTypeDeclaration, identity::ModuleIdentity, span::Span,
 };
 use serde::{Deserialize, Serialize};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        callable::witness::OperationWitness,
+        effects::EffectSet,
+        layout::{EnumLayout, StructLayout},
+        native_import::{NativeImport, callables::NativeCallableApplication},
+        slots::SemanticSlots,
+        types::{ConcreteFunctionIdentity, ModuleContract, NominalTy},
+    },
+};
 
 use crate::{
     debug::MirFunctionDebugMetadata,
@@ -29,26 +31,26 @@ use std::{borrow::Cow, iter};
 pub struct MirModule<I = DefinitionPath> {
     /// Concrete native entry contracts invoked without a script body, including
     /// interface slots and dependencies selected by another native entry.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub native_targets: Vec<NativeImport<I>>,
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub interface_instances: Vec<ConcreteFunctionIdentity<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub host_types: Vec<HostTypeDeclaration<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub dependencies: Vec<ModuleIdentity>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub structures: Vec<StructLayout<I>>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub enumerations: Vec<EnumLayout<I>>,
     pub identity: ModuleIdentity,
     pub source_name: String,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub module_slots: ModuleSlotBuffer,
-    pub abi: ModuleAbi<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::functions")]
+    pub abi: ModuleContract<I>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::functions")]
     pub functions: FunctionBuffer<I>,
 }
 
@@ -62,14 +64,14 @@ pub struct MirFunction<I = DefinitionPath> {
     pub id: InstanceId,
     pub instance: ConcreteFunctionIdentity<I>,
     pub name: String,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub params: ParameterBuffer,
     pub return_type: ValueType,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: LocalBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub temps: TempBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub blocks: BlockBuffer<I>,
     pub entry: BlockId,
     pub effects: EffectSet,
@@ -157,7 +159,7 @@ impl<I: DefinitionReference> MirModule<I> {
         )
     }
 
-    pub fn structure(&self, instance: &NominalAbiType<I>) -> Option<Cow<'_, StructLayout<I>>> {
+    pub fn structure(&self, instance: &NominalTy<I>) -> Option<Cow<'_, StructLayout<I>>> {
         self.structures
             .iter()
             .find(|layout| {
@@ -199,11 +201,11 @@ pub struct MirModuleSlot {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct BasicBlock<I = DefinitionPath> {
-    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
     pub instructions: InstructionBuffer<I>,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
     pub instruction_spans: SourceSpanBuffer,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
+    #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
     pub instruction_scopes: Vec<usize>,
     pub terminator: Option<Terminator>,
     pub terminator_span: Option<Span>,

@@ -1,10 +1,10 @@
 //! Materialize the concrete iterator witness used by an erased dynamic result.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_abi::language::{Protocol, identity};
 use kagari_common::{
     identity::{DefinitionPath, associated_type_id},
     span::Span,
 };
+use kagari_contract::language::{Protocol, identity};
 use kagari_hir::types::{TypeId, TypeSubstitution};
 
 impl InstancePlanner<'_> {

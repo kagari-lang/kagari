@@ -8,11 +8,11 @@ use crate::{
     typeck::{BodyTypeEnv, body::BodyChecker, scalar::ScalarValue, ty::display_type_id},
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
     span::Span,
 };
+use kagari_contract::scalar::BuiltinType;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 mod enums;

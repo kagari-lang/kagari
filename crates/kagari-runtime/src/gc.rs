@@ -18,11 +18,6 @@ use crate::{
     session::ExecutionPhase,
     value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, StructValueField, Value},
 };
-use kagari_abi::{
-    ids::FunctionRef,
-    representation::ValueType,
-    types::{AbiType, native::NativeStorageLayout},
-};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use std::{
@@ -36,6 +31,13 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
+};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{
+        ids::FunctionRef,
+        types::{Ty, native::NativeStorageLayout},
+    },
 };
 
 mod array_ops;
@@ -210,7 +212,7 @@ impl ClosureValueSnapshot {
         {
             return Ok((Cow::Borrowed(parameters), function.metadata.return_type));
         }
-        let resolve = |physical, semantic: Option<&AbiType<DefinitionId>>| {
+        let resolve = |physical, semantic: Option<&Ty<DefinitionId>>| {
             if physical != ValueType::Generic {
                 return Ok(physical);
             }
@@ -241,8 +243,8 @@ impl ClosureValueSnapshot {
 
     pub(crate) fn matches_function(
         &self,
-        params: &[AbiType<DefinitionId>],
-        result: &AbiType<DefinitionId>,
+        params: &[Ty<DefinitionId>],
+        result: &Ty<DefinitionId>,
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
     ) -> bool {
@@ -254,7 +256,7 @@ impl ClosureValueSnapshot {
         else {
             return false;
         };
-        let compatible = |actual: &AbiType<DefinitionId>, expected: &AbiType<DefinitionId>| {
+        let compatible = |actual: &Ty<DefinitionId>, expected: &Ty<DefinitionId>| {
             TypeView::new(actual, &self.implementation, self.environment.as_deref())
                 .compatible(TypeView::new(expected, owner, environment))
         };
@@ -529,10 +531,10 @@ impl GcHeap {
     pub(crate) fn matches_abi(
         &self,
         value: &Value,
-        ty: &AbiType<DefinitionId>,
+        ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
     ) -> bool {
-        if let AbiType::Builtin(kind) = ty {
+        if let Ty::Builtin(kind) = ty {
             return if kind.integer_layout().is_some() {
                 numeric::read_integer(*kind, value).is_ok()
             } else {
@@ -542,53 +544,53 @@ impl GcHeap {
         let mut pending = vec![(value.clone(), ty)];
         while let Some((value, ty)) = pending.pop() {
             match (value, ty) {
-                (value, AbiType::Builtin(kind)) if if kind.integer_layout().is_some() {
+                (value, Ty::Builtin(kind)) if if kind.integer_layout().is_some() {
                     numeric::read_integer(*kind, &value).is_ok()
                 } else { value.has_representation(ty.representation()) } => {},
-                (Value::Range(value), AbiType::Range(_, _)) if value.matches(ty) => {},
-                (Value::Closure(id), AbiType::Function { params, result }) => {
+                (Value::Range(value), Ty::Range(_, _)) if value.matches(ty) => {},
+                (Value::Closure(id), Ty::Function { params, result }) => {
                     let Some(snapshot) = self.closure_snapshot(id) else { return false; };
                     if !snapshot.matches_function(params, result, owner, None) { return false; }
                 },
-                (Value::Tuple(values), AbiType::Tuple(types)) if values.len() == types.len() => {
+                (Value::Tuple(values), Ty::Tuple(types)) if values.len() == types.len() => {
                     pending.extend(values.into_iter().zip(types));
                 },
-                (Value::Struct(id), AbiType::Struct(expected)) => {
+                (Value::Struct(id), Ty::Struct(expected)) => {
                     if !self.struct_layout(id).is_some_and(|layout| owner.find_struct_layout(expected).is_some_and(|current| layout.matches(&current))) { return false; }
                 },
-                (Value::Enum(id), AbiType::Enum(_)) => {
+                (Value::Enum(id), Ty::Enum(_)) => {
                     if !self.enum_snapshot(id).is_some_and(|value| matches!(value.tag, EnumTag::Declared(layout) if layout.matches_type(ty, owner, None))) { return false; }
                 },
-                (Value::Interface(id), AbiType::Trait(_)) => {
+                (Value::Interface(id), Ty::Trait(_)) => {
                     if !self.interface_snapshot(id).is_some_and(|value| value.matches_type(ty, owner, None)) { return false; }
                 },
-                (Value::GcHandle(id), AbiType::NativeObject(_)) => {
+                (Value::GcHandle(id), Ty::NativeObject(_)) => {
                     if !self.matches_native_type(id, ty, owner, None) { return false; }
                 },
-                (Value::GcHandle(id), AbiType::Iter(element)) => {
+                (Value::GcHandle(id), Ty::Iter(element)) => {
                     let objects=self.objects.borrow();
                     let valid = match self.readable_object(&objects, id) {
-                        Some(HeapObject::Native(object)) if matches!(object.ty, AbiType::Iter(_)) => object.payload::<iter::NativeIter>().is_ok_and(|iter| iter.item_contract.matches(element, owner)),
+                        Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) => object.payload::<iter::NativeIter>().is_ok_and(|iter| iter.item_contract.matches(element, owner)),
                         _ => false,
                     };
                     if !valid { return false; }
                 },
-                (Value::Array(id), AbiType::Array(element, _)) => {
+                (Value::Array(id), Ty::Array(element, _)) => {
                     let objects = self.objects.borrow();
                     let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else { return false; };
-                    if !matches!(object.ty, AbiType::Array(..)) || !object.payload::<SequencePayload>().is_ok_and(|payload| payload.contract.matches(element, owner)) { return false; }
+                    if !matches!(object.ty, Ty::Array(..)) || !object.payload::<SequencePayload>().is_ok_and(|payload| payload.contract.matches(element, owner)) { return false; }
                 },
-                (Value::Map(id), AbiType::Map { key, value ,..}) => {
+                (Value::Map(id), Ty::Map { key, value ,..}) => {
                     let objects = self.objects.borrow();
                     let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else { return false; };
-                    if !matches!(object.ty, AbiType::Map { .. }) || !object.payload::<MapPayload>().is_ok_and(|payload| payload.key.matches(key, owner) && payload.value.matches(value, owner)) { return false; }
+                    if !matches!(object.ty, Ty::Map { .. }) || !object.payload::<MapPayload>().is_ok_and(|payload| payload.key.matches(key, owner) && payload.value.matches(value, owner)) { return false; }
                 },
-                (Value::Set(id), AbiType::Set(element, _)) => {
+                (Value::Set(id), Ty::Set(element, _)) => {
                     let objects = self.objects.borrow();
                     let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else { return false; };
-                    if !matches!(object.ty, AbiType::Set(..)) || !object.payload::<SetPayload>().is_ok_and(|payload| payload.element.matches(element, owner)) { return false; }
+                    if !matches!(object.ty, Ty::Set(..)) || !object.payload::<SetPayload>().is_ok_and(|payload| payload.element.matches(element, owner)) { return false; }
                 },
-                (Value::Enum(id), AbiType::StandardEnum { kind, args }) => {
+                (Value::Enum(id), Ty::StandardEnum { kind, args }) => {
                     let Some(snapshot) = self.enum_snapshot(id) else { return false; };
                     let Some(payload) = snapshot.tag.standard_payload(*kind) else { return false; };
                     let Some(index) = payload else {
@@ -718,10 +720,10 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
             HeapObject::Native(object) => Some(match object.ty {
-                AbiType::Array(..) => GcObjectKind::Array,
-                AbiType::Map { .. } => GcObjectKind::Map,
-                AbiType::Set(..) => GcObjectKind::Set,
-                AbiType::Iter(..) => GcObjectKind::Iter,
+                Ty::Array(..) => GcObjectKind::Array,
+                Ty::Map { .. } => GcObjectKind::Map,
+                Ty::Set(..) => GcObjectKind::Set,
+                Ty::Iter(..) => GcObjectKind::Iter,
                 _ => GcObjectKind::Native,
             }),
             HeapObject::Enum(..) => Some(GcObjectKind::Enum),
@@ -742,7 +744,7 @@ impl GcHeap {
         // registry ownership/schema, before entering this allocation boundary.
         let durable_host = matches!(
             (&snapshot.data, &snapshot.concrete_type),
-            (Value::HostRoot(_), kagari_abi::types::AbiType::Host(_))
+            (Value::HostRoot(_), kagari_contract::types::Ty::Host(_))
         );
         if !durable_host && !self.valid_payload(&snapshot.data) {
             return Err(RuntimeError::new(

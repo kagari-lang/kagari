@@ -4,11 +4,11 @@ use crate::source::{
     lower::{MirLoweringError, instances::InstancePlanner},
     types::raise_type,
 };
-use kagari_abi::{
-    layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
-    types::{GenericParameterAbi, verify::types_in_scope},
-};
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_contract::{
+    layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
+    types::{GenericParam, verify::types_in_scope},
+};
 use kagari_hir::{
     AnalyzedModule,
     types::{
@@ -123,7 +123,7 @@ pub(super) fn collect(
                     .map(|ty| (ty, span)),
             );
             for parameter in parameters {
-                scope.push(GenericParameterAbi {
+                scope.push(GenericParam {
                     owner: parameter.owner.clone(),
                     position: parameter.position,
                 });

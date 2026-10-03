@@ -48,7 +48,7 @@ impl Vm {
                     )));
                 }
                 (
-                    installed.artifact().backend.clone(),
+                    installed.artifact().code.backend.clone(),
                     Some(installed.artifact().clone()),
                     Vec::new(),
                 )

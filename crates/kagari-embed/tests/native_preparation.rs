@@ -8,14 +8,6 @@ use std::{
     },
 };
 
-use kagari_abi::{
-    ids::FunctionRef,
-    native::{
-        BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
-        NativeCodeOwner, NativeCompilationProduct,
-    },
-    native_call::{JIT_STATUS_OK, JitValue},
-};
 use kagari_codegen::{
     BackendConfiguration, BackendFunctionInput, CodegenBackend,
     diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
@@ -32,6 +24,16 @@ use kagari_embed::{
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
 use kagari_runtime::jit_abi::jit_poll_execution;
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+use {
+    kagari_abi::{
+        native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+        native_call::{JIT_STATUS_OK, JitValue},
+    },
+    kagari_contract::{
+        ids::FunctionRef,
+        native::{ExecutableFunctionArtifact, NativeCompilationProduct},
+    },
+};
 
 #[derive(Debug)]
 struct Owner(Arc<AtomicUsize>);
@@ -124,7 +126,7 @@ unsafe impl CodegenBackend for Backend {
             configuration.target,
             FunctionRef::new(input.function_ref().index()),
         );
-        artifact.entry = ExecutableEntryPoint::Native {
+        artifact.code.entry = ExecutableEntryPoint::Native {
             symbol: "unit".into(),
             address: unit as *const () as usize,
         };

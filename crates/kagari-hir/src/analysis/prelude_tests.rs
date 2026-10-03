@@ -9,7 +9,7 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 
-use kagari_abi::scalar::BuiltinType;
+use kagari_contract::scalar::BuiltinType;
 
 const HELPERS: [(&str, BuiltinFunction); 5] = [
     ("print", BuiltinFunction::Print),

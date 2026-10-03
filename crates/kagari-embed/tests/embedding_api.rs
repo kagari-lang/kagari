@@ -1,4 +1,7 @@
-use kagari_abi::{ids::FunctionRef, native_import::NativeImport, representation::ValueType};
+use {
+    kagari_abi::representation::ValueType,
+    kagari_contract::{ids::FunctionRef, native_import::NativeImport},
+};
 use {
     kagari_bytecode::{
         module::RootSlotLayout,

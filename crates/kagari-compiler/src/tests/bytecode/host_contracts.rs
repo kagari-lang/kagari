@@ -158,14 +158,14 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
 
 #[test]
 fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
-    use kagari_abi::{scalar::BuiltinType, types::AbiType};
+    use kagari_contract::{scalar::BuiltinType, types::Ty};
 
     let module = host_trait_test_program("trait Readable<T> { fn get(self) -> T; } fn main() {}");
     assert!(
         !module.modules[module.root.index()]
             .public_items
             .iter()
-            .any(|item| matches!(item, PublicAbiItem::Trait(_)))
+            .any(|item| matches!(item, PublicItem::Trait(_)))
     );
     assert_eq!(module.modules[module.root.index()].trait_contracts.len(), 1);
     verify_program(&module).unwrap();
@@ -181,7 +181,7 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
             "missing" => module.trait_contracts.clear(),
             "signature" => {
                 module.trait_contracts[0].abi.methods[0].return_type =
-                    AbiType::Builtin(BuiltinType::Bool)
+                    Ty::Builtin(BuiltinType::Bool)
             }
             _ => unreachable!(),
         }
@@ -209,7 +209,7 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
     let member = &mut public_collision.modules[public_collision.root.index()];
     member
         .public_items
-        .push(PublicAbiItem::Trait(member.trait_contracts[0].abi.clone()));
+        .push(PublicItem::Trait(member.trait_contracts[0].abi.clone()));
     assert!(matches!(
         verify_program(&public_collision),
         Err(BytecodeVerificationError::InvalidPublicAbi)

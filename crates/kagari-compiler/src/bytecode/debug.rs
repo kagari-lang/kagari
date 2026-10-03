@@ -1,5 +1,4 @@
 use crate::bytecode::lower_local;
-use kagari_abi::ids::DebugPointId;
 use kagari_bytecode::{
     module::{
         BytecodeDebugMetadata, CapturedBindingDebugInfo, FrameLayout, InstructionSourceSpan,
@@ -9,6 +8,7 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
+use kagari_contract::ids::DebugPointId;
 use kagari_mir::{
     analysis::{FunctionAnalysis, PointAnalysis},
     function::MirFunction,

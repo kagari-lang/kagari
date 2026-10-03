@@ -8,6 +8,7 @@ license.workspace = true
 kagari-codegen.workspace = true
 kagari-mir.workspace = true
 kagari-abi.workspace = true
+kagari-contract.workspace = true
 kagari-common.workspace = true
 thiserror.workspace = true
 cranelift-codegen.workspace = true

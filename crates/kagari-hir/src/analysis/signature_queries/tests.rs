@@ -1,16 +1,17 @@
 use super::*;
 use crate::analysis::ownership;
+use crate::native::render::declaration_source;
 use crate::{
     declarations::DeclarationId,
     native::NativeBinding,
     typeck::{FunctionImplementation, signature_reuse::reuse_signatures},
     types::TypeId,
 };
-use kagari_abi::{language::catalog, scalar::BuiltinType};
 use kagari_common::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_contract::{language::catalog, scalar::BuiltinType};
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapshot {
     db.signatures(sources.snapshot(), &Default::default())
@@ -27,7 +28,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     let file = signatures
         .files
         .values()
-        .find(|file| file.source().name() == catalog::shared().declaration_source().unwrap().uri)
+        .find(|file| file.source().name() == declaration_source(&catalog::shared()).unwrap().uri)
         .unwrap();
     assert!(
         file.signatures()

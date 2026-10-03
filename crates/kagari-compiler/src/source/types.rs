@@ -1,26 +1,26 @@
 //! Encode checked source types at the compiler boundary.
-use kagari_abi::{
+use kagari_common::integer::IntegerOp;
+use kagari_contract::{
     numeric::NumericOperation,
     scalar::BuiltinType,
-    types::{AbiType, NominalAbiType, TypeAbiKind, native::NativeTypeConstructor},
+    types::{NominalTy, Ty, TypeDefKind, native::NativeTypeConstructor},
 };
-use kagari_common::integer::IntegerOp;
 use kagari_hir::{
     hir::expr::ops::BinaryOp,
     native::NativeTypeKind,
     types::{GenericParameterType, NominalType, TypeId},
 };
 
-pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeAbiKind {
+pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeDefKind {
     match kind {
-        NativeTypeKind::Storage { layout, .. } => TypeAbiKind::NativeStorage(layout),
-        NativeTypeKind::String => TypeAbiKind::Native(NativeTypeConstructor::String),
-        NativeTypeKind::ArrayList => TypeAbiKind::Native(NativeTypeConstructor::Array),
-        NativeTypeKind::HashMap => TypeAbiKind::Native(NativeTypeConstructor::Map),
-        NativeTypeKind::HashSet => TypeAbiKind::Native(NativeTypeConstructor::Set),
-        NativeTypeKind::Iter => TypeAbiKind::Native(NativeTypeConstructor::Iter),
-        NativeTypeKind::Range(kind) => TypeAbiKind::Native(NativeTypeConstructor::Range(kind)),
-        NativeTypeKind::Enum(kind) => TypeAbiKind::Native(NativeTypeConstructor::Enum(kind)),
+        NativeTypeKind::Storage { layout, .. } => TypeDefKind::NativeStorage(layout),
+        NativeTypeKind::String => TypeDefKind::Native(NativeTypeConstructor::String),
+        NativeTypeKind::ArrayList => TypeDefKind::Native(NativeTypeConstructor::Array),
+        NativeTypeKind::HashMap => TypeDefKind::Native(NativeTypeConstructor::Map),
+        NativeTypeKind::HashSet => TypeDefKind::Native(NativeTypeConstructor::Set),
+        NativeTypeKind::Iter => TypeDefKind::Native(NativeTypeConstructor::Iter),
+        NativeTypeKind::Range(kind) => TypeDefKind::Native(NativeTypeConstructor::Range(kind)),
+        NativeTypeKind::Enum(kind) => TypeDefKind::Native(NativeTypeConstructor::Enum(kind)),
     }
 }
 
@@ -50,7 +50,7 @@ pub(crate) fn lower_numeric_operation(
     })
 }
 
-pub(crate) fn raise_nominal_type(ty: &NominalAbiType) -> NominalType {
+pub(crate) fn raise_nominal_type(ty: &NominalTy) -> NominalType {
     NominalType {
         associated_types: ty
             .associated_types
@@ -62,9 +62,9 @@ pub(crate) fn raise_nominal_type(ty: &NominalAbiType) -> NominalType {
     }
 }
 
-pub(crate) fn raise_type(ty: &AbiType) -> TypeId {
+pub(crate) fn raise_type(ty: &Ty) -> TypeId {
     match ty {
-        AbiType::Projection {
+        Ty::Projection {
             receiver,
             interface,
             member,
@@ -75,33 +75,33 @@ pub(crate) fn raise_type(ty: &AbiType) -> TypeId {
             interface: Box::new(raise_nominal_type(interface)),
             member: member.clone(),
         },
-        AbiType::Host(id) => TypeId::Host(id.clone()),
-        AbiType::SelfType(id) => TypeId::SelfType(id.clone()),
-        AbiType::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
+        Ty::Host(id) => TypeId::Host(id.clone()),
+        Ty::SelfType(id) => TypeId::SelfType(id.clone()),
+        Ty::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
             owner: owner.clone(),
             position: *position,
             name: String::new(),
         }),
-        AbiType::Builtin(ty) => TypeId::Builtin(*ty),
-        AbiType::Tuple(types) => TypeId::Tuple(types.iter().map(raise_type).collect()),
-        AbiType::Function { params, result } => TypeId::Function {
+        Ty::Builtin(ty) => TypeId::Builtin(*ty),
+        Ty::Tuple(types) => TypeId::Tuple(types.iter().map(raise_type).collect()),
+        Ty::Function { params, result } => TypeId::Function {
             params: params.iter().map(raise_type).collect(),
             result: Box::new(raise_type(result)),
         },
-        AbiType::Range(ty, kind) => TypeId::Range(Box::new(raise_type(ty)), *kind),
-        AbiType::Iter(ty) => TypeId::Iter(Box::new(raise_type(ty))),
-        AbiType::Array(ty, access) => TypeId::Array(Box::new(raise_type(ty)), *access),
-        AbiType::Map { key, value, access } => TypeId::Map {
+        Ty::Range(ty, kind) => TypeId::Range(Box::new(raise_type(ty)), *kind),
+        Ty::Iter(ty) => TypeId::Iter(Box::new(raise_type(ty))),
+        Ty::Array(ty, access) => TypeId::Array(Box::new(raise_type(ty)), *access),
+        Ty::Map { key, value, access } => TypeId::Map {
             key: Box::new(raise_type(key)),
             value: Box::new(raise_type(value)),
             access: *access,
         },
-        AbiType::Set(ty, access) => TypeId::Set(Box::new(raise_type(ty)), *access),
-        AbiType::NativeObject(ty) => TypeId::NativeObject(raise_nominal_type(ty)),
-        AbiType::Struct(ty) => TypeId::Struct(raise_nominal_type(ty)),
-        AbiType::Enum(ty) => TypeId::Enum(raise_nominal_type(ty)),
-        AbiType::Trait(ty) => TypeId::Trait(raise_nominal_type(ty)),
-        AbiType::StandardEnum { kind, args } => TypeId::StandardEnum {
+        Ty::Set(ty, access) => TypeId::Set(Box::new(raise_type(ty)), *access),
+        Ty::NativeObject(ty) => TypeId::NativeObject(raise_nominal_type(ty)),
+        Ty::Struct(ty) => TypeId::Struct(raise_nominal_type(ty)),
+        Ty::Enum(ty) => TypeId::Enum(raise_nominal_type(ty)),
+        Ty::Trait(ty) => TypeId::Trait(raise_nominal_type(ty)),
+        Ty::StandardEnum { kind, args } => TypeId::StandardEnum {
             kind: *kind,
             args: args.iter().map(raise_type).collect(),
         },

@@ -8,14 +8,11 @@ use crate::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_abi::callable::witness::OperationWitness;
-use kagari_abi::{
+use kagari_contract::callable::witness::OperationWitness;
+use kagari_contract::{
     callable::CallableImplementation,
     native_import::callables::NativeCallableRequirement,
-    types::{
-        AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi,
-        GenericParameterAbi, PublicAbiItem,
-    },
+    types::{AssociatedTypeDef, Constraint, FnDecl, GenericBound, GenericParam, PublicItem, Ty},
 };
 
 use kagari_common::{
@@ -71,7 +68,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     for function in &module.functions {
         for instruction in &function.instructions {
             if let Some(arguments) = instruction.layout_arguments()
-                && (!add(arguments.len()) || !arguments.iter().all(AbiType::within_wire_limits))
+                && (!add(arguments.len()) || !arguments.iter().all(Ty::within_wire_limits))
             {
                 return false;
             }
@@ -87,7 +84,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 return false;
             }
             if let BytecodeInstruction::MakeInterface { arguments, .. } = instruction
-                && (!add(arguments.len()) || !arguments.iter().all(AbiType::within_wire_limits))
+                && (!add(arguments.len()) || !arguments.iter().all(Ty::within_wire_limits))
             {
                 return false;
             }
@@ -195,15 +192,15 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     }
     for item in &module.public_items {
         let valid = match item {
-            PublicAbiItem::Function(item) => {
+            PublicItem::Function(item) => {
                 add(item.generic_params.len())
                     && add(item.bounds.len())
                     && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.params.len())
                     && add_function_contract(item, &mut add)
             }
-            PublicAbiItem::Const(_) => true,
-            PublicAbiItem::Type(item) => {
+            PublicItem::Const(_) => true,
+            PublicItem::Type(item) => {
                 add(item.generic_params.len())
                     && add(item.bounds.len())
                     && add_abi_bounds(&item.bounds, &mut add)
@@ -214,7 +211,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                         .iter()
                         .all(|variant| add(variant.payload.len()))
             }
-            PublicAbiItem::Trait(item) => {
+            PublicItem::Trait(item) => {
                 if !add(item.associated_consts.len()) {
                     return false;
                 }
@@ -237,7 +234,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                             && add_function_contract(method, &mut add)
                     })
             }
-            PublicAbiItem::InterfaceTable(item) => {
+            PublicItem::InterfaceTable(item) => {
                 if !add(item.associated_type_families.len())
                     || !item.associated_type_families.iter().all(|family| {
                         add(family.generic_params.len())
@@ -301,7 +298,7 @@ fn add_callable_requirement(
         && add(required.interface.associated_types.len())
 }
 
-fn add_function_contract(function: &FunctionAbi, add: &mut impl FnMut(usize) -> bool) -> bool {
+fn add_function_contract(function: &FnDecl, add: &mut impl FnMut(usize) -> bool) -> bool {
     match &function.implementation {
         CallableImplementation::Native(id) => add(id.module.path.len()) && add(id.path.len()),
         CallableImplementation::NativeDefault(application) => {
@@ -313,29 +310,23 @@ fn add_function_contract(function: &FunctionAbi, add: &mut impl FnMut(usize) -> 
     }
 }
 
-pub(super) fn add_abi_bounds(
-    bounds: &[GenericBoundAbi],
-    add: &mut impl FnMut(usize) -> bool,
-) -> bool {
+pub(super) fn add_abi_bounds(bounds: &[GenericBound], add: &mut impl FnMut(usize) -> bool) -> bool {
     bounds.iter().all(|bound| {
         add(bound.constraints.len())
             && bound.constraints.iter().all(|constraint| match constraint {
-                ConstraintAbi::Trait(ty) => add(ty.arguments.len()),
+                Constraint::Trait(ty) => add(ty.arguments.len()),
                 _ => true,
             })
     })
 }
 
-pub(super) fn generic_identity_limit(
-    params: &[GenericParameterAbi],
-    bounds: &[GenericBoundAbi],
-) -> bool {
+pub(super) fn generic_identity_limit(params: &[GenericParam], bounds: &[GenericBound]) -> bool {
     params.iter().all(|param| param.owner.within_path_limit())
         && bounds.iter().all(|bound| {
             bound.ty.within_wire_limits()
                 && bound.constraints.iter().all(|constraint| match constraint {
-                    ConstraintAbi::Standard(_) => true,
-                    ConstraintAbi::Trait(ty) => {
+                    Constraint::Standard(_) => true,
+                    Constraint::Trait(ty) => {
                         ty.declaration.within_path_limit()
                             && ty.arguments.iter().all(|arg| arg.within_wire_limits())
                             && ty.associated_types.iter().all(|(member, value)| {
@@ -346,23 +337,23 @@ pub(super) fn generic_identity_limit(
         })
 }
 
-pub(super) fn associated_identity_limit(members: &[AssociatedTypeAbi]) -> bool {
+pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef]) -> bool {
     members.iter().all(|member| {
         member.declaration.within_path_limit()
             && generic_identity_limit(&member.generic_params, &member.parameter_bounds)
             && member.bounds.iter().all(|bound| match bound {
-                ConstraintAbi::Standard(_) => true,
-                ConstraintAbi::Trait(ty) => AbiType::Trait(ty.clone()).within_wire_limits(),
+                Constraint::Standard(_) => true,
+                Constraint::Trait(ty) => Ty::Trait(ty.clone()).within_wire_limits(),
             })
     })
 }
 
-pub(super) fn function_abi_identity_limit(function: &FunctionAbi) -> bool {
+pub(super) fn function_abi_identity_limit(function: &FnDecl) -> bool {
     generic_identity_limit(&function.generic_params, &function.bounds)
 }
 
 pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
-    let valid = |ty: &AbiType| ty.within_wire_limits();
+    let valid = |ty: &Ty| ty.within_wire_limits();
     module
         .native_imports
         .iter()
@@ -377,13 +368,13 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 && declaration.callable_requirements.iter().all(|required| {
                     required.member.within_path_limit()
                         && valid(&required.receiver)
-                        && valid(&AbiType::Trait(required.interface.clone()))
+                        && valid(&Ty::Trait(required.interface.clone()))
                         && required.arguments.iter().all(&valid)
                 })
         })
         && module.interface_tables.iter().all(|table| {
             table.view.as_ref().is_none_or(|view| {
-                valid(&AbiType::Trait(view.interface.clone()))
+                valid(&Ty::Trait(view.interface.clone()))
                     && view.results.iter().all(|adapter| {
                         adapter.method.within_path_limit()
                             && adapter.implementation.declaration.within_path_limit()
@@ -392,7 +383,7 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
             }) && table.declaration.within_path_limit()
                 && table.arguments.iter().all(&valid)
                 && table.parents.iter().all(|parent| {
-                    valid(&AbiType::Trait(parent.interface.clone()))
+                    valid(&Ty::Trait(parent.interface.clone()))
                         && parent.implementation.declaration.within_path_limit()
                         && parent.implementation.arguments.iter().all(&valid)
                 })
@@ -432,13 +423,13 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 })
         })
         && module.public_items.iter().all(|item| match item {
-            PublicAbiItem::Function(item) => {
+            PublicItem::Function(item) => {
                 function_abi_identity_limit(item)
                     && item.params.iter().all(|param| valid(&param.ty))
                     && valid(&item.return_type)
             }
-            PublicAbiItem::Const(item) => valid(&item.ty),
-            PublicAbiItem::Type(item) => {
+            PublicItem::Const(item) => valid(&item.ty),
+            PublicItem::Type(item) => {
                 generic_identity_limit(&item.generic_params, &item.bounds)
                     && item.fields.iter().all(|field| valid(&field.ty))
                     && item
@@ -446,7 +437,7 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                         .iter()
                         .all(|variant| variant.payload.iter().all(&valid))
             }
-            PublicAbiItem::Trait(item) => {
+            PublicItem::Trait(item) => {
                 associated_identity_limit(&item.associated_types)
                     && generic_identity_limit(&item.generic_params, &item.bounds)
                     && item.methods.iter().all(|method| {
@@ -455,7 +446,7 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                             && valid(&method.return_type)
                     })
             }
-            PublicAbiItem::InterfaceTable(item) => {
+            PublicItem::InterfaceTable(item) => {
                 item.declaration.within_path_limit()
                     && generic_identity_limit(&item.generic_params, &item.bounds)
                     && valid(&item.trait_type)
