@@ -22,12 +22,8 @@ use kagari_abi::{
     types::{AbiType, NativeDeclaration, verify::validate_native_declarations},
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget, program::ModuleRef};
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
-use std::{
-    collections::{HashMap, HashSet},
-    rc::Rc,
-    slice,
-};
+use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionMap};
+use std::{collections::HashSet, rc::Rc, slice};
 
 #[derive(Debug, Clone)]
 pub(crate) struct BindingRegistration {
@@ -60,11 +56,23 @@ pub(crate) fn link_host(
     })
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct NativeRegistry {
-    entries: HashMap<DefinitionPath, Rc<BindingRegistration>>,
-    pub(crate) storage: HashMap<DefinitionPath, NativeStorage>,
+    entries: DefinitionMap<Rc<BindingRegistration>>,
+    pub(crate) storage: DefinitionMap<NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
+}
+
+impl Default for NativeRegistry {
+    fn default() -> Self {
+        let catalog = DeclarationCatalog::default();
+        let context = catalog.types.context().clone();
+        Self {
+            entries: DefinitionMap::new(context.clone()),
+            storage: DefinitionMap::new(context),
+            catalog,
+        }
+    }
 }
 
 impl NativeRegistry {
@@ -112,7 +120,9 @@ impl NativeRegistry {
             catalog.insert_declaration(declaration.clone())?;
         }
         self.catalog = catalog;
-        self.entries.insert(id, registration);
+        self.entries
+            .insert(id, registration)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         Ok(())
     }
 

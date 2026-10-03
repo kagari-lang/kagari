@@ -179,6 +179,7 @@ impl Runtime {
             None
         } else {
             Some(Rc::new(TypeEnvironment::new(
+                self.definition_context(),
                 template.generic_params.clone(),
                 arguments.to_vec(),
             )?))

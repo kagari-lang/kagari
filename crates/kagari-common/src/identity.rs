@@ -1,4 +1,6 @@
 //! Source/semantic identity is distinct from runtime slots and display spelling.
+pub mod map;
+pub mod reference;
 pub mod table;
 use crate::{decode_limits::bounded_vec, span::Span};
 use serde::{Deserialize, Deserializer, Serialize};

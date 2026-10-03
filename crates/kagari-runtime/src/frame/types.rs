@@ -15,10 +15,10 @@ use kagari_abi::{
     callable::generic::GenericBody,
     native_import::{NativeSignature, callables::NativeCallableRequirement},
     standard::RuntimePrimitive,
-    types::{AbiType, GenericParameterAbi, NominalAbiType, substitution::TypeSubstitution},
+    types::{AbiType, GenericParameterAbi, NominalAbiType, substitution::substitute_parameters},
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::{DefinitionPath, map::DefinitionContext, table::DefinitionId};
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -49,7 +49,8 @@ pub(crate) struct BoundGenericMethod {
 
 #[derive(Debug, Clone)]
 pub struct TypeEnvironment {
-    parameters: Rc<[GenericParameterAbi]>,
+    definitions: DefinitionContext,
+    parameters: Rc<[GenericParameterAbi<DefinitionId>]>,
     arguments: Rc<[TypeArgument]>,
     parent: Option<Rc<TypeEnvironment>>,
     pub(crate) operations: OperationBindings,
@@ -57,6 +58,7 @@ pub struct TypeEnvironment {
 
 impl TypeEnvironment {
     pub(crate) fn new(
+        definitions: &DefinitionContext,
         parameters: Vec<GenericParameterAbi>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
@@ -67,7 +69,19 @@ impl TypeEnvironment {
                 "generic call type arguments",
             ));
         }
+        let parameters = parameters
+            .into_iter()
+            .map(|parameter| {
+                Ok(GenericParameterAbi {
+                    owner: definitions
+                        .intern(&parameter.owner)
+                        .map_err(|error| RuntimeError::module_validation(error.to_string()))?,
+                    position: parameter.position,
+                })
+            })
+            .collect::<Result<Vec<_>, RuntimeError>>()?;
         Ok(Self {
+            definitions: definitions.clone(),
             parameters: parameters.into(),
             arguments: arguments.into(),
             parent: None,
@@ -78,6 +92,7 @@ impl TypeEnvironment {
     /// Layout metadata cannot keep unrelated executable selections or module state alive.
     pub(crate) fn types_only(&self) -> Self {
         Self {
+            definitions: self.definitions.clone(),
             parameters: self.parameters.clone(),
             arguments: self.arguments.clone(),
             parent: self
@@ -91,9 +106,10 @@ impl TypeEnvironment {
     pub(crate) fn include(&mut self, parent: Option<Rc<Self>>) -> Result<(), RuntimeError> {
         if let Some(parent) = parent {
             if self.parent.is_some()
+                || self.definitions.snapshot().id() != parent.definitions.snapshot().id()
                 || self.parameters.iter().any(|parameter| {
                     parent
-                        .argument(&parameter.owner, parameter.position)
+                        .argument_id(parameter.owner, parameter.position)
                         .is_some()
                 })
             {
@@ -111,14 +127,18 @@ impl TypeEnvironment {
         owner: &DefinitionPath,
         position: usize,
     ) -> Option<&TypeArgument> {
+        self.argument_id(self.definitions.lookup(owner)?, position)
+    }
+
+    fn argument_id(&self, owner: DefinitionId, position: usize) -> Option<&TypeArgument> {
         self.parameters
             .iter()
-            .position(|parameter| parameter.owner == *owner && parameter.position == position)
+            .position(|parameter| parameter.owner == owner && parameter.position == position)
             .and_then(|index| self.arguments.get(index))
             .or_else(|| {
                 self.parent
                     .as_ref()
-                    .and_then(|parent| parent.argument(owner, position))
+                    .and_then(|parent| parent.argument_id(owner, position))
             })
     }
 
@@ -127,7 +147,17 @@ impl TypeEnvironment {
         let mut environment = Some(self);
         while let Some(current) = environment {
             let end = offset + current.parameters.len();
-            if body.parameters.get(offset..end) != Some(current.parameters.as_ref()) {
+            let Some(parameters) = body.parameters.get(offset..end) else {
+                return false;
+            };
+            if !parameters
+                .iter()
+                .zip(current.parameters.iter())
+                .all(|(expected, actual)| {
+                    current.definitions.lookup(&expected.owner) == Some(actual.owner)
+                        && expected.position == actual.position
+                })
+            {
                 return false;
             }
             offset = end;
@@ -137,17 +167,12 @@ impl TypeEnvironment {
     }
 
     pub(crate) fn resolve(&self, ty: &AbiType) -> Result<AbiType, RuntimeError> {
-        let mut substitution = TypeSubstitution::default();
-        let mut environment = Some(self);
-        while let Some(current) = environment {
-            for (parameter, argument) in current.parameters.iter().zip(current.arguments.iter()) {
-                substitution.bind(&parameter.owner, parameter.position, argument.ty());
-            }
-            environment = current.parent.as_deref();
-        }
-        let result = substitution
-            .apply(ty, &Default::default())
-            .map_err(|_| RuntimeError::module_validation("generic type substitution"))?;
+        let result = substitute_parameters(
+            ty,
+            &|owner, position| self.argument(owner, position).map(TypeArgument::ty),
+            &Default::default(),
+        )
+        .map_err(|_| RuntimeError::module_validation("generic type substitution"))?;
         if !result.is_concrete() {
             return Err(RuntimeError::module_validation("unbound generic type"));
         }

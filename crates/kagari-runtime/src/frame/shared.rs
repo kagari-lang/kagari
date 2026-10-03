@@ -89,7 +89,11 @@ impl ExecutionStack {
                 caller.environment(),
                 &contract.arguments,
             )?;
-            let mut environment = TypeEnvironment::new(body.parameters.clone(), arguments)?;
+            let mut environment = TypeEnvironment::new(
+                runtime.definition_context(),
+                body.parameters.clone(),
+                arguments,
+            )?;
             environment.operations = runtime.bind_operations(&caller, &contract.operations)?;
             if args.len() != contract.signature.params.len() {
                 return Err(invalid());

@@ -97,7 +97,8 @@ impl ExecutionFrame {
                 position,
             })
             .collect();
-        TypeEnvironment::new(parameters, arguments).map(|environment| Some(Rc::new(environment)))
+        TypeEnvironment::new(runtime.definition_context(), parameters, arguments)
+            .map(|environment| Some(Rc::new(environment)))
     }
 
     pub fn struct_layout(

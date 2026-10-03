@@ -93,6 +93,7 @@ impl Runtime {
             }
             visited.push(key);
             let environment = Rc::new(TypeEnvironment::new(
+                self.definition_context(),
                 template.generic_params.clone(),
                 arguments,
             )?);

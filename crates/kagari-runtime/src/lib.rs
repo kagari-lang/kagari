@@ -6,6 +6,7 @@ use host::HostCallContext;
 use kagari_abi::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::host_interface::path::HostPathDeclaration;
+use kagari_common::identity::map::DefinitionContext;
 use reflection::ReflectionError;
 use session::{ExecutionEntry, SessionState};
 use std::{
@@ -137,6 +138,10 @@ pub struct RootedInterfaceMethod {
 }
 
 impl Runtime {
+    pub(crate) fn definition_context(&self) -> &DefinitionContext {
+        self.native_entries.catalog.types.context()
+    }
+
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = Rc::new(ResourceState::new(config.limits));
         let mut runtime = Self {

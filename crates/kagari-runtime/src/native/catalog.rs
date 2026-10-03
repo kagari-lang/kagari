@@ -5,16 +5,32 @@ use kagari_abi::{
     declaration::{ImplDecl, ModuleDecl},
     types::{NativeDeclaration, TraitAbi, TypeAbi, TypeAbiKind},
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath,
+    map::{DefinitionContext, DefinitionMap},
+    table::DefinitionTableError,
+};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A declaration view of validated native APIs. It does not install handlers.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DeclarationCatalog {
-    pub(crate) types: Arc<BTreeMap<DefinitionPath, TypeAbi>>,
-    pub(crate) traits: Arc<BTreeMap<DefinitionPath, TraitAbi>>,
-    pub(crate) declarations: Arc<BTreeMap<DefinitionPath, NativeDeclaration>>,
-    pub(crate) implementations: Arc<BTreeMap<DefinitionPath, ImplDecl>>,
+    pub(crate) types: Arc<DefinitionMap<TypeAbi>>,
+    pub(crate) traits: Arc<DefinitionMap<TraitAbi>>,
+    pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration>>,
+    pub(crate) implementations: Arc<DefinitionMap<ImplDecl>>,
+}
+
+impl Default for DeclarationCatalog {
+    fn default() -> Self {
+        let context = DefinitionContext::new().expect("definition context identity exhausted");
+        Self {
+            types: Arc::new(DefinitionMap::new(context.clone())),
+            traits: Arc::new(DefinitionMap::new(context.clone())),
+            declarations: Arc::new(DefinitionMap::new(context.clone())),
+            implementations: Arc::new(DefinitionMap::new(context)),
+        }
+    }
 }
 
 impl DeclarationCatalog {
@@ -76,7 +92,9 @@ impl DeclarationCatalog {
                 ));
             }
         } else {
-            Arc::make_mut(&mut self.traits).insert(declaration, contract);
+            Arc::make_mut(&mut self.traits)
+                .insert(declaration, contract)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
         Ok(())
     }
@@ -93,24 +111,44 @@ impl DeclarationCatalog {
                 ));
             }
         } else {
-            Arc::make_mut(&mut self.types).insert(id, declaration);
+            Arc::make_mut(&mut self.types)
+                .insert(id, declaration)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
         Ok(())
     }
 
     pub(crate) fn merge(&mut self, other: &Self) -> Result<(), RuntimeError> {
-        for (id, declaration) in other.types.iter() {
-            self.insert_type(id.clone(), declaration.clone())?;
+        if self
+            .implementations
+            .union_len(&other.implementations)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+            > 4096
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "native implementation catalog exceeds proof limits",
+            ));
         }
-        for (declaration, contract) in other.traits.iter() {
-            self.insert(declaration.clone(), contract.clone())?;
-        }
-        for declaration in other.declarations.values() {
-            self.insert_declaration(declaration.clone())?;
-        }
-        for (id, implementation) in other.implementations.iter() {
-            self.insert_implementation(id.clone(), implementation.clone())?;
-        }
+        merge_index(
+            &mut self.types,
+            &other.types,
+            "conflicting native storage type contracts",
+        )?;
+        merge_index(
+            &mut self.traits,
+            &other.traits,
+            "conflicting native trait contracts",
+        )?;
+        merge_index(
+            &mut self.declarations,
+            &other.declarations,
+            "conflicting native template declarations",
+        )?;
+        merge_index(
+            &mut self.implementations,
+            &other.implementations,
+            "conflicting native implementation contracts",
+        )?;
         Ok(())
     }
 
@@ -131,7 +169,9 @@ impl DeclarationCatalog {
                     "native implementation catalog exceeds proof limits",
                 ));
             }
-            Arc::make_mut(&mut self.implementations).insert(id, implementation);
+            Arc::make_mut(&mut self.implementations)
+                .insert(id, implementation)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
         Ok(())
     }
@@ -148,46 +188,76 @@ impl DeclarationCatalog {
                 ));
             }
         } else {
-            Arc::make_mut(&mut self.declarations).insert(id.clone(), declaration);
+            Arc::make_mut(&mut self.declarations)
+                .insert(id.clone(), declaration)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
         Ok(())
     }
 
-    pub(crate) fn satisfied_by(&self, installed: &Self) -> bool {
-        self.types
-            .iter()
-            .all(|(id, declaration)| installed.types.get(id) == Some(declaration))
-            && self
-                .traits
-                .iter()
-                .all(|(id, contract)| installed.get(id) == Some(contract))
-            && self
-                .declarations
-                .iter()
-                .all(|(id, declaration)| installed.declarations.get(id) == Some(declaration))
-            && self.implementations.iter().all(|(id, implementation)| {
-                installed.implementations.get(id) == Some(implementation)
-            })
+    pub(crate) fn satisfied_by(&self, installed: &Self) -> Result<bool, RuntimeError> {
+        let check = || -> Result<_, _> {
+            Ok(self.types.is_subset_of(&installed.types)?
+                && self.traits.is_subset_of(&installed.traits)?
+                && self.declarations.is_subset_of(&installed.declarations)?
+                && self
+                    .implementations
+                    .is_subset_of(&installed.implementations)?)
+        };
+        check().map_err(|error: DefinitionTableError| {
+            RuntimeError::metadata_conflict(error.to_string())
+        })
     }
 
-    pub(crate) fn foreign_to(mut self, owned: &Self) -> Self {
-        Arc::make_mut(&mut self.types).retain(|id, _| !owned.types.contains_key(id));
-        Arc::make_mut(&mut self.traits).retain(|id, _| !owned.traits.contains_key(id));
-        Arc::make_mut(&mut self.declarations).retain(|id, _| !owned.declarations.contains_key(id));
-        Arc::make_mut(&mut self.implementations)
-            .retain(|id, _| !owned.implementations.contains_key(id));
-        self
+    pub(crate) fn foreign_to(mut self, owned: &Self) -> Result<Self, RuntimeError> {
+        let remove = || -> Result<_, _> {
+            Arc::make_mut(&mut self.types).remove_keys(&owned.types)?;
+            Arc::make_mut(&mut self.traits).remove_keys(&owned.traits)?;
+            Arc::make_mut(&mut self.declarations).remove_keys(&owned.declarations)?;
+            Arc::make_mut(&mut self.implementations).remove_keys(&owned.implementations)?;
+            Ok(())
+        };
+        let mut remove = remove;
+        remove().map_err(|error: DefinitionTableError| {
+            RuntimeError::metadata_conflict(error.to_string())
+        })?;
+        Ok(self)
     }
 
     pub(crate) fn check_implementations<'a>(
         &self,
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<(), RuntimeError> {
+        let traits: BTreeMap<_, _> = self
+            .traits
+            .iter()
+            .map(|(id, contract)| (id, contract.clone()))
+            .collect();
         for module in modules {
             module
-                .validate_trait_implementations(&self.traits)
+                .validate_trait_implementations(&traits)
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
         Ok(())
     }
+}
+
+fn merge_index<T: Clone + PartialEq>(
+    target: &mut Arc<DefinitionMap<T>>,
+    source: &DefinitionMap<T>,
+    conflict: &str,
+) -> Result<(), RuntimeError> {
+    if source
+        .is_subset_of(target)
+        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+    {
+        return Ok(());
+    }
+    if !Arc::make_mut(target)
+        .merge(source)
+        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+    {
+        return Err(RuntimeError::metadata_conflict(conflict));
+    }
+    Ok(())
 }

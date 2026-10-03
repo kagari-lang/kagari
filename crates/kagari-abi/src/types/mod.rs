@@ -1,5 +1,6 @@
 pub mod access;
 pub mod applications;
+pub mod identity;
 pub mod inheritance;
 pub mod matching;
 pub mod native;
@@ -25,7 +26,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
     host_interface::value_type::HostValueType,
-    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, ModuleIdentity, reference::DefinitionReference},
     range::RangeKind,
 };
 
@@ -169,15 +170,19 @@ pub struct VariantAbi {
 /// Semantic ABI types preserve nominal identity and container arguments, whereas
 /// ValueType describes only the representation used by instruction operands.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct NominalAbiType {
-    pub declaration: DefinitionPath,
+#[serde(bound(
+    serialize = "I: DefinitionReference + Serialize",
+    deserialize = "I: DefinitionReference + Deserialize<'de>"
+))]
+pub struct NominalAbiType<I = DefinitionPath> {
+    pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<AbiType>,
+    pub arguments: Vec<AbiType<I>>,
     #[serde(deserialize_with = "crate::decode_limits::map")]
-    pub associated_types: BTreeMap<DefinitionPath, AbiType>,
+    pub associated_types: BTreeMap<I, AbiType<I>>,
 }
 
-impl NominalAbiType {
+impl<I: DefinitionReference> NominalAbiType<I> {
     /// A required view can leave outputs unspecified; specified outputs remain
     /// invariant and must equal the concrete implementation's checked outputs.
     pub fn satisfies(&self, required: &Self) -> bool {
@@ -191,48 +196,48 @@ impl NominalAbiType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AbiType {
+pub enum AbiType<I = DefinitionPath> {
     Projection {
-        arguments: Vec<AbiType>,
-        receiver: Box<AbiType>,
-        interface: Box<NominalAbiType>,
-        member: DefinitionPath,
+        arguments: Vec<AbiType<I>>,
+        receiver: Box<AbiType<I>>,
+        interface: Box<NominalAbiType<I>>,
+        member: I,
     },
-    Host(DefinitionPath),
+    Host(I),
     /// Receiver template in a trait signature, never an executable value layout.
-    SelfType(DefinitionPath),
+    SelfType(I),
     /// Valid only in a declaration template, never in an executable layout.
     Parameter {
-        owner: DefinitionPath,
+        owner: I,
         position: usize,
     },
     Builtin(BuiltinType),
-    Tuple(Vec<AbiType>),
+    Tuple(Vec<AbiType<I>>),
     Function {
-        params: Vec<AbiType>,
-        result: Box<AbiType>,
+        params: Vec<AbiType<I>>,
+        result: Box<AbiType<I>>,
     },
-    Iter(Box<AbiType>),
-    Range(Box<AbiType>, RangeKind),
-    Array(Box<AbiType>, CollectionAccess),
+    Iter(Box<AbiType<I>>),
+    Range(Box<AbiType<I>>, RangeKind),
+    Array(Box<AbiType<I>>, CollectionAccess),
     Map {
-        key: Box<AbiType>,
-        value: Box<AbiType>,
+        key: Box<AbiType<I>>,
+        value: Box<AbiType<I>>,
         access: CollectionAccess,
     },
-    Set(Box<AbiType>, CollectionAccess),
-    Struct(NominalAbiType),
+    Set(Box<AbiType<I>>, CollectionAccess),
+    Struct(NominalAbiType<I>),
     /// A nominal script-heap object backed by a registered traced Rust payload.
-    NativeObject(NominalAbiType),
-    Enum(NominalAbiType),
-    Trait(NominalAbiType),
+    NativeObject(NominalAbiType<I>),
+    Enum(NominalAbiType<I>),
+    Trait(NominalAbiType<I>),
     StandardEnum {
         kind: StandardEnumKind,
-        args: Vec<AbiType>,
+        args: Vec<AbiType<I>>,
     },
 }
 
-impl AbiType {
+impl<I: DefinitionReference> AbiType<I> {
     pub fn contains_projection(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -258,41 +263,6 @@ impl AbiType {
             }
         }
         false
-    }
-
-    pub fn from_host_type(ty: &HostValueType) -> Self {
-        match ty {
-            HostValueType::Unit => Self::Builtin(BuiltinType::Unit),
-            HostValueType::Bool => Self::Builtin(BuiltinType::Bool),
-            HostValueType::I32 => Self::Builtin(BuiltinType::I32),
-            HostValueType::I64 => Self::Builtin(BuiltinType::I64),
-            HostValueType::F32 => Self::Builtin(BuiltinType::F32),
-            HostValueType::F64 => Self::Builtin(BuiltinType::F64),
-            HostValueType::String => Self::Builtin(BuiltinType::String),
-            HostValueType::Opaque(id) => Self::Host(id.clone()),
-            HostValueType::Tuple(types) => {
-                Self::Tuple(types.iter().map(Self::from_host_type).collect())
-            }
-            HostValueType::Array(ty, access) => {
-                Self::Array(Box::new(Self::from_host_type(ty)), *access)
-            }
-            HostValueType::Map { key, value, access } => Self::Map {
-                key: Box::new(Self::from_host_type(key)),
-                value: Box::new(Self::from_host_type(value)),
-                access: *access,
-            },
-            HostValueType::Set(ty, access) => {
-                Self::Set(Box::new(Self::from_host_type(ty)), *access)
-            }
-            HostValueType::Option(ty) => Self::StandardEnum {
-                kind: StandardEnumKind::Option,
-                args: vec![Self::from_host_type(ty)],
-            },
-            HostValueType::Result { ok, error } => Self::StandardEnum {
-                kind: StandardEnumKind::Result,
-                args: vec![Self::from_host_type(ok), Self::from_host_type(error)],
-            },
-        }
     }
 
     pub fn representation(&self) -> ValueType {
@@ -332,13 +302,6 @@ impl AbiType {
             }
         }
         true
-    }
-
-    pub fn instantiate(&self, owner: &DefinitionPath, arguments: &[AbiType]) -> Option<Self> {
-        let result = TypeSubstitution::for_owner(owner, arguments)
-            .apply(self, &CancellationToken::default())
-            .ok()?;
-        result.is_concrete().then_some(result)
     }
 }
 
@@ -558,22 +521,30 @@ pub struct ConcreteFunctionIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenericParameterAbi {
-    pub owner: DefinitionPath,
+pub struct GenericParameterAbi<I = DefinitionPath> {
+    pub owner: I,
     pub position: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenericBoundAbi {
-    pub ty: AbiType,
+#[serde(bound(
+    serialize = "I: DefinitionReference + Serialize",
+    deserialize = "I: DefinitionReference + Deserialize<'de>"
+))]
+pub struct GenericBoundAbi<I = DefinitionPath> {
+    pub ty: AbiType<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub constraints: Vec<ConstraintAbi>,
+    pub constraints: Vec<ConstraintAbi<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum ConstraintAbi {
+#[serde(bound(
+    serialize = "I: DefinitionReference + Serialize",
+    deserialize = "I: DefinitionReference + Deserialize<'de>"
+))]
+pub enum ConstraintAbi<I = DefinitionPath> {
     Standard(StandardTypeConstraint),
-    Trait(NominalAbiType),
+    Trait(NominalAbiType<I>),
 }
 
 pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
@@ -632,4 +603,48 @@ pub fn native_storage_contract<'a>(
         }
         _ => None,
     })
+}
+
+impl AbiType {
+    pub fn from_host_type(ty: &HostValueType) -> Self {
+        match ty {
+            HostValueType::Unit => Self::Builtin(BuiltinType::Unit),
+            HostValueType::Bool => Self::Builtin(BuiltinType::Bool),
+            HostValueType::I32 => Self::Builtin(BuiltinType::I32),
+            HostValueType::I64 => Self::Builtin(BuiltinType::I64),
+            HostValueType::F32 => Self::Builtin(BuiltinType::F32),
+            HostValueType::F64 => Self::Builtin(BuiltinType::F64),
+            HostValueType::String => Self::Builtin(BuiltinType::String),
+            HostValueType::Opaque(id) => Self::Host(id.clone()),
+            HostValueType::Tuple(types) => {
+                Self::Tuple(types.iter().map(Self::from_host_type).collect())
+            }
+            HostValueType::Array(ty, access) => {
+                Self::Array(Box::new(Self::from_host_type(ty)), *access)
+            }
+            HostValueType::Map { key, value, access } => Self::Map {
+                key: Box::new(Self::from_host_type(key)),
+                value: Box::new(Self::from_host_type(value)),
+                access: *access,
+            },
+            HostValueType::Set(ty, access) => {
+                Self::Set(Box::new(Self::from_host_type(ty)), *access)
+            }
+            HostValueType::Option(ty) => Self::StandardEnum {
+                kind: StandardEnumKind::Option,
+                args: vec![Self::from_host_type(ty)],
+            },
+            HostValueType::Result { ok, error } => Self::StandardEnum {
+                kind: StandardEnumKind::Result,
+                args: vec![Self::from_host_type(ok), Self::from_host_type(error)],
+            },
+        }
+    }
+
+    pub fn instantiate(&self, owner: &DefinitionPath, arguments: &[AbiType]) -> Option<Self> {
+        let result = TypeSubstitution::for_owner(owner, arguments)
+            .apply(self, &CancellationToken::default())
+            .ok()?;
+        result.is_concrete().then_some(result)
+    }
 }

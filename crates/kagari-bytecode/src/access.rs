@@ -2,6 +2,7 @@
 
 use kagari_abi::{
     operations::{IterOp, StandardEnumOp},
+    representation::ValueType,
     scalar::BuiltinType as B,
     standard::{RuntimePrimitive as S, surface::StandardEnum},
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, access},
@@ -193,8 +194,8 @@ pub(super) fn verify(
                         && declared
                             .integer_bounds()
                             .is_some_and(|(min, max)| (min..=max).contains(&value))
-                        && AbiType::Builtin(*declared).representation()
-                            == AbiType::Builtin(ty).representation()
+                        && ValueType::from_builtin_type(*declared)
+                            == ValueType::from_builtin_type(ty)
                     {
                         *declared
                     } else {

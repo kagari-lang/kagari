@@ -240,7 +240,13 @@ impl AnalysisDatabase {
                     .is_some()
             });
             if let Some(result) = result {
-                self.body_cache.insert(result.owner.clone(), result);
+                // Erroneous oversized source identities retain diagnostics but
+                // never enter a checked identity index.
+                if result.owner.within_path_limit() {
+                    self.body_cache
+                        .insert(result.owner.clone(), result)
+                        .expect("bounded function cache identity");
+                }
             }
         }
     }

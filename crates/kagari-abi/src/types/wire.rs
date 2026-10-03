@@ -9,7 +9,11 @@ use crate::{
     },
 };
 
-use kagari_common::{collection::CollectionAccess, identity::DefinitionPath, range::RangeKind};
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionPath, reference::DefinitionReference},
+    range::RangeKind,
+};
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{self, Error as DeError, SeqAccess, Visitor},
@@ -19,15 +23,16 @@ use serde::{
 use std::{
     collections::BTreeMap,
     fmt::{self, Formatter},
+    marker::PhantomData,
     vec::IntoIter,
 };
 
 #[derive(Serialize, Deserialize)]
-enum Node {
-    Host(DefinitionPath),
-    SelfType(DefinitionPath),
+enum Node<I = DefinitionPath> {
+    Host(I),
+    SelfType(I),
     Parameter {
-        owner: DefinitionPath,
+        owner: I,
         position: usize,
     },
     Builtin(BuiltinType),
@@ -38,31 +43,31 @@ enum Node {
     Array(CollectionAccess),
     Map(CollectionAccess),
     Set(CollectionAccess),
-    Struct(DefinitionPath, u32),
-    NativeObject(DefinitionPath, u32),
-    Enum(DefinitionPath, u32),
+    Struct(I, u32),
+    NativeObject(I, u32),
+    Enum(I, u32),
     Trait(
-        DefinitionPath,
+        I,
         u32,
-        #[serde(deserialize_with = "crate::decode_limits::nested")] Vec<DefinitionPath>,
+        #[serde(deserialize_with = "crate::decode_limits::nested")] Vec<I>,
     ),
     Projection {
         member_arguments: u32,
-        member: DefinitionPath,
-        owner: DefinitionPath,
+        member: I,
+        owner: I,
         arguments: u32,
         #[serde(deserialize_with = "crate::decode_limits::nested")]
-        bindings: Vec<DefinitionPath>,
+        bindings: Vec<I>,
     },
     StandardEnum(StandardEnum, u32),
 }
 
-impl AbiType {
+impl<I: DefinitionReference> AbiType<I> {
     pub fn within_wire_limits(&self) -> bool {
         self.wire_nodes().is_ok()
     }
 
-    fn wire_nodes(&self) -> Result<Vec<Node>, &'static str> {
+    fn wire_nodes(&self) -> Result<Vec<Node<I>>, &'static str> {
         let mut pending = vec![(self, 1usize)];
         let mut nodes = Vec::new();
         while let Some((ty, depth)) = pending.pop() {
@@ -235,7 +240,7 @@ impl AbiType {
     }
 }
 
-impl Serialize for AbiType {
+impl<I: DefinitionReference + Serialize> Serialize for AbiType<I> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.wire_nodes()
             .map_err(Error::custom)?
@@ -243,12 +248,12 @@ impl Serialize for AbiType {
     }
 }
 
-impl<'de> Deserialize<'de> for AbiType {
+impl<'de, I: DefinitionReference + Deserialize<'de>> Deserialize<'de> for AbiType<I> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct TypeVisitor;
+        struct TypeVisitor<I>(PhantomData<I>);
 
-        impl<'de> Visitor<'de> for TypeVisitor {
-            type Value = AbiType;
+        impl<'de, I: DefinitionReference + Deserialize<'de>> Visitor<'de> for TypeVisitor<I> {
+            type Value = AbiType<I>;
 
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a bounded preorder ABI type")
@@ -262,32 +267,35 @@ impl<'de> Deserialize<'de> for AbiType {
                     return Err(DeError::custom("ABI type node limit exceeded"));
                 }
                 let mut nodes = Vec::new();
-                while let Some(node) = sequence.next_element::<Node>()? {
+                while let Some(node) = sequence.next_element::<Node<I>>()? {
                     if nodes.len() >= MAX_NODES {
                         return Err(DeError::custom("ABI type node limit exceeded"));
                     }
                     nodes.push(node);
                 }
                 let mut nodes = nodes.into_iter();
-                let ty = build::<A::Error>(&mut nodes, 1)?;
+                let ty = build::<I, A::Error>(&mut nodes, 1)?;
                 if nodes.next().is_some() {
                     return Err(DeError::custom("trailing ABI type nodes"));
                 }
                 Ok(ty)
             }
         }
-        deserializer.deserialize_seq(TypeVisitor)
+        deserializer.deserialize_seq(TypeVisitor(PhantomData))
     }
 }
 
-fn build<E: de::Error>(nodes: &mut IntoIter<Node>, depth: usize) -> Result<AbiType, E> {
+fn build<I: DefinitionReference, E: de::Error>(
+    nodes: &mut IntoIter<Node<I>>,
+    depth: usize,
+) -> Result<AbiType<I>, E> {
     if depth > MAX_DEPTH {
         return Err(E::custom("ABI type depth limit exceeded"));
     }
     let next = nodes
         .next()
         .ok_or_else(|| E::custom("missing ABI type node"))?;
-    let children = |count: u32, nodes: &mut IntoIter<Node>| {
+    let children = |count: u32, nodes: &mut IntoIter<Node<I>>| {
         if count as usize > nodes.len() {
             return Err(E::custom("missing ABI child nodes"));
         }
@@ -514,7 +522,7 @@ mod tests {
     fn abi_type_wire_rejects_malformed_and_oversized_nodes() {
         for nodes in [
             vec![],
-            vec![Node::Array(CollectionAccess::Mutable)],
+            vec![Node::<DefinitionPath>::Array(CollectionAccess::Mutable)],
             vec![Node::Function(1), Node::Builtin(BuiltinType::I32)],
             vec![Node::Tuple(2), Node::Builtin(BuiltinType::I32)],
             vec![
@@ -526,20 +534,20 @@ mod tests {
             assert!(codec().deserialize::<AbiType>(&bytes).is_err());
         }
         let nodes = (0..MAX_NODES + 1)
-            .map(|_| Node::Builtin(BuiltinType::I32))
+            .map(|_| Node::<DefinitionPath>::Builtin(BuiltinType::I32))
             .collect::<Vec<_>>();
         let bytes = codec().serialize(&nodes).unwrap();
         assert!(codec().deserialize::<AbiType>(&bytes).is_err());
-        let too_wide = AbiType::Tuple(vec![AbiType::Builtin(BuiltinType::I32); MAX_NODES]);
+        let too_wide: AbiType = AbiType::Tuple(vec![AbiType::Builtin(BuiltinType::I32); MAX_NODES]);
         assert!(codec().serialize(&too_wide).is_err());
 
-        let mut deep = AbiType::Builtin(BuiltinType::I32);
+        let mut deep: AbiType = AbiType::Builtin(BuiltinType::I32);
         for _ in 0..MAX_DEPTH {
             deep = AbiType::Array(Box::new(deep), CollectionAccess::Mutable);
         }
         assert!(codec().serialize(&deep).is_err());
         let mut nodes = (0..MAX_DEPTH)
-            .map(|_| Node::Array(CollectionAccess::Mutable))
+            .map(|_| Node::<DefinitionPath>::Array(CollectionAccess::Mutable))
             .collect::<Vec<_>>();
         nodes.push(Node::Builtin(BuiltinType::I32));
         let bytes = codec().serialize(&nodes).unwrap();

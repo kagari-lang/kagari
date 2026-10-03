@@ -7,7 +7,6 @@ use kagari_abi::{
     numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
     representation::ValueType,
     scalar::BuiltinType,
-    types::AbiType,
 };
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_common::{
@@ -185,7 +184,7 @@ pub fn convert(
 ) -> Result<Value, RuntimeError> {
     let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
     conversion.contract().ok_or_else(fail)?;
-    if !value.has_representation(AbiType::Builtin(conversion.source).representation()) {
+    if !value.has_representation(ValueType::from_builtin_type(conversion.source)) {
         return Err(fail());
     }
     if conversion.source.integer_layout().is_some() {
@@ -217,7 +216,7 @@ pub fn convert(
     let value = match numeric::cast(value, conversion.target.number_type().ok_or_else(fail)?) {
         Number::F32(v) => Value::F32(v),
         Number::F64(v) => Value::F64(v),
-        Number::Integer(v) => match AbiType::Builtin(conversion.target).representation() {
+        Number::Integer(v) => match ValueType::from_builtin_type(conversion.target) {
             ValueType::I32 => Value::I32(v as i32),
             ValueType::U64 => Value::U64(v as u64),
             _ => Value::I64(v as i64),
@@ -237,7 +236,7 @@ pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, Runti
             "invalid numeric operand type or range",
         )
     };
-    if !value.has_representation(AbiType::Builtin(ty).representation()) {
+    if !value.has_representation(ValueType::from_builtin_type(ty)) {
         return Err(fail());
     }
     let value = match value {

@@ -29,6 +29,14 @@ pub struct DefinitionTableId(NonZeroU32);
 pub struct DefinitionIndex(u32);
 
 /// Compact declaration identity, meaningful only in its explicitly owned table.
+/// Process-local handles cannot be serialized without an explicit table codec.
+///
+/// ```compile_fail
+/// use kagari_common::identity::table::DefinitionId;
+/// fn serialize_handle(id: DefinitionId) {
+///     let _ = bincode::serialize(&id);
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DefinitionId {
     table: DefinitionTableId,

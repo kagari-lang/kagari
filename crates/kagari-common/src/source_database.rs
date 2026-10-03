@@ -153,6 +153,9 @@ impl SourceDatabase {
     /// Bind a logical package/module before analysis. An overlay shares this binding.
     pub fn bind_module(&mut self, name: &str, module: ModuleIdentity) -> Result<FileId, String> {
         let name = self.source_name(name)?;
+        if !module.within_path_limit() {
+            return Err("module identity path segment limit exceeded".into());
+        }
         if module.package.0.is_empty()
             || module.path.is_empty()
             || module.path.iter().any(String::is_empty)

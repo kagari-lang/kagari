@@ -83,6 +83,53 @@ the full execution plan. Breaking Rust API change: import DefinitionPath for
 owned path construction and identity::table::DefinitionId for compact contextual
 references; the transitional ScopedDefinitionId name is removed.
 
+ID02 adoption checkpoint: local BindingId body owners now use scoped Copy IDs;
+each analysis retains the checked definition table. Native declaration catalogs,
+binding registries and storage indexes retain eight-byte keys in a shared explicit
+context. Context clones share one append-only writer rather than forking numeric
+indices; staged installation still publishes entries only after contract checks.
+Cross-catalog merge/subset/exclusion operations import exact identities once and
+avoid copying owned key paths. Existing complete-contract equality, proof-count
+bounds, independent-runtime installation and failed-batch behavior are retained.
+Unreferenced interned names confer no registration authority.
+
+AbiType, NominalAbiType, GenericParameterAbi, generic bounds and constraints now
+parameterize identity representation instead of duplicating semantic models.
+Bounded substitution and flat type codecs share their implementation for paths,
+scoped IDs and local portable references. The explicit PortableTypes codec covers
+all owner/member/output references, rejects foreign/invalid/collapsed references,
+preserves argument order and produces canonical bytes despite scope/insertion
+order differences. It is a type-set codec, not yet the KBC/MIR outer codec.
+Runtime TypeEnvironment stores compact binder owners in the runtime's context,
+retains parent/generation scope and uses the same checked substitution through
+contextual lookup instead of rebuilding owned-path substitution maps. Reject
+foreign-context parents and preserve types-only metadata after owner drop.
+
+The representation probe records binder headers 80 -> 16 bytes, ABI type headers
+128 -> 64 bytes and nominal headers 120 -> 56 bytes. Only frame binder/index
+storage is adopted so far; existing compiled nominal/type records still instantiate
+the path representation. These sizes do not establish artifact or execution gains.
+Full workspace regression passes (complete language contracts: 80.70 seconds,
+unpaired observation). Focused common/native tests and all 49 ABI tests pass;
+the final source-identity boundary test rejects paths above 64 segments without a
+panic and passes separately after integration. SourceDatabase binding now enforces
+the same bound, while analysis recovery reports CompileLimitExceeded and rejects
+codegen for oversized externally constructed inline sources. Initial generic scalar
+inference diagnostics are resolved through ValueType::from_builtin_type; an
+experimental global error conversion is removed rather than broadening unrelated
+inference sites. The analysis body-cache index now shares an explicit contextual
+table and stores short keys; source-facing owner paths remain query locators.
+All 401 HIR tests and 35 common tests plus the bare-ID serialization compile-fail
+test pass after this change. Final formatting, strict workspace/all-target Clippy,
+structure (669 files, zero violations/exceptions) and diff checks pass.
+
+ID02-ID05 remain required: migrate named/generic HIR ownership;
+propagate the identity parameter through declaration/callable/layout/MIR/bytecode
+records and adopt scoped checked products; replace outer artifact/fingerprint codecs
+and regenerate fixtures at that boundary; finish codecs/layout/closure/reload
+normalization and independent feature/backend consumers; measure complete metadata,
+artifact and timing effects. No phase-completion claim is made by this checkpoint.
+
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
 BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,

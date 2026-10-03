@@ -2,7 +2,10 @@
 
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, FileSpan},
+    identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, FileSpan,
+        table::{DefinitionId, DefinitionTable, DefinitionTableBuilder},
+    },
     source::SourceFile,
     span::Span,
 };
@@ -39,10 +42,10 @@ static NEXT_ANALYSIS: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AnalysisId(u64);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BindingId {
     pub analysis: AnalysisId,
-    pub body: DefinitionPath,
+    pub body: DefinitionId,
     slot: ResolvedName,
 }
 
@@ -70,6 +73,7 @@ pub struct Declarations {
     pub(crate) hosts: Arc<HostDeclarations>,
     imports: Arc<ModuleImports>,
     analysis: AnalysisId,
+    definitions: DefinitionTable,
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
     sites: HashSet<DeclarationKey>,
@@ -94,6 +98,10 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
         self.native_types.get(&id).cloned()
     }
@@ -268,6 +276,9 @@ impl Declarations {
                 hosts: names.hosts.clone(),
                 imports: names.imports.clone(),
                 analysis,
+                definitions: DefinitionTableBuilder::new()
+                    .expect("definition table identity exhausted")
+                    .freeze(),
                 targets: HashMap::new(),
                 identities: HashMap::new(),
                 sites: HashSet::new(),
@@ -523,12 +534,19 @@ impl Declarations {
         cancel: &CancellationToken,
     ) -> Self {
         // Cached named declarations do not extend the lifetime of local handles.
+        // Invalid source identities remain available to recovery queries, but
+        // their declaration diagnostic prevents executable adoption.
+        if !lowered.source.module_identity().within_path_limit() {
+            return self;
+        }
         self.analysis = AnalysisId(
             NEXT_ANALYSIS
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("analysis identity exhausted"),
         );
         let analysis = self.analysis;
+        let mut definitions =
+            DefinitionTableBuilder::new().expect("definition table identity exhausted");
         let map = &lowered.source_map;
         let mut builder = Builder {
             source: &lowered.source,
@@ -538,7 +556,7 @@ impl Declarations {
         };
         for scope in names.scopes() {
             if cancel.check().is_err() {
-                return builder.result;
+                break;
             }
             let owner = match scope.owner {
                 BodyOwner::Function(id) => ResolvedName::Function(id),
@@ -548,9 +566,12 @@ impl Declarations {
             else {
                 unreachable!("body owner is a definition")
             };
+            let body = definitions
+                .intern_path(&body)
+                .expect("validated source definition path");
             for binding in &scope.bindings {
                 if cancel.check().is_err() {
-                    return builder.result;
+                    break;
                 }
                 let range = match binding.resolved {
                     ResolvedName::Param(id) => map.param_span(id),
@@ -561,7 +582,7 @@ impl Declarations {
                     binding.resolved,
                     DeclarationId::Binding(BindingId {
                         analysis,
-                        body: body.clone(),
+                        body,
                         slot: binding.resolved,
                     }),
                     &binding.name,
@@ -570,6 +591,7 @@ impl Declarations {
                 );
             }
         }
+        builder.result.definitions = definitions.freeze();
         builder.result
     }
 }

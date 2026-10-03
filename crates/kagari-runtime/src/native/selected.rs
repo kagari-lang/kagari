@@ -30,13 +30,18 @@ impl LinkedCallable {
                 Some(caller_environment.clone()),
                 &required.arguments,
             )?;
-            let mut binders = TypeEnvironment::new(generic.parameters.clone(), arguments)?;
+            let mut binders = TypeEnvironment::new(
+                runtime.definition_context(),
+                generic.parameters.clone(),
+                arguments,
+            )?;
             binders.include(generic.receiver_environment.clone())?;
             let binders = Rc::new(binders);
             let environment = if generic.entry_parameters.is_empty() {
                 None
             } else {
                 let mut environment = TypeEnvironment::new(
+                    runtime.definition_context(),
                     generic.entry_parameters.clone(),
                     runtime.type_arguments(
                         &operation.owner,

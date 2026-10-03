@@ -3,6 +3,24 @@
 These reproducible workloads establish a baseline for R18. The figures are
 observations on one machine, not performance guarantees.
 
+## Contextual type metadata probe (ID02), 2026-10-03
+
+Reproduce with `cargo run -p kagari-abi --example definition_metadata --release
+--locked`. The machine, toolchain, default features, profile and parallelism match
+the ID01 probe below; dependencies were warm and this example was freshly built.
+Build time (8.63 seconds) is excluded from the representation comparison.
+
+| Rust metadata header | Owned paths (bytes) | Scoped IDs (bytes) |
+| --- | ---: | ---: |
+| GenericParameterAbi | 80 | 16 |
+| AbiType | 128 | 64 |
+| NominalAbiType | 120 | 56 |
+
+These are `size_of` measurements of the same generic semantic model. They exclude
+heap payloads and definition-table overhead. Frame binder owners and native/cache
+index keys now use scoped IDs; compiled nominal/type metadata still instantiates
+the owned-path form. This is not an artifact-size or execution-speed measurement.
+
 ## Definition identity representation (ID01), 2026-10-03
 
 Reproduce with `cargo run -p kagari-common --example definition_identity --release

@@ -1,4 +1,6 @@
 //! Closed type arguments retain the lexical scope that supplied their layouts.
+#[cfg(test)]
+mod identity_tests;
 use crate::{
     Runtime,
     error::RuntimeError,

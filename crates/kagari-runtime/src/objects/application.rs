@@ -63,8 +63,11 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         arguments: &[TypeArgument],
     ) -> Result<MethodApplication, RuntimeError> {
-        let mut binders =
-            TypeEnvironment::new(method.type_parameters().to_vec(), arguments.to_vec())?;
+        let mut binders = TypeEnvironment::new(
+            self.definition_context(),
+            method.type_parameters().to_vec(),
+            arguments.to_vec(),
+        )?;
         binders.include(method.receiver_environment().cloned())?;
         let binders = Some(Rc::new(binders));
         let result_adapter = method.result_adapter().map(|adapter| {
@@ -98,6 +101,7 @@ impl Runtime {
             None
         } else {
             let mut environment = TypeEnvironment::new(
+                self.definition_context(),
                 method.entry_parameters().to_vec(),
                 self.type_arguments(method.implementation(), binders, method.entry_arguments())?,
             )?;

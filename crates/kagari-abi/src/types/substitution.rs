@@ -1,6 +1,9 @@
 //! Bounded binder substitution over executable types, without source inference.
 use crate::types::{AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType};
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionPath, reference::DefinitionReference},
+};
 use std::collections::BTreeMap;
 
 pub(crate) const MAX_TYPE_DEPTH: usize = 64;
@@ -15,25 +18,24 @@ pub enum TypeTransformError {
 
 /// Bindings borrow validated contract records. Substitution replaces exactly one
 /// binder layer: a replacement may itself refer to parameters in the caller.
-#[derive(Default)]
-pub struct TypeSubstitution<'a> {
-    parameters: BTreeMap<&'a DefinitionPath, BTreeMap<usize, &'a AbiType>>,
-    receivers: BTreeMap<&'a DefinitionPath, &'a AbiType>,
+pub struct TypeSubstitution<'a, I = DefinitionPath> {
+    parameters: BTreeMap<&'a I, BTreeMap<usize, &'a AbiType<I>>>,
+    receivers: BTreeMap<&'a I, &'a AbiType<I>>,
 }
 
-impl<'a> TypeSubstitution<'a> {
-    pub fn bind(&mut self, owner: &'a DefinitionPath, position: usize, value: &'a AbiType) {
+impl<'a, I: DefinitionReference> TypeSubstitution<'a, I> {
+    pub fn bind(&mut self, owner: &'a I, position: usize, value: &'a AbiType<I>) {
         self.parameters
             .entry(owner)
             .or_default()
             .insert(position, value);
     }
 
-    pub fn bind_receiver(&mut self, owner: &'a DefinitionPath, value: &'a AbiType) {
+    pub fn bind_receiver(&mut self, owner: &'a I, value: &'a AbiType<I>) {
         self.receivers.insert(owner, value);
     }
 
-    pub fn for_owner(owner: &'a DefinitionPath, arguments: &'a [AbiType]) -> Self {
+    pub fn for_owner(owner: &'a I, arguments: &'a [AbiType<I>]) -> Self {
         let mut substitution = Self::default();
         for (position, argument) in arguments.iter().enumerate() {
             substitution.bind(owner, position, argument);
@@ -43,17 +45,17 @@ impl<'a> TypeSubstitution<'a> {
 
     pub fn apply(
         &self,
-        ty: &AbiType,
+        ty: &AbiType<I>,
         cancel: &CancellationToken,
-    ) -> Result<AbiType, TypeTransformError> {
+    ) -> Result<AbiType<I>, TypeTransformError> {
         Transform::new(self, None, cancel).run(ty)
     }
 
     pub fn apply_bounds(
         &self,
-        bounds: &[GenericBoundAbi],
+        bounds: &[GenericBoundAbi<I>],
         cancel: &CancellationToken,
-    ) -> Result<Vec<GenericBoundAbi>, TypeTransformError> {
+    ) -> Result<Vec<GenericBoundAbi<I>>, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         if bounds.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
@@ -84,7 +86,7 @@ impl<'a> TypeSubstitution<'a> {
             .collect::<Result<Vec<_>, TypeTransformError>>()?;
         // Substitution can reorder receivers or make distinct binders equal.
         // Preserve the canonical bound representation after that transformation.
-        let mut merged = BTreeMap::<AbiType, Vec<ConstraintAbi>>::new();
+        let mut merged = BTreeMap::<AbiType<I>, Vec<ConstraintAbi<I>>>::new();
         for bound in applied {
             merged
                 .entry(bound.ty)
@@ -101,15 +103,15 @@ impl<'a> TypeSubstitution<'a> {
             .collect())
     }
 
-    pub fn parameter(&self, owner: &DefinitionPath, position: usize) -> Option<&'a AbiType> {
+    pub fn parameter(&self, owner: &I, position: usize) -> Option<&'a AbiType<I>> {
         self.parameters.get(owner)?.get(&position).copied()
     }
 
     pub fn apply_nominal(
         &self,
-        ty: &NominalAbiType,
+        ty: &NominalAbiType<I>,
         cancel: &CancellationToken,
-    ) -> Result<NominalAbiType, TypeTransformError> {
+    ) -> Result<NominalAbiType<I>, TypeTransformError> {
         let value = AbiType::Trait(Transform::new(self, None, cancel).nominal(ty, 1, true)?);
         if !value.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded);
@@ -120,7 +122,7 @@ impl<'a> TypeSubstitution<'a> {
         Ok(value)
     }
 
-    fn replacement(&self, ty: &AbiType) -> Option<&'a AbiType> {
+    fn replacement(&self, ty: &AbiType<I>) -> Option<&'a AbiType<I>> {
         match ty {
             AbiType::Parameter { owner, position } => {
                 self.parameters.get(owner)?.get(position).copied()
@@ -131,8 +133,8 @@ impl<'a> TypeSubstitution<'a> {
     }
 }
 
-impl GenericParameterAbi {
-    pub fn as_type(&self) -> AbiType {
+impl<I: DefinitionReference> GenericParameterAbi<I> {
+    pub fn as_type(&self) -> AbiType<I> {
         AbiType::Parameter {
             owner: self.owner.clone(),
             position: self.position,
@@ -142,53 +144,71 @@ impl GenericParameterAbi {
 
 /// Resolve associated outputs on an applied interface after parameter substitution.
 /// Unrelated projections remain symbolic; cyclic or oversized expansions fail.
-pub fn resolve_associated_outputs(
-    ty: &AbiType,
-    interface: &NominalAbiType,
+pub fn resolve_associated_outputs<I: DefinitionReference>(
+    ty: &AbiType<I>,
+    interface: &NominalAbiType<I>,
     cancel: &CancellationToken,
-) -> Result<AbiType, TypeTransformError> {
+) -> Result<AbiType<I>, TypeTransformError> {
     Transform::new(&TypeSubstitution::default(), Some(interface), cancel).run(ty)
 }
 
 /// Resolve projections using a caller's already validated dependency contracts.
 /// A missing binding stays symbolic; malformed, ambiguous or unbounded proofs fail.
-pub type ProjectionLookup<'a> = dyn Fn(
-        &NominalAbiType,
-        &AbiType,
-        &DefinitionPath,
-        &[AbiType],
-    ) -> Result<Option<AbiType>, TypeTransformError>
+pub type ProjectionLookup<'a, I = DefinitionPath> = dyn Fn(
+        &NominalAbiType<I>,
+        &AbiType<I>,
+        &I,
+        &[AbiType<I>],
+    ) -> Result<Option<AbiType<I>>, TypeTransformError>
     + 'a;
 
-pub fn normalize_projections(
-    ty: &AbiType,
-    lookup: &ProjectionLookup<'_>,
+pub fn normalize_projections<I: DefinitionReference>(
+    ty: &AbiType<I>,
+    lookup: &ProjectionLookup<'_, I>,
     cancel: &CancellationToken,
-) -> Result<AbiType, TypeTransformError> {
+) -> Result<AbiType<I>, TypeTransformError> {
     let substitution = TypeSubstitution::default();
     let mut transform = Transform::new(&substitution, None, cancel);
     transform.lookup = Some(lookup);
     transform.run(ty)
 }
 
-struct Transform<'a, 'b> {
-    substitution: &'a TypeSubstitution<'b>,
-    outputs: Option<&'a NominalAbiType>,
-    lookup: Option<&'a ProjectionLookup<'a>>,
+type ParameterLookup<'a, I> = dyn Fn(&I, usize) -> Option<&'a AbiType<I>> + 'a;
+
+/// Apply the same bounded, once-only substitution using an explicit contextual
+/// binder lookup. Runtime frames can retain compact owners without rebuilding
+/// owned-path maps for every substitution.
+pub fn substitute_parameters<'a, I: DefinitionReference + 'a>(
+    ty: &AbiType<I>,
+    lookup: &ParameterLookup<'a, I>,
+    cancel: &CancellationToken,
+) -> Result<AbiType<I>, TypeTransformError> {
+    let substitution = TypeSubstitution::default();
+    let mut transform = Transform::new(&substitution, None, cancel);
+    transform.parameter_lookup = Some(lookup);
+    transform.run(ty)
+}
+
+struct Transform<'a, 'b, I> {
+    substitution: &'a TypeSubstitution<'b, I>,
+    outputs: Option<&'a NominalAbiType<I>>,
+    lookup: Option<&'a ProjectionLookup<'a, I>>,
+    parameter_lookup: Option<&'a ParameterLookup<'b, I>>,
     cancel: &'a CancellationToken,
     remaining: usize,
 }
 
-impl<'a, 'b> Transform<'a, 'b> {
+impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
     fn new(
-        substitution: &'a TypeSubstitution<'b>,
-        outputs: Option<&'a NominalAbiType>,
+        substitution: &'a TypeSubstitution<'b, I>,
+        outputs: Option<&'a NominalAbiType<I>>,
         cancel: &'a CancellationToken,
     ) -> Self {
         Self {
             substitution,
             outputs,
             lookup: None,
+            parameter_lookup: None,
             cancel,
             remaining: MAX_TYPE_NODES * 4,
         }
@@ -205,14 +225,14 @@ impl<'a, 'b> Transform<'a, 'b> {
         Ok(())
     }
 
-    fn id(&self, id: &DefinitionPath) -> Result<DefinitionPath, TypeTransformError> {
+    fn id(&self, id: &I) -> Result<I, TypeTransformError> {
         if !id.within_path_limit() {
             return Err(TypeTransformError::LimitExceeded);
         }
         Ok(id.clone())
     }
 
-    fn run(&mut self, ty: &AbiType) -> Result<AbiType, TypeTransformError> {
+    fn run(&mut self, ty: &AbiType<I>) -> Result<AbiType<I>, TypeTransformError> {
         let result = self.visit(ty, 1, true)?;
         if !result.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded);
@@ -222,10 +242,10 @@ impl<'a, 'b> Transform<'a, 'b> {
 
     fn many(
         &mut self,
-        types: &[AbiType],
+        types: &[AbiType<I>],
         depth: usize,
         replace: bool,
-    ) -> Result<Vec<AbiType>, TypeTransformError> {
+    ) -> Result<Vec<AbiType<I>>, TypeTransformError> {
         if types.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
         }
@@ -237,10 +257,10 @@ impl<'a, 'b> Transform<'a, 'b> {
 
     fn nominal(
         &mut self,
-        ty: &NominalAbiType,
+        ty: &NominalAbiType<I>,
         depth: usize,
         replace: bool,
-    ) -> Result<NominalAbiType, TypeTransformError> {
+    ) -> Result<NominalAbiType<I>, TypeTransformError> {
         self.step(depth)?;
         if ty.associated_types.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
@@ -258,14 +278,23 @@ impl<'a, 'b> Transform<'a, 'b> {
 
     fn visit(
         &mut self,
-        ty: &AbiType,
+        ty: &AbiType<I>,
         depth: usize,
         replace: bool,
-    ) -> Result<AbiType, TypeTransformError> {
+    ) -> Result<AbiType<I>, TypeTransformError> {
         self.step(depth)?;
-        if replace && let Some(replacement) = self.substitution.replacement(ty) {
-            // Do not feed a caller's parameters back into this substitution.
-            return self.visit(replacement, depth, false);
+        if replace {
+            let replacement = if let AbiType::Parameter { owner, position } = ty
+                && let Some(lookup) = self.parameter_lookup
+            {
+                lookup(owner, *position)
+            } else {
+                self.substitution.replacement(ty)
+            };
+            if let Some(replacement) = replacement {
+                // Do not feed a caller's parameters back into this substitution.
+                return self.visit(replacement, depth, false);
+            }
         }
         Ok(match ty {
             AbiType::Builtin(kind) => AbiType::Builtin(*kind),
@@ -348,5 +377,13 @@ impl<'a, 'b> Transform<'a, 'b> {
     }
 }
 
+impl<I> Default for TypeSubstitution<'_, I> {
+    fn default() -> Self {
+        Self {
+            parameters: BTreeMap::new(),
+            receivers: BTreeMap::new(),
+        }
+    }
+}
 #[cfg(test)]
 mod tests;

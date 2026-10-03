@@ -16,7 +16,7 @@ use kagari_abi::{
     declaration::{ModuleDecl, render::DeclarationSource},
     types::TypeAbiKind,
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, map::DefinitionMap};
 use std::{collections::BTreeMap, iter, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone)]
@@ -26,7 +26,7 @@ pub struct NativeModule {
     owned: DeclarationCatalog,
     catalog: DeclarationCatalog,
     required: DeclarationCatalog,
-    storage: Rc<BTreeMap<DefinitionPath, NativeStorage>>,
+    storage: Rc<DefinitionMap<NativeStorage>>,
 }
 
 impl NativeModule {
@@ -56,7 +56,7 @@ impl NativeModule {
         if owned.types.len() != storage.len()
             || owned.types.iter().any(|(id, ty)| {
                 storage
-                    .get(id)
+                    .get(&id)
                     .is_none_or(|storage| ty.kind != TypeAbiKind::NativeStorage(storage.layout()))
             })
         {
@@ -95,7 +95,7 @@ impl NativeModule {
                 "missing native implementation binding",
             ));
         }
-        let required = dependencies.foreign_to(&owned);
+        let required = dependencies.foreign_to(&owned)?;
         let mut declaration = declaration;
         declaration.dependencies = required
             .traits
@@ -109,13 +109,19 @@ impl NativeModule {
         declaration
             .validate()
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let mut indexed_storage = DefinitionMap::new(owned.types.context().clone());
+        for (id, storage) in storage {
+            indexed_storage
+                .insert(id, storage)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        }
         Ok(Self {
             declaration: Arc::new(declaration),
             bindings: registrations.into(),
             owned,
             catalog: checked,
             required,
-            storage: Rc::new(storage),
+            storage: Rc::new(indexed_storage),
         })
     }
 
@@ -139,21 +145,26 @@ impl NativeModule {
 
     pub(crate) fn install_into(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
         let mut staged = registry.clone();
-        if !self.required.satisfied_by(&staged.catalog) {
+        if !self.required.satisfied_by(&staged.catalog)? {
             return Err(RuntimeError::metadata_conflict(
                 "native module dependency is not installed",
             ));
         }
         let owned = &self.owned;
         for id in owned.traits.keys() {
-            if staged.catalog.get(id).is_some() {
+            if staged.catalog.get(&id).is_some() {
                 return Err(RuntimeError::metadata_conflict(
                     "duplicate native trait owner",
                 ));
             }
         }
         for (id, storage) in self.storage.iter() {
-            if staged.storage.insert(id.clone(), storage.clone()).is_some() {
+            if staged
+                .storage
+                .insert(id, storage.clone())
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+                .is_some()
+            {
                 return Err(RuntimeError::metadata_conflict(
                     "duplicate native storage owner",
                 ));

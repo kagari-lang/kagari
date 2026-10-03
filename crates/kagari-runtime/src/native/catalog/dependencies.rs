@@ -175,14 +175,14 @@ impl References {
 impl DeclarationCatalog {
     pub(crate) fn dependency_closure<'a>(
         &self,
-        traits: impl IntoIterator<Item = &'a DefinitionPath>,
+        traits: impl IntoIterator<Item = DefinitionPath>,
         declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<DependencyClosure, RuntimeError> {
         let mut references = References::default();
         references
             .pending
-            .extend(traits.into_iter().cloned().map(Reference::Trait));
+            .extend(traits.into_iter().map(Reference::Trait));
         for declaration in declarations {
             references.declaration(declaration)?;
         }
@@ -318,8 +318,9 @@ impl DeclarationCatalog {
     }
 
     pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {
+        let implementations: Vec<_> = self.implementations.iter().collect();
         let catalog = ProofCatalog::new(
-            self.implementations
+            implementations
                 .iter()
                 .map(|(declaration, implementation)| Implementation::Native {
                     declaration,

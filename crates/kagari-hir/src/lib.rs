@@ -20,6 +20,7 @@ use declarations::Declarations;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     diagnostic::{Diagnostic, DiagnosticKind, Severity},
+    identity::MAX_IDENTITY_PATH_SEGMENTS,
     source::SourceFile,
     source_database::SourceSnapshot,
     span::Span,
@@ -276,7 +277,15 @@ fn declare_analysis(
     imports: Arc<imports::ModuleImports>,
     cancel: &CancellationToken,
 ) -> DeclaredAnalysis {
-    let names = collect_declarations(&lowered, hosts, imports, cancel);
+    let mut names = collect_declarations(&lowered, hosts, imports, cancel);
+    if !lowered.source.module_identity().within_path_limit() {
+        names
+            .diagnostics
+            .push(Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                resource: "module identity path segments",
+                limit: MAX_IDENTITY_PATH_SEGMENTS,
+            }));
+    }
     let declarations = Declarations::collect_named(&lowered.source, &lowered, &names.facts, cancel);
     DeclaredAnalysis {
         lowered,

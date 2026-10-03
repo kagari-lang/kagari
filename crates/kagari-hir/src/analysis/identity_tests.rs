@@ -13,6 +13,44 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
+fn oversized_source_module_identities_are_rejected_without_panicking() {
+    let text = "fn run(value: i32) -> i32 { val saved = value; saved }";
+    let mut source = SourceFile::new("deep.kgr", text);
+    for _ in 1..64 {
+        source = SourceFile::inline_module(
+            &source,
+            "nested",
+            text.into(),
+            SourceFile::new("child.kgr", "").id(),
+            Span::new(0, text.len()),
+        );
+    }
+    assert!(crate::analyze_source(&source).into_codegen().is_ok());
+    source = SourceFile::inline_module(
+        &source,
+        "overflow",
+        text.into(),
+        SourceFile::new("child.kgr", "").id(),
+        Span::new(0, text.len()),
+    );
+    let analyzed = crate::analyze_source(&source);
+    assert!(analyzed.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.kind,
+        DiagnosticKind::CompileLimitExceeded {
+            resource: "module identity path segments",
+            limit: 64
+        }
+    )));
+    assert!(analyzed.into_codegen().is_err());
+    let mut database = SourceDatabase::default();
+    assert!(
+        database
+            .bind_module("deep.kgr", source.module_identity().clone())
+            .is_err()
+    );
+}
+
+#[test]
 fn single_source_analysis_uses_installed_declarations_without_replacing_source_identity() {
     let mut sources = SourceDatabase::default();
     let module = ModuleIdentity {
@@ -370,7 +408,22 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
     let DeclarationId::Definition(owner) = &function_a.id else {
         panic!("function definition")
     };
-    assert_eq!(&binding.body, owner);
+    let definitions = first
+        .file(a)
+        .unwrap()
+        .result()
+        .facts()
+        .declarations
+        .definitions();
+    assert_eq!(&definitions.resolve(binding.body).unwrap().to_path(), owner);
+    let foreign = first
+        .file(b)
+        .unwrap()
+        .result()
+        .facts()
+        .declarations
+        .definitions();
+    assert!(foreign.resolve(binding.body).is_err());
     assert_eq!(first.declaration(&function_b.id).unwrap().location.file, b);
     let unchanged = snapshot(&mut db, &sources);
     assert_eq!(unchanged.declaration(&binding_a.id), Some(&binding_a));

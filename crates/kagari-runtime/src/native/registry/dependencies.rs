@@ -44,7 +44,7 @@ pub(super) fn validate(
     for (id, expected) in required.implementations.iter() {
         if !program.modules().iter().filter(|module| module.identity == id.module)
             .flat_map(|module| &module.public_items).any(|item| {
-                matches!(item, PublicAbiItem::InterfaceTable(actual) if implementation_matches(id, expected, actual))
+                matches!(item, PublicAbiItem::InterfaceTable(actual) if implementation_matches(&id, expected, actual))
             }) {
             return Err(RuntimeError::module_validation("native dependency differs from its registered implementation contract"));
         }

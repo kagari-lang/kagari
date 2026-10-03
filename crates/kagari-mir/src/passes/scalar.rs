@@ -144,7 +144,7 @@ impl Scalar {
         };
         let (bits, signed) = operation.input.integer_layout()?;
         let result = integer::integer_operation(operation.op, lhs, rhs, bits, signed).ok()?;
-        Some(match AbiType::Builtin(operation.input).representation() {
+        Some(match ValueType::from_builtin_type(operation.input) {
             ValueType::I32 => Self::I32(result.try_into().ok()?),
             ValueType::I64 => Self::I64(result.try_into().ok()?),
             ValueType::U64 => Self::U64(result.try_into().ok()?),
@@ -159,7 +159,7 @@ impl Scalar {
             Self::U64(_) => ValueType::U64,
             _ => return None,
         };
-        if representation != AbiType::Builtin(kind).representation() {
+        if representation != ValueType::from_builtin_type(kind) {
             return None;
         }
         let value = self.integer()?;
