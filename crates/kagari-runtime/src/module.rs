@@ -12,10 +12,10 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{
-    artifact::{ArtifactFingerprint, validate_program_resource_limits},
+    artifact::{ArtifactFingerprint, ArtifactValidationError},
     instruction::{EnumId, NativeImportId, PathId, StructId},
     module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef, verify_program},
+    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
 
 use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
@@ -117,15 +117,22 @@ pub struct VerifiedProgram {
 
 impl VerifiedProgram {
     pub fn new(program: BytecodeProgram) -> Result<Self, RuntimeError> {
-        validate_program_resource_limits(&program)
-            .map_err(|error| RuntimeError::resource_limit(error.to_string()))?;
-        verify_program(&program).map_err(|error| {
-            RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
+        let program = VerifiedBytecodeProgram::new(program).map_err(|error| match error {
+            ArtifactValidationError::ResourceLimit(_) => {
+                RuntimeError::resource_limit(error.to_string())
+            }
+            ArtifactValidationError::Bytecode(error) => {
+                RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
+            }
+            error => RuntimeError::module_validation(error.to_string()),
         })?;
-        Ok(Self::from_verified(program))
+        Ok(Self::from_bytecode(program))
     }
 
-    fn from_verified(program: BytecodeProgram) -> Self {
+    /// Adopt bytecode-owned immutable verification evidence. Runtime-local host,
+    /// native, ownership and generation checks still run when linking this code.
+    pub fn from_bytecode(program: VerifiedBytecodeProgram) -> Self {
+        let program = program.into_unverified();
         let dependencies = ReloadDependencySnapshot::from_program(&program);
         Self {
             root: program.root,

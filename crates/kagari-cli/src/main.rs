@@ -412,9 +412,6 @@ fn print_program_error(error: ProgramPreparationError) -> CliError {
         ProgramPreparationError::Artifact(error) => {
             print_embedding_error(EmbeddingError::ArtifactValidation { error })
         }
-        ProgramPreparationError::Runtime(error) => {
-            print_embedding_error(EmbeddingError::Load { error })
-        }
         ProgramPreparationError::Cancelled => print_embedding_error(EmbeddingError::Cancelled),
         other => CliError::message(1, format!("program preparation failed: {other}")),
     }

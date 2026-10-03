@@ -1,5 +1,70 @@
 # Kagari Implementation Roadmap
 
+## Verified preparation reuse (completed, 2026-10-03)
+
+TO02 owns R6's measured repeated bytecode verification. Introduce an immutable,
+resource-bounded bytecode verification seal in the bytecode crate; consuming
+artifact validation retains that seal for frontend-free native correspondence
+and runtime adoption. Native correspondence still decodes/verifies MIR, bounds
+the lowered result and compares every canonical byte with the sealed bytecode
+before any execution. Preserve fresh external-input/envelope validation and
+all runtime-local host/native linking, roots, bounds and generation checks.
+No artifact/ABI version, test route, profile, foundation reachability or generic
+trait-cache migration belongs to this checkpoint. Commit with `Roadmap-Step: TO02`.
+
+- [x] Retain immutable bytecode verification across artifact/native/runtime preparation.
+- [x] Reject modified/forged code, mismatched portable input and resource exhaustion.
+- [x] Measure the complete language-contract matrix before/after, excluding builds.
+- [x] Accept workspace, structure, formatting, Clippy and feature consumers.
+
+Ledger: starts from clean 145b34b1. The user authorized R6 after the complete
+149-case/408-route diagnosis. 1,030 bytecode verifications took 65.282 seconds
+in that instrumented standalone O1 run. The bounded implementation reuses the
+whole graph's proof evidence rather than introducing independently cached trait
+search results. No build/test error is carried at task start.
+
+TO02 implementation retains a bytecode-owned immutable seal after consuming full
+artifact validation. Frontend-free native correspondence requires that seal;
+canonical lowering is internal and unsealed until complete byte equality proves
+it identical to verified code. Runtime adopts the seal without repeated graph
+checking. Native preparation changes from four graph checks to one; opaque MIR
+in artifact-only/source-only builds and runtime-local linking remain unchanged.
+The obsolete preparation Runtime error variant is removed because runtime seal
+adoption is infallible. No compatibility aliases or version changes are added.
+
+Focused bytecode verification passes 29 tests and two compile-fail seal tests;
+nine compiler codec tests pass, including invalid code, independent valid payload
+mismatch, changed source origins, NaN payload/float-bit differences and cancellation.
+The first codec attempt failed because the new fixture changed a pool constant
+without its matching instruction operands (`MissingConstant`); correcting both
+keeps the graph independently valid and verifies native correspondence rejection.
+That fixture failure is resolved. No production validation failure is carried.
+
+SDK native/artifact focused tests pass all ten cases. Structure checks cover 656
+Rust files with zero violations/exceptions; formatting and diff checks pass.
+The paired standalone, uninstrumented full language-contract matrix passes before
+and after: 155.36 -> 105.71 seconds (32.0% reduction), excluding
+Rust compilation. All 149 cases and 408 routes remain. See the
+[TO02 performance record](performance-baseline.md#verified-preparation-reuse-to02-2026-10-03).
+
+The first workspace integration attempt found CLI E0599 at main.rs:415: its
+preparation-error printer still matched the removed Runtime variant. The CLI
+consumer is updated to the current enum; this carried compilation failure is
+owned and resolved by TO02. The completed workspace and CLI-feature reruns pass.
+
+Final acceptance: `cargo test --workspace --no-fail-fast` passes 1,590 tests with
+zero failures and one existing ignored manual sorting measurement. Its complete
+language-contract matrix passes in 95.40 seconds; this workspace observation is
+separate from the paired standalone timing. Strict workspace/all-target Clippy,
+formatting, structure (656 Rust files, no violations/exceptions), diff and all 66
+changed-document file links pass. Standalone artifact-only, source, native and
+source+native consumers pass, including eight production dependency boundaries
+and the ABI build graph. CLI jit-feature tests pass all five cases. TO02 is
+accepted with no carried error. Logs are under ignored target/verification-reuse.
+Raw compiler emission and direct runtime artifact/reload entrypoints retain their
+independent validation; this checkpoint does not introduce a global trait cache
+or change test-matrix parallelism.
+
 ## Complete language-contract diagnosis (completed, 2026-10-03)
 
 The [complete profile](performance-baseline.md#complete-language-contract-profile-after-to01-2026-10-03)

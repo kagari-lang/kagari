@@ -1029,6 +1029,16 @@ fn lower_jump(
 pub fn lower_program_to_bytecode(
     program: &VerifiedMirProgram,
 ) -> Result<BytecodeProgram, BytecodeLoweringError> {
+    let bytecode = lower_program_for_comparison(program)?;
+    verify_program(&bytecode).map_err(BytecodeLoweringError::Verification)?;
+    Ok(bytecode)
+}
+
+/// This unsealed result is only suitable for comparison with independently
+/// verified bytecode. Public emission must verify it before returning code.
+pub(crate) fn lower_program_for_comparison(
+    program: &VerifiedMirProgram,
+) -> Result<BytecodeProgram, BytecodeLoweringError> {
     let indices = program
         .modules()
         .iter()
@@ -1055,6 +1065,5 @@ pub fn lower_program_to_bytecode(
         modules,
     };
     views::populate(&mut bytecode.modules)?;
-    verify_program(&bytecode).map_err(BytecodeLoweringError::Verification)?;
     Ok(bytecode)
 }

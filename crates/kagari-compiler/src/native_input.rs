@@ -2,7 +2,7 @@
 use bincode::{DefaultOptions, Options};
 use kagari_bytecode::{
     artifact::validate_program_resource_limits,
-    program::{BytecodeProgram, verify_program},
+    program::{BytecodeProgram, verified::VerifiedBytecodeProgram},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_mir::{
@@ -10,7 +10,7 @@ use kagari_mir::{
     program::VerifiedMirProgram,
 };
 
-use crate::bytecode::{BytecodeLoweringError, lower_program_to_bytecode};
+use crate::bytecode::{BytecodeLoweringError, lower_program_for_comparison};
 
 #[derive(Debug, thiserror::Error)]
 pub enum NativeInputError {
@@ -35,21 +35,18 @@ impl From<MirCodecError> for NativeInputError {
     }
 }
 
-/// Reverify native input and establish complete canonical correspondence. Callers
+/// Verify native input and establish complete canonical correspondence. Callers
 /// must first validate their artifact envelope/manifest and do this before any
 /// script effects. Hash equality between independent payloads is not sufficient.
 /// The returned seal includes fresh linked contracts and program-point analyses.
 pub fn verify_native_input(
     bytes: &[u8],
-    bytecode: &BytecodeProgram,
+    bytecode: &VerifiedBytecodeProgram,
     cancel: &CancellationToken,
 ) -> Result<VerifiedMirProgram, NativeInputError> {
     check_cancel(cancel)?;
-    validate_program_resource_limits(bytecode)
-        .map_err(|error| NativeInputError::Bytecode(error.to_string()))?;
-    verify_program(bytecode).map_err(|error| NativeInputError::Bytecode(format!("{error:?}")))?;
     let mir = decode_program(bytes, cancel)?;
-    let lowered = lower_program_to_bytecode(&mir).map_err(NativeInputError::Lowering)?;
+    let lowered = lower_program_for_comparison(&mir).map_err(NativeInputError::Lowering)?;
     validate_program_resource_limits(&lowered)
         .map_err(|error| NativeInputError::Bytecode(error.to_string()))?;
     check_cancel(cancel)?;
@@ -63,13 +60,15 @@ pub fn verify_native_input(
             .serialize(program)
             .map_err(|error| NativeInputError::Bytecode(error.to_string()))
     };
-    let expected = canonical(bytecode)?;
+    let expected = canonical(bytecode.program())?;
     check_cancel(cancel)?;
     let actual = canonical(&lowered)?;
     check_cancel(cancel)?;
     if actual != expected {
         return Err(NativeInputError::Mismatch);
     }
+    // Exact canonical equality transfers the sealed bytecode's graph/bounds proof
+    // to this lowering. The unsealed candidate is never returned or executed.
     Ok(mir)
 }
 

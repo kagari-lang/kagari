@@ -3,6 +3,11 @@ use kagari_abi::{
     representation::ValueType,
     version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
 };
+use kagari_bytecode::{
+    artifact::ArtifactValidationError,
+    instruction::{BytecodeInstruction, ConstantOperand},
+    program::verified::VerifiedBytecodeProgram,
+};
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use kagari_mir::{
     codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
@@ -258,22 +263,33 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
     let original = program("fn main() -> i32 { 42 }");
     let other = program("fn main() -> i32 { 43 }");
     let wire = encode_program(&original, &Default::default()).unwrap();
-    let bytecode = lower_program_to_bytecode(&original).unwrap();
+    let bytecode =
+        VerifiedBytecodeProgram::new(lower_program_to_bytecode(&original).unwrap()).unwrap();
     let prepared = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
     assert_same_bytecode(&original, &prepared);
-    let different_bytecode = lower_program_to_bytecode(&other).unwrap();
+    let different_bytecode =
+        VerifiedBytecodeProgram::new(lower_program_to_bytecode(&other).unwrap()).unwrap();
     // Both programs are independently valid and have identical function signatures.
     assert!(matches!(
         verify_native_input(&wire, &different_bytecode, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
-    let mut forged = bytecode.clone();
+    let mut changed_origin = bytecode.program().clone();
+    changed_origin.modules[changed_origin.root.index()]
+        .source_name
+        .push_str("-changed");
+    let changed_origin = VerifiedBytecodeProgram::new(changed_origin).unwrap();
+    assert!(matches!(
+        verify_native_input(&wire, &changed_origin, &Default::default()),
+        Err(NativeInputError::Mismatch)
+    ));
+    let mut forged = bytecode.program().clone();
     forged.modules[forged.root.index()].functions[0]
         .instructions
         .clear();
     assert!(matches!(
-        verify_native_input(&wire, &forged, &Default::default()),
-        Err(NativeInputError::Bytecode(_))
+        VerifiedBytecodeProgram::new(forged),
+        Err(ArtifactValidationError::Bytecode(_))
     ));
     let cancel = CancellationToken::default();
     cancel.cancel();
@@ -334,13 +350,43 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             assert!(bits.next().is_none());
             let original = verify_program(root, modules, &Default::default()).unwrap();
             let wire = encode_program(&original, &Default::default()).unwrap();
-            let bytecode = lower_program_to_bytecode(&original).unwrap();
+            let bytecode =
+                VerifiedBytecodeProgram::new(lower_program_to_bytecode(&original).unwrap())
+                    .unwrap();
             assert_eq!(
-                bytecode.modules[bytecode.root.index()].constants.len(),
+                bytecode.program().modules[bytecode.program().root.index()]
+                    .constants
+                    .len(),
                 if first == second { 1 } else { 2 }
             );
             let decoded = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
             assert_same_bytecode(&original, &decoded);
+            let mut changed = bytecode.program().clone();
+            let module = &mut changed.modules[changed.root.index()];
+            // Keep pool and instruction operands consistent so the modified graph
+            // is independently valid, including NaN payloads and signed zero.
+            let operands = module.constants.iter_mut().chain(
+                module
+                    .functions
+                    .iter_mut()
+                    .flat_map(|function| &mut function.instructions)
+                    .filter_map(|instruction| match instruction {
+                        BytecodeInstruction::LoadConst { constant, .. } => Some(constant),
+                        _ => None,
+                    }),
+            );
+            for constant in operands {
+                match constant {
+                    ConstantOperand::F32(value) => *value = f32::from_bits(value.to_bits() ^ 1),
+                    ConstantOperand::F64(value) => *value = f64::from_bits(value.to_bits() ^ 1),
+                    constant => panic!("expected float constant, got {constant:?}"),
+                }
+            }
+            let changed = VerifiedBytecodeProgram::new(changed).unwrap();
+            assert!(matches!(
+                verify_native_input(&wire, &changed, &Default::default()),
+                Err(NativeInputError::Mismatch)
+            ));
         }
     }
 }
@@ -366,10 +412,10 @@ fn artifact_integrity_does_not_substitute_for_native_correspondence() {
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        decoded.validate_for_loader(&Default::default()).unwrap();
+        let decoded = decoded.into_verified(&Default::default()).unwrap();
         let result = verify_native_input(
-            &decoded.portable_mir.unwrap().bytes,
-            &decoded.program,
+            &decoded.portable_mir().unwrap().bytes,
+            decoded.bytecode(),
             &Default::default(),
         );
         if matches {

@@ -2,10 +2,64 @@ use crate::{
     artifact::*,
     instruction::{BytecodeInstruction, PathId, Register},
     module::{BytecodeFunction, FunctionRecord},
-    program::{BytecodeProgram, ModuleRef},
+    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
 
 use kagari_common::host_interface::path::HostPathSegmentDeclaration;
+
+#[test]
+fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
+    let artifact = KbcArtifact::from_program(
+        BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        },
+        Default::default(),
+    )
+    .unwrap();
+    let verified = artifact.clone().into_verified(&Default::default()).unwrap();
+    assert_eq!(verified.bytecode().program().modules.len(), 1);
+    assert!(verified.portable_mir().is_none());
+
+    let mut changed = artifact.clone();
+    changed.program.modules[0].source_name = "changed".into();
+    assert!(matches!(
+        changed.into_verified(&Default::default()),
+        Err(ArtifactValidationError::ContentHashMismatch)
+    ));
+    let mut invalid = artifact.clone();
+    invalid.program.root = ModuleRef::new(1);
+    assert!(matches!(
+        invalid.into_verified(&Default::default()),
+        Err(ArtifactValidationError::Bytecode(_))
+    ));
+    let mut incompatible = artifact;
+    incompatible.header.runtime_abi_version = "invalid".into();
+    assert!(matches!(
+        incompatible.into_verified(&Default::default()),
+        Err(ArtifactValidationError::RuntimeAbiMismatch { .. })
+    ));
+
+    // Mutable extraction never carries the verification seal to the changed code.
+    let mut extracted = verified.into_bytecode().into_unverified();
+    extracted.root = ModuleRef::new(1);
+    assert!(matches!(
+        VerifiedBytecodeProgram::new(extracted),
+        Err(ArtifactValidationError::Bytecode(_))
+    ));
+}
+
+#[test]
+fn bytecode_seal_rejects_in_memory_resource_exhaustion() {
+    let oversized = BytecodeProgram {
+        root: ModuleRef::new(0),
+        modules: vec![BytecodeModule::default(); MAX_ARTIFACT_MODULES + 1],
+    };
+    assert!(matches!(
+        VerifiedBytecodeProgram::new(oversized),
+        Err(ArtifactValidationError::ResourceLimit(_))
+    ));
+}
 
 #[test]
 fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {

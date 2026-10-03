@@ -14,7 +14,7 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::native_input::{NativeInputError, verify_native_input};
 #[cfg(feature = "native")]
 use kagari_mir::program::VerifiedMirProgram;
-use kagari_runtime::{error::RuntimeError, module::VerifiedProgram};
+use kagari_runtime::module::VerifiedProgram;
 
 #[cfg(feature = "native")]
 use crate::program::native::{CachedFunction, NativeCacheKey};
@@ -49,8 +49,6 @@ pub enum ProgramPreparationError {
     #[cfg(feature = "native")]
     #[error("invalid native input: {0}")]
     NativeInput(NativeInputError),
-    #[error("invalid executable program: {0}")]
-    Runtime(#[from] RuntimeError),
 }
 
 #[cfg(feature = "native")]
@@ -77,14 +75,13 @@ impl PreparedProgram {
         cancel
             .check()
             .map_err(|_| ProgramPreparationError::Cancelled)?;
-        artifact.validate_for_loader(compatibility)?;
+        let artifact = artifact.into_verified(compatibility)?;
         #[cfg(feature = "native")]
         let mir = artifact
-            .portable_mir
-            .as_ref()
-            .map(|payload| verify_native_input(&payload.bytes, &artifact.program, cancel))
+            .portable_mir()
+            .map(|payload| verify_native_input(&payload.bytes, artifact.bytecode(), cancel))
             .transpose()?;
-        let bytecode = VerifiedProgram::new(artifact.program)?;
+        let bytecode = VerifiedProgram::from_bytecode(artifact.into_bytecode());
         cancel
             .check()
             .map_err(|_| ProgramPreparationError::Cancelled)?;

@@ -1,3 +1,5 @@
+pub mod verified;
+
 use crate::{
     artifact::{ArtifactFingerprint, DependencyFingerprint},
     instruction::{BytecodeInstruction, CallTarget},

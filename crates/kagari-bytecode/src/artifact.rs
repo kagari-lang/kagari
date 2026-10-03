@@ -3,7 +3,7 @@ use crate::{
     instruction::{JumpTarget, PathId},
     module::{BytecodeDebugMetadata, BytecodeModule, RootSlotLayout},
     native_input::PortableMir,
-    program::{BytecodeProgram, verify_program},
+    program::{BytecodeProgram, verified::VerifiedBytecodeProgram, verify_program},
     verifier::BytecodeVerificationError,
 };
 mod limits;
@@ -79,7 +79,42 @@ pub struct KbcArtifact {
     pub portable_mir: Option<PortableMir>,
 }
 
+/// Executable contents retained after complete envelope and compatibility validation.
+/// Portable MIR remains untrusted until checked against the sealed bytecode.
+#[derive(Debug)]
+pub struct VerifiedArtifact {
+    bytecode: VerifiedBytecodeProgram,
+    portable_mir: Option<PortableMir>,
+}
+
+impl VerifiedArtifact {
+    pub fn bytecode(&self) -> &VerifiedBytecodeProgram {
+        &self.bytecode
+    }
+
+    pub fn portable_mir(&self) -> Option<&PortableMir> {
+        self.portable_mir.as_ref()
+    }
+
+    pub fn into_bytecode(self) -> VerifiedBytecodeProgram {
+        self.bytecode
+    }
+}
+
 impl KbcArtifact {
+    /// Consume the open artifact so checked executable data cannot change between
+    /// loader validation, native correspondence and runtime adoption.
+    pub fn into_verified(
+        self,
+        requirements: &ArtifactCompatibility,
+    ) -> Result<VerifiedArtifact, ArtifactValidationError> {
+        self.validate_for_loader(requirements)?;
+        Ok(VerifiedArtifact {
+            bytecode: VerifiedBytecodeProgram::from_verified(self.program),
+            portable_mir: self.portable_mir,
+        })
+    }
+
     pub fn from_program(
         program: BytecodeProgram,
         options: ArtifactBuildOptions,

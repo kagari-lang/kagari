@@ -40,12 +40,12 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
             )
             .unwrap();
         let artifact = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        artifact.validate_for_loader(&Default::default()).unwrap();
+        let verified = artifact.clone().into_verified(&Default::default()).unwrap();
         match native_input {
             NativeInputExport::PortableMir => {
                 verify_native_input(
-                    &artifact.portable_mir.as_ref().unwrap().bytes,
-                    &artifact.program,
+                    &verified.portable_mir().unwrap().bytes,
+                    verified.bytecode(),
                     &Default::default(),
                 )
                 .unwrap();
