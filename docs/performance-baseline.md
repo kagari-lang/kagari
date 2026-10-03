@@ -3,6 +3,103 @@
 These reproducible workloads establish a baseline for R18. The figures are
 observations on one machine, not performance guarantees.
 
+## Complete language-contract profile after TO01, 2026-10-03
+
+Baseline: clean bcde912e. This measures the complete matrix after runtime
+construction optimization, rather than extrapolating the earlier 90-second
+prefix. Environment: Windows 11 Pro, i9-12900K (16 cores/24 logical processors),
+63.7 GiB RAM, rustc 1.99.0 (`b940084d7`, LLVM 23.1.1),
+`x86_64-pc-windows-msvc`, workspace O1 test profile with debug information,
+default target/build parallelism and embedding default source/native features.
+Rust build caches are warm. Build first with
+`cargo test -p kagari-embed --lib --no-run --message-format=json`, then invoke
+its reported executable with
+`runtime::language_contract::language_contract_routes_preserve_values_diagnostics_and_effects
+--exact --nocapture --test-threads=1`. Only this test executes; its case/route
+loops are serial. Each process starts with cold thread-local runtime modules;
+later routes reuse immutable modules but create fresh runtime/host/heap state.
+No concurrent agent build/test runs during execution. Background host activity
+is not controlled; an unrelated project's Cargo process was present.
+
+Temporary phase timers retain all original routes and assertions. The complete
+test passes in **135.72 seconds** (wrapper 135.748 seconds), excluding Rust
+compilation. It covers 149 cases: 102 executable cases and 47 diagnostic cases,
+with all 408 executable routes. The publication fixture additionally compiles
+one candidate, yielding 150 compile calls and 103 direct/encoded product pairs.
+This standalone observation is not a speedup comparison with the previous
+327.88-second workspace run: the Cargo dependency configuration/executable and
+measurement conditions differ, and no implementation changed in this diagnosis.
+
+| Work | Total | Share of complete case time |
+| --- | ---: | ---: |
+| Direct/encoded product preparation, including codec | 66.735 s | 49.2% |
+| Source analysis, lowering and artifact construction | 35.896 s | 26.5% |
+| Fresh runtime construction, 408 routes | 31.247 s | 23.0% |
+| Host registration and verified program load | 1.193 s | 0.9% |
+| Execute/prepare-native and outcome assertions | 0.030 s | 0.02% |
+| Remaining setup, reload, assertions and destruction | 0.613 s | 0.45% |
+
+Case intervals sum to 135.713 seconds. The preparation subtotal contains
+14.432 seconds of loader validation, 37.660 seconds of native-input verification,
+13.652 seconds of `VerifiedProgram::new`, and 0.960 seconds of artifact
+encoding/decoding. Native-input verification itself contains 13.417 seconds
+checking supplied bytecode, 9.098 seconds decoding/verifying MIR, 14.141 seconds
+canonical lowering, and 0.912 seconds canonical comparison. Nested timings
+must not be added to their parent totals.
+
+Across compilation and preparation, **1,030 complete bytecode graph validations
+take 65.282 seconds (48.1% of the whole matrix)**. Each generated product triggers
+two checks during initial lowering/artifact construction, then four checks per
+`PreparedProgram::from_artifact`, separately for direct and decoded products:
+loader validation, supplied native bytecode validation, canonical MIR lowering,
+and the runtime verified-program seal. See
+[program/mod.rs](../crates/kagari-embed/src/program/mod.rs),
+[native_input.rs](../crates/kagari-compiler/src/native_input.rs), and
+[program.rs](../crates/kagari-bytecode/src/program.rs).
+
+A separate cold scalar probe (`fn main() -> i32 { 42 }`) passes all four routes
+and requires actual native execution on the native routes. Its ten bytecode
+validations take 1.149 seconds; the twenty per-module trait-bound checks nested
+inside them take 1.091 seconds, approximately 95% of verification time in this
+probe. Within those checks, repeated proof-catalog construction takes 0.253
+seconds and override/instruction contract checks take 0.415 seconds. The remainder
+includes views, declaration ancestry, native imports and parent implementation
+obligations. This local probe locates the verifier hotspot; its percentages are
+not asserted for every case in the full matrix. The relevant owner is
+[trait_bounds.rs](../crates/kagari-bytecode/src/trait_bounds.rs): each module
+reconstructs and checks its dependency closure, including unused declarations.
+
+Even these small sources produce artifacts of 660,239-709,123 bytes (median
+665,861), with portable MIR of 314,700-334,518 bytes (median 317,104). The typical
+program has two modules, including the broad foundation dependency. This fixed
+metadata work is repeated across cases. Source database/snapshot preparation,
+which includes analysis, takes 14.828 seconds; the later `check_program` call
+takes only 0.320 seconds and is not the entire type-checking interval.
+
+Fresh-runtime construction has a 68.354 ms median per route after TO01. Its
+408 repetitions still account for 23.0% of total time. Program load has a
+2.607 ms median and is much smaller. Native preparation/execution and ordinary
+script execution together take only 0.030 seconds in the main attempt loops;
+the separate reload block adds 0.103 seconds, including validation/publication
+and its extra executions. This matrix is predominantly preparation work.
+The slowest single case is 3.678 seconds, followed by 3.257 and 3.003 seconds;
+there is no individual case accounting for most of the total.
+
+The next measured optimization target is the already recorded R6 checked-input
+boundary: retain immutable verification evidence, avoid rechecking equivalent
+bytecode, and reuse proof catalogs within a checked dependency graph. Freshly
+decoded/changed input, MIR correspondence, ABI/schema/bounds validation, resource
+limits and runtime-local installation/link checks must remain enforced. Narrowing
+foundation reachability is a separate change. Splitting the serial matrix into
+independent tests could use test-harness parallelism, but does not eliminate
+this preparation cost and gives each new thread its own cold module construction.
+No R6 migration, validation bypass or matrix restructuring is activated here.
+
+All five temporarily instrumented Rust files are restored byte-for-byte with
+zero source diff. Full-test and scalar-probe results, scripts, patches and timing
+JSON are under ignored `target/language-contract-profile/`. Document link and
+diff checks pass; production behavior is unchanged.
+
 ## Runtime construction optimization, 2026-10-03
 
 TO01 uses the diagnosis below as its baseline. It retains exact per-binding

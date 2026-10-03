@@ -1,5 +1,25 @@
 # Kagari Implementation Roadmap
 
+## Complete language-contract diagnosis (completed, 2026-10-03)
+
+The [complete profile](performance-baseline.md#complete-language-contract-profile-after-to01-2026-10-03)
+starts from clean bcde912e and retains all assertions/routes. An isolated prebuilt
+default source/native O1 test passes 149 cases (102 executable, 47 diagnostic)
+and 408 routes in 135.72 seconds, excluding Rust compilation. Direct/encoded
+preparation accounts for 49.2%, source analysis/lowering/artifact construction
+26.5%, and fresh-runtime construction 23.0%. The 1,030 bytecode verification
+passes nested in compilation/preparation take 65.282 seconds (48.1% overall).
+A separate passing scalar probe locates about 95% of its bytecode verification
+time in per-module trait-bound checking, including repeated proof catalogs and
+dependency obligations. Script/native execution is small for this workload.
+
+All five temporary Rust instrumentation changes are restored byte-for-byte;
+document file links and diff checks pass. No production change or carried error
+remains. This diagnosis supports R6 as the next bounded optimization candidate
+but does not activate it or test-matrix restructuring. The earlier 327.88-second
+workspace observation is not a paired speedup baseline for this standalone run.
+Raw results and reproduction scripts are under target/language-contract-profile.
+
 ## Runtime construction optimization (completed, 2026-10-03)
 
 TO01 owns the measured R4 bottleneck: reuse module-level dependency closure work,
