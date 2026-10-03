@@ -205,10 +205,13 @@ no placeholder crate exists.
 
 ## Contract and common responsibility cleanup
 
-The approved replacement name for `kagari-abi` is **`kagari-contract`**. This is
-a queued ownership cleanup covering both `kagari-abi` and `kagari-common`, not
-just a crate rename. The workspace list above describes the current code; this
-section records the target direction. Implementation has not started.
+The current proposal retains **`kagari-abi` as a narrow binary interface layer**
+and extracts **`kagari-contract` for source-independent semantic records and
+verification**. It revises the earlier decision to rename the entire ABI crate.
+Foundational trait declarations become authoritative `.kgr` source, with explicit
+language-item attributes connecting selected declarations to compiler roles.
+This is a design checkpoint requested by the user, not activation of the code
+migration. The workspace list above describes the current implementation.
 
 The current ABI crate combines portable executable records and layouts, generic
 substitution and proof checking, language foundation catalogs, declaration
@@ -216,7 +219,9 @@ construction and `.kgr` rendering. Common also combines source management and
 diagnostics, declaration identities, numeric semantics and host interface records.
 Being used by several crates is not sufficient reason to put a feature in either
 shared crate. The cleanup must assign each responsibility a clear owner without
-turning `kagari-contract` into the same collection under a new name.
+turning `kagari-contract` into the same collection under a new name. The existing
+compiler-owned catalog remains authoritative until its source-driven replacement
+passes integration; these documents do not claim that source loading exists now.
 
 ### Names
 
@@ -247,20 +252,105 @@ These are responsibility boundaries, not a requirement to create one crate per r
 
 | Responsibility | Target ownership and constraints |
 | --- | --- |
-| Portable declarations, executable types, layouts, native imports, helper calling conventions and encoded contract validation | `kagari-contract`; available to compiler, artifact validation, runtime and backends without source analysis. |
-| Foundation trait identities, canonical declarations and intrinsic language rules | An explicit language foundation owner, shared where source-free validation needs these facts; compiler-owned language behavior must not become an optional library. Separate catalog construction from generic record handling. |
-| Substitution, matching and implementation proof checking | A coherent source-independent verification owner. Preserve artifact validation; moving these checks into HIR is not an acceptable way to shrink the shared layer. Separate generic proof machinery from closed language rules. |
-| Native declaration authoring, Rust handlers and storage bindings | Native registration ownership; distinguish portable descriptions from runtime implementation state. |
-| `.kgr` rendering, documentation and navigation spans | Tooling ownership consuming structured declarations; executable consumers must not need source generation or parsing. |
+| Physical value representation, calling conventions, helper symbols/signatures, native entry descriptors and stack maps | Narrow `kagari-abi`; independent of semantic declaration records, foundation catalogs, source analysis and runtime implementation state. It may use minimal shared identity/debug primitives where required. |
+| Portable declarations, semantic types, logical field/variant layouts, native imports, interface tables and encoded contract validation | `kagari-contract`; depends on the narrow ABI where physical representation is needed, and remains available to compiler, artifact validation, runtime and backends without source analysis. |
+| Foundation trait/type/method declarations | Authoritative core `.kgr` package, processed through ordinary syntax, resolution and typing. Ship a checked foundation product for consumers that have no source frontend. The foundation remains mandatory, independent of optional libraries. |
+| Language-role identities and intrinsic rules | Explicit foundation semantics ownership. Collect attributes into role-to-declaration bindings; use generic declaration records and exact IDs afterward. Keep special language rules separate from generic proof machinery. |
+| Substitution, matching and implementation proof checking | Focused source-independent verification modules in `kagari-contract`; retain linked artifact validation and bounded normalization. Do not move executable checks into HIR. |
+| Native declaration authoring, Rust handlers and storage bindings | Native registration ownership; common record construction can live with contracts, but builders selecting Rust handlers/storage belong to runtime registration. Distinguish portable descriptions from implementation state. |
+| Declaration rendering, documentation and navigation spans | Source/tooling ownership consuming structured declarations. Core navigation uses its real source; rendering externally authored native modules remains useful but is not an executable input. |
+
+### Language items and ordinary trait records
+
+For example, core declares its addition trait using `#[lang = "add"]`. The
+attribute denotes a compiler role, not a second trait representation. Parse and
+lower the trait normally; collect its declaration ID into a language-item table.
+An operator consults that table and selects implementations through the ordinary
+checked trait machinery. Once lowering selects a callable, executable consumers
+use its checked identity, signature and witnesses rather than rereading an
+attribute or comparing source strings.
+
+Not every foundation trait needs a language item. Roles are justified by syntax,
+intrinsic semantics or a concrete native bridge requirement; ordinary algorithms
+refer to ordinary resolved declarations. Review the current 38-entry `Protocol`
+catalog per consumer rather than replacing it with 38 mandatory attributes.
+Collection mutability is expressed by the visible List/MutableList interfaces;
+the migration must not add a new runtime permission matrix.
+
+Validate unknown, duplicate and missing required roles, declaration kind, binder
+arity and the method/associated-member shape required by each compiler rule.
+Role bindings must originate from the configured mandatory foundation, including
+its checked product during source-free loading. An application cannot gain a
+reserved role by copying an attribute or choosing the same source name/package
+spelling. Preserve exact identity, scope and generation checks. The checked
+foundation records must be authenticated against the installed foundation before
+executable adoption, as native declarations are today.
+
+The current `standard::RuntimePrimitive` is not a trait-definition enum.
+`ValueEq`, `ValueHash` and similar entries identify execution operations and their
+effects. Source-declared traits do not by themselves replace these operations.
+Keep an operation with an independently required runtime implementation; describe
+its logical operation/effect in the executable contract and its physical helper
+entry in ABI. Remove a primitive only when ordinary compiled code and checked
+native bindings fully replace its behavior. This migration does not require
+rewriting all primitives, arithmetic or native collection storage.
+
+### Foundation preparation and dependency direction
+
+The proposed data flow is:
+
+```text
+core .kgr source
+  -> ordinary parser and declaration/header collection
+  -> collect and validate language-item bindings
+  -> resolve/check core declarations, implementations and bodies
+  -> portable checked foundation contracts and executable products
+
+user source + checked foundation declarations
+  -> ordinary HIR analysis -> verified MIR -> bytecode or native code
+
+checked products + installed foundation/native implementations
+  -> source-independent verification/linking -> execution
+```
+
+Foundation preparation needs a compiler bootstrap entry that does not inject the
+foundation catalog it is compiling. It can recognize syntax and primitive scalar
+types, collect trait headers and language roles before checking bodies, and then
+use the same ordinary trait/type checking as other modules. Preserve compiler
+intrinsic implementations and their checked lowering facts; source ownership of a
+trait does not imply that every primitive operation has a script body.
+
+An explicit development preparation command using the source-enabled compiler
+builds the foundation product. Track the product with its source correspondence
+and regenerate at coherent checkpoints. A distributed bundle supplies checked
+declarations, role bindings, and any executable bodies with required native
+imports. Runtime installation consumes that bundle and binds Rust implementations
+through ordinary checked registration; it does not compile core at runtime.
+Tooling may read the accompanying source without making it an execution input.
+The compiler bootstrap/preparation entry must build without a prepared bundle;
+bundled assets belong to consumers, not a recursive compiler build script.
+
+The mandatory dependency direction is `contract -> abi`, never `abi -> contract`.
+Neither layer depends on core source preparation, syntax or HIR, including build
+dependencies. Foundation preparation uses the source frontend and contracts;
+runtime uses its prepared product and contract/ABI validation. A language-role
+record can be source independent without owning the parser or the trait catalog.
+No new crate is prescribed for the role registry or preparation tool until their
+concrete dependency/consumer map is reviewed. Do not add forwarding crates.
+
+`AbiType::representation()` currently combines semantic and physical knowledge.
+Its replacement belongs with contract type lowering, calling the narrow ABI's
+physical representation model. Likewise split logical generic field layouts from
+physical descriptors; do not move `layout.rs` wholesale just because of its name.
 
 Audit common at the same time, using its actual consumers rather than moving it
 wholesale into contract:
 
 | Current common area | Required review |
 | --- | --- |
-| `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Group source and tooling responsibilities; separate literal parsing from numeric execution semantics. |
+| `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Group source and tooling responsibilities; separate literal parsing from numeric execution semantics. Choose their final owner from actual consumers, without pulling source analysis into ABI, contracts or runtime. |
 | `identity`, `span` | Separate portable package/module/definition identity from source file revisions and locations where appropriate. Preserve debug metadata consumers; these modules are not uniformly source-only. |
-| `arithmetic`, `integer`, `numeric`, `range`, `collection` | Give shared language semantics a deliberate owner; preserve one implementation of compile-time/runtime numeric behavior. Distinguish semantic tags from execution algorithms. |
+| `arithmetic`, `integer`, `numeric`, `range`, `collection` | Give shared language semantics a deliberate owner; preserve one implementation of compile-time/runtime numeric behavior. Distinguish semantic tags from execution algorithms. Audit collection access tags against ordinary interface semantics and separately declared host storage restrictions; removing a tag must not remove a validated host restriction. |
 | `host_interface` | Locate portable host schema and effect records with their contract owner; keep execution state and host state with runtime/embedding. The capability module was removed by the execution-policy simplification. |
 | `cancellation`, decode-limit helpers | Retain or relocate small shared mechanisms according to concrete dependency needs; preserve cancellation and bounded decoding. |
 
@@ -272,12 +362,15 @@ cycle, a forwarding crate or a second public path to the same model.
 
 ### Scope and completion boundary
 
-The eventual cleanup delivers an explicit module/dependency map, the crate and
-type renames, and migration of affected imports, consumers, documentation and
-checks. Keep existing behavior, source-free validation and backend dependency
-constraints. Replace unpublished internal interfaces directly; no routine version
-bump, old-format reader or compatibility layer is required. This work does not
-add traits, containers, library algorithms or new execution-policy obligations.
+The eventual cleanup delivers the narrow ABI/contract split, source-authored
+foundation and language-item preparation, an explicit common module/dependency
+map, and migration of affected imports, consumers, documentation and checks.
+Keep existing behavior, source-free validation and backend dependency constraints.
+Replace unpublished internal interfaces directly; no routine version bump,
+old-format reader or compatibility layer is required. This work does not add
+traits, containers, library algorithms, general downcast support or new
+execution-policy obligations. The new language-item attribute is scoped to this
+foundation preparation contract, not a general attribute-system redesign.
 
 A future external C embedding API belongs in a proposed **`kagari-ffi`** adapter
 over `kagari-embed`: C exports, opaque handles, buffer ownership, error/panic

@@ -690,26 +690,87 @@ without reopening the completed reset checkpoints.
 
 ## Contract and common responsibility cleanup (queued)
 
-The approved name is `kagari-contract`, replacing `kagari-abi`, with domain type
-names such as `Type`, `FunctionDecl` and `TraitDecl` instead of `Abi` affixes.
-The [architecture decision](architecture.md#contract-and-common-responsibility-cleanup)
-records the naming map and the joint ABI/common ownership review. This is a
-documentation checkpoint; code migration is not active and does not reopen the
-completed native collection reset.
+2026-10-03 design checkpoint: the user requests boundaries and a migration plan,
+not code migration. The proposal refines the earlier whole-crate rename into a
+narrow `kagari-abi` plus `kagari-contract`, and makes core trait declarations
+authoritative `.kgr` source with Rust-style `#[lang = "add"]` role bindings.
+The [architecture proposal](architecture.md#contract-and-common-responsibility-cleanup)
+defines ownership, bootstrap, prepared foundation products and dependency rules.
+Implementation remains queued; the completed native collection reset is not
+reopened. No behavior or parser support is claimed by this checkpoint.
 
-The finite implementation scope is to map current consumers and dependencies,
-separate portable contracts, language foundations, source-independent verification,
-native registration and source/tooling responsibilities, then migrate the crate,
-types and affected consumers/checks together. Review common's source utilities,
-identities, numeric semantics and host schemas in the same change sequence.
-Resolve duplicate declaration ownership rather than adding aliases. The final
-module map determines whether common remains; no extra crate count is prescribed.
+Finite scope: separate physical ABI from portable semantic contracts, replace
+handwritten core trait catalog construction with normal source analysis, collect
+and validate language roles, prepare a mandatory source-free foundation product,
+and migrate registration, tooling and affected consumers together. Review common's
+source utilities, identities, numeric semantics and host schemas in the same
+sequence. Resolve duplicate declaration ownership rather than adding aliases.
+The source/tooling and foundation-role owner names follow the consumer map; do
+not create extra crates solely to satisfy this list.
 
-Preserve existing semantics and source-free execution/validation. Do not add
-library features, execution-policy redesign, compatibility workflows or an FFI
-implementation to this scope. `kagari-ffi` is recorded only as the future external
-C adapter boundary. Activation, phase breakdown and implementation acceptance
-checks remain pending; this queue entry is the progress record until activation.
+Proposed phases, in order, to be activated explicitly for implementation:
+
+- [ ] **AC01: Extract the narrow ABI and semantic contract boundary.** Inventory
+  every current ABI/common module and its production/build consumers. Retain
+  physical representations, helper signatures, entry descriptors and stack maps
+  in ABI; extract semantic types, declarations, logical layouts, call records
+  and focused verification into contract. Move source generation to tooling.
+  Migrate direct imports with no forwarding API. Produce an acyclic graph with
+  `contract -> abi` and no frontend dependency from executable consumers. Existing
+  foundation declarations can retain their current authority at this checkpoint,
+  but live with explicit foundation ownership rather than the narrow ABI.
+- [ ] **AC02: Implement ordinary source language items and foundation bootstrap.**
+  Parse/lower the new attribute; collect declaration IDs after headers are known,
+  before semantic rules need them. Validate role uniqueness, origin, required
+  declaration/member shapes and missing required roles. Add a preparation entry
+  that does not recursively inject the foundation being compiled. Exercise a
+  source-declared addition trait, operator selection and a same-named application
+  trait; do not introduce a second trait model or compiler-wide string matching.
+- [ ] **AC03: Make the core source authoritative and prepare its product.** Move
+  the existing foundational declarations to `.kgr` with unchanged signatures,
+  bounds/default policies and canonical identities. Classify each existing
+  Protocol consumer: true language role, ordinary resolved declaration, or
+  intrinsic rule. Replace the Rust declaration catalog rather than keep two
+  authorities. Prepare checked contracts/roles and any script bodies/native
+  imports with a command that builds without the prepared asset. Preserve Rust
+  intrinsic/storage implementations and mandatory availability.
+- [ ] **AC04: Integrate loading, registration, tooling and common ownership.**
+  Ship the prepared foundation independently of syntax/HIR; authenticate its
+  reserved roles and declarations against installation. Native bindings consume
+  checked declarations; editor navigation uses real core source. Complete common
+  ownership moves identified in AC01 without copying numeric semantics or weakening
+  host storage restrictions. Review RuntimePrimitive entries as execution helpers,
+  not trait definitions. Preserve interpreter/native backend behavior, roots,
+  cancellation and generation-pinned reload. Do not add general downcast support.
+- [ ] **AC05: Final integration and replacement acceptance.** Resolve all carried
+  errors, update affected artifacts once at a coherent checkpoint, remove retired
+  catalogs/paths and verify source/product correspondence. Review handwritten
+  imports, visibility, module ownership and effective LOC. Run the workspace
+  structure, formatting, strict Clippy, tests and diff checks, the complete
+  language-contract matrix, and standalone source-free/native backend consumers.
+
+Use `Roadmap-Step: AC01` through `AC05` on future implementation checkpoints.
+Each checkpoint should build and pass its focused checks; a necessary intermediate
+failure must be bounded within its owning phase and recorded with command,
+diagnostics and follow-up. Do not publish an executable bundle with unchecked
+roles or contracts. Reuse successful checks until a relevant change warrants
+rerunning them; run the full matrix at AC05.
+
+Acceptance includes both sides of the boundary: source-defined operator traits
+and ordinary traits use the same record/selection machinery; malformed, duplicate,
+missing or counterfeit language roles are rejected; generic/associated contracts,
+native callbacks, interface dispatch and primitive behavior remain valid. Loading
+a program without source/HIR must still verify contracts against the installed
+foundation/native declarations. A checked signature must not be treated as proof
+of a trusted Rust body's effects. ABI must have no dependency on semantic type
+records, source generation or a generated trait catalog.
+
+No new traits, containers, library algorithms, execution-policy redesign, general
+downcasting, compatibility workflows or external FFI implementation are included.
+`kagari-ffi` remains only the future external C adapter boundary. This queue entry
+owns phase progress until activation; no parallel plan or implementation has been
+created. Design validation is documentation/link and diff review, not a workspace
+build. Performance effects remain unmeasured.
 
 ## Installation access and cancellation (complete)
 
