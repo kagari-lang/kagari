@@ -692,18 +692,23 @@ without reopening the completed reset checkpoints.
 
 2026-10-03 design checkpoint: the user requests boundaries and a migration plan,
 not code migration. The proposal refines the earlier whole-crate rename into a
-narrow `kagari-abi` plus `kagari-contract`, and makes core trait declarations
-authoritative `.kgr` source with Rust-style `#[lang = "add"]` role bindings.
+narrow `kagari-abi` plus `kagari-contract`. The user's subsequent clarification
+replaces the all-source foundation proposal: syntax-required traits enter ordinary
+source analysis with language-role bindings; collection and standard-library
+declarations remain authored in Rust native libraries, which generate `.kgr` for
+compiler and LSP analysis. Library-specific catalog enums belong to those owners,
+not generic compiler or executable models.
 The [architecture proposal](architecture.md#contract-and-common-responsibility-cleanup)
-defines ownership, bootstrap, prepared foundation products and dependency rules.
+defines authority, analysis/registration flows, syntax bridges and dependency rules.
 Implementation remains queued; the completed native collection reset is not
 reopened. No behavior or parser support is claimed by this checkpoint.
 
 Finite scope: separate physical ABI from portable semantic contracts, replace
-handwritten core trait catalog construction with normal source analysis, collect
-and validate language roles, prepare a mandatory source-free foundation product,
-and migrate registration, tooling and affected consumers together. Review common's
-source utilities, identities, numeric semantics and host schemas in the same
+compiler-wide library recognition with normal declaration/trait analysis, collect
+and validate actual language roles, connect generated native declarations to their
+authoritative records, and migrate registration, tooling and affected consumers
+together. Review common's source utilities, identities, numeric semantics and
+host schemas in the same
 sequence. Resolve duplicate declaration ownership rather than adding aliases.
 The source/tooling and foundation-role owner names follow the consumer map; do
 not create extra crates solely to satisfy this list.
@@ -718,34 +723,47 @@ Proposed phases, in order, to be activated explicitly for implementation:
   Migrate direct imports with no forwarding API. Produce an acyclic graph with
   `contract -> abi` and no frontend dependency from executable consumers. Existing
   foundation declarations can retain their current authority at this checkpoint,
-  but live with explicit foundation ownership rather than the narrow ABI.
-- [ ] **AC02: Implement ordinary source language items and foundation bootstrap.**
+  but live with explicit language or native-library ownership rather than ABI.
+  Classify current Protocol entries and NativeTypeKind/NativeTypeConstructor,
+  StandardEnum, CollectionAccess and storage layout consumers as actual syntax
+  bridges, library policy or independently required representation/validation.
+  Record the bounded retained exceptions and their owners; do not remove every
+  representation tag or move an enum while keeping its generic consumer matches.
+- [ ] **AC02: Analyze syntax-required traits and collect language roles.**
   Parse/lower the new attribute; collect declaration IDs after headers are known,
   before semantic rules need them. Validate role uniqueness, origin, required
-  declaration/member shapes and missing required roles. Add a preparation entry
-  that does not recursively inject the foundation being compiled. Exercise a
-  source-declared addition trait, operator selection and a same-named application
+  declaration/member shapes and missing required roles. Collect headers before
+  checking role-dependent bodies without injecting duplicate foundation records.
+  The parser recognizes declarations/attributes; HIR owns semantic selection.
+  Exercise a source-declared addition trait, operator selection and a same-named application
   trait; do not introduce a second trait model or compiler-wide string matching.
-- [ ] **AC03: Make the core source authoritative and prepare its product.** Move
-  the existing foundational declarations to `.kgr` with unchanged signatures,
-  bounds/default policies and canonical identities. Classify each existing
-  Protocol consumer: true language role, ordinary resolved declaration, or
-  intrinsic rule. Replace the Rust declaration catalog rather than keep two
-  authorities. Prepare checked contracts/roles and any script bodies/native
-  imports with a command that builds without the prepared asset. Preserve Rust
-  intrinsic/storage implementations and mandatory availability.
+- [ ] **AC03: Analyze native-generated declarations and localize collection policy.**
+  Keep Rust native definitions authoritative for ordinary library traits, types,
+  methods and implementations. Generate `.kgr` declarations for compiler/LSP
+  analysis through the same declaration/selection machinery as handwritten traits.
+  Validate source/record correspondence; remove duplicate injected library catalogs.
+  Replace collection-specific type/trait recognition with nominal declarations,
+  parent/implementation records and checked member/call identities. Keep a small
+  explicit bridge for `[T]`, array construction and existing indexed assignment;
+  do not use unchecked method names or introduce new traits/literal syntax.
+  Private library registration/storage enums may remain, but an ordinary new
+  container must not require a new generic HIR/contract/execution variant.
+  Preserve signatures, bounds/defaults, mandatory availability, native storage
+  checks and checked intrinsic facts. Representation exceptions follow AC01's
+  consumer audit, not a blanket engine instruction redesign.
 - [ ] **AC04: Integrate loading, registration, tooling and common ownership.**
-  Ship the prepared foundation independently of syntax/HIR; authenticate its
-  reserved roles and declarations against installation. Native bindings consume
-  checked declarations; editor navigation uses real core source. Complete common
+  Keep executable products and native registrations independent of syntax/HIR;
+  check reserved roles and declarations against installation. Native bindings
+  consume exact checked declarations; navigation uses handwritten language source
+  or generated native views according to authority. Complete common
   ownership moves identified in AC01 without copying numeric semantics or weakening
   host storage restrictions. Review RuntimePrimitive entries as execution helpers,
   not trait definitions. Preserve interpreter/native backend behavior, roots,
   cancellation and generation-pinned reload. Do not add general downcast support.
 - [ ] **AC05: Final integration and replacement acceptance.** Resolve all carried
   errors, update affected artifacts once at a coherent checkpoint, remove retired
-  catalogs/paths and verify source/product correspondence. Review handwritten
-  imports, visibility, module ownership and effective LOC. Run the workspace
+  catalogs/paths and verify native source/record and language product correspondence.
+  Review handwritten imports, visibility, module ownership and effective LOC. Run the workspace
   structure, formatting, strict Clippy, tests and diff checks, the complete
   language-contract matrix, and standalone source-free/native backend consumers.
 
@@ -756,16 +774,28 @@ diagnostics and follow-up. Do not publish an executable bundle with unchecked
 roles or contracts. Reuse successful checks until a relevant change warrants
 rerunning them; run the full matrix at AC05.
 
-Acceptance includes both sides of the boundary: source-defined operator traits
-and ordinary traits use the same record/selection machinery; malformed, duplicate,
-missing or counterfeit language roles are rejected; generic/associated contracts,
+Acceptance includes both sides of the boundary: source-defined operator traits,
+native-generated library traits and application traits use the same record/selection
+machinery; malformed, duplicate, missing or counterfeit language roles are rejected;
+generic/associated contracts,
 native callbacks, interface dispatch and primitive behavior remain valid. Loading
 a program without source/HIR must still verify contracts against the installed
-foundation/native declarations. A checked signature must not be treated as proof
+foundation/native declarations. Generated declarations that disagree with their
+Rust authority are rejected. Preserve List/MutableList behavior, custom collection
+implementations, readonly/writable dispatch, array literal evaluation order and
+construction/mutation failures. Ordinary library registration must not depend on
+matching a central collection enum. A checked signature must not be treated as proof
 of a trusted Rust body's effects. ABI must have no dependency on semantic type
 records, source generation or a generated trait catalog.
 
-No new traits, containers, library algorithms, execution-policy redesign, general
+Design ledger: the initial all-source proposal was documented in `f9b4a0d2`.
+The subsequent user clarification retains native Rust declaration authority for
+collections and the standard library and makes generic-consumer coupling the
+primary cleanup target. Source analysis is shared; declaration authority need not
+be uniform. No implementation phase has been activated by this correction.
+
+No new traits, containers, library algorithms, blanket standard-enum/storage
+instruction replacement, execution-policy redesign, general
 downcasting, compatibility workflows or external FFI implementation are included.
 `kagari-ffi` remains only the future external C adapter boundary. This queue entry
 owns phase progress until activation; no parallel plan or implementation has been
