@@ -5,6 +5,7 @@ use kagari_common::{
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, FileSpan,
         map::DefinitionContext,
+        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
     source::SourceFile,
@@ -51,37 +52,34 @@ pub struct BindingId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DeclarationId {
-    Definition(DefinitionPath),
-    GenericParameter {
-        owner: DefinitionPath,
-        position: usize,
-    },
+pub enum DeclarationId<I: DefinitionReference = DefinitionPath> {
+    Definition(I),
+    GenericParameter { owner: I, position: usize },
     Binding(BindingId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Declaration {
-    pub id: DeclarationId,
+pub struct Declaration<I: DefinitionReference = DefinitionPath> {
+    pub id: DeclarationId<I>,
     pub name: String,
     pub location: FileSpan,
 }
 
 #[derive(Debug, Clone)]
-pub struct Declarations {
-    pub(crate) imported_types: ImportedTypes,
+pub struct Declarations<I: DefinitionReference = DefinitionPath> {
+    pub(crate) imported_types: ImportedTypes<I>,
     pub(crate) names: Arc<NameTable>,
     pub(crate) hosts: Arc<HostDeclarations>,
     imports: Arc<ModuleImports>,
     analysis: AnalysisId,
     definitions: DefinitionTable,
     context: DefinitionContext,
-    targets: HashMap<DeclarationKey, Declaration>,
-    identities: HashMap<DeclarationId, DeclarationKey>,
+    targets: HashMap<DeclarationKey, Declaration<I>>,
+    identities: HashMap<DeclarationId<I>, DeclarationKey>,
     sites: HashSet<DeclarationKey>,
-    impl_identities: HashMap<ImplId, DefinitionPath>,
-    native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
-    native_enums: HashMap<EnumId, NativeTypeKind>,
+    impl_identities: HashMap<ImplId, I>,
+    native_types: HashMap<OpaqueTypeId, NativeTypeKind<I>>,
+    native_enums: HashMap<EnumId, NativeTypeKind<I>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -100,164 +98,6 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
-    pub fn definitions(&self) -> &DefinitionTable {
-        &self.definitions
-    }
-
-    pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
-        self.native_types.get(&id).cloned()
-    }
-
-    pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind> {
-        self.native_enums.get(&id).cloned()
-    }
-
-    pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionPath> {
-        self.impl_identities.get(&id)
-    }
-
-    pub(crate) fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
-        if let Some(binding) = self.names.lookup(name) {
-            binding.target()
-        } else if let Some((alias, member)) = name.split_once("::")
-            && let Some(binding) = self.names.lookup(alias)
-        {
-            match binding.target()? {
-                ResolvedName::HostModule(module) => self.hosts.resolve_name_in(module, member),
-                ResolvedName::SourceImport(index) => {
-                    self.imports.resolve_member(index, member, &self.hosts)
-                }
-                _ => None,
-            }
-        } else {
-            self.hosts.resolve_name(name)
-        }
-    }
-
-    pub fn variant(&self, id: VariantId) -> Option<&Declaration> {
-        self.targets.get(&DeclarationKey::Variant(id))
-    }
-
-    /// Member declaration names only, so an unresolved body reference never
-    /// accidentally navigates to an enclosing declaration's whole-file span.
-    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
-        self.targets
-            .iter()
-            .filter(|(key, _)| {
-                self.sites.contains(key)
-                    && matches!(
-                        key,
-                        DeclarationKey::Field(_)
-                            | DeclarationKey::Variant(_)
-                            | DeclarationKey::AssociatedType(_)
-                    )
-            })
-            .map(|(_, d)| d)
-            .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
-    }
-
-    /// Declaration-site lookup uses only identifier-sized ranges. Incomplete
-    /// names cannot claim surrounding code.
-    pub fn site_at(&self, offset: usize) -> Option<&Declaration> {
-        self.targets
-            .iter()
-            .filter(|(key, _)| self.sites.contains(key))
-            .map(|(_, declaration)| declaration)
-            .filter(|declaration| {
-                let range = declaration.location.range;
-                range.start <= offset && offset < range.end
-            })
-            .min_by_key(|declaration| {
-                declaration.location.range.end - declaration.location.range.start
-            })
-    }
-
-    pub fn imported_types(&self) -> &ImportedTypes {
-        &self.imported_types
-    }
-
-    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionPath> {
-        match &self.target(name)?.id {
-            DeclarationId::Definition(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    pub fn definition_target(&self, id: &DefinitionPath) -> Option<ResolvedName> {
-        match self
-            .identities
-            .get(&DeclarationId::Definition(id.clone()))?
-        {
-            DeclarationKey::Name(name) => Some(*name),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn generic_type(&self, id: GenericParamId) -> Option<GenericParameterType> {
-        let declaration = self.generic_parameter(id)?;
-        let DeclarationId::GenericParameter { owner, position } = &declaration.id else {
-            return None;
-        };
-        Some(GenericParameterType {
-            owner: owner.clone(),
-            position: *position,
-            name: declaration.name.clone(),
-        })
-    }
-
-    pub fn analysis_id(&self) -> AnalysisId {
-        self.analysis
-    }
-
-    /// Parameters declared by this owner, in declaration order. Inherited method
-    /// binders keep their original owner and are not included here.
-    pub fn parameters_of(&self, owner: &DefinitionPath) -> Vec<GenericParameterType> {
-        let mut params = self
-            .iter()
-            .filter_map(|declaration| {
-                let DeclarationId::GenericParameter {
-                    owner: declared_owner,
-                    position,
-                } = &declaration.id
-                else {
-                    return None;
-                };
-                (declared_owner == owner).then(|| GenericParameterType {
-                    owner: owner.clone(),
-                    position: *position,
-                    name: declaration.name.clone(),
-                })
-            })
-            .collect::<Vec<_>>();
-        params.sort_by_key(|parameter| parameter.position);
-        params
-    }
-
-    pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
-        self.targets
-            .get(&DeclarationKey::Name(name))
-            .or_else(|| self.imported_types.variant(name))
-    }
-
-    pub fn field(&self, field: FieldId) -> Option<&Declaration> {
-        self.targets.get(&DeclarationKey::Field(field))
-    }
-
-    pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration> {
-        self.targets.get(&DeclarationKey::GenericParameter(id))
-    }
-
-    /// A binding from another analysis is rejected, even if its arena slot coincides.
-    pub fn get(&self, id: &DeclarationId) -> Option<&Declaration> {
-        self.identities
-            .get(id)
-            .and_then(|name| self.targets.get(name))
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Declaration> {
-        self.targets.values()
-    }
-
     pub(crate) fn collect_named(
         source: &SourceFile,
         lowered: &LoweredModule,
@@ -700,5 +540,158 @@ impl Builder<'_> {
                 },
             },
         );
+    }
+}
+
+mod mapping;
+
+impl<I: DefinitionReference> Declarations<I> {
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+    pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind<I>> {
+        self.native_types.get(&id).cloned()
+    }
+    pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind<I>> {
+        self.native_enums.get(&id).cloned()
+    }
+    pub fn impl_identity(&self, id: ImplId) -> Option<&I> {
+        self.impl_identities.get(&id)
+    }
+    pub(crate) fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
+        if let Some(binding) = self.names.lookup(name) {
+            binding.target()
+        } else if let Some((alias, member)) = name.split_once("::")
+            && let Some(binding) = self.names.lookup(alias)
+        {
+            match binding.target()? {
+                ResolvedName::HostModule(module) => self.hosts.resolve_name_in(module, member),
+                ResolvedName::SourceImport(index) => {
+                    self.imports.resolve_member(index, member, &self.hosts)
+                }
+                _ => None,
+            }
+        } else {
+            self.hosts.resolve_name(name)
+        }
+    }
+    pub fn variant(&self, id: VariantId) -> Option<&Declaration<I>> {
+        self.targets.get(&DeclarationKey::Variant(id))
+    }
+    /// Member declaration names only, so an unresolved body reference never
+    /// accidentally navigates to an enclosing declaration's whole-file span.
+    pub fn member_at(&self, offset: usize) -> Option<&Declaration<I>> {
+        self.targets
+            .iter()
+            .filter(|(key, _)| {
+                self.sites.contains(key)
+                    && matches!(
+                        key,
+                        DeclarationKey::Field(_)
+                            | DeclarationKey::Variant(_)
+                            | DeclarationKey::AssociatedType(_)
+                    )
+            })
+            .map(|(_, d)| d)
+            .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
+    }
+    /// Declaration-site lookup uses only identifier-sized ranges. Incomplete
+    /// names cannot claim surrounding code.
+    pub fn site_at(&self, offset: usize) -> Option<&Declaration<I>> {
+        self.targets
+            .iter()
+            .filter(|(key, _)| self.sites.contains(key))
+            .map(|(_, declaration)| declaration)
+            .filter(|declaration| {
+                let range = declaration.location.range;
+                range.start <= offset && offset < range.end
+            })
+            .min_by_key(|declaration| {
+                declaration.location.range.end - declaration.location.range.start
+            })
+    }
+    pub fn imported_types(&self) -> &ImportedTypes<I> {
+        &self.imported_types
+    }
+    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&I> {
+        match &self.target(name)?.id {
+            DeclarationId::Definition(id) => Some(id),
+            _ => None,
+        }
+    }
+    pub fn definition_target(&self, id: &I) -> Option<ResolvedName> {
+        match self
+            .identities
+            .get(&DeclarationId::Definition(id.clone()))?
+        {
+            DeclarationKey::Name(name) => Some(*name),
+            _ => None,
+        }
+    }
+    pub(crate) fn generic_type(&self, id: GenericParamId) -> Option<GenericParameterType<I>> {
+        let declaration = self.generic_parameter(id)?;
+        let DeclarationId::GenericParameter { owner, position } = &declaration.id else {
+            return None;
+        };
+        Some(GenericParameterType {
+            owner: owner.clone(),
+            position: *position,
+            name: declaration.name.clone(),
+        })
+    }
+    pub fn analysis_id(&self) -> AnalysisId {
+        self.analysis
+    }
+    /// Parameters declared by this owner, in declaration order. Inherited method
+    /// binders keep their original owner and are not included here.
+    pub fn parameters_of(&self, owner: &I) -> Vec<GenericParameterType<I>> {
+        let mut params = self
+            .iter()
+            .filter_map(|declaration| {
+                let DeclarationId::GenericParameter {
+                    owner: declared_owner,
+                    position,
+                } = &declaration.id
+                else {
+                    return None;
+                };
+                (declared_owner == owner).then(|| GenericParameterType {
+                    owner: owner.clone(),
+                    position: *position,
+                    name: declaration.name.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        params.sort_by_key(|parameter| parameter.position);
+        params
+    }
+    pub fn target(&self, name: ResolvedName) -> Option<&Declaration<I>> {
+        self.targets
+            .get(&DeclarationKey::Name(name))
+            .or_else(|| self.imported_types.variant(name))
+    }
+    pub fn field(&self, field: FieldId) -> Option<&Declaration<I>> {
+        self.targets.get(&DeclarationKey::Field(field))
+    }
+    pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration<I>> {
+        self.targets.get(&DeclarationKey::GenericParameter(id))
+    }
+    /// A binding from another analysis is rejected, even if its arena slot coincides.
+    pub fn get(&self, id: &DeclarationId<I>) -> Option<&Declaration<I>> {
+        self.identities
+            .get(id)
+            .and_then(|name| self.targets.get(name))
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Declaration<I>> {
+        self.targets.values()
+    }
+}
+
+impl<I: DefinitionReference> Declarations<I> {
+    pub(crate) fn context(&self) -> &DefinitionContext {
+        &self.context
+    }
+    pub(crate) fn publish_definitions(&mut self, definitions: DefinitionTable) {
+        self.definitions = definitions;
     }
 }

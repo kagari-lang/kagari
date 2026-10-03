@@ -12,7 +12,7 @@ use crate::{
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionPath, FileId, Revision},
+    identity::{DefinitionPath, FileId, Revision, reference::DefinitionReference},
 };
 use std::collections::HashMap;
 
@@ -24,32 +24,20 @@ pub struct SourceFunctionId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedFunction {
+pub struct ImportedFunction<I: DefinitionReference = DefinitionPath> {
     pub id: SourceFunctionId,
-    pub declaration: DefinitionPath,
-    pub site: Declaration,
-    pub signature: TypedFunction,
+    pub declaration: I,
+    pub site: Declaration<I>,
+    pub signature: TypedFunction<I>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ImportedFunctions {
-    functions: HashMap<ResolvedName, ImportedFunction>,
-    methods: HashMap<DefinitionPath, ImportedFunction>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedFunctions<I: DefinitionReference = DefinitionPath> {
+    functions: HashMap<ResolvedName, ImportedFunction<I>>,
+    methods: HashMap<I, ImportedFunction<I>>,
 }
 
 impl ImportedFunctions {
-    pub fn target(&self, id: &DefinitionPath) -> Option<&ImportedFunction> {
-        self.methods.get(id).or_else(|| {
-            self.functions
-                .values()
-                .find(|function| function.declaration == *id)
-        })
-    }
-
-    pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction> {
-        self.functions.get(&name)
-    }
-
     pub(crate) fn include_inherent_methods(&mut self, aggregates: &AggregateCatalog) {
         for method in aggregates.inherent_methods() {
             self.methods.insert(
@@ -138,5 +126,29 @@ impl<'a> FunctionCatalog<'a> {
                 .clone(),
             signature: signature.clone(),
         }))
+    }
+}
+
+impl<I: DefinitionReference> Default for ImportedFunctions<I> {
+    fn default() -> Self {
+        Self {
+            functions: Default::default(),
+            methods: Default::default(),
+        }
+    }
+}
+
+mod mapping;
+
+impl<I: DefinitionReference> ImportedFunctions<I> {
+    pub fn target(&self, id: &I) -> Option<&ImportedFunction<I>> {
+        self.methods.get(id).or_else(|| {
+            self.functions
+                .values()
+                .find(|function| function.declaration == *id)
+        })
+    }
+    pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction<I>> {
+        self.functions.get(&name)
     }
 }

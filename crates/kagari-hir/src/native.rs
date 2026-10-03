@@ -7,24 +7,28 @@ use kagari_abi::{
     callable::NativeDefaultApplication, scalar::BuiltinType, standard::surface::StandardEnum,
     types::native::NativeStorageLayout,
 };
-use kagari_common::{collection::CollectionAccess, identity::DefinitionPath, range::RangeKind};
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionPath, reference::DefinitionReference},
+    range::RangeKind,
+};
 
 pub(crate) mod api;
 
 /// Installed entry identity, checked host catalog index or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NativeBinding {
-    Entry(DefinitionPath),
+pub enum NativeBinding<I: DefinitionReference = DefinitionPath> {
+    Entry(I),
     Host(HostFunctionId),
     /// Symbolic registered template application; selection resolves an Entry.
-    Default(NativeDefaultApplication),
+    Default(NativeDefaultApplication<I>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NativeTypeKind {
+pub enum NativeTypeKind<I: DefinitionReference = DefinitionPath> {
     Storage {
-        declaration: DefinitionPath,
+        declaration: I,
         arity: usize,
         layout: NativeStorageLayout,
     },
@@ -94,3 +98,5 @@ impl NativeTypeKind {
         })
     }
 }
+
+mod mapping;

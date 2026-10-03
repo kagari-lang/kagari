@@ -1,8 +1,9 @@
 //! Encode checked HIR types into portable semantic facts.
 use crate::types::{NominalType, TypeId};
 use kagari_abi::types::{AbiType, NominalAbiType};
+use kagari_common::identity::reference::DefinitionReference;
 
-pub fn lower_nominal_type(ty: &NominalType) -> NominalAbiType {
+pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> NominalAbiType<I> {
     NominalAbiType {
         associated_types: ty
             .associated_types
@@ -14,7 +15,7 @@ pub fn lower_nominal_type(ty: &NominalType) -> NominalAbiType {
     }
 }
 
-pub fn lower_type(ty: &TypeId) -> AbiType {
+pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> AbiType<I> {
     match ty {
         TypeId::Projection {
             receiver,

@@ -5,7 +5,9 @@ use std::collections::HashMap;
 
 use kagari_common::{
     diagnostic::{Diagnostic, Severity},
-    identity::{FileId, ModuleIdentity, Revision},
+    identity::{
+        FileId, ModuleIdentity, Revision, mapping::DefinitionMappingError, table::DefinitionId,
+    },
 };
 
 use {
@@ -30,6 +32,7 @@ pub enum ProgramCheckError {
     Graph(ModuleOrderError),
     Diagnostics(Vec<ProgramDiagnostic>),
     Cancelled,
+    Identity(DefinitionMappingError),
 }
 
 /// Members cannot be replaced with facts from another snapshot after checking.
@@ -58,7 +61,7 @@ impl CheckedProgram {
     pub fn source_function(
         &self,
         id: SourceFunctionId,
-    ) -> Option<(&CheckedAnalysis, &TypedFunction)> {
+    ) -> Option<(&CheckedAnalysis, &TypedFunction<DefinitionId>)> {
         let module = &self.modules[*self.by_file.get(&id.file)?];
         if module.lowered.source.revision() != id.revision {
             return None;
@@ -116,7 +119,21 @@ impl AnalysisSnapshot {
             dependencies.insert(identity, node.dependencies().to_vec());
             // Source imports are valid here: every reachable module belongs to this
             // immutable snapshot and is checked before the program is returned.
-            modules.push(CheckedAnalysis(file.result().facts().clone()));
+            if !file
+                .result()
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
+            {
+                modules.push(
+                    CheckedAnalysis::adopt(file.result().facts(), cancel).map_err(|error| {
+                        match error {
+                            DefinitionMappingError::Cancelled => ProgramCheckError::Cancelled,
+                            error => ProgramCheckError::Identity(error),
+                        }
+                    })?,
+                );
+            }
         }
         cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
         if !diagnostics.is_empty() {

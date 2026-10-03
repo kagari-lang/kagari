@@ -240,6 +240,28 @@ rather than a sibling file in the same closure. All 401 HIR library tests and th
 HIR all-target check pass; structure checks still report 697 files and zero findings.
 This ownership seam does not yet compact named HIR/type records. No carried error.
 
+ID02 checked HIR checkpoint: declarations, binders, semantic types, calls,
+constraints, imported surfaces and aggregate records share one identity-parameterized
+model. Module-owned exhaustive traversal implementations convert representations
+without macros or duplicate semantic definitions. CheckedAnalysis now retains only
+compact named/type records and their checked table; checked source closures retain
+those immutable products. Source specialization explicitly materializes the same
+authoring model once per lowering invocation, discards the analysis seal and submits
+its output to complete MIR verification. HIR-to-ABI type conversion also preserves
+the supplied identity representation. Independently constructed analysis types are
+bounded during conversion (64 levels, 4096 nodes), with cancellation preserved.
+
+HIR library regression passes all 403 tests, including new independent-scope,
+generic-owner, field identity, retained ownership, cancellation and conversion-limit
+coverage. Compiler library/source-program regressions pass (161/10, plus four
+foundation tests). The first compiler run exposed cancellation being wrapped as an
+identity error; explicit conversion restores MirLoweringError::Cancelled and the
+unchanged cancellation assertion passes. The workspace/all-target check passes;
+strict workspace/all-target Clippy and formatting pass; structure checks cover
+711 files with zero findings/exceptions. Published analysis
+query caches still retain authoring records and are the next ID02 ownership unit;
+this checkpoint does not accept ID02-ID05. No carried build/test error remains.
+
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
 BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,

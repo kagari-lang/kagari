@@ -2,7 +2,7 @@
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionPath, ModuleIdentity},
+    identity::{self, DefinitionPath, ModuleIdentity, reference::DefinitionReference},
 };
 
 use crate::{
@@ -30,78 +30,78 @@ use std::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FieldSignature {
-    pub id: DefinitionPath,
-    pub owner: DefinitionPath,
+pub struct FieldSignature<I: DefinitionReference = DefinitionPath> {
+    pub id: I,
+    pub owner: I,
     pub slot: usize,
     pub name: String,
     pub visibility: Visibility,
     pub writeability: Writeability,
-    pub ty: TypeId,
-    pub declaration: Declaration,
+    pub ty: TypeId<I>,
+    pub declaration: Declaration<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InherentMethodSignature {
+pub struct InherentMethodSignature<I: DefinitionReference = DefinitionPath> {
     pub id: SourceFunctionId,
-    pub declaration: DefinitionPath,
-    pub site: Declaration,
-    pub owner: TypeId,
+    pub declaration: I,
+    pub site: Declaration<I>,
+    pub owner: TypeId<I>,
     pub visibility: Visibility,
-    pub function: TypedFunction,
+    pub function: TypedFunction<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StructSignature {
-    pub id: DefinitionPath,
-    pub generic_params: Vec<GenericParameterType>,
-    pub bounds: GenericBounds,
-    pub declaration: Declaration,
-    pub fields: Vec<FieldSignature>,
+pub struct StructSignature<I: DefinitionReference = DefinitionPath> {
+    pub id: I,
+    pub generic_params: Vec<GenericParameterType<I>>,
+    pub bounds: GenericBounds<I>,
+    pub declaration: Declaration<I>,
+    pub fields: Vec<FieldSignature<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NativeTypeSignature {
-    pub id: DefinitionPath,
-    pub generic_params: Vec<GenericParameterType>,
-    pub bounds: GenericBounds,
-    pub declaration: Declaration,
-    pub representation: NativeTypeKind,
+pub struct NativeTypeSignature<I: DefinitionReference = DefinitionPath> {
+    pub id: I,
+    pub generic_params: Vec<GenericParameterType<I>>,
+    pub bounds: GenericBounds<I>,
+    pub declaration: Declaration<I>,
+    pub representation: NativeTypeKind<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VariantSignature {
-    pub id: DefinitionPath,
-    pub owner: DefinitionPath,
+pub struct VariantSignature<I: DefinitionReference = DefinitionPath> {
+    pub id: I,
+    pub owner: I,
     pub slot: usize,
     pub name: String,
-    pub payload: Vec<TypeId>,
-    pub declaration: Declaration,
+    pub payload: Vec<TypeId<I>>,
+    pub declaration: Declaration<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnumSignature {
-    pub id: DefinitionPath,
-    pub native_type: Option<NativeTypeKind>,
-    pub generic_params: Vec<GenericParameterType>,
-    pub bounds: GenericBounds,
-    pub declaration: Declaration,
-    pub variants: Vec<VariantSignature>,
+pub struct EnumSignature<I: DefinitionReference = DefinitionPath> {
+    pub id: I,
+    pub native_type: Option<NativeTypeKind<I>>,
+    pub generic_params: Vec<GenericParameterType<I>>,
+    pub bounds: GenericBounds<I>,
+    pub declaration: Declaration<I>,
+    pub variants: Vec<VariantSignature<I>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AggregateCatalog {
-    implementation_constants: BTreeMap<DefinitionPath, BTreeMap<DefinitionPath, DefinitionPath>>,
-    host_implementations: Vec<(NominalType, TypeId)>,
-    traits: BTreeMap<DefinitionPath, Arc<TraitSignature>>,
-    implementations: BTreeMap<DefinitionPath, Arc<ImplementationSignature>>,
-    methods: BTreeMap<DefinitionPath, (DefinitionPath, usize)>,
-    inherent_methods: BTreeMap<DefinitionPath, Arc<InherentMethodSignature>>,
-    native_types: BTreeMap<DefinitionPath, Arc<NativeTypeSignature>>,
-    structures: BTreeMap<DefinitionPath, Arc<StructSignature>>,
-    fields: BTreeMap<DefinitionPath, (DefinitionPath, usize)>,
-    enumerations: BTreeMap<DefinitionPath, Arc<EnumSignature>>,
-    variants: BTreeMap<DefinitionPath, (DefinitionPath, usize)>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AggregateCatalog<I: DefinitionReference = DefinitionPath> {
+    implementation_constants: BTreeMap<I, BTreeMap<I, I>>,
+    host_implementations: Vec<(NominalType<I>, TypeId<I>)>,
+    traits: BTreeMap<I, Arc<TraitSignature<I>>>,
+    implementations: BTreeMap<I, Arc<ImplementationSignature<I>>>,
+    methods: BTreeMap<I, (I, usize)>,
+    inherent_methods: BTreeMap<I, Arc<InherentMethodSignature<I>>>,
+    native_types: BTreeMap<I, Arc<NativeTypeSignature<I>>>,
+    structures: BTreeMap<I, Arc<StructSignature<I>>>,
+    fields: BTreeMap<I, (I, usize)>,
+    enumerations: BTreeMap<I, Arc<EnumSignature<I>>>,
+    variants: BTreeMap<I, (I, usize)>,
 }
 
 impl AggregateCatalog {
@@ -526,3 +526,23 @@ impl AggregateCatalog {
             })
     }
 }
+
+impl<I: DefinitionReference> Default for AggregateCatalog<I> {
+    fn default() -> Self {
+        Self {
+            implementation_constants: Default::default(),
+            host_implementations: Default::default(),
+            traits: Default::default(),
+            implementations: Default::default(),
+            methods: Default::default(),
+            inherent_methods: Default::default(),
+            native_types: Default::default(),
+            structures: Default::default(),
+            fields: Default::default(),
+            enumerations: Default::default(),
+            variants: Default::default(),
+        }
+    }
+}
+
+mod mapping;

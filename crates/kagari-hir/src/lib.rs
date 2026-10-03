@@ -20,7 +20,14 @@ use declarations::Declarations;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     diagnostic::{Diagnostic, DiagnosticKind, Severity},
-    identity::{MAX_IDENTITY_PATH_SEGMENTS, map::DefinitionContext},
+    identity::{
+        DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS,
+        map::DefinitionContext,
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        metadata::DefinitionMetadata,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
     source::SourceFile,
     source_database::SourceSnapshot,
     span::Span,
@@ -51,14 +58,14 @@ pub type DiagnosticBuffer = SmallVec<[Diagnostic; 4]>;
 pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
 #[derive(Debug, Clone)]
-pub struct AnalyzedModule {
-    pub aggregates: aggregates::AggregateCatalog,
+pub struct AnalyzedModule<I: DefinitionReference = DefinitionPath> {
+    pub aggregates: aggregates::AggregateCatalog<I>,
     pub lowered: Arc<lower::LoweredModule>,
     pub names: ResolvedNames,
-    pub declarations: declarations::Declarations,
-    pub typed: typeck::TypedModule,
-    pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
-    pub imported_functions: ImportedFunctions,
+    pub declarations: declarations::Declarations<I>,
+    pub typed: typeck::TypedModule<I>,
+    pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures<I>>>,
+    pub imported_functions: ImportedFunctions<I>,
 }
 
 #[derive(Debug, Clone)]
@@ -92,32 +99,75 @@ impl<T> AnalysisResult<T> {
 /// Only this type may cross the code-generation boundary. Its contents cannot
 /// be mutated after validation by external callers.
 #[derive(Debug, Clone)]
-pub struct CheckedAnalysis(AnalyzedModule);
+pub struct CheckedAnalysis(DefinitionMetadata<AnalyzedModule<DefinitionId>>);
 
 impl Deref for CheckedAnalysis {
-    type Target = AnalyzedModule;
+    type Target = AnalyzedModule<DefinitionId>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0.records()
     }
 }
 
 impl AnalysisResult<AnalyzedModule> {
     pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
-        self.into_checked().map(CheckedAnalysis)
+        let module = self.into_checked()?;
+        CheckedAnalysis::adopt(&module, &CancellationToken::default()).map_err(|_| {
+            Box::new(DiagnosticBuffer::from_iter([Diagnostic::error(
+                DiagnosticKind::CompileLimitExceeded {
+                    resource: "definition metadata",
+                    limit: 1_000_000,
+                },
+            )]))
+        })
+    }
+}
+
+impl CheckedAnalysis {
+    pub fn definitions(&self) -> &DefinitionTable {
+        self.0.definitions()
+    }
+
+    /// Materialize authoring facts for source specialization. The mutable result
+    /// carries no executable seal and must pass MIR verification after lowering.
+    pub fn to_unverified(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<AnalyzedModule, DefinitionMappingError> {
+        self.0.to_paths(cancel)
+    }
+
+    pub(crate) fn adopt(
+        module: &AnalyzedModule,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        let context = module.declarations.context();
+        let mut records = module.map_identities(&mut DefinitionMapper::new(
+            &mut |path| context.intern(path).map_err(Into::into),
+            cancel,
+        ))?;
+        let definitions = context.snapshot();
+        records
+            .declarations
+            .publish_definitions(definitions.clone());
+        Ok(Self(DefinitionMetadata::checked(
+            definitions,
+            records,
+            cancel,
+        )?))
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PreparedAnalysis {
+pub(crate) struct PreparedAnalysis<I: DefinitionReference = DefinitionPath> {
     signatures_reused: bool,
     // The suffix after this boundary depends on the complete aggregate catalog.
     // Recompute it after all declaration signatures exist, including on reuse.
     local_signature_diagnostics: usize,
     lowered: Arc<lower::LoweredModule>,
     names: AnalysisResult<DeclarationNames>,
-    declarations: declarations::Declarations,
-    signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
+    declarations: declarations::Declarations<I>,
+    signatures: Arc<AnalysisResult<typeck::ModuleSignatures<I>>>,
 }
 
 impl PreparedAnalysis {
@@ -216,10 +266,10 @@ impl PreparedAnalysis {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct DeclaredAnalysis {
+pub(crate) struct DeclaredAnalysis<I: DefinitionReference = DefinitionPath> {
     lowered: Arc<lower::LoweredModule>,
     names: AnalysisResult<DeclarationNames>,
-    declarations: declarations::Declarations,
+    declarations: declarations::Declarations<I>,
 }
 
 impl DeclaredAnalysis {
@@ -426,3 +476,6 @@ pub(crate) fn analyze_parsed(
 
 #[cfg(test)]
 mod tests;
+
+mod identity_mapping;
+mod identity_records;

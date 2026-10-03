@@ -13,7 +13,7 @@ use crate::{
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionPath, FileId, Revision},
+    identity::{DefinitionPath, FileId, Revision, reference::DefinitionReference},
 };
 use std::{
     cell::RefCell,
@@ -28,57 +28,34 @@ pub struct SourceTypeId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedType {
-    pub native_type: Option<NativeTypeKind>,
+pub struct ImportedType<I: DefinitionReference = DefinitionPath> {
+    pub native_type: Option<NativeTypeKind<I>>,
     pub associated_arities: BTreeMap<String, usize>,
     pub id: SourceTypeId,
-    pub declaration: Declaration,
-    pub ty: TypeId,
-    pub trait_methods: Vec<ImportedTraitMethod>,
+    pub declaration: Declaration<I>,
+    pub ty: TypeId<I>,
+    pub trait_methods: Vec<ImportedTraitMethod<I>>,
     pub associated_types: Vec<String>,
-    pub supertraits: Vec<NominalType>,
+    pub supertraits: Vec<NominalType<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedTraitMethod {
+pub struct ImportedTraitMethod<I: DefinitionReference = DefinitionPath> {
     pub name: String,
-    pub declaration: DefinitionPath,
+    pub declaration: I,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ImportedTypes {
-    types: HashMap<String, ImportedType>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedTypes<I: DefinitionReference = DefinitionPath> {
+    types: HashMap<String, ImportedType<I>>,
     // Internal namespace entries have no public alias. Resolve by their bound
     // target so equal member spellings in different modules cannot overwrite facts.
-    resolutions: HashMap<ResolvedName, ImportedType>,
-    nominal_types: HashMap<DefinitionPath, ImportedType>,
-    variants: HashMap<ResolvedName, Declaration>,
+    resolutions: HashMap<ResolvedName, ImportedType<I>>,
+    nominal_types: HashMap<I, ImportedType<I>>,
+    variants: HashMap<ResolvedName, Declaration<I>>,
 }
 
-impl ImportedTypes {
-    pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration> {
-        self.variants.get(&name)
-    }
-
-    pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType> {
-        self.resolutions.get(&name)
-    }
-
-    pub fn get(&self, name: &str) -> Option<&ImportedType> {
-        self.types.get(name)
-    }
-
-    pub fn target(&self, id: SourceTypeId) -> Option<&ImportedType> {
-        self.resolutions.values().find(|ty| ty.id == id)
-    }
-
-    pub fn by_declaration(&self, id: &DefinitionPath) -> Option<&ImportedType> {
-        self.resolutions
-            .values()
-            .chain(self.nominal_types.values())
-            .find(|ty| matches!(&ty.declaration.id, DeclarationId::Definition(declaration) if declaration == id))
-    }
-}
+impl ImportedTypes {}
 
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
@@ -373,5 +350,39 @@ impl<'a> TypeCatalog<'a> {
             }
         }
         Ok(())
+    }
+}
+
+impl<I: DefinitionReference> Default for ImportedTypes<I> {
+    fn default() -> Self {
+        Self {
+            types: Default::default(),
+            resolutions: Default::default(),
+            nominal_types: Default::default(),
+            variants: Default::default(),
+        }
+    }
+}
+
+mod mapping;
+
+impl<I: DefinitionReference> ImportedTypes<I> {
+    pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration<I>> {
+        self.variants.get(&name)
+    }
+    pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType<I>> {
+        self.resolutions.get(&name)
+    }
+    pub fn get(&self, name: &str) -> Option<&ImportedType<I>> {
+        self.types.get(name)
+    }
+    pub fn target(&self, id: SourceTypeId) -> Option<&ImportedType<I>> {
+        self.resolutions.values().find(|ty| ty.id == id)
+    }
+    pub fn by_declaration(&self, id: &I) -> Option<&ImportedType<I>> {
+        self.resolutions
+            .values()
+            .chain(self.nominal_types.values())
+            .find(|ty| matches!(&ty.declaration.id, DeclarationId::Definition(declaration) if declaration == id))
     }
 }

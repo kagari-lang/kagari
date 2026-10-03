@@ -4,9 +4,12 @@ use kagari_abi::{
     host as module_host,
     types::{AbiType, ConcreteFunctionIdentity},
 };
-use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity::mapping::DefinitionMappingError,
+};
 use kagari_hir::{
-    CheckedAnalysis,
+    AnalyzedModule, CheckedAnalysis,
     aggregates::AggregateCatalog,
     hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
@@ -42,6 +45,7 @@ pub enum MirLoweringError {
     Verification(MirVerificationError),
     Diagnostic(Box<Diagnostic>),
     Cancelled,
+    Identity(DefinitionMappingError),
     MissingTypedFunction(FunctionId),
     MissingExprType(ExprId),
     MissingLocalType(LocalId),
@@ -59,24 +63,36 @@ impl MirLoweringError {
     }
 }
 
+impl From<DefinitionMappingError> for MirLoweringError {
+    fn from(error: DefinitionMappingError) -> Self {
+        match error {
+            DefinitionMappingError::Cancelled => Self::Cancelled,
+            error => Self::Identity(error),
+        }
+    }
+}
+
 pub fn lower_to_mir(
     module: &CheckedAnalysis,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
+    let module = module
+        .to_unverified(&options.cancel)
+        .map_err(MirLoweringError::from)?;
     lower_to_mir_with_requests(
-        module,
+        &module,
         options,
         &[],
-        slice::from_ref(module),
+        slice::from_ref(&module),
         &module.aggregates,
     )
 }
 
 pub(crate) fn lower_to_mir_with_requests<'a>(
-    module: &'a CheckedAnalysis,
+    module: &'a AnalyzedModule,
     options: &'a MirLoweringOptions,
     requests: &[ConcreteFunctionIdentity],
-    modules: &'a [CheckedAnalysis],
+    modules: &'a [AnalyzedModule],
     catalog: &'a AggregateCatalog,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
     let mut planner = InstancePlanner::new(module, options, modules, catalog);

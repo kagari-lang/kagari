@@ -20,7 +20,7 @@ use crate::{
 use kagari_abi::language::{self as standard_traits, Protocol};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionPath},
+    identity::{self, DefinitionPath, reference::DefinitionReference},
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -57,17 +57,17 @@ impl SearchBudget<'_> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImplementationSignature {
+pub struct ImplementationSignature<I: DefinitionReference = DefinitionPath> {
     /// Derived from the retained installation object, never a source identity.
     pub(crate) engine_owned: bool,
-    pub associated_type_families: BTreeMap<DefinitionPath, AssociatedTypeFamily>,
-    pub id: DefinitionPath,
-    pub trait_type: NominalType,
-    pub for_type: TypeId,
-    pub generic_params: Vec<GenericParameterType>,
-    pub bounds: GenericBounds,
+    pub associated_type_families: BTreeMap<I, AssociatedTypeFamily<I>>,
+    pub id: I,
+    pub trait_type: NominalType<I>,
+    pub for_type: TypeId<I>,
+    pub generic_params: Vec<GenericParameterType<I>>,
+    pub bounds: GenericBounds<I>,
     /// Trait method identity to implementation method identity.
-    pub methods: BTreeMap<DefinitionPath, DefinitionPath>,
+    pub methods: BTreeMap<I, I>,
 }
 
 impl AggregateCatalog {
@@ -971,3 +971,5 @@ mod search_tests {
         );
     }
 }
+
+mod mapping;

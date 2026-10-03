@@ -19,7 +19,10 @@ use crate::{
     types::{GenericParameterType, TypeId},
 };
 
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionPath, reference::DefinitionReference},
+};
 use smallvec::SmallVec;
 pub(crate) mod applications;
 pub(crate) mod associated;
@@ -45,22 +48,18 @@ mod ty;
 
 use std::collections::HashMap;
 
-pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
-pub(crate) type TypedParameterBuffer = SmallVec<[TypedParameter; 4]>;
-pub type GenericBounds = HashMap<TypeId, Vec<ConstraintTarget>>;
+pub(crate) type TypedFunctionBuffer<I = DefinitionPath> = SmallVec<[TypedFunction<I>; 8]>;
+pub(crate) type TypedParameterBuffer<I = DefinitionPath> = SmallVec<[TypedParameter<I>; 4]>;
+pub type GenericBounds<I = DefinitionPath> = HashMap<TypeId<I>, Vec<ConstraintTarget<I>>>;
 
 #[derive(Debug, Clone)]
-pub struct ModuleSignatures {
-    pub(crate) type_bounds: HashMap<DefinitionPath, GenericBounds>,
-    pub(crate) functions: TypedFunctionBuffer,
-    pub(crate) type_table: TypeTable,
+pub struct ModuleSignatures<I: DefinitionReference = DefinitionPath> {
+    pub(crate) type_bounds: HashMap<I, GenericBounds<I>>,
+    pub(crate) functions: TypedFunctionBuffer<I>,
+    pub(crate) type_table: TypeTable<I>,
 }
 
 impl ModuleSignatures {
-    pub fn type_bounds(&self, id: &DefinitionPath) -> Option<&GenericBounds> {
-        self.type_bounds.get(id)
-    }
-
     #[cfg(test)]
     pub(crate) fn assert_same_source_facts(
         &self,
@@ -85,38 +84,30 @@ impl ModuleSignatures {
         self.type_table
             .assert_same_source_facts(&other.type_table, arena, other_arena);
     }
-
-    pub fn functions(&self) -> &[TypedFunction] {
-        &self.functions
-    }
-
-    pub fn type_table(&self) -> &TypeTable {
-        &self.type_table
-    }
 }
 
 #[derive(Debug, Clone)]
-pub struct TypedModule {
+pub struct TypedModule<I: DefinitionReference = DefinitionPath> {
     pub checked_bodies: usize,
     pub reused_bodies: usize,
-    pub functions: TypedFunctionBuffer,
-    pub consts: HashMap<ConstId, TypeId>,
+    pub functions: TypedFunctionBuffer<I>,
+    pub consts: HashMap<ConstId, TypeId<I>>,
     pub const_values: HashMap<ConstId, ScalarValue>,
-    pub type_table: TypeTable,
+    pub type_table: TypeTable<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedFunction {
+pub struct TypedFunction<I: DefinitionReference = DefinitionPath> {
     /// The implementation belongs to the declaration, independently of call syntax.
-    pub implementation: FunctionImplementation,
-    pub generic_params: Vec<GenericParameterType>,
+    pub implementation: FunctionImplementation<I>,
+    pub generic_params: Vec<GenericParameterType<I>>,
     /// Checked constraints keyed by the declaring parameter, including inherited
     /// impl parameters shadowed by a method parameter with the same name.
-    pub bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
+    pub bounds: HashMap<TypeId<I>, Vec<ConstraintTarget<I>>>,
     pub id: FunctionId,
     pub name: String,
-    pub params: TypedParameterBuffer,
-    pub return_type: TypeId,
+    pub params: TypedParameterBuffer<I>,
+    pub return_type: TypeId<I>,
 }
 
 /// Implementation provenance carried with checked callable signatures.
@@ -124,18 +115,18 @@ pub struct TypedFunction {
 /// methods await an implementation. Native bindings are installed input and do
 /// not acquire authority from the declaration's name or source URI.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FunctionImplementation {
+pub enum FunctionImplementation<I: DefinitionReference = DefinitionPath> {
     Script,
-    Native(NativeBinding),
+    Native(NativeBinding<I>),
     Required,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedParameter {
+pub struct TypedParameter<I: DefinitionReference = DefinitionPath> {
     pub id: ParamId,
     pub writeability: Writeability,
     pub name: String,
-    pub ty: TypeId,
+    pub ty: TypeId<I>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -176,4 +167,18 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) exprs: HashMap<ExprId, TypeId>,
     pub(crate) generics: Vec<GenericParam>,
     pub(crate) generic_bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
+}
+
+mod mapping;
+
+impl<I: DefinitionReference> ModuleSignatures<I> {
+    pub fn type_bounds(&self, id: &I) -> Option<&GenericBounds<I>> {
+        self.type_bounds.get(id)
+    }
+    pub fn functions(&self) -> &[TypedFunction<I>] {
+        &self.functions
+    }
+    pub fn type_table(&self) -> &TypeTable<I> {
+        &self.type_table
+    }
 }

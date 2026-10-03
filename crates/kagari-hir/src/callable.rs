@@ -8,16 +8,17 @@ use crate::{
     typeck::{FunctionImplementation, GenericBounds, TypedFunction},
     types::{GenericParameterType, TypeId},
 };
+use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
 
 /// The selected declaration's signature after call-site substitution. Generic
 /// types belonging to the enclosing body remain for compiler monomorphization.
 /// These are parameter types, not the types of the argument expressions: a
 /// readonly conversion or a diverging argument must not change the contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppliedCallSignature {
+pub struct AppliedCallSignature<I: DefinitionReference = DefinitionPath> {
     /// Includes a method receiver; excludes the callee of a function-value call.
-    pub params: Vec<TypeId>,
-    pub return_type: TypeId,
+    pub params: Vec<TypeId<I>>,
+    pub return_type: TypeId<I>,
 }
 
 pub trait CallableSignature {
@@ -65,3 +66,5 @@ impl CallableSignature for TypedFunction {
         Some(&self.bounds)
     }
 }
+
+mod mapping;

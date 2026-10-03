@@ -11,7 +11,7 @@ use crate::{
 use kagari_abi::callable::MethodPolicy;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionPath, FileSpan, ModuleIdentity},
+    identity::{self, DefinitionPath, FileSpan, ModuleIdentity, reference::DefinitionReference},
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -19,33 +19,33 @@ use std::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MethodParameter {
+pub struct MethodParameter<I: DefinitionReference = DefinitionPath> {
     pub name: String,
     pub writeability: Writeability,
-    pub ty: TypeId,
+    pub ty: TypeId<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MethodSignature {
-    pub default: Option<MethodDefault>,
+pub struct MethodSignature<I: DefinitionReference = DefinitionPath> {
+    pub default: Option<MethodDefault<I>>,
     pub policy: MethodPolicy,
-    pub id: DefinitionPath,
-    pub owner: DefinitionPath,
+    pub id: I,
+    pub owner: I,
     pub slot: usize,
     pub name: String,
-    pub generic_params: Vec<GenericParameterType>,
-    pub bounds: GenericBounds,
-    pub params: Vec<MethodParameter>,
-    pub return_type: TypeId,
-    pub declaration: Declaration,
+    pub generic_params: Vec<GenericParameterType<I>>,
+    pub bounds: GenericBounds<I>,
+    pub params: Vec<MethodParameter<I>>,
+    pub return_type: TypeId<I>,
+    pub declaration: Declaration<I>,
 }
 
 /// The method declaration owns a default's identity and checked signature.
 /// A native default has no script body to instantiate for an implementing type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MethodDefault {
+pub enum MethodDefault<I: DefinitionReference = DefinitionPath> {
     Script,
-    Native(NativeBinding),
+    Native(NativeBinding<I>),
 }
 
 impl MethodSignature {
@@ -68,23 +68,23 @@ impl MethodSignature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TraitSignature {
-    pub associated_type_parameters: BTreeMap<DefinitionPath, AssociatedTypeParameters>,
-    pub associated_consts: BTreeMap<DefinitionPath, AssociatedConstSignature>,
-    pub id: DefinitionPath,
-    pub generic_params: Vec<GenericParameterType>,
-    pub bounds: GenericBounds,
-    pub supertraits: Vec<NominalType>,
-    pub methods: Vec<MethodSignature>,
-    pub declaration: Declaration,
-    pub associated_types: BTreeMap<DefinitionPath, Vec<ConstraintTarget>>,
+pub struct TraitSignature<I: DefinitionReference = DefinitionPath> {
+    pub associated_type_parameters: BTreeMap<I, AssociatedTypeParameters<I>>,
+    pub associated_consts: BTreeMap<I, AssociatedConstSignature<I>>,
+    pub id: I,
+    pub generic_params: Vec<GenericParameterType<I>>,
+    pub bounds: GenericBounds<I>,
+    pub supertraits: Vec<NominalType<I>>,
+    pub methods: Vec<MethodSignature<I>>,
+    pub declaration: Declaration<I>,
+    pub associated_types: BTreeMap<I, Vec<ConstraintTarget<I>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedConstSignature {
-    pub declaration: Declaration,
-    pub ty: TypeId,
-    pub initializer: Option<DefinitionPath>,
+pub struct AssociatedConstSignature<I: DefinitionReference = DefinitionPath> {
+    pub declaration: Declaration<I>,
+    pub ty: TypeId<I>,
+    pub initializer: Option<I>,
 }
 
 impl AggregateCatalog {
@@ -400,3 +400,5 @@ pub fn trait_inheritance_closure(
     }
     Ok(result)
 }
+
+mod mapping;

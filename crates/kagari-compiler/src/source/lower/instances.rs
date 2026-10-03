@@ -7,7 +7,7 @@ mod results;
 mod shared;
 mod views;
 use kagari_hir::{
-    AnalyzedModule, CheckedAnalysis,
+    AnalyzedModule,
     aggregates::{AggregateCatalog, traits::MethodDefault},
     declarations::DeclarationId,
     hir::ids::{ExprId, FunctionId},
@@ -184,14 +184,14 @@ impl<'a> InstancePlanner<'a> {
     pub fn new(
         module: &'a AnalyzedModule,
         options: &'a MirLoweringOptions,
-        modules: &'a [CheckedAnalysis],
+        modules: &'a [AnalyzedModule],
         catalog: &'a AggregateCatalog,
     ) -> Self {
         Self {
             catalog,
             modules: modules
                 .iter()
-                .map(|module| (module.lowered.source.module_identity().clone(), &**module))
+                .map(|module| (module.lowered.source.module_identity().clone(), module))
                 .collect(),
             module,
             options,

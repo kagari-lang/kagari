@@ -12,7 +12,7 @@ use kagari_abi::{
 };
 use kagari_common::{
     collection::CollectionAccess::{self, Mutable, ReadOnly},
-    identity::DefinitionPath,
+    identity::{DefinitionPath, reference::DefinitionReference},
     range::RangeKind,
 };
 use std::{
@@ -21,10 +21,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TypeSubstitution {
-    parameters: HashMap<GenericParameterType, TypeId>,
-    receivers: HashMap<DefinitionPath, TypeId>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeSubstitution<I: DefinitionReference = DefinitionPath> {
+    parameters: HashMap<GenericParameterType<I>, TypeId<I>>,
+    receivers: HashMap<I, TypeId<I>>,
 }
 
 impl TypeSubstitution {
@@ -65,22 +65,22 @@ mod nominal_tests;
 
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
-pub struct GenericParameterType {
-    pub owner: DefinitionPath,
+pub struct GenericParameterType<I: DefinitionReference = DefinitionPath> {
+    pub owner: I,
     pub position: usize,
     pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedTypeParameters {
-    pub parameters: Vec<GenericParameterType>,
-    pub bounds: GenericBounds,
+pub struct AssociatedTypeParameters<I: DefinitionReference = DefinitionPath> {
+    pub parameters: Vec<GenericParameterType<I>>,
+    pub bounds: GenericBounds<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedTypeFamily {
-    pub inputs: AssociatedTypeParameters,
-    pub value: TypeId,
+pub struct AssociatedTypeFamily<I: DefinitionReference = DefinitionPath> {
+    pub inputs: AssociatedTypeParameters<I>,
+    pub value: TypeId<I>,
 }
 
 impl AssociatedTypeFamily {
@@ -100,15 +100,15 @@ impl AssociatedTypeFamily {
     }
 }
 
-impl PartialEq for GenericParameterType {
+impl<I: DefinitionReference> PartialEq for GenericParameterType<I> {
     fn eq(&self, other: &Self) -> bool {
         self.owner == other.owner && self.position == other.position
     }
 }
 
-impl Eq for GenericParameterType {}
+impl<I: DefinitionReference> Eq for GenericParameterType<I> {}
 
-impl Hash for GenericParameterType {
+impl<I: DefinitionReference> Hash for GenericParameterType<I> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.owner.hash(state);
         self.position.hash(state);
@@ -116,10 +116,10 @@ impl Hash for GenericParameterType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct NominalType {
-    pub declaration: DefinitionPath,
-    pub arguments: Vec<TypeId>,
-    pub associated_types: BTreeMap<DefinitionPath, TypeId>,
+pub struct NominalType<I: DefinitionReference = DefinitionPath> {
+    pub declaration: I,
+    pub arguments: Vec<TypeId<I>>,
+    pub associated_types: BTreeMap<I, TypeId<I>>,
 }
 
 impl NominalType {
@@ -162,42 +162,42 @@ impl NominalType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeId {
+pub enum TypeId<I: DefinitionReference = DefinitionPath> {
     /// A body-local constraint variable. Never valid in a checked signature or IR.
     Inference(u32),
     Unknown,
     Error,
     Builtin(BuiltinType),
-    Tuple(Vec<TypeId>),
+    Tuple(Vec<TypeId<I>>),
     Function {
-        params: Vec<TypeId>,
-        result: Box<TypeId>,
+        params: Vec<TypeId<I>>,
+        result: Box<TypeId<I>>,
     },
-    Iter(Box<TypeId>),
-    Range(Box<TypeId>, RangeKind),
-    Array(Box<TypeId>, CollectionAccess),
+    Iter(Box<TypeId<I>>),
+    Range(Box<TypeId<I>>, RangeKind),
+    Array(Box<TypeId<I>>, CollectionAccess),
     Map {
-        key: Box<TypeId>,
-        value: Box<TypeId>,
+        key: Box<TypeId<I>>,
+        value: Box<TypeId<I>>,
         access: CollectionAccess,
     },
-    Set(Box<TypeId>, CollectionAccess),
-    NativeObject(NominalType),
-    Struct(NominalType),
-    Enum(NominalType),
-    Trait(NominalType),
-    Host(DefinitionPath),
-    Generic(GenericParameterType),
+    Set(Box<TypeId<I>>, CollectionAccess),
+    NativeObject(NominalType<I>),
+    Struct(NominalType<I>),
+    Enum(NominalType<I>),
+    Trait(NominalType<I>),
+    Host(I),
+    Generic(GenericParameterType<I>),
     Projection {
-        arguments: Vec<TypeId>,
-        receiver: Box<TypeId>,
-        interface: Box<NominalType>,
-        member: DefinitionPath,
+        arguments: Vec<TypeId<I>>,
+        receiver: Box<TypeId<I>>,
+        interface: Box<NominalType<I>>,
+        member: I,
     },
-    SelfType(DefinitionPath),
+    SelfType(I),
     StandardEnum {
         kind: StandardEnum,
-        args: Vec<TypeId>,
+        args: Vec<TypeId<I>>,
     },
 }
 
@@ -1199,3 +1199,16 @@ pub fn supports_array_repetition(
     }
     true
 }
+
+impl<I: DefinitionReference> Default for TypeSubstitution<I> {
+    fn default() -> Self {
+        Self {
+            parameters: Default::default(),
+            receivers: Default::default(),
+        }
+    }
+}
+
+mod mapping;
+
+mod shape;

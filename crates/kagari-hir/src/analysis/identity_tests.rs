@@ -977,3 +977,108 @@ fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
         .collect()
     );
 }
+
+#[test]
+fn checked_analysis_retains_compact_named_and_generic_metadata() {
+    use crate::types::abi::lower_type;
+    use kagari_abi::types::AbiType;
+    use kagari_common::identity::mapping::DefinitionMappingError;
+
+    let source = SourceFile::new(
+        "compact.kgr",
+        "struct Player { var hp: i32 } fn identity<T>(value: T) -> T { value }",
+    );
+    let first = crate::analyze_source(&source).into_codegen().unwrap();
+    let second = crate::analyze_source(&source).into_codegen().unwrap();
+    let function = first
+        .typed
+        .functions
+        .iter()
+        .find(|function| function.name == "identity")
+        .unwrap();
+    let other = second
+        .typed
+        .functions
+        .iter()
+        .find(|function| function.name == "identity")
+        .unwrap();
+    let owner = function.generic_params[0].owner;
+    assert_ne!(owner, other.generic_params[0].owner);
+    assert!(second.definitions().resolve(owner).is_err());
+    assert_eq!(
+        first.definitions().resolve(owner).unwrap().to_path(),
+        second
+            .definitions()
+            .resolve(other.generic_params[0].owner)
+            .unwrap()
+            .to_path()
+    );
+    assert_eq!(
+        lower_type(&function.return_type),
+        AbiType::Parameter { owner, position: 0 }
+    );
+    let field = first
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "hp")
+        .unwrap();
+    let DeclarationId::Definition(field) = field.id else {
+        panic!("field definition");
+    };
+    let field_path = first.definitions().resolve(field).unwrap().to_path();
+    assert_eq!(
+        field_path
+            .path
+            .iter()
+            .map(|segment| segment.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Player", "hp"]
+    );
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert!(matches!(
+        first.to_unverified(&cancelled),
+        Err(DefinitionMappingError::Cancelled)
+    ));
+    let authoring = first.to_unverified(&Default::default()).unwrap();
+    assert_eq!(
+        authoring
+            .typed
+            .functions
+            .iter()
+            .find(|function| function.name == "identity")
+            .unwrap()
+            .generic_params[0]
+            .owner,
+        first.definitions().resolve(owner).unwrap().to_path()
+    );
+    drop(source);
+    drop(second);
+    assert_eq!(
+        first.definitions().resolve(field).unwrap().to_path(),
+        field_path
+    );
+}
+
+#[test]
+fn independently_constructed_hir_types_observe_conversion_bounds() {
+    use crate::types::TypeId;
+    use kagari_common::identity::{
+        mapping::{DefinitionMappingError, DefinitionRecord},
+        metadata::scope_record,
+    };
+    let mut ty = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
+    for _ in 0..65 {
+        ty = TypeId::Tuple(vec![ty]);
+    }
+    assert!(matches!(
+        scope_record(&ty, &Default::default()),
+        Err(DefinitionMappingError::LimitExceeded)
+    ));
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert!(matches!(
+        ty.visit_definitions(&mut |_| Ok(()), &cancelled),
+        Err(DefinitionMappingError::Cancelled)
+    ));
+}

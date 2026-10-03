@@ -20,23 +20,23 @@ use crate::{
 use kagari_abi::{language::Protocol, standard::surface::StandardTypeConstraint};
 use kagari_common::{
     host_interface::path::{HostPathContract, HostPathDeclaration},
-    identity::DefinitionPath,
+    identity::{DefinitionPath, reference::DefinitionReference},
     span::Span,
 };
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConstraintTarget {
+pub enum ConstraintTarget<I: DefinitionReference = DefinitionPath> {
     Standard(StandardTypeConstraint),
-    Trait(NominalType),
+    Trait(NominalType<I>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TypeTarget {
+pub enum TypeTarget<I: DefinitionReference = DefinitionPath> {
     OpaqueType(OpaqueTypeId),
     Host(HostTypeId),
-    Source(DefinitionPath),
-    AssociatedType(DefinitionPath),
+    Source(I),
+    AssociatedType(I),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),
@@ -44,143 +44,143 @@ pub enum TypeTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedTypeRef {
-    pub ty: TypeId,
-    pub target: Option<TypeTarget>,
+pub struct ResolvedTypeRef<I: DefinitionReference = DefinitionPath> {
+    pub ty: TypeId<I>,
+    pub target: Option<TypeTarget<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallTarget {
+pub enum CallTarget<I: DefinitionReference = DefinitionPath> {
     /// The recorded receiver is the callee expression. Its evaluation exits
     /// before any callable value or explicit argument can be produced.
     TerminatingCallee,
-    SourceFunction(DefinitionPath),
+    SourceFunction(I),
     HostFunction(HostFunctionId),
     Function(FunctionId),
     Value,
     RuntimeHelper(BuiltinFunction),
     TraitMethod {
-        method: DefinitionPath,
-        interface: NominalType,
+        method: I,
+        interface: NominalType<I>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedCall {
-    pub target: CallTarget,
+pub struct ResolvedCall<I: DefinitionReference = DefinitionPath> {
+    pub target: CallTarget<I>,
     /// Evaluated before explicit arguments, exactly once.
     pub receiver: Option<ExprId>,
     /// Declaration parameter order; arguments may refer to an enclosing binder.
-    pub type_arguments: Vec<TypeId>,
+    pub type_arguments: Vec<TypeId<I>>,
     /// Absent for incomplete calls, terminating callees and language helpers
     /// whose operands are not an ordinary callable signature.
-    pub signature: Option<AppliedCallSignature>,
+    pub signature: Option<AppliedCallSignature<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedStructInit {
-    pub structure: DefinitionPath,
+pub struct ResolvedStructInit<I: DefinitionReference = DefinitionPath> {
+    pub structure: I,
     /// Source order, including holes for unknown initializer fields.
-    pub fields: Vec<Option<DefinitionPath>>,
+    pub fields: Vec<Option<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedEnumConstructor {
-    pub enumeration: DefinitionPath,
+pub struct ResolvedEnumConstructor<I: DefinitionReference = DefinitionPath> {
+    pub enumeration: I,
     /// Missing members keep their known enum owner for error recovery.
-    pub variant: Option<DefinitionPath>,
+    pub variant: Option<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TraitImplementation {
-    declaration: DefinitionPath,
-    parameters: Vec<GenericParameterType>,
-    bounds: super::GenericBounds,
-    methods: HashMap<DefinitionPath, FunctionId>,
+struct TraitImplementation<I: DefinitionReference = DefinitionPath> {
+    declaration: I,
+    parameters: Vec<GenericParameterType<I>>,
+    bounds: super::GenericBounds<I>,
+    methods: HashMap<I, FunctionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedIteration {
-    pub into_interface: NominalType,
-    pub iterator: TypeId,
-    pub next_interface: NominalType,
-    pub item: TypeId,
+pub struct ResolvedIteration<I: DefinitionReference = DefinitionPath> {
+    pub into_interface: NominalType<I>,
+    pub iterator: TypeId<I>,
+    pub next_interface: NominalType<I>,
+    pub item: TypeId<I>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct TypeTable {
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeTable<I: DefinitionReference = DefinitionPath> {
     /// Temporary body-local placeholders; removed before publishing facts.
-    pub(super) inference_holes: HashMap<TypeRefId, TypeId>,
-    iterations: HashMap<ExprId, ResolvedIteration>,
-    protocol_receivers: HashMap<ExprId, TypeId>,
-    associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
+    pub(super) inference_holes: HashMap<TypeRefId, TypeId<I>>,
+    iterations: HashMap<ExprId, ResolvedIteration<I>>,
+    protocol_receivers: HashMap<ExprId, TypeId<I>>,
+    associated_consts: HashMap<ExprId, ResolvedAssociatedConst<I>>,
     pub(super) resolving_types: HashSet<TypeRefId>,
-    pub(crate) associated_bounds: HashMap<DefinitionPath, Vec<ConstraintTarget>>,
-    pub(crate) associated_type_parameters: HashMap<DefinitionPath, AssociatedTypeParameters>,
-    pub(crate) associated_type_families: HashMap<DefinitionPath, AssociatedTypeFamily>,
-    host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
-    host_paths: HashMap<ExprId, ResolvedHostPath>,
-    implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
-    constraints: HashMap<TypeRefId, Option<ConstraintTarget>>,
-    type_refs: HashMap<TypeRefId, ResolvedTypeRef>,
-    field_types: HashMap<FieldId, TypeId>,
-    expr_fields: HashMap<ExprId, DefinitionPath>,
-    place_fields: HashMap<PlaceId, DefinitionPath>,
-    place_indexes: HashMap<PlaceId, NominalType>,
-    struct_inits: HashMap<ExprId, ResolvedStructInit>,
-    enum_constructors: HashMap<ExprId, ResolvedEnumConstructor>,
-    exprs: HashMap<ExprId, TypeId>,
-    callable_coercions: HashMap<ExprId, (TypeId, NominalType)>,
-    interface_coercions: HashMap<ExprId, ResolvedInterfaceCoercion>,
-    locals: HashMap<LocalId, TypeId>,
-    places: HashMap<PlaceId, TypeId>,
-    calls: HashMap<ExprId, ResolvedCall>,
+    pub(crate) associated_bounds: HashMap<I, Vec<ConstraintTarget<I>>>,
+    pub(crate) associated_type_parameters: HashMap<I, AssociatedTypeParameters<I>>,
+    pub(crate) associated_type_families: HashMap<I, AssociatedTypeFamily<I>>,
+    host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath<I>>,
+    host_paths: HashMap<ExprId, ResolvedHostPath<I>>,
+    implementations: HashMap<(NominalType<I>, TypeId<I>), TraitImplementation<I>>,
+    constraints: HashMap<TypeRefId, Option<ConstraintTarget<I>>>,
+    type_refs: HashMap<TypeRefId, ResolvedTypeRef<I>>,
+    field_types: HashMap<FieldId, TypeId<I>>,
+    expr_fields: HashMap<ExprId, I>,
+    place_fields: HashMap<PlaceId, I>,
+    place_indexes: HashMap<PlaceId, NominalType<I>>,
+    struct_inits: HashMap<ExprId, ResolvedStructInit<I>>,
+    enum_constructors: HashMap<ExprId, ResolvedEnumConstructor<I>>,
+    exprs: HashMap<ExprId, TypeId<I>>,
+    callable_coercions: HashMap<ExprId, (TypeId<I>, NominalType<I>)>,
+    interface_coercions: HashMap<ExprId, ResolvedInterfaceCoercion<I>>,
+    locals: HashMap<LocalId, TypeId<I>>,
+    places: HashMap<PlaceId, TypeId<I>>,
+    calls: HashMap<ExprId, ResolvedCall<I>>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
     pattern_ranges: HashMap<PatternId, (ScalarValue, ScalarValue)>,
-    pattern_fields: HashMap<PatternId, Vec<DefinitionPath>>,
-    pattern_variants: HashMap<PatternId, DefinitionPath>,
+    pattern_fields: HashMap<PatternId, Vec<I>>,
+    pattern_variants: HashMap<PatternId, I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedAssociatedConst {
-    pub receiver: TypeId,
-    pub interface: NominalType,
-    pub member: DefinitionPath,
+pub struct ResolvedAssociatedConst<I: DefinitionReference = DefinitionPath> {
+    pub receiver: TypeId<I>,
+    pub interface: NominalType<I>,
+    pub member: I,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedInterfaceCoercion {
-    pub implementation: ResolvedInterfaceImplementation,
-    pub concrete_type: TypeId,
-    pub interface_type: NominalType,
+pub struct ResolvedInterfaceCoercion<I: DefinitionReference = DefinitionPath> {
+    pub implementation: ResolvedInterfaceImplementation<I>,
+    pub concrete_type: TypeId<I>,
+    pub interface_type: NominalType<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResolvedInterfaceImplementation {
+pub enum ResolvedInterfaceImplementation<I: DefinitionReference = DefinitionPath> {
     Upcast,
     Script {
-        declaration: DefinitionPath,
-        arguments: Vec<TypeId>,
+        declaration: I,
+        arguments: Vec<TypeId<I>>,
     },
     Host,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPath {
+pub struct ResolvedHostPath<I: DefinitionReference = DefinitionPath> {
     pub root: ExprId,
     /// Source-order expressions paired with their declared runtime argument slots.
     pub dynamic_arguments: Vec<(u32, ExprId)>,
-    pub declaration: HostPathDeclaration,
-    pub contract: HostPathContract,
+    pub declaration: HostPathDeclaration<I>,
+    pub contract: HostPathContract<I>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPlacePath {
+pub struct ResolvedHostPlacePath<I: DefinitionReference = DefinitionPath> {
     pub root: PlaceId,
     pub dynamic_arguments: Vec<(u32, ExprId)>,
-    pub declaration: HostPathDeclaration,
-    pub contract: HostPathContract,
+    pub declaration: HostPathDeclaration<I>,
+    pub contract: HostPathContract<I>,
 }
 
 impl TypeTable {
@@ -189,59 +189,24 @@ impl TypeTable {
         self.host_place_paths.keys().copied()
     }
 
-    pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration> {
-        self.iterations.get(&id)
-    }
-
     pub fn insert_iteration(&mut self, id: ExprId, fact: ResolvedIteration) {
         self.iterations.insert(id, fact);
-    }
-
-    pub fn protocol_receiver(&self, id: ExprId) -> Option<&TypeId> {
-        self.protocol_receivers.get(&id)
     }
 
     pub fn insert_protocol_receiver(&mut self, id: ExprId, ty: TypeId) {
         self.protocol_receivers.insert(id, ty);
     }
 
-    pub fn place_index(&self, id: PlaceId) -> Option<&NominalType> {
-        self.place_indexes.get(&id)
-    }
-
     pub(crate) fn insert_place_index(&mut self, id: PlaceId, interface: NominalType) {
         self.place_indexes.insert(id, interface);
-    }
-
-    pub fn associated_type_parameters(
-        &self,
-        member: &DefinitionPath,
-    ) -> Option<&AssociatedTypeParameters> {
-        self.associated_type_parameters.get(member)
-    }
-
-    pub fn associated_type_family(&self, member: &DefinitionPath) -> Option<&AssociatedTypeFamily> {
-        self.associated_type_families.get(member)
-    }
-
-    pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst> {
-        self.associated_consts.get(&expr)
     }
 
     pub(crate) fn insert_associated_const(&mut self, expr: ExprId, fact: ResolvedAssociatedConst) {
         self.associated_consts.insert(expr, fact);
     }
 
-    pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath> {
-        self.host_place_paths.get(&place)
-    }
-
     pub(crate) fn insert_host_place_path(&mut self, place: PlaceId, path: ResolvedHostPlacePath) {
         self.host_place_paths.insert(place, path);
-    }
-
-    pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath> {
-        self.host_paths.get(&expr)
     }
 
     pub(crate) fn insert_host_path(&mut self, expr: ExprId, path: ResolvedHostPath) {
@@ -480,20 +445,8 @@ impl TypeTable {
         self.constraints.insert(id, target);
     }
 
-    pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget> {
-        self.constraints.get(&id).cloned().flatten()
-    }
-
-    pub(crate) fn has_constraint(&self, id: TypeRefId) -> bool {
-        self.constraints.contains_key(&id)
-    }
-
     pub(crate) fn insert_type_ref(&mut self, id: TypeRefId, resolved: ResolvedTypeRef) {
         self.type_refs.insert(id, resolved);
-    }
-
-    pub fn type_ref(&self, id: TypeRefId) -> Option<&ResolvedTypeRef> {
-        self.type_refs.get(&id)
     }
 
     pub(crate) fn insert_field_type(&mut self, field: FieldId, ty: TypeId) {
@@ -510,22 +463,6 @@ impl TypeTable {
 
     pub(crate) fn insert_struct_init(&mut self, expr: ExprId, target: ResolvedStructInit) {
         self.struct_inits.insert(expr, target);
-    }
-
-    pub fn field_type(&self, field: FieldId) -> Option<TypeId> {
-        self.field_types.get(&field).cloned()
-    }
-
-    pub fn expr_field(&self, expr: ExprId) -> Option<&DefinitionPath> {
-        self.expr_fields.get(&expr)
-    }
-
-    pub fn place_field(&self, place: PlaceId) -> Option<&DefinitionPath> {
-        self.place_fields.get(&place)
-    }
-
-    pub fn struct_init(&self, expr: ExprId) -> Option<&ResolvedStructInit> {
-        self.struct_inits.get(&expr)
     }
 
     pub(crate) fn restore_function(
@@ -770,24 +707,12 @@ impl TypeTable {
         self.enum_constructors.insert(id, target);
     }
 
-    pub fn enum_constructor(&self, id: ExprId) -> Option<&ResolvedEnumConstructor> {
-        self.enum_constructors.get(&id)
-    }
-
     pub(crate) fn insert_scalar(&mut self, id: ExprId, value: ScalarValue) {
         self.scalars.insert(id, value);
     }
 
     pub(crate) fn insert_pattern_scalar(&mut self, id: PatternId, value: ScalarValue) {
         self.pattern_scalars.insert(id, value);
-    }
-
-    pub fn scalar_value(&self, id: ExprId) -> Option<&ScalarValue> {
-        self.scalars.get(&id)
-    }
-
-    pub fn pattern_scalar_value(&self, id: PatternId) -> Option<&ScalarValue> {
-        self.pattern_scalars.get(&id)
     }
 
     pub(crate) fn insert_pattern_range(
@@ -799,24 +724,12 @@ impl TypeTable {
         self.pattern_ranges.insert(id, (start, end));
     }
 
-    pub fn pattern_range(&self, id: PatternId) -> Option<&(ScalarValue, ScalarValue)> {
-        self.pattern_ranges.get(&id)
-    }
-
     pub fn insert_pattern_fields(&mut self, id: PatternId, fields: Vec<DefinitionPath>) {
         self.pattern_fields.insert(id, fields);
     }
 
-    pub fn pattern_fields(&self, id: PatternId) -> Option<&[DefinitionPath]> {
-        self.pattern_fields.get(&id).map(Vec::as_slice)
-    }
-
     pub fn insert_pattern_variant(&mut self, id: PatternId, variant: DefinitionPath) {
         self.pattern_variants.insert(id, variant);
-    }
-
-    pub fn pattern_variant(&self, id: PatternId) -> Option<&DefinitionPath> {
-        self.pattern_variants.get(&id)
     }
 
     pub(crate) fn insert_local(&mut self, id: LocalId, ty: TypeId) {
@@ -853,10 +766,6 @@ impl TypeTable {
             .signature = Some(signature);
     }
 
-    pub fn expr_type(&self, id: ExprId) -> Option<TypeId> {
-        self.exprs.get(&id).cloned()
-    }
-
     /// The produced value type includes checked capability and callable conversions.
     pub fn coerced_expr_type(&self, id: ExprId) -> Option<TypeId> {
         self.callable_coercion(id)
@@ -868,10 +777,6 @@ impl TypeTable {
             .or_else(|| self.expr_type(id))
     }
 
-    pub fn callable_coercion(&self, id: ExprId) -> Option<&(TypeId, NominalType)> {
-        self.callable_coercions.get(&id)
-    }
-
     pub(crate) fn insert_callable_coercion(
         &mut self,
         id: ExprId,
@@ -881,28 +786,12 @@ impl TypeTable {
         self.callable_coercions.insert(id, (receiver, interface));
     }
 
-    pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion> {
-        self.interface_coercions.get(&id)
-    }
-
     pub(crate) fn insert_interface_coercion(
         &mut self,
         id: ExprId,
         coercion: ResolvedInterfaceCoercion,
     ) {
         self.interface_coercions.insert(id, coercion);
-    }
-
-    pub fn local_type(&self, id: LocalId) -> Option<TypeId> {
-        self.locals.get(&id).cloned()
-    }
-
-    pub fn place_type(&self, id: PlaceId) -> Option<TypeId> {
-        self.places.get(&id).cloned()
-    }
-
-    pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall> {
-        self.calls.get(&id).cloned()
     }
 }
 
@@ -1023,4 +912,127 @@ pub(crate) fn match_implementation(
         }
     }
     Some(bindings)
+}
+
+impl<I: DefinitionReference> Default for TypeTable<I> {
+    fn default() -> Self {
+        Self {
+            inference_holes: Default::default(),
+            iterations: Default::default(),
+            protocol_receivers: Default::default(),
+            associated_consts: Default::default(),
+            resolving_types: Default::default(),
+            associated_bounds: Default::default(),
+            associated_type_parameters: Default::default(),
+            associated_type_families: Default::default(),
+            host_place_paths: Default::default(),
+            host_paths: Default::default(),
+            implementations: Default::default(),
+            constraints: Default::default(),
+            type_refs: Default::default(),
+            field_types: Default::default(),
+            expr_fields: Default::default(),
+            place_fields: Default::default(),
+            place_indexes: Default::default(),
+            struct_inits: Default::default(),
+            enum_constructors: Default::default(),
+            exprs: Default::default(),
+            callable_coercions: Default::default(),
+            interface_coercions: Default::default(),
+            locals: Default::default(),
+            places: Default::default(),
+            calls: Default::default(),
+            scalars: Default::default(),
+            pattern_scalars: Default::default(),
+            pattern_ranges: Default::default(),
+            pattern_fields: Default::default(),
+            pattern_variants: Default::default(),
+        }
+    }
+}
+
+mod mapping;
+
+impl<I: DefinitionReference> TypeTable<I> {
+    pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration<I>> {
+        self.iterations.get(&id)
+    }
+    pub fn protocol_receiver(&self, id: ExprId) -> Option<&TypeId<I>> {
+        self.protocol_receivers.get(&id)
+    }
+    pub fn place_index(&self, id: PlaceId) -> Option<&NominalType<I>> {
+        self.place_indexes.get(&id)
+    }
+    pub fn associated_type_parameters(&self, member: &I) -> Option<&AssociatedTypeParameters<I>> {
+        self.associated_type_parameters.get(member)
+    }
+    pub fn associated_type_family(&self, member: &I) -> Option<&AssociatedTypeFamily<I>> {
+        self.associated_type_families.get(member)
+    }
+    pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst<I>> {
+        self.associated_consts.get(&expr)
+    }
+    pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath<I>> {
+        self.host_place_paths.get(&place)
+    }
+    pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath<I>> {
+        self.host_paths.get(&expr)
+    }
+    pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget<I>> {
+        self.constraints.get(&id).cloned().flatten()
+    }
+    pub(crate) fn has_constraint(&self, id: TypeRefId) -> bool {
+        self.constraints.contains_key(&id)
+    }
+    pub fn type_ref(&self, id: TypeRefId) -> Option<&ResolvedTypeRef<I>> {
+        self.type_refs.get(&id)
+    }
+    pub fn field_type(&self, field: FieldId) -> Option<TypeId<I>> {
+        self.field_types.get(&field).cloned()
+    }
+    pub fn expr_field(&self, expr: ExprId) -> Option<&I> {
+        self.expr_fields.get(&expr)
+    }
+    pub fn place_field(&self, place: PlaceId) -> Option<&I> {
+        self.place_fields.get(&place)
+    }
+    pub fn struct_init(&self, expr: ExprId) -> Option<&ResolvedStructInit<I>> {
+        self.struct_inits.get(&expr)
+    }
+    pub fn enum_constructor(&self, id: ExprId) -> Option<&ResolvedEnumConstructor<I>> {
+        self.enum_constructors.get(&id)
+    }
+    pub fn scalar_value(&self, id: ExprId) -> Option<&ScalarValue> {
+        self.scalars.get(&id)
+    }
+    pub fn pattern_scalar_value(&self, id: PatternId) -> Option<&ScalarValue> {
+        self.pattern_scalars.get(&id)
+    }
+    pub fn pattern_range(&self, id: PatternId) -> Option<&(ScalarValue, ScalarValue)> {
+        self.pattern_ranges.get(&id)
+    }
+    pub fn pattern_fields(&self, id: PatternId) -> Option<&[I]> {
+        self.pattern_fields.get(&id).map(Vec::as_slice)
+    }
+    pub fn pattern_variant(&self, id: PatternId) -> Option<&I> {
+        self.pattern_variants.get(&id)
+    }
+    pub fn expr_type(&self, id: ExprId) -> Option<TypeId<I>> {
+        self.exprs.get(&id).cloned()
+    }
+    pub fn callable_coercion(&self, id: ExprId) -> Option<&(TypeId<I>, NominalType<I>)> {
+        self.callable_coercions.get(&id)
+    }
+    pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion<I>> {
+        self.interface_coercions.get(&id)
+    }
+    pub fn local_type(&self, id: LocalId) -> Option<TypeId<I>> {
+        self.locals.get(&id).cloned()
+    }
+    pub fn place_type(&self, id: PlaceId) -> Option<TypeId<I>> {
+        self.places.get(&id).cloned()
+    }
+    pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall<I>> {
+        self.calls.get(&id).cloned()
+    }
 }

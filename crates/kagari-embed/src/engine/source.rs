@@ -219,6 +219,9 @@ impl KagariEngine {
             .check_program(file, cancel)
             .map_err(|error| match error {
                 ProgramCheckError::Cancelled => EmbeddingError::Cancelled,
+                ProgramCheckError::Identity(error) => EmbeddingError::Source {
+                    message: format!("invalid analysis definition metadata: {error}"),
+                },
                 ProgramCheckError::MissingFile(file) => EmbeddingError::Source {
                     message: format!("missing source file {file:?}"),
                 },

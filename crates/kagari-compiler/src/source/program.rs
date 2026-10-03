@@ -39,7 +39,23 @@ pub fn lower_program_to_mir(
     // The root catalog already owns checked facts for the entire dependency
     // closure, including caller-private generic arguments. Per-module catalogs
     // cannot select those arguments' implementations in foreign bodies.
-    let catalog = &program.root().aggregates;
+    let authoring_modules = program
+        .modules()
+        .iter()
+        .map(|module| {
+            module
+                .to_unverified(&options.cancel)
+                .map_err(|error| SourceProgramError::Lowering {
+                    module: Box::new(root.clone()),
+                    error: error.into(),
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let catalog = &authoring_modules
+        .iter()
+        .find(|module| *module.lowered.source.module_identity() == root)
+        .expect("checked root module")
+        .aggregates;
     let mut requests: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>> = HashMap::new();
     let mut seen = HashSet::new();
     loop {
@@ -49,7 +65,7 @@ pub fn lower_program_to_mir(
         })?;
         let mut modules = Vec::new();
         let mut remaining = options.clone();
-        for module in program.modules() {
+        for module in &authoring_modules {
             let identity = module.lowered.source.module_identity();
             let demanded = requests
                 .get(identity)
@@ -59,7 +75,7 @@ pub fn lower_program_to_mir(
                 module,
                 &remaining,
                 demanded,
-                program.modules(),
+                &authoring_modules,
                 catalog,
             )
             .map_err(|mut error| {
@@ -200,8 +216,7 @@ pub fn lower_program_to_mir(
                 module: Box::new(root.clone()),
                 kind: ProgramErrorKind::Cancelled,
             })?;
-            let owner = program
-                .modules()
+            let owner = authoring_modules
                 .iter()
                 .find(|module| *module.lowered.source.module_identity() == implementation.module)
                 .ok_or_else(|| ProgramError {
