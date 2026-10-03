@@ -33,8 +33,8 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
     let module = foundation::module().unwrap();
     for registration in module.bindings.iter() {
         let declarations = registration
-            .declarations
-            .to_paths(&Default::default())
+            .required_catalog
+            .paths(&registration.declarations)
             .unwrap();
         let module_declaration = module.to_declaration().unwrap();
         let fresh = module
@@ -84,8 +84,8 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
     let module = consumer.finish().unwrap();
     for registration in module.bindings.iter() {
         let declarations = registration
-            .declarations
-            .to_paths(&Default::default())
+            .required_catalog
+            .paths(&registration.declarations)
             .unwrap();
         let module_declaration = module.to_declaration().unwrap();
         let declaration = &declarations[0];
@@ -197,4 +197,48 @@ fn independently_scoped_catalogs_match_complete_contracts_after_import() {
     let mut rejected = merged.clone();
     assert!(rejected.merge(&incompatible).is_err());
     assert_catalog_eq(&rejected, &merged);
+}
+
+#[test]
+fn registration_scope_survives_catalog_growth_and_module_drop() {
+    let module = application(&["value"]);
+    let registration = module.bindings[0].clone();
+    let expected = registration
+        .required_catalog
+        .paths(&registration.declarations)
+        .unwrap();
+    let mut runtime = Runtime::default();
+    module.install(&mut runtime).unwrap();
+    drop(module);
+    application(&["added", "later"])
+        .install(&mut runtime)
+        .unwrap();
+    assert_eq!(
+        registration
+            .required_catalog
+            .paths(&registration.declarations)
+            .unwrap(),
+        expected
+    );
+    let installed = runtime.native_entries.catalog.to_paths().unwrap();
+    assert!(
+        installed
+            .declarations
+            .values()
+            .any(|record| record == &expected[0])
+    );
+    let declarations = registration.required_catalog.definitions();
+    assert!(
+        runtime
+            .native_entries
+            .catalog
+            .definitions()
+            .resolve(registration.declarations[0].declaration)
+            .is_err()
+    );
+    assert!(
+        declarations
+            .resolve(registration.declarations[0].declaration)
+            .is_ok()
+    );
 }

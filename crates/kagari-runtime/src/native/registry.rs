@@ -34,7 +34,8 @@ use std::{collections::HashSet, rc::Rc, slice};
 
 #[derive(Debug, Clone)]
 pub(crate) struct BindingRegistration {
-    pub(crate) declarations: DefinitionMetadata<Vec<NativeDeclaration<DefinitionId>>>,
+    // The catalog retains the shared append-only scope; each binding does not freeze a prefix.
+    pub(crate) declarations: Vec<NativeDeclaration<DefinitionId>>,
     pub(crate) binding: NativeBinding,
     pub(crate) required_catalog: DeclarationCatalog,
 }
@@ -51,7 +52,8 @@ impl BindingRegistration {
             records,
             &CancellationToken::default(),
         )
-        .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
+        .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?
+        .into_records();
         Ok(Self {
             declarations,
             binding,
@@ -107,9 +109,8 @@ impl NativeRegistry {
     pub(crate) fn install(&mut self, registration: Rc<BindingRegistration>) -> NativeResult<()> {
         let invalid = || RuntimeError::metadata_conflict("invalid or duplicate native binding");
         let declarations = registration
-            .declarations
-            .to_paths(&CancellationToken::default())
-            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
+            .required_catalog
+            .paths(&registration.declarations)?;
         let declaration = declarations.first().ok_or_else(invalid)?;
         let CallableImplementation::Native(binding) = &declaration.function.implementation else {
             return Err(invalid());
@@ -153,10 +154,14 @@ impl NativeRegistry {
         }
         let context = self.entries.context();
         let registration = Rc::new(BindingRegistration {
-            declarations: registration
-                .declarations
-                .import_into(context, &CancellationToken::default())
-                .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?,
+            declarations: DefinitionMetadata::checked(
+                registration.required_catalog.definitions(),
+                registration.declarations.clone(),
+                &CancellationToken::default(),
+            )
+            .and_then(|metadata| metadata.import_into(context, &CancellationToken::default()))
+            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?
+            .into_records(),
             binding: registration.binding.clone(),
             required_catalog: registration.required_catalog.import_into(context)?,
         });
@@ -197,7 +202,7 @@ impl NativeRegistry {
             .ok_or_else(|| RuntimeError::module_validation("native declaration is absent"))?;
         let authored = program.paths(import)?;
         if !authored.structurally_valid()
-            || !entry.declarations.records().contains(declaration)
+            || !entry.declarations.contains(declaration)
             || declaration.function.implementation != CallableImplementation::Native(import.binding)
         {
             return Err(RuntimeError::module_validation(

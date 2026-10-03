@@ -11,10 +11,10 @@ bumps, foundation registration redesign or interpreter-loop optimization.
 
 - [x] ID01: record the owned-identity baseline; implement checked table primitives,
   shared snapshots, name interning and explicit cross-table remapping.
-- [ ] ID02: migrate declarations, analysis/cache ownership and compiled metadata.
-- [ ] ID03: migrate explicit portable table encoding, canonical fingerprints,
+- [x] ID02: migrate declarations, analysis/cache ownership and compiled metadata.
+- [x] ID03: migrate explicit portable table encoding, canonical fingerprints,
   bounded decoding and source-free validation; regenerate affected fixtures once.
-- [ ] ID04: migrate native linking, codecs, type environments, layouts and reload
+- [x] ID04: migrate native linking, codecs, type environments, layouts and reload
   identity remapping while retaining executable generations and immutable seals.
 - [ ] ID05: remove transitional models; accept the full integration matrix and
   record allocation, metadata-size, artifact-size and timing evidence.
@@ -283,6 +283,31 @@ in progress under ID05; no phase acceptance is claimed before those checks finis
 The foundation measurement now reports module sharing: nonempty scoped metadata is
 normalized per runtime, while original immutable version identity remains retained.
 
+
+ID02-ID04 final integration acceptance: all 1,623 workspace tests pass across 91
+target summaries, with zero failures and one existing ignored manual measurement.
+The unchanged complete language-contract matrix passes in 85.57 seconds (unpaired;
+no speedup claim). Standalone artifact-only/source/native/source+native consumers,
+eight production dependency boundaries, the source-independent ABI build graph
+and all five CLI JIT-feature tests pass. Strict workspace/all-target Clippy,
+formatting, structure (714 Rust files, zero findings/exceptions) and diff checks
+pass. New adjacent methods and record definitions receive blank separators through
+syntax-aware insertion; this changes no Rust tokens or embedded source literals.
+Disposable source-free fixture regeneration produces no remaining fixture diff.
+ID02-ID04 are accepted; ID05's paired metadata/artifact/timing measurements and final
+report are running. No carried build, verification or behavioral error remains.
+
+ID05 measurement follow-up (active): the initial paired probe found a material
+retention regression: runtime construction retained 20.6 MB versus 1.4 MB because
+each BindingRegistration froze a different prefix of the same growing context.
+Binding records now retain their scope through the owning catalog, with temporary
+checked metadata only for validation/import. Native modules and executable seals
+still own immutable tables; full binding contracts and foreign-ID checks remain.
+All 57 runtime unit tests, 13 native-builder and 16 native-execution tests pass,
+including the new catalog-growth/module-drop/foreign-context regression. Strict
+workspace/all-target Clippy and structure/fmt/diff checks pass. A fresh final
+integration/measurement run owns this follow-up; initial data stays under target/identity-measurements-initial.
+This measured regression is not accepted as the final result.
 
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
