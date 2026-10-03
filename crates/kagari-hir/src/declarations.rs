@@ -549,15 +549,19 @@ impl<I: DefinitionReference> Declarations<I> {
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
     }
+
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind<I>> {
         self.native_types.get(&id).cloned()
     }
+
     pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind<I>> {
         self.native_enums.get(&id).cloned()
     }
+
     pub fn impl_identity(&self, id: ImplId) -> Option<&I> {
         self.impl_identities.get(&id)
     }
+
     pub(crate) fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
         if let Some(binding) = self.names.lookup(name) {
             binding.target()
@@ -575,9 +579,11 @@ impl<I: DefinitionReference> Declarations<I> {
             self.hosts.resolve_name(name)
         }
     }
+
     pub fn variant(&self, id: VariantId) -> Option<&Declaration<I>> {
         self.targets.get(&DeclarationKey::Variant(id))
     }
+
     /// Member declaration names only, so an unresolved body reference never
     /// accidentally navigates to an enclosing declaration's whole-file span.
     pub fn member_at(&self, offset: usize) -> Option<&Declaration<I>> {
@@ -595,6 +601,7 @@ impl<I: DefinitionReference> Declarations<I> {
             .map(|(_, d)| d)
             .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
     }
+
     /// Declaration-site lookup uses only identifier-sized ranges. Incomplete
     /// names cannot claim surrounding code.
     pub fn site_at(&self, offset: usize) -> Option<&Declaration<I>> {
@@ -610,15 +617,18 @@ impl<I: DefinitionReference> Declarations<I> {
                 declaration.location.range.end - declaration.location.range.start
             })
     }
+
     pub fn imported_types(&self) -> &ImportedTypes<I> {
         &self.imported_types
     }
+
     pub(crate) fn definition(&self, name: ResolvedName) -> Option<&I> {
         match &self.target(name)?.id {
             DeclarationId::Definition(id) => Some(id),
             _ => None,
         }
     }
+
     pub fn definition_target(&self, id: &I) -> Option<ResolvedName> {
         match self
             .identities
@@ -628,6 +638,7 @@ impl<I: DefinitionReference> Declarations<I> {
             _ => None,
         }
     }
+
     pub(crate) fn generic_type(&self, id: GenericParamId) -> Option<GenericParameterType<I>> {
         let declaration = self.generic_parameter(id)?;
         let DeclarationId::GenericParameter { owner, position } = &declaration.id else {
@@ -639,9 +650,11 @@ impl<I: DefinitionReference> Declarations<I> {
             name: declaration.name.clone(),
         })
     }
+
     pub fn analysis_id(&self) -> AnalysisId {
         self.analysis
     }
+
     /// Parameters declared by this owner, in declaration order. Inherited method
     /// binders keep their original owner and are not included here.
     pub fn parameters_of(&self, owner: &I) -> Vec<GenericParameterType<I>> {
@@ -665,23 +678,28 @@ impl<I: DefinitionReference> Declarations<I> {
         params.sort_by_key(|parameter| parameter.position);
         params
     }
+
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration<I>> {
         self.targets
             .get(&DeclarationKey::Name(name))
             .or_else(|| self.imported_types.variant(name))
     }
+
     pub fn field(&self, field: FieldId) -> Option<&Declaration<I>> {
         self.targets.get(&DeclarationKey::Field(field))
     }
+
     pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration<I>> {
         self.targets.get(&DeclarationKey::GenericParameter(id))
     }
+
     /// A binding from another analysis is rejected, even if its arena slot coincides.
     pub fn get(&self, id: &DeclarationId<I>) -> Option<&Declaration<I>> {
         self.identities
             .get(id)
             .and_then(|name| self.targets.get(name))
     }
+
     pub fn iter(&self) -> impl Iterator<Item = &Declaration<I>> {
         self.targets.values()
     }
@@ -691,6 +709,7 @@ impl<I: DefinitionReference> Declarations<I> {
     pub(crate) fn context(&self) -> &DefinitionContext {
         &self.context
     }
+
     pub(crate) fn publish_definitions(&mut self, definitions: DefinitionTable) {
         self.definitions = definitions;
     }

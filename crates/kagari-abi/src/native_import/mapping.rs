@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeSignature<I> {
     type Rebind<J: DefinitionReference> = NativeSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -22,6 +23,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeSignature<I> {
             result: self.result.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -38,6 +40,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeImport<I> {
     type Rebind<J: DefinitionReference> = NativeImport<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -66,6 +69,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeImport<I> {
                 .transpose()?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

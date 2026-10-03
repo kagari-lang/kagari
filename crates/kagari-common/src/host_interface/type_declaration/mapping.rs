@@ -15,6 +15,7 @@ use crate::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostFieldDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostFieldDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -31,6 +32,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostFieldDeclaration<I> {
             documentation: self.documentation.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -46,6 +48,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostFieldDeclaration<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostMethodDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostMethodDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -61,6 +64,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostMethodDeclaration<I> {
             documentation: self.documentation.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -79,6 +83,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostMethodDeclaration<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitMethodBinding<I> {
     type Rebind<J: DefinitionReference> = HostTraitMethodBinding<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -89,6 +94,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitMethodBinding<I> {
             host_method: mapper.reference(&self.host_method)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -105,6 +111,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitMethodBinding<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostAssociatedTypeBinding<I> {
     type Rebind<J: DefinitionReference> = HostAssociatedTypeBinding<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -115,6 +122,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostAssociatedTypeBinding<I
             ty: self.ty.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -130,6 +138,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostAssociatedTypeBinding<I
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitImplementationDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostTraitImplementationDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -147,6 +156,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitImplementationDecl
             documentation: self.documentation.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -170,6 +180,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitImplementationDecl
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostTypeDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostTypeDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -189,6 +200,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTypeDeclaration<I> {
             documentation: self.documentation.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

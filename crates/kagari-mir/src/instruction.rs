@@ -464,7 +464,9 @@ pub struct StructFieldInit {
 }
 
 pub type InstructionBuffer<I = DefinitionPath> = Vec<Instruction<I>>;
+
 pub type ValueBuffer = SmallVec<[MirValue; 4]>;
+
 pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
 
 /// Unlinked declaration contract. It cannot be encoded as an executable call.

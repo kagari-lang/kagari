@@ -1,6 +1,6 @@
 # Kagari Implementation Roadmap
 
-## Scoped definition identities (in progress, 2026-10-03)
+## Scoped definition identities (completed, 2026-10-03)
 
 The user authorized the Rust-inspired definition-table migration. ID01-ID05 own
 the complete native declaration/HIR/ABI/MIR/bytecode/artifact/runtime identity
@@ -16,7 +16,7 @@ bumps, foundation registration redesign or interpreter-loop optimization.
   bounded decoding and source-free validation; regenerate affected fixtures once.
 - [x] ID04: migrate native linking, codecs, type environments, layouts and reload
   identity remapping while retaining executable generations and immutable seals.
-- [ ] ID05: remove transitional models; accept the full integration matrix and
+- [x] ID05: remove transitional models; accept the full integration matrix and
   record allocation, metadata-size, artifact-size and timing evidence.
 
 Design: a short ID contains private u32 table and node indices (8 bytes); table
@@ -297,7 +297,7 @@ Disposable source-free fixture regeneration produces no remaining fixture diff.
 ID02-ID04 are accepted; ID05's paired metadata/artifact/timing measurements and final
 report are running. No carried build, verification or behavioral error remains.
 
-ID05 measurement follow-up (active): the initial paired probe found a material
+ID05 measurement follow-up (resolved): the initial paired probe found a material
 retention regression: runtime construction retained 20.6 MB versus 1.4 MB because
 per-binding adoption discarded the sharing of closed requirement catalogs.
 Removing individual binding snapshots alone did not resolve the main retention
@@ -308,15 +308,39 @@ still own immutable tables; full binding contracts and foreign-ID checks remain.
 All 57 runtime unit tests, 13 native-builder and 16 native-execution tests pass,
 including the new catalog-growth/module-drop/foreign-context regression. Strict
 workspace/all-target Clippy and structure/fmt/diff checks pass. A fresh final
-integration/measurement run owns this follow-up; initial data stays under target/identity-measurements-initial.
+integration/measurement run subsequently accepted this follow-up; initial data stays
+under target/identity-measurements-initial.
 The module construction and installation batches now reuse immutable Arc-map
 conversions/imports, preserving both source lifetimes and copy-on-write changes.
 Caches are local to the batch and retain no expanded authoring maps after return.
 All 58 runtime unit tests plus 13 native-builder and 16 native-execution tests pass;
 strict workspace/all-target Clippy and structure (715 files) pass. Full contract
 matching, binding-specific foreign requirements and failed-batch publication remain
-covered. The measured retention regression still requires confirmation by the
-updated paired run before final acceptance.
+covered. The updated paired run confirms that runtime creation now retains
+1.22 MB versus the owned baseline's 1.42 MB; the 20.6 MB regression is resolved.
+
+ID05 final acceptance: ID01-ID05 are complete. The final production checkpoint
+41b29c28 passes all 1,624 workspace tests across 91 target summaries, with zero
+failures and one existing ignored manual measurement. Complete language contracts
+pass in 80.09 seconds (unpaired observation, not a speedup). Post-fix standalone
+artifact-only/source/native/source+native consumers, eight production boundaries,
+the source-independent ABI graph and all five CLI JIT-feature tests pass. Strict
+workspace/all-target Clippy, formatting, structure (715 Rust files, zero findings
+or exceptions), Python driver syntax and diff checks pass. No carried build,
+verification, contract, feature or backend error remains.
+
+The paired driver executes identical checked workloads in baseline/candidate/
+candidate/baseline order against 7857fd8a and 41b29c28, pooling fourteen warm
+timing samples per operation. Complete KBC size decreases 64.2%, retained analysis
+state 29.1% and retained verified-program state 58.4%. Verification time decreases
+36.8% and artifact compilation time 8.8%; fresh analysis instead increases 26.2%
+and runtime creation 10.0%. Independent runtime imports retain normalized metadata
+copies, and retained-prefix table appends copy index containers. These are measured
+costs, not deferred acceptance failures or universal performance claims. The finite
+follow-up areas are transient source/proof projections, retained-prefix index
+copying and independent-runtime metadata copies; interpreter optimization remains
+outside this task. See [performance evidence](performance-baseline.md) for allocation
+traffic, retention definitions, reproducible commands and measurement limitations.
 
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 

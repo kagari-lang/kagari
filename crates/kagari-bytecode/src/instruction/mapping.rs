@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FieldRef<I> {
     type Rebind<J: DefinitionReference> = FieldRef<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -23,6 +24,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldRef<I> {
             slot: self.slot,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -38,6 +40,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldRef<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
     type Rebind<J: DefinitionReference> = CallTarget<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -77,6 +80,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
             Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper((field0).clone()),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -118,6 +122,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
     type Rebind<J: DefinitionReference> = BytecodeInstruction<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -446,6 +451,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             Self::Unreachable => BytecodeInstruction::Unreachable,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

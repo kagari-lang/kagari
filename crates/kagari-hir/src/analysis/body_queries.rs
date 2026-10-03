@@ -312,6 +312,7 @@ impl FunctionAnalysis {
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
     }
+
     pub fn type_table_to_paths(
         &self,
         cancel: &CancellationToken,

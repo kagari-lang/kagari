@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for KbcArtifact<I> {
     type Rebind<J: DefinitionReference> = KbcArtifact<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -27,6 +28,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for KbcArtifact<I> {
             portable_mir: self.portable_mir.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -41,6 +43,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for KbcArtifact<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for VerificationMetadata<I> {
     type Rebind<J: DefinitionReference> = VerificationMetadata<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -60,6 +63,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VerificationMetadata<I> {
             loader: self.loader.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -75,6 +79,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VerificationMetadata<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FunctionLayoutMetadata<I> {
     type Rebind<J: DefinitionReference> = FunctionLayoutMetadata<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -90,6 +95,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionLayoutMetadata<I> {
             roots: self.roots.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

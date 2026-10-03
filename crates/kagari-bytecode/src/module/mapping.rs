@@ -15,6 +15,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeModule<I> {
     type Rebind<J: DefinitionReference> = BytecodeModule<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -50,6 +51,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeModule<I> {
             functions: map_sequence(&self.functions, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -90,6 +92,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeModule<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeFunction<I> {
     type Rebind<J: DefinitionReference> = BytecodeFunction<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -110,6 +113,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeFunction<I> {
             instructions: map_sequence(&self.instructions, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -129,6 +133,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeFunction<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FunctionMetadata<I> {
     type Rebind<J: DefinitionReference> = FunctionMetadata<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -146,6 +151,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionMetadata<I> {
             debug: self.debug.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -159,6 +165,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionMetadata<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FunctionRecord<I> {
     type Rebind<J: DefinitionReference> = FunctionRecord<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -177,6 +184,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionRecord<I> {
             effects: self.effects,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -192,6 +200,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionRecord<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceTableRecord<I> {
     type Rebind<J: DefinitionReference> = InterfaceTableRecord<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -209,6 +218,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceTableRecord<I> {
             parents: map_sequence(&self.parents, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -235,6 +245,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceTableRecord<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceParentRecord<I> {
     type Rebind<J: DefinitionReference> = InterfaceParentRecord<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -246,6 +257,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceParentRecord<I> {
             view: self.view,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -260,6 +272,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceParentRecord<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceViewRecord<I> {
     type Rebind<J: DefinitionReference> = InterfaceViewRecord<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -270,6 +283,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceViewRecord<I> {
             results: map_sequence(&self.results, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -286,6 +300,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceViewRecord<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceResultAdapter<I> {
     type Rebind<J: DefinitionReference> = InterfaceResultAdapter<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -296,6 +311,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceResultAdapter<I> {
             implementation: self.implementation.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -311,6 +327,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceResultAdapter<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceMethodSlot<I> {
     type Rebind<J: DefinitionReference> = InterfaceMethodSlot<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -322,6 +339,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceMethodSlot<I> {
             arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

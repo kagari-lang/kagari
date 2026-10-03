@@ -30,3 +30,7 @@ kagari-codegen-cranelift.workspace = true
 [[example]]
 name = "regenerate_feature_artifact"
 required-features = ["source"]
+
+[[example]]
+name = "definition_pipeline"
+required-features = ["source"]

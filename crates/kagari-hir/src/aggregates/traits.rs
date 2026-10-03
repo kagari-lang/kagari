@@ -390,9 +390,11 @@ impl<I: DefinitionReference> AggregateCatalog<I> {
     pub fn traits(&self) -> impl Iterator<Item = &TraitSignature<I>> {
         self.traits.values().map(AsRef::as_ref)
     }
+
     pub fn trait_(&self, id: &I) -> Option<&TraitSignature<I>> {
         self.traits.get(id).map(AsRef::as_ref)
     }
+
     pub fn trait_method(&self, id: &I) -> Option<&MethodSignature<I>> {
         let (owner, slot) = self.methods.get(id)?;
         self.trait_(owner)?.methods.get(*slot)

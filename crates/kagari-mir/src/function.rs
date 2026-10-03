@@ -211,11 +211,17 @@ pub struct BasicBlock<I = DefinitionPath> {
 }
 
 pub type FunctionBuffer<I = DefinitionPath> = Vec<MirFunction<I>>;
+
 pub type ParameterBuffer = Vec<MirParameter>;
+
 pub type LocalBuffer = Vec<MirLocal>;
+
 pub type ModuleSlotBuffer = Vec<MirModuleSlot>;
+
 pub type TempBuffer = Vec<MirTemp>;
+
 pub type BlockBuffer<I = DefinitionPath> = Vec<BasicBlock<I>>;
+
 pub type SourceSpanBuffer = Vec<Span>;
 
 mod mapping;

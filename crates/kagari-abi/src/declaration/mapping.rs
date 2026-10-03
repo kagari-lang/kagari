@@ -13,6 +13,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ImplDecl<I> {
     type Rebind<J: DefinitionReference> = ImplDecl<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -32,6 +33,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImplDecl<I> {
             methods: map_sequence(&self.methods, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -57,6 +59,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImplDecl<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ModuleDecl<I> {
     type Rebind<J: DefinitionReference> = ModuleDecl<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -102,6 +105,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleDecl<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

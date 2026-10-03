@@ -286,6 +286,16 @@ Embedded host interfaces and standalone KHI declarations preflight their type,
 function and field-path lists at 1,000,000 records, and fields, methods,
 parameters and path segments at 4,096 records. In-memory host declaration
 validation enforces these limits before encoding or linking.
+
+Current KBC and portable MIR projections encode a canonical exact identity table
+plus local u32 references. Process-local table discriminators never enter portable
+bytes. Only referenced definitions and their ancestors are included; insertion
+order and unrelated interned nodes do not affect fingerprints. Reject duplicate
+identities, out-of-range references, invalid parents and cycles before adopting
+scoped metadata. Table counts preflight at 1,000,000 records. Semantic verification,
+module generations, runtime ABI and format identifiers remain independent checks.
+Unpublished development fixtures use this layout directly without old-layout readers.
+
 Every serialized module and declaration identity checks its path length before
 reading segments, with a limit of 64. This applies to artifact headers and
 embedded identities as well as standalone host declarations.

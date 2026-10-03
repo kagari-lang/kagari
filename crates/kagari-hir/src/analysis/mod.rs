@@ -1179,6 +1179,7 @@ impl FileAnalysis {
     pub fn definitions(&self) -> &DefinitionTable {
         self.result.definitions()
     }
+
     /// Materialize mutable authoring facts at an editor/compiler query boundary.
     pub fn to_unverified(
         &self,

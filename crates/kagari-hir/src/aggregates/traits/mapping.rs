@@ -16,6 +16,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for MethodParameter<I> {
     type Rebind<J: DefinitionReference> = MethodParameter<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -27,6 +28,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MethodParameter<I> {
             ty: self.ty.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -40,6 +42,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MethodParameter<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for MethodSignature<I> {
     type Rebind<J: DefinitionReference> = MethodSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -73,6 +76,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MethodSignature<I> {
             declaration: self.declaration.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -106,6 +110,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MethodSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for MethodDefault<I> {
     type Rebind<J: DefinitionReference> = MethodDefault<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -116,6 +121,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MethodDefault<I> {
             Self::Native(field0) => MethodDefault::Native((field0).map_identities(mapper)?),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -134,6 +140,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MethodDefault<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TraitSignature<I> {
     type Rebind<J: DefinitionReference> = TraitSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -179,6 +186,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitSignature<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -226,6 +234,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedConstSignature<I> {
     type Rebind<J: DefinitionReference> = AssociatedConstSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -241,6 +250,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedConstSignature<I>
                 .transpose()?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

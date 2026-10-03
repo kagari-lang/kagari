@@ -94,6 +94,7 @@ impl<T> DefinitionMap<T> {
             entries,
         })
     }
+
     pub fn new(context: DefinitionContext) -> Self {
         Self {
             context,

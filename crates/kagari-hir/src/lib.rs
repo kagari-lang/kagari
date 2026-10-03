@@ -56,6 +56,7 @@ pub mod typeck;
 pub mod types;
 
 pub type DiagnosticBuffer = SmallVec<[Diagnostic; 4]>;
+
 pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
 #[derive(Debug, Clone)]

@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for SemanticSlots<I> {
     type Rebind<J: DefinitionReference> = SemanticSlots<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -53,6 +54,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for SemanticSlots<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

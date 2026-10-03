@@ -137,6 +137,7 @@ impl DefinitionTable {
             index,
         })
     }
+
     pub fn id(&self) -> DefinitionTableId {
         self.id
     }

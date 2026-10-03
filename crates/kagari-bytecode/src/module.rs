@@ -319,21 +319,35 @@ pub struct FrameLayout {
 }
 
 pub type BytecodeFunctionBuffer<I = DefinitionPath> = Vec<BytecodeFunction<I>>;
+
 pub type BytecodeInstructionBuffer<I = DefinitionPath> = Vec<BytecodeInstruction<I>>;
+
 pub type BytecodeModuleSlotBuffer = Vec<BytecodeModuleSlot>;
+
 pub type ConstantPool = Vec<ConstantOperand>;
+
 pub type BytecodeTypeTable = Vec<ValueType>;
 
 pub type PathTable = Vec<PathRecord>;
+
 pub type FunctionTable<I = DefinitionPath> = Vec<FunctionRecord<I>>;
+
 pub type PublicItemRecord<I = DefinitionPath> = PublicAbiItem<I>;
+
 pub type PublicItemTable<I = DefinitionPath> = Vec<PublicAbiItem<I>>;
+
 pub type TypeLayoutBuffer = Vec<ValueType>;
+
 pub type ControlFlowTargetBuffer = Vec<JumpTarget>;
+
 pub type InstructionSourceSpanBuffer = Vec<InstructionSourceSpan>;
+
 pub type LineTableBuffer = Vec<LineTableEntry>;
+
 pub type SafeDebugPointBuffer = Vec<SafeDebugPoint>;
+
 pub type LocalLiveRangeBuffer = Vec<LocalLiveRange>;
+
 pub type CapturedBindingDebugBuffer = Vec<CapturedBindingDebugInfo>;
 
 impl<I> Default for BytecodeModule<I> {
@@ -359,6 +373,7 @@ impl<I> Default for BytecodeModule<I> {
         }
     }
 }
+
 impl<I> Default for BytecodeFunction<I> {
     fn default() -> Self {
         Self {
@@ -373,6 +388,7 @@ impl<I> Default for BytecodeFunction<I> {
         }
     }
 }
+
 impl<I> Default for FunctionMetadata<I> {
     fn default() -> Self {
         Self {

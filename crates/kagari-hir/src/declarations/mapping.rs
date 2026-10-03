@@ -11,6 +11,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for DeclarationId<I> {
     type Rebind<J: DefinitionReference> = DeclarationId<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -25,6 +26,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for DeclarationId<I> {
             Self::Binding(field0) => DeclarationId::Binding(*(field0)),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -48,6 +50,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for DeclarationId<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for Declaration<I> {
     type Rebind<J: DefinitionReference> = Declaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -59,6 +62,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declaration<I> {
             location: self.location,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -72,6 +76,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declaration<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
     type Rebind<J: DefinitionReference> = Declarations<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -118,6 +123,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

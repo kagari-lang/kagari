@@ -18,6 +18,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypeSubstitution<I> {
     type Rebind<J: DefinitionReference> = TypeSubstitution<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -41,6 +42,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeSubstitution<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -62,6 +64,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeSubstitution<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for GenericParameterType<I> {
     type Rebind<J: DefinitionReference> = GenericParameterType<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -73,6 +76,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericParameterType<I> {
             name: self.name.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -87,6 +91,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericParameterType<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeParameters<I> {
     type Rebind<J: DefinitionReference> = AssociatedTypeParameters<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -105,6 +110,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeParameters<I>
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -126,6 +132,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeParameters<I>
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeFamily<I> {
     type Rebind<J: DefinitionReference> = AssociatedTypeFamily<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -136,6 +143,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeFamily<I> {
             value: self.value.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -150,6 +158,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeFamily<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NominalType<I> {
     type Rebind<J: DefinitionReference> = NominalType<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -166,6 +175,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NominalType<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -188,6 +198,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NominalType<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypeId<I> {
     type Rebind<J: DefinitionReference> = TypeId<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -250,6 +261,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeId<I> {
             },
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

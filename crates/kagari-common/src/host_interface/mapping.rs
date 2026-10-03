@@ -12,6 +12,7 @@ use crate::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostParameter<I> {
     type Rebind<J: DefinitionReference> = HostParameter<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -23,6 +24,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostParameter<I> {
             passing: self.passing,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -36,6 +38,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostParameter<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostFunctionDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostFunctionDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -50,6 +53,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostFunctionDeclaration<I> 
             documentation: self.documentation.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -68,6 +72,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostFunctionDeclaration<I> 
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostInterface<I> {
     type Rebind<J: DefinitionReference> = HostInterface<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -79,6 +84,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostInterface<I> {
             functions: map_sequence(&self.functions, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

@@ -325,6 +325,7 @@ impl FileSignatures {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for BodyEnvironment<I> {
     type Rebind<J: DefinitionReference> = BodyEnvironment<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -334,6 +335,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BodyEnvironment<I> {
             aggregates: self.aggregates.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

@@ -18,6 +18,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ModuleAbi<I> {
     type Rebind<J: DefinitionReference> = ModuleAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -33,6 +34,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleAbi<I> {
             })?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -54,6 +56,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for PublicAbiItem<I> {
     type Rebind<J: DefinitionReference> = PublicAbiItem<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -69,6 +72,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PublicAbiItem<I> {
             }
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -98,6 +102,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PublicAbiItem<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FunctionAbi<I> {
     type Rebind<J: DefinitionReference> = FunctionAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -115,6 +120,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionAbi<I> {
             return_type: self.return_type.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -138,6 +144,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeDeclaration<I> {
     type Rebind<J: DefinitionReference> = NativeDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -156,6 +163,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeDeclaration<I> {
             })?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -177,6 +185,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeDeclaration<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ParameterAbi<I> {
     type Rebind<J: DefinitionReference> = ParameterAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -188,6 +197,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ParameterAbi<I> {
             mutable: self.mutable,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -201,6 +211,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ParameterAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ConstAbi<I> {
     type Rebind<J: DefinitionReference> = ConstAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -212,6 +223,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConstAbi<I> {
             value: self.value.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -225,6 +237,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConstAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypeAbi<I> {
     type Rebind<J: DefinitionReference> = TypeAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -241,6 +254,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeAbi<I> {
             variants: map_sequence(&self.variants, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -265,6 +279,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FieldAbi<I> {
     type Rebind<J: DefinitionReference> = FieldAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -276,6 +291,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldAbi<I> {
             mutable: self.mutable,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -289,6 +305,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for VariantAbi<I> {
     type Rebind<J: DefinitionReference> = VariantAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -299,6 +316,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VariantAbi<I> {
             payload: map_sequence(&self.payload, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -314,6 +332,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VariantAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NominalAbiType<I> {
     type Rebind<J: DefinitionReference> = NominalAbiType<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -330,6 +349,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NominalAbiType<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -352,6 +372,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NominalAbiType<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TraitAbi<I> {
     type Rebind<J: DefinitionReference> = TraitAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -373,6 +394,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitAbi<I> {
             })?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -403,6 +425,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedConstAbi<I> {
     type Rebind<J: DefinitionReference> = AssociatedConstAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -414,6 +437,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedConstAbi<I> {
             default_value: self.default_value.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -429,6 +453,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedConstAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeAbi<I> {
     type Rebind<J: DefinitionReference> = AssociatedTypeAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -445,6 +470,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeAbi<I> {
             bounds: map_sequence(&self.bounds, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -468,6 +494,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeFamilyAbi<I> {
     type Rebind<J: DefinitionReference> = AssociatedTypeFamilyAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -482,6 +509,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeFamilyAbi<I> 
             value: self.value.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -503,6 +531,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeFamilyAbi<I> 
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceTableAbi<I> {
     type Rebind<J: DefinitionReference> = InterfaceTableAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -527,6 +556,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceTableAbi<I> {
             methods: map_sequence(&self.methods, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -558,6 +588,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceTableAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TraitContract<I> {
     type Rebind<J: DefinitionReference> = TraitContract<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -568,6 +599,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitContract<I> {
             abi: self.abi.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -583,6 +615,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitContract<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ConcreteFunctionIdentity<I> {
     type Rebind<J: DefinitionReference> = ConcreteFunctionIdentity<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -593,6 +626,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConcreteFunctionIdentity<I>
             arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -610,6 +644,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConcreteFunctionIdentity<I>
 
 impl<I: DefinitionReference> DefinitionRecord<I> for GenericParameterAbi<I> {
     type Rebind<J: DefinitionReference> = GenericParameterAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -620,6 +655,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericParameterAbi<I> {
             position: self.position,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -634,6 +670,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericParameterAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for GenericBoundAbi<I> {
     type Rebind<J: DefinitionReference> = GenericBoundAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -644,6 +681,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericBoundAbi<I> {
             constraints: map_sequence(&self.constraints, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -660,6 +698,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericBoundAbi<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ConstraintAbi<I> {
     type Rebind<J: DefinitionReference> = ConstraintAbi<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -670,6 +709,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConstraintAbi<I> {
             Self::Trait(field0) => ConstraintAbi::Trait((field0).map_identities(mapper)?),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

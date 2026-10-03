@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for EnumLayout<I> {
     type Rebind<J: DefinitionReference> = EnumLayout<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -23,6 +24,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumLayout<I> {
             variants: map_sequence(&self.variants, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -43,6 +45,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumLayout<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for EnumVariantLayout<I> {
     type Rebind<J: DefinitionReference> = EnumVariantLayout<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -53,6 +56,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumVariantLayout<I> {
             payload: map_sequence(&self.payload, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -70,6 +74,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumVariantLayout<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for StructLayout<I> {
     type Rebind<J: DefinitionReference> = StructLayout<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -81,6 +86,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructLayout<I> {
             fields: map_sequence(&self.fields, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -101,6 +107,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructLayout<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for StructFieldLayout<I> {
     type Rebind<J: DefinitionReference> = StructFieldLayout<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -113,6 +120,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructFieldLayout<I> {
             mutable: self.mutable,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

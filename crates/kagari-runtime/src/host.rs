@@ -423,6 +423,7 @@ pub struct HostPathMutationRecord {
 
 pub type HostPathReadCallback =
     dyn Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError> + 'static;
+
 /// Preparation validates and reserves host resources without changing the target.
 pub type HostPathPrepareWriteCallback = dyn Fn(
         &HostCallContext<'_>,

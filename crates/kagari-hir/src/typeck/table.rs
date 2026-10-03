@@ -952,81 +952,107 @@ impl<I: DefinitionReference> TypeTable<I> {
     pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration<I>> {
         self.iterations.get(&id)
     }
+
     pub fn protocol_receiver(&self, id: ExprId) -> Option<&TypeId<I>> {
         self.protocol_receivers.get(&id)
     }
+
     pub fn place_index(&self, id: PlaceId) -> Option<&NominalType<I>> {
         self.place_indexes.get(&id)
     }
+
     pub fn associated_type_parameters(&self, member: &I) -> Option<&AssociatedTypeParameters<I>> {
         self.associated_type_parameters.get(member)
     }
+
     pub fn associated_type_family(&self, member: &I) -> Option<&AssociatedTypeFamily<I>> {
         self.associated_type_families.get(member)
     }
+
     pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst<I>> {
         self.associated_consts.get(&expr)
     }
+
     pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath<I>> {
         self.host_place_paths.get(&place)
     }
+
     pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath<I>> {
         self.host_paths.get(&expr)
     }
+
     pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget<I>> {
         self.constraints.get(&id).cloned().flatten()
     }
+
     pub(crate) fn has_constraint(&self, id: TypeRefId) -> bool {
         self.constraints.contains_key(&id)
     }
+
     pub fn type_ref(&self, id: TypeRefId) -> Option<&ResolvedTypeRef<I>> {
         self.type_refs.get(&id)
     }
+
     pub fn field_type(&self, field: FieldId) -> Option<TypeId<I>> {
         self.field_types.get(&field).cloned()
     }
+
     pub fn expr_field(&self, expr: ExprId) -> Option<&I> {
         self.expr_fields.get(&expr)
     }
+
     pub fn place_field(&self, place: PlaceId) -> Option<&I> {
         self.place_fields.get(&place)
     }
+
     pub fn struct_init(&self, expr: ExprId) -> Option<&ResolvedStructInit<I>> {
         self.struct_inits.get(&expr)
     }
+
     pub fn enum_constructor(&self, id: ExprId) -> Option<&ResolvedEnumConstructor<I>> {
         self.enum_constructors.get(&id)
     }
+
     pub fn scalar_value(&self, id: ExprId) -> Option<&ScalarValue> {
         self.scalars.get(&id)
     }
+
     pub fn pattern_scalar_value(&self, id: PatternId) -> Option<&ScalarValue> {
         self.pattern_scalars.get(&id)
     }
+
     pub fn pattern_range(&self, id: PatternId) -> Option<&(ScalarValue, ScalarValue)> {
         self.pattern_ranges.get(&id)
     }
+
     pub fn pattern_fields(&self, id: PatternId) -> Option<&[I]> {
         self.pattern_fields.get(&id).map(Vec::as_slice)
     }
+
     pub fn pattern_variant(&self, id: PatternId) -> Option<&I> {
         self.pattern_variants.get(&id)
     }
+
     pub fn expr_type(&self, id: ExprId) -> Option<TypeId<I>> {
         self.exprs.get(&id).cloned()
     }
+
     pub fn callable_coercion(&self, id: ExprId) -> Option<&(TypeId<I>, NominalType<I>)> {
         self.callable_coercions.get(&id)
     }
+
     pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion<I>> {
         self.interface_coercions.get(&id)
     }
+
     pub fn local_type(&self, id: LocalId) -> Option<TypeId<I>> {
         self.locals.get(&id).cloned()
     }
+
     pub fn place_type(&self, id: PlaceId) -> Option<TypeId<I>> {
         self.places.get(&id).cloned()
     }
+
     pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall<I>> {
         self.calls.get(&id).cloned()
     }

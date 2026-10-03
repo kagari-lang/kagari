@@ -13,6 +13,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ImportedType<I> {
     type Rebind<J: DefinitionReference> = ImportedType<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -35,6 +36,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedType<I> {
             supertraits: map_sequence(&self.supertraits, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -58,6 +60,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedType<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTraitMethod<I> {
     type Rebind<J: DefinitionReference> = ImportedTraitMethod<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -68,6 +71,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTraitMethod<I> {
             declaration: mapper.reference(&self.declaration)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -82,6 +86,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTraitMethod<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTypes<I> {
     type Rebind<J: DefinitionReference> = ImportedTypes<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -114,6 +119,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTypes<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

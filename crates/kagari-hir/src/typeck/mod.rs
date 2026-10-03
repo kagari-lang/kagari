@@ -49,7 +49,9 @@ mod ty;
 use std::collections::HashMap;
 
 pub(crate) type TypedFunctionBuffer<I = DefinitionPath> = SmallVec<[TypedFunction<I>; 8]>;
+
 pub(crate) type TypedParameterBuffer<I = DefinitionPath> = SmallVec<[TypedParameter<I>; 4]>;
+
 pub type GenericBounds<I = DefinitionPath> = HashMap<TypeId<I>, Vec<ConstraintTarget<I>>>;
 
 #[derive(Debug, Clone)]
@@ -175,9 +177,11 @@ impl<I: DefinitionReference> ModuleSignatures<I> {
     pub fn type_bounds(&self, id: &I) -> Option<&GenericBounds<I>> {
         self.type_bounds.get(id)
     }
+
     pub fn functions(&self) -> &[TypedFunction<I>] {
         &self.functions
     }
+
     pub fn type_table(&self) -> &TypeTable<I> {
         &self.type_table
     }

@@ -69,6 +69,7 @@ pub struct MirCapturedBindingDebugInfo {
 }
 
 pub type MirLocalDebugBuffer = Vec<MirLocalDebugInfo>;
+
 pub type CapturedBindingDebugBuffer = Vec<MirCapturedBindingDebugInfo>;
 
 impl<I> MirFunction<I> {

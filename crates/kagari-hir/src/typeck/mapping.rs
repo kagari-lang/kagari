@@ -15,6 +15,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ModuleSignatures<I> {
     type Rebind<J: DefinitionReference> = ModuleSignatures<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -46,6 +47,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleSignatures<I> {
             type_table: self.type_table.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -72,6 +74,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleSignatures<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypedModule<I> {
     type Rebind<J: DefinitionReference> = TypedModule<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -95,6 +98,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypedModule<I> {
             type_table: self.type_table.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -114,6 +118,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypedModule<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypedFunction<I> {
     type Rebind<J: DefinitionReference> = TypedFunction<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -143,6 +148,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypedFunction<I> {
             return_type: self.return_type.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -169,6 +175,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypedFunction<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FunctionImplementation<I> {
     type Rebind<J: DefinitionReference> = FunctionImplementation<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -182,6 +189,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionImplementation<I> {
             Self::Required => FunctionImplementation::Required,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -201,6 +209,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionImplementation<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypedParameter<I> {
     type Rebind<J: DefinitionReference> = TypedParameter<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -213,6 +222,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypedParameter<I> {
             ty: self.ty.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

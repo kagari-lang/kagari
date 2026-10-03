@@ -3,6 +3,115 @@
 These reproducible workloads establish a baseline for R18. The figures are
 observations on one machine, not performance guarantees.
 
+## Completed scoped identity migration (ID05), 2026-10-03
+
+Reproduce with `uv run python scripts/measure_definition_identities.py`. The driver
+creates/reuses an isolated worktree at clean `7857fd8a`, copies the identical
+`definition_pipeline.rs` probe into it, builds both versions sequentially and runs
+baseline/candidate/candidate/baseline. Candidate production code is `41b29c28`.
+Raw logs, allocator passes, toolchain and probe hash are under ignored
+`target/identity-measurements/`. The checked workload has 32 nominal `Player`
+functions, one generic identity function and an entry constructing a Player and
+returning 31. Both versions verify and execute that result.
+
+Environment matches ID01: Windows 11 Pro, i9-12900K (16 cores/24 logical CPUs),
+63.7 GiB RAM, rustc 1.99.0 (`b940084d7`, LLVM 23.1.1), x86_64-pc-windows-msvc.
+Both use the workspace release profile, default SDK source/native features,
+default Cargo parallelism and their worktree's default target directory. No builds
+or tests run concurrently with measurements. Runtime operations are single-threaded.
+One warmup precedes each operation in each process; fresh engines/runtimes are
+created as specified below. Each timing result pools fourteen execution samples.
+Destruction is outside the timed interval. An inactive forwarding System allocator
+remains installed during timing; host background activity is uncontrolled. These
+are finite workload observations, not whole-language performance guarantees.
+
+Builds are excluded from execution. Initial fresh/warm-target builds took 83.53 s
+for baseline and 86.01 s for candidate; these had different target-cache states and
+are not a compilation-speed comparison. The final post-fix incremental builds took
+4.26 s/21.67 s (plus 0.17 s for the table probe), also excluded.
+
+| Operation | Owned baseline median | Scoped candidate median | Observed change |
+| --- | ---: | ---: | ---: |
+| Fresh engine + complete analysis | 137.940 ms | 174.065 ms | +26.2% |
+| Fresh engine + artifact compilation | 292.057 ms | 266.374 ms | -8.8% |
+| Clone authored program + verify/adopt | 50.244 ms | 31.763 ms | -36.8% |
+| Create runtime + install foundation | 57.595 ms | 63.345 ms | +10.0% |
+| Import into an existing runtime | 2.275 ms | 2.012 ms | -11.6% |
+
+`fresh_analysis` retains both engine caches and snapshot. Artifact compilation
+retains the returned unsealed authoring artifact, including portable MIR.
+`verified_program` clones its input inside measurement and retains the complete
+runtime verification product. `runtime_creation` retains the runtime; for
+`runtime_import`, both the input verified program and runtime construction are
+outside timing/counting, and the returned loaded program remains installed.
+
+Allocation counting uses a separate warmed pass. Calls include allocations and
+reallocations; gross bytes sum requested sizes, including full realloc sizes.
+Retained/peak bytes are net live-allocation deltas from entry, so import may also
+free pre-existing runtime buffers. They exclude allocator bookkeeping, fragmentation,
+pre-existing caches and input programs; they are not RSS or exclusive metadata size.
+The analysis delta covers the complete retained cache graph; the verification delta
+covers its full owned program/table graph. Counts varied slightly between processes;
+the table reports the first counting pass, with both raw passes preserved.
+
+| Retained operation result | Baseline bytes | Candidate bytes | Baseline allocation calls | Candidate allocation calls |
+| --- | ---: | ---: | ---: | ---: |
+| Fresh engine + complete analysis | 14,624,321 | 10,364,137 | 3,288,870 | 3,601,730 |
+| Fresh engine + artifact compilation | 2,728,648 | 3,182,804 | 7,471,364 | 5,595,317 |
+| Clone authored program + verify/adopt | 1,827,175 | 760,720 | 1,480,900 | 704,051 |
+| Create runtime + install foundation | 1,417,415 | 1,221,122 | 1,485,456 | 1,562,887 |
+| Import into an existing runtime | 53,176 | 1,163,897 | 15,859 | 23,447 |
+
+| Complete encoded artifact | Baseline | Candidate |
+| --- | ---: | ---: |
+| KBC including portable MIR/debug metadata | 778,657 bytes | 279,003 bytes |
+
+The artifact is **64.2% smaller**. Retained analysis state decreases **29.1%** and
+verified-program state decreases **58.4%**, while the returned unsealed authoring
+artifact retains **16.6% more** memory. Verification allocation calls decrease
+52.5%; artifact compilation calls decrease 25.1%. Gross requested bytes increase
+for analysis (272.5 -> 322.3 MB) and artifact compilation (539.2 -> 575.1 MB).
+Source checking/proof validation still project transient exact paths, so shorter
+stored records do not establish lower total allocation traffic. Analysis takes
+26.2% longer and runtime creation 10.0% longer in this run; those regressions remain
+explicit measured costs rather than claimed speedups.
+
+The initial adoption retained 20.6 MB per new runtime versus baseline's 1.4 MB.
+Removing per-binding frozen snapshots did not fix the main cause: conversion and
+import expanded shared requirement catalogs once per binding. Module-construction
+and installation batches now reuse immutable Arc-map adoption, preserve complete
+binding-specific requirements and drop the conversion caches before returning.
+Runtime retention is now 1.22 MB, below baseline's 1.42 MB. The initial diagnostic
+outputs are preserved under `target/identity-measurements-initial/`.
+
+Independent runtime imports retain the original immutable version identity but
+normalize nonempty module metadata separately. The probe records full module Arc
+sharing as true for baseline and false for candidate. Import retains 1.16 MB versus
+53 KB and requests 3.23 MB versus 0.77 MB. Do not equate version sharing with whole
+normalized-module sharing, or extrapolate the observed 11.6% import-time reduction
+into a general loading improvement.
+
+The extended common probe isolates one append to a 10,000-definition table. Table
+construction and name creation are excluded. Without a retained snapshot it takes
+0.2 microseconds and allocates zero times; with a retained prefix it takes 323.2
+microseconds and allocates ten times. Immutable prefix safety is preserved, but
+copy-on-write index vectors/maps currently make such appends linear in table size.
+The existing 100,000-copy probe still records 72-byte paths vs 8-byte IDs and
+600,000 vs zero allocations. These microbenchmarks are separate from the pipeline.
+
+Finite follow-up costs are source/proof authoring projections, table index copies
+on retained-prefix appends, and normalized metadata copies across independent
+runtimes. No interpreter-loop optimization, global identity interner, stable identity
+hash, incremental disk cache, format version bump or compatibility reader is part
+of ID01-ID05.
+
+Final integration after the catalog-sharing fix passes 1,624 workspace tests
+(zero failures, one existing ignored manual measurement), all four standalone SDK
+feature consumers, production dependency boundaries and five CLI JIT-feature tests.
+The complete language-contract run takes 80.09 seconds, an unpaired observation.
+Strict workspace/all-target Clippy, formatting, structure (715 Rust files, zero
+findings/exceptions), measurement-driver syntax and diff checks pass.
+
 ## Contextual type metadata probe (ID02), 2026-10-03
 
 Reproduce with `cargo run -p kagari-abi --example definition_metadata --release
@@ -20,8 +129,9 @@ These are `size_of` measurements of the same generic semantic model. They exclud
 heap payloads and definition-table overhead. Frame binder owners and native/cache
 index keys now use scoped IDs. A later ID02/ID03 checkpoint also adopts scoped
 metadata throughout immutable VerifiedBytecodeProgram records and canonical KBC/MIR
-wire projections. Runtime executable adoption and MIR/HIR ownership remain pending.
-This is not an artifact-size or execution-speed measurement.
+wire projections. ID02-ID04 now also retain scoped runtime, MIR and HIR/cache metadata.
+These header measurements exclude retained tables and authoring projection costs;
+ID05 measures the complete finite pipeline separately.
 
 ## Definition identity representation (ID01), 2026-10-03
 
@@ -41,7 +151,7 @@ dependency cache with this example freshly compiled. Owned identity headers occu
 loop performs 600,000 allocations and has a 16,011,800 ns median; short-ID copies
 perform zero allocations and have a 20,500 ns median. Black-box barriers retain
 the operations, but these are minimal representation loops, not a compiler or
-interpreter speedup. ID02-ID05 have not adopted short IDs at this checkpoint.
+interpreter speedup. At that checkpoint, ID02-ID05 had not yet adopted short IDs.
 
 ## Matched Kagari/Lua baseline, 2026-10-03
 

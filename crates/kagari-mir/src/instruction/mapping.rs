@@ -14,6 +14,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AggregateFieldRef<I> {
     type Rebind<J: DefinitionReference> = AggregateFieldRef<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -24,6 +25,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AggregateFieldRef<I> {
             slot: self.slot,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -37,6 +39,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AggregateFieldRef<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for PathRef<I> {
     type Rebind<J: DefinitionReference> = PathRef<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -55,6 +58,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PathRef<I> {
             debug_name: self.debug_name.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -70,6 +74,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PathRef<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
     type Rebind<J: DefinitionReference> = Instruction<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -368,6 +373,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             },
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -602,6 +608,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
     type Rebind<J: DefinitionReference> = CallTarget<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -635,6 +642,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
             Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper((field0).clone()),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -670,6 +678,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for SourceFunctionContract<I> {
     type Rebind<J: DefinitionReference> = SourceFunctionContract<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -682,6 +691,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for SourceFunctionContract<I> {
             return_type: self.return_type,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

@@ -1001,13 +1001,21 @@ impl ArtifactValidationError {
 }
 
 pub type ArtifactSectionBuffer = Vec<ArtifactSection>;
+
 pub type SourceFileTable = Vec<String>;
+
 pub type DebugNameTable = Vec<String>;
+
 pub type FunctionLayoutBuffer<I = DefinitionPath> = Vec<FunctionLayoutMetadata<I>>;
+
 pub type FunctionEffectBuffer = Vec<FunctionEffectMetadata>;
+
 pub type ControlFlowTargetMetadataBuffer = Vec<ControlFlowTargetMetadata>;
+
 pub type PathFingerprintBuffer = Vec<PathDescriptorFingerprint>;
+
 pub type PublicAbiFingerprintBuffer = Vec<PublicAbiFingerprint>;
+
 pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 
 #[cfg(test)]

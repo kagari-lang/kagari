@@ -6,6 +6,7 @@ use kagari_common::identity::{
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     hint::black_box,
+    iter::once,
     mem::size_of,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::Instant,
@@ -104,4 +105,49 @@ fn main() {
         size_of::<DefinitionId>(),
     );
     assert_eq!(scoped_allocations, 0);
+    snapshot_append_probe(false);
+    snapshot_append_probe(true);
+}
+
+fn snapshot_append_probe(retain_prefix: bool) {
+    const DEFINITIONS: usize = 10_000;
+    let names = (0..DEFINITIONS)
+        .map(|index| format!("member{index}"))
+        .collect::<Vec<_>>();
+    let mut samples = [0; 11];
+    let mut counted = 0;
+    for sample in samples.iter_mut().map(Some).chain(once(None)) {
+        let mut builder = DefinitionTableBuilder::new().unwrap();
+        let root = builder
+            .intern_root(&ModuleIdentity::single_file("snapshot.kgr"))
+            .unwrap();
+        for name in &names {
+            builder
+                .intern_child(root, DefinitionKind::Function, name, 0)
+                .unwrap();
+        }
+        let prefix = retain_prefix.then(|| builder.freeze());
+        let mut operation = || {
+            builder
+                .intern_child(root, DefinitionKind::Function, "member0", 1)
+                .unwrap()
+        };
+        if let Some(sample) = sample {
+            let start = Instant::now();
+            black_box(operation());
+            *sample = start.elapsed().as_nanos();
+        } else {
+            counted = allocations(|| {
+                black_box(operation());
+            });
+        }
+        if let Some(prefix) = prefix {
+            assert_eq!(prefix.len(), DEFINITIONS + 1);
+        }
+    }
+    samples.sort_unstable();
+    println!(
+        "snapshot_append: definitions={DEFINITIONS} retained_prefix={retain_prefix} allocations={counted} median_ns={} samples_ns={samples:?}",
+        samples[5]
+    );
 }

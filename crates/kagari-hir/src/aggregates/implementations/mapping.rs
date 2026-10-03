@@ -14,6 +14,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ImplementationSignature<I> {
     type Rebind<J: DefinitionReference> = ImplementationSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -50,6 +51,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImplementationSignature<I> 
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

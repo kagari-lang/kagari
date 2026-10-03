@@ -12,6 +12,7 @@ use crate::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostValueType<I> {
     type Rebind<J: DefinitionReference> = HostValueType<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -57,6 +58,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostValueType<I> {
             .map_err(|_| DefinitionMappingError::InvalidContract)?;
         Ok(mapped)
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

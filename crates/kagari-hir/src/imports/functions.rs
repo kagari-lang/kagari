@@ -148,6 +148,7 @@ impl<I: DefinitionReference> ImportedFunctions<I> {
                 .find(|function| function.declaration == *id)
         })
     }
+
     pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction<I>> {
         self.functions.get(&name)
     }

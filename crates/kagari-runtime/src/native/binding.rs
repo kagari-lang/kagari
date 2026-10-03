@@ -23,6 +23,7 @@ use kagari_common::{collection::CollectionAccess, identity::DefinitionPath};
 use std::{fmt, rc::Rc, slice};
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
+
 pub type NativeEntry = dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>;
 
 /// Scalars have an exact semantic type; generic views inherit their declared slot.

@@ -10,6 +10,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeBinding<I> {
     type Rebind<J: DefinitionReference> = NativeBinding<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -21,6 +22,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeBinding<I> {
             Self::Default(field0) => NativeBinding::Default((field0).map_identities(mapper)?),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -43,6 +45,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeBinding<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
     type Rebind<J: DefinitionReference> = NativeTypeKind<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -67,6 +70,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
             Self::Enum(field0) => NativeTypeKind::Enum(*(field0)),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

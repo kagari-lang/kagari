@@ -15,6 +15,7 @@ use crate::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostPathDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostPathDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -27,6 +28,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathDeclaration<I> {
             schema_epoch: self.schema_epoch,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -44,6 +46,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathDeclaration<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostPathSegmentDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -59,6 +62,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentDeclaration<
             }
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -83,6 +87,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentDeclaration<
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostIndexSegmentDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostIndexSegmentDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -96,6 +101,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostIndexSegmentDeclaration
             access: self.access,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -111,6 +117,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostIndexSegmentDeclaration
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostVirtualSegmentDeclaration<I> {
     type Rebind<J: DefinitionReference> = HostVirtualSegmentDeclaration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -122,6 +129,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostVirtualSegmentDeclarati
             access: self.access,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -135,6 +143,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostVirtualSegmentDeclarati
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostPathInput<I> {
     type Rebind<J: DefinitionReference> = HostPathInput<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -158,6 +167,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathInput<I> {
             },
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -184,6 +194,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathInput<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentContract<I> {
     type Rebind<J: DefinitionReference> = HostPathSegmentContract<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -196,6 +207,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentContract<I> 
             member_fingerprint: self.member_fingerprint,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -210,6 +222,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentContract<I> 
 
 impl<I: DefinitionReference> DefinitionRecord<I> for HostPathContract<I> {
     type Rebind<J: DefinitionReference> = HostPathContract<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -223,6 +236,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathContract<I> {
             segments: map_sequence(&self.segments, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

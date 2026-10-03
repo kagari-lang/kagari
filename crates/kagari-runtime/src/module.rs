@@ -292,6 +292,7 @@ impl LoadedModule {
     pub(crate) fn host_type(&self, id: DefinitionId) -> Option<TypeId> {
         self.host_bindings.types.get(&id).copied()
     }
+
     /// Materialize editable authoring metadata without verification evidence.
     pub fn to_unverified(
         &self,
@@ -304,6 +305,7 @@ impl LoadedModule {
             ))
             .map_err(|error| RuntimeError::module_validation(error.to_string()))
     }
+
     pub(crate) fn definition(&self, id: DefinitionId) -> Result<DefinitionView<'_>, RuntimeError> {
         self.definitions()
             .resolve(id)

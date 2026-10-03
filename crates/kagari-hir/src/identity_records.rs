@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AnalyzedModule<I> {
     type Rebind<J: DefinitionReference> = AnalyzedModule<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -26,6 +27,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AnalyzedModule<I> {
             imported_functions: self.imported_functions.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -43,6 +45,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AnalyzedModule<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for PreparedAnalysis<I> {
     type Rebind<J: DefinitionReference> = PreparedAnalysis<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -57,6 +60,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PreparedAnalysis<I> {
             signatures: Arc::new((self.signatures.as_ref()).map_identities(mapper)?),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -71,6 +75,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PreparedAnalysis<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for DeclaredAnalysis<I> {
     type Rebind<J: DefinitionReference> = DeclaredAnalysis<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -82,6 +87,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for DeclaredAnalysis<I> {
             declarations: self.declarations.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -95,6 +101,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for DeclaredAnalysis<I> {
 
 impl<I: DefinitionReference, T: DefinitionRecord<I>> DefinitionRecord<I> for AnalysisResult<T> {
     type Rebind<J: DefinitionReference> = AnalysisResult<T::Rebind<J>>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -104,6 +111,7 @@ impl<I: DefinitionReference, T: DefinitionRecord<I>> DefinitionRecord<I> for Ana
             diagnostics: self.diagnostics.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

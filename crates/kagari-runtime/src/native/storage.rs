@@ -116,7 +116,9 @@ impl<'call> StorageContext<'call> {
 }
 
 type Factory = dyn for<'call> Fn(&StorageContext<'call>) -> NativeResult<Box<dyn Any>>;
+
 type Trace = dyn for<'payload> Fn(&'payload dyn Any, &mut dyn FnMut(&'payload Value));
+
 type Units = dyn Fn(&dyn Any) -> usize;
 
 struct StorageEntries {

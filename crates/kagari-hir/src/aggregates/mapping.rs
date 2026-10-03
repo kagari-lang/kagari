@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 impl<I: DefinitionReference> DefinitionRecord<I> for FieldSignature<I> {
     type Rebind<J: DefinitionReference> = FieldSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -34,6 +35,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldSignature<I> {
             declaration: self.declaration.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -52,6 +54,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InherentMethodSignature<I> {
     type Rebind<J: DefinitionReference> = InherentMethodSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -66,6 +69,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InherentMethodSignature<I> 
             function: self.function.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -83,6 +87,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InherentMethodSignature<I> 
 
 impl<I: DefinitionReference> DefinitionRecord<I> for StructSignature<I> {
     type Rebind<J: DefinitionReference> = StructSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -106,6 +111,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructSignature<I> {
             fields: map_sequence(&self.fields, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -133,6 +139,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeSignature<I> {
     type Rebind<J: DefinitionReference> = NativeTypeSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -156,6 +163,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeSignature<I> {
             representation: self.representation.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -181,6 +189,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for VariantSignature<I> {
     type Rebind<J: DefinitionReference> = VariantSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -195,6 +204,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VariantSignature<I> {
             declaration: self.declaration.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -215,6 +225,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VariantSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for EnumSignature<I> {
     type Rebind<J: DefinitionReference> = EnumSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -243,6 +254,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumSignature<I> {
             variants: map_sequence(&self.variants, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -273,6 +285,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumSignature<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for AggregateCatalog<I> {
     type Rebind<J: DefinitionReference> = AggregateCatalog<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -382,6 +395,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AggregateCatalog<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

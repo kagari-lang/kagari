@@ -43,9 +43,11 @@ impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
     }
+
     pub fn records(&self) -> &T {
         &self.records
     }
+
     pub fn into_records(self) -> T {
         self.records
     }

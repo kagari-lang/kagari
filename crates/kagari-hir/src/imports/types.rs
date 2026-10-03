@@ -370,15 +370,19 @@ impl<I: DefinitionReference> ImportedTypes<I> {
     pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration<I>> {
         self.variants.get(&name)
     }
+
     pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType<I>> {
         self.resolutions.get(&name)
     }
+
     pub fn get(&self, name: &str) -> Option<&ImportedType<I>> {
         self.types.get(name)
     }
+
     pub fn target(&self, id: SourceTypeId) -> Option<&ImportedType<I>> {
         self.resolutions.values().find(|ty| ty.id == id)
     }
+
     pub fn by_declaration(&self, id: &I) -> Option<&ImportedType<I>> {
         self.resolutions
             .values()

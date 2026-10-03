@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceCallContract<I> {
     type Rebind<J: DefinitionReference> = InterfaceCallContract<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -29,6 +30,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceCallContract<I> {
             arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -51,6 +53,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceCallContract<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceMethodSignature<I> {
     type Rebind<J: DefinitionReference> = InterfaceMethodSignature<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -62,6 +65,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceMethodSignature<I>
             bounds: map_sequence(&self.bounds, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

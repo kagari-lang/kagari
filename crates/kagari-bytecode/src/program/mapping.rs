@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeProgram<I> {
     type Rebind<J: DefinitionReference> = BytecodeProgram<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -22,6 +23,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeProgram<I> {
             modules: map_sequence(&self.modules, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

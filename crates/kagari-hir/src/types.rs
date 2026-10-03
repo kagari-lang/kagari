@@ -416,10 +416,12 @@ impl<I: DefinitionReference> TypeSubstitution<I> {
     pub fn insert_receiver(&mut self, owner: I, receiver: TypeId<I>) {
         self.receivers.insert(owner, receiver);
     }
+
     pub fn receiver(&self, owner: &I) -> Option<&TypeId<I>> {
         self.receivers.get(owner)
     }
 }
+
 impl<I: DefinitionReference> AssociatedTypeFamily<I> {
     pub fn apply(&self, outer: &TypeSubstitution<I>, arguments: &[TypeId<I>]) -> Option<TypeId<I>> {
         if arguments.len() != self.inputs.parameters.len() {
@@ -436,6 +438,7 @@ impl<I: DefinitionReference> AssociatedTypeFamily<I> {
         Some(self.value.instantiate(&substitution))
     }
 }
+
 impl<I: DefinitionReference> NominalType<I> {
     pub fn satisfies(&self, required: &Self) -> bool {
         self.declaration == required.declaration
@@ -445,6 +448,7 @@ impl<I: DefinitionReference> NominalType<I> {
                 .iter()
                 .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
     }
+
     pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> Self {
         Self {
             declaration: self.declaration.clone(),
@@ -460,6 +464,7 @@ impl<I: DefinitionReference> NominalType<I> {
                 .collect(),
         }
     }
+
     fn map_arguments(&self, mut map: impl FnMut(&TypeId<I>) -> TypeId<I>) -> Self {
         Self {
             declaration: self.declaration.clone(),
@@ -472,10 +477,12 @@ impl<I: DefinitionReference> NominalType<I> {
         }
     }
 }
+
 impl<I: DefinitionReference> TypeId<I> {
     pub fn is_never(&self) -> bool {
         matches!(self, Self::Builtin(BuiltinType::Never))
     }
+
     /// Access is part of type identity; it never changes the underlying object.
     pub fn collection_access(&self) -> Option<CollectionAccess> {
         match self {
@@ -485,6 +492,7 @@ impl<I: DefinitionReference> TypeId<I> {
             _ => None,
         }
     }
+
     /// Only the outer collection access is weakened. Type arguments stay invariant.
     pub fn read_only_view(&self) -> Option<Self> {
         Some(match self {
@@ -498,6 +506,7 @@ impl<I: DefinitionReference> TypeId<I> {
             _ => return None,
         })
     }
+
     pub fn can_weaken_to(&self, target: &Self) -> bool {
         self.collection_access() == Some(Mutable)
             && target.collection_access() == Some(ReadOnly)
@@ -505,6 +514,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 .read_only_view()
                 .is_some_and(|view| !view.conflicts_with(target))
     }
+
     pub fn contains_projection(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -530,6 +540,7 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         false
     }
+
     pub fn contains_host_value(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -556,6 +567,7 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         false
     }
+
     pub fn contains_self_type(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -598,6 +610,7 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         false
     }
+
     /// Substitute one binder layer; replacements can contain the caller's parameters.
     pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> TypeId<I> {
         self.substitute_once(|ty| match ty {
@@ -606,6 +619,7 @@ impl<I: DefinitionReference> TypeId<I> {
             _ => None,
         })
     }
+
     /// Visit direct type children. Projection normalization uses a separately
     /// bounded walk; ordinary substitution remains iterative.
     pub fn map_children(&self, mut map: impl FnMut(&TypeId<I>) -> TypeId<I>) -> Self {
@@ -646,6 +660,7 @@ impl<I: DefinitionReference> TypeId<I> {
             _ => self.clone(),
         }
     }
+
     /// Preserve known argument context without exposing uninferred callee binders.
     pub(crate) fn argument_context(
         &self,
@@ -659,6 +674,7 @@ impl<I: DefinitionReference> TypeId<I> {
             _ => None,
         })
     }
+
     /// Rebuild one binding layer, copying inserted types without revisiting them
     /// as substitution targets. Both generic binders and trait Self use this walk.
     pub(crate) fn substitute_once<'a>(
@@ -820,9 +836,11 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         result
     }
+
     pub fn is_concrete(&self) -> bool {
         self.is_resolved_in(&[])
     }
+
     /// A caller-owned binder is known context even before monomorphization.
     pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType<I>]) -> bool {
         let mut pending = vec![self];
@@ -869,12 +887,14 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         true
     }
+
     pub fn with_self(&self, owner: &I, replacement: &TypeId<I>) -> TypeId<I> {
         self.substitute_once(|ty| match ty {
             Self::SelfType(id) if id == owner => Some(replacement),
             _ => None,
         })
     }
+
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
@@ -892,6 +912,7 @@ impl<I: DefinitionReference> TypeId<I> {
             )
         )
     }
+
     pub fn supports_equality(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -920,6 +941,7 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         true
     }
+
     /// Recovery types suppress dependent diagnostics but never authorize codegen.
     pub fn is_unresolved(&self) -> bool {
         let mut pending = vec![self];
@@ -961,12 +983,14 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         false
     }
+
     /// Seal failed inference without discarding independently known members.
     pub(crate) fn diagnose_unknowns(&self) -> Self {
         self.substitute_once(|ty| {
             matches!(ty, Self::Unknown | Self::Inference(_)).then_some(&Self::Error)
         })
     }
+
     /// Unknown inference holes still need a diagnostic; Error already has one.
     pub(crate) fn contains_unknown(&self) -> bool {
         let mut pending = vec![self];
@@ -997,6 +1021,7 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         false
     }
+
     /// Fill recovery holes from another checked expression, preserving known facts.
     pub(crate) fn recover_from(&mut self, other: &Self) {
         let mut pending = vec![(self, other)];
@@ -1077,6 +1102,7 @@ impl<I: DefinitionReference> TypeId<I> {
             }
         }
     }
+
     pub fn conflicts_with(&self, other: &Self) -> bool {
         let mut pending = vec![(self, other)];
         while let Some((left, right)) = pending.pop() {
@@ -1166,9 +1192,11 @@ impl<I: DefinitionReference> TypeId<I> {
         }
         false
     }
+
     pub fn from_name(name: &str) -> Option<Self> {
         standard_surface::builtin_type(name).map(Self::Builtin)
     }
+
     pub fn is_heap_backed(&self) -> bool {
         match self {
             Self::Inference(_) | Self::Unknown | Self::Error => false,

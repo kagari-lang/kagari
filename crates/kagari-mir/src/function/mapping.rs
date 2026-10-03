@@ -12,6 +12,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for MirModule<I> {
     type Rebind<J: DefinitionReference> = MirModule<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -35,6 +36,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MirModule<I> {
             functions: map_sequence(&self.functions, |value| (value).map_identities(mapper))?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -66,6 +68,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MirModule<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for MirFunction<I> {
     type Rebind<J: DefinitionReference> = MirFunction<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -86,6 +89,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MirFunction<I> {
             debug: self.debug.clone(),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -103,6 +107,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for MirFunction<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for BasicBlock<I> {
     type Rebind<J: DefinitionReference> = BasicBlock<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -117,6 +122,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BasicBlock<I> {
             terminator_scope: self.terminator_scope,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

@@ -460,6 +460,41 @@ Ordinary aggregate access uses checked nominal field slots. Host-backed typed pa
 access is a separate operation with installed contracts and scoped borrow rules.
 Reflection remains explicit rather than implementing ordinary field mutation.
 
+## Definition identity ownership
+
+`DefinitionPath` is the exact owned package/module/kind/name/occurrence locator
+used by authoring inputs, fingerprints, debugging and explicit cross-context
+queries. Published native declarations, HIR caches, checked MIR/bytecode and
+runtime metadata use `identity::table::DefinitionId`: an eight-byte Copy handle
+with private process-local table and node indices. Bare handles have no Serde
+codec. Owners retain immutable checked `DefinitionTable` snapshots; builders
+append without changing existing indices. Independent tables reject each other's
+handles, even when the paths are equal. Import resolves exact paths once and maps
+all referenced ancestors into the destination context.
+
+Semantic records have one identity-parameterized definition rather than parallel
+path and handle models. Ordinary module-owned mapping implementations enumerate
+the identity fields, reject collapsed keys and preserve cancellation and bounds.
+Source checking, proof validation and editor display may project transient authoring
+records. These projections confer no executable seal and are not retained beside
+published compact records. Mutable extraction discards checked ownership evidence.
+HIR arenas/body handles and runtime generations/epochs remain separate safeguards.
+
+Portable KBC/MIR data uses canonical exact tables and four-byte local references.
+Only referenced nodes and ancestors are emitted. Process table numbers, insertion
+order and unrelated interned nodes do not affect canonical bytes or fingerprints;
+ordered arguments, fields and instructions retain their semantic order. Decoding
+rejects invalid/foreign references, duplicate identities, forward/cyclic parents,
+paths above 64 segments and tables above one million records before semantic
+verification and executable adoption. Existing envelope and type limits still apply.
+
+Runtime preparation normalizes independent verified inputs into its own context
+while retaining original immutable version identity and dependency versions.
+Nonempty module metadata is copied during contextual normalization; code-image
+sharing across independent runtimes must not be inferred from original version
+sharing. Definition table snapshots share their prefix storage, but appending
+while a snapshot is retained currently copies the table's index containers.
+
 ## Runtime Model
 
 The runtime owns execution state and services shared by the interpreter and JIT.

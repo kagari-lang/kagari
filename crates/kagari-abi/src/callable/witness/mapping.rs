@@ -10,6 +10,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for OperationWitness<I> {
     type Rebind<J: DefinitionReference> = OperationWitness<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -27,6 +28,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for OperationWitness<I> {
             }
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -50,6 +52,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for OperationWitness<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for SharedMethodWitness<I> {
     type Rebind<J: DefinitionReference> = SharedMethodWitness<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -60,6 +63,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for SharedMethodWitness<I> {
             implementation: self.implementation.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,

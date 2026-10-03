@@ -18,6 +18,7 @@ use kagari_common::{
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ConstraintTarget<I> {
     type Rebind<J: DefinitionReference> = ConstraintTarget<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -28,6 +29,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConstraintTarget<I> {
             Self::Trait(field0) => ConstraintTarget::Trait((field0).map_identities(mapper)?),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -46,6 +48,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConstraintTarget<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypeTarget<I> {
     type Rebind<J: DefinitionReference> = TypeTarget<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -62,6 +65,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTarget<I> {
             Self::Generic(field0) => TypeTarget::Generic(*(field0)),
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -90,6 +94,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTarget<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedTypeRef<I> {
     type Rebind<J: DefinitionReference> = ResolvedTypeRef<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -104,6 +109,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedTypeRef<I> {
                 .transpose()?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -120,6 +126,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedTypeRef<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
     type Rebind<J: DefinitionReference> = CallTarget<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -138,6 +145,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
             },
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -166,6 +174,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedCall<I> {
     type Rebind<J: DefinitionReference> = ResolvedCall<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -184,6 +193,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedCall<I> {
                 .transpose()?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -203,6 +213,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedCall<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedStructInit<I> {
     type Rebind<J: DefinitionReference> = ResolvedStructInit<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -218,6 +229,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedStructInit<I> {
             })?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -238,6 +250,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedStructInit<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedEnumConstructor<I> {
     type Rebind<J: DefinitionReference> = ResolvedEnumConstructor<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -252,6 +265,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedEnumConstructor<I> 
                 .transpose()?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -270,6 +284,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedEnumConstructor<I> 
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TraitImplementation<I> {
     type Rebind<J: DefinitionReference> = TraitImplementation<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -295,6 +310,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitImplementation<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -322,6 +338,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitImplementation<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedIteration<I> {
     type Rebind<J: DefinitionReference> = ResolvedIteration<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -334,6 +351,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedIteration<I> {
             item: self.item.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -350,6 +368,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedIteration<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
     type Rebind<J: DefinitionReference> = TypeTable<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -542,6 +561,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
             )?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -651,6 +671,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedAssociatedConst<I> {
     type Rebind<J: DefinitionReference> = ResolvedAssociatedConst<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -662,6 +683,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedAssociatedConst<I> 
             member: mapper.reference(&self.member)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -678,6 +700,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedAssociatedConst<I> 
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedInterfaceCoercion<I> {
     type Rebind<J: DefinitionReference> = ResolvedInterfaceCoercion<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -689,6 +712,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedInterfaceCoercion<I
             interface_type: self.interface_type.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -704,6 +728,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedInterfaceCoercion<I
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedInterfaceImplementation<I> {
     type Rebind<J: DefinitionReference> = ResolvedInterfaceImplementation<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -721,6 +746,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedInterfaceImplementa
             Self::Host => ResolvedInterfaceImplementation::Host,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -747,6 +773,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedInterfaceImplementa
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedHostPath<I> {
     type Rebind<J: DefinitionReference> = ResolvedHostPath<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -759,6 +786,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedHostPath<I> {
             contract: self.contract.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
@@ -773,6 +801,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedHostPath<I> {
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedHostPlacePath<I> {
     type Rebind<J: DefinitionReference> = ResolvedHostPlacePath<J>;
+
     fn map_identities<J: DefinitionReference>(
         &self,
         mapper: &mut DefinitionMapper<'_, I, J>,
@@ -785,6 +814,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedHostPlacePath<I> {
             contract: self.contract.map_identities(mapper)?,
         })
     }
+
     fn visit_definitions(
         &self,
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
