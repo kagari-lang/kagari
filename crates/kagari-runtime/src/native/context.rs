@@ -73,6 +73,14 @@ impl<'call> ArgumentView<'call> {
         self.rooted_slot(index)
             .is_some_and(|slot| self.roots.is_some_and(|roots| roots.contains_slot(slot)))
     }
+    // Read immutable scalar data without an owning clone. The closure cannot
+    // retain a slot reference; callers must not reenter while it is borrowed.
+    pub(crate) fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
+        if let ArgumentSlots::Scalars(values) = self.slots {
+            return values.get(index).map(read);
+        }
+        self.roots?.with_value(self.rooted_slot(index)?, read)
+    }
     pub fn get(&self, index: usize) -> Option<Value> {
         if let ArgumentSlots::Scalars(values) = self.slots {
             return values.get(index).cloned();

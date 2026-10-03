@@ -49,8 +49,10 @@ reuse the defaults through their selected iterator and set/remove operations.
 `map<T, U>` accepts an ArrayList and `fn(T) -> U`, returning the library-owned
 `MapIterator<T, U>`. It remains an ordinary free function.
 
-The predecessor string, parse, enum-combinator, iterator-terminal, snapshot,
-window, grouping and set-algebra APIs are withdrawn. They are not compatibility
+String also supplies the finite inherent methods documented in
+[builtins](builtins.md). Predecessor APIs outside the accepted surface, including
+parse conveniences, enum combinators, iterator terminals, snapshots, windows,
+grouping and set algebra, remain withdrawn. They are not compatibility
 requirements. New libraries may implement such APIs through ordinary registrations.
 
 ## Explicit registration

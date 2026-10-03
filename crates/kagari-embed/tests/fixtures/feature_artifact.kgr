@@ -1,6 +1,13 @@
 fn main() -> i32 { 42 }
 
 fn required_methods() -> i32 {
+    val text = "  β,a  ";
+    val fields = text.trim().split(",").sorted_by_key(|field| field);
+    if fields.len() != 2usize || fields[0] != "a" || fields[1].len() != 2usize
+        || fields[1].slice(0usize, 2usize) != "β" || text.is_empty()
+        || !text.contains("β") || !text.starts_with("  ") || !text.ends_with("  ")
+        || text.find("β") != Some(2usize) || text.trim_start() != "β,a  "
+        || text.trim_end() != "  β,a" || "β".replace("", "-") != "-β-" { return 0; }
     val values = [20, 22];
     change(values);
     val copied=ArrayList<i32>::from_iter(values);

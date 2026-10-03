@@ -132,6 +132,10 @@ impl RootSet {
     pub fn get(&self, index: usize) -> Option<Value> {
         self.values.borrow().get(index).cloned()
     }
+    pub(crate) fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
+        let values = self.values.try_borrow().ok()?;
+        values.get(index).map(read)
+    }
     pub fn set(&self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
         if self.owner != heap.owner || !heap.validate_value(&value) {
             return None;

@@ -6,14 +6,12 @@ library modules and application modules use the same explicit registration API;
 see [native declarations](standard-declarations.md). Generated `.kgr` serves tooling
 and is not an executable standard library.
 
-The current optional module is `std::collections`, with sort, sort_by and lazy map.
-The completed [native reset](../native-provider-refactor.md) records that baseline.
-The active [foundation completion plan](../foundation-api-completion.md) replaces
-the optional installation switch and moves the approved list methods onto their
-traits; FA02 through FA04 own the remaining implementation migration.
-Predecessor string helpers, numeric convenience methods, enum combinators,
-extended iterator algorithms, collection snapshots and additional container
-classes are withdrawn, rather than implicitly restored by language protocols.
+The foundation is always installed. List/MutableList own common algorithm methods,
+String owns its inherent methods, and `std::collections` provides lazy map. The
+[foundation completion plan](../foundation-api-completion.md) records the finite
+inventory and verification. Predecessor APIs outside that inventory, including
+numeric convenience methods, enum combinators, extended iterator algorithms,
+collection snapshots and additional container classes, remain withdrawn.
 
 ## Foundation trait scope
 
@@ -143,15 +141,16 @@ ordinary checked formatting contracts; formatting callbacks preserve normal
 left-to-right evaluation, effects and failure behavior. The optional predecessor
 query, parse and string-iterator helpers are not implicitly restored.
 
-The accepted inherent String surface is len/is_empty (UTF-8 bytes), literal
+The inherent String surface is len/is_empty (UTF-8 bytes), literal
 contains/starts_with/ends_with/find, checked slice(start, end), Unicode whitespace
 trim/trim_start/trim_end, literal replace and eager split returning List<String>.
 find returns Option<usize>; slice uses a half-open byte range and rejects reversed,
 out-of-range and non-boundary offsets. Empty patterns match at Unicode scalar
 boundaries, including both ends: find returns zero, replace inserts there, and
 split retains endpoint empty fields. A nonempty separator on empty input produces
-one empty string. Inputs remain immutable. FA04 supplies ordinary native bodies
-for these language-owned signatures; no String trait, regex or locale API is added.
+one empty string. Inputs remain immutable. Ordinary native bodies implement these
+language-owned signatures; no String trait, regex or locale API is added. The slice
+trap is IndexOutOfBounds for all invalid byte ranges, including UTF-8 boundaries.
 
 Unqualified compiler helpers such as print and reflection names are consulted only
 after lexical and declared names. A same-named function is an ordinary script call;

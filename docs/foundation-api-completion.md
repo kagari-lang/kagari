@@ -2,7 +2,7 @@
 
 Status: active, 2026-10-02. The user authorized implementation of this plan,
 including the bounded API inventory and approved generic-interface/mutation rules.
-FA01–FA03 are accepted; FA04 is next. This plan fills the gaps left by the completed native collections
+FA01–FA04 are accepted; FA05 final integration is in progress. This plan fills the gaps left by the completed native collections
 reset and execution-policy simplification. It does not resume the historical full
 standard-library restoration checklist.
 
@@ -409,7 +409,7 @@ binary regeneration or compatibility reader belongs here.
 - [x] FA01 Generic interface calls and foundation contracts.
 - [x] FA02 Always-present foundation assembly.
 - [x] FA03 List algorithms and scoped mutation.
-- [ ] FA04 String foundation methods.
+- [x] FA04 String foundation methods.
 - [ ] FA05 Integration and acceptance.
 
 ### FA01 execution record
@@ -648,3 +648,38 @@ checks pass for 643 Rust files with no exceptions; formatting and diff checks pa
 No carried build/test error or structural debt remains. Final workspace, feature,
 JIT and measurement acceptance stays in FA05. This checkpoint uses
 Roadmap-Step: FA03. FA04 owns only the accepted String method inventory.
+
+
+### FA04 execution record
+
+2026-10-03: FA04 accepted. The language catalog now owns all twelve accepted String
+inherent methods and their documentation. A focused Rust foundation module binds
+those declarations without a String trait or compiler/backend method special cases.
+Queries use UTF-8 byte offsets; slicing checks range order, bounds and scalar
+boundaries. Trimming uses Unicode whitespace. Literal replace and eager split
+follow the accepted empty-pattern and endpoint-empty semantics. Split's ArrayList
+body result becomes List<String> through FA03's checked result adapter.
+
+A private scoped argument read avoids copying complete input strings inside the
+method bodies. Borrowed slot references cannot escape; methods release these
+borrows before GC allocation. String outputs own immutable bytes. Split polls
+cooperative cancellation while collecting fields and uses checked typed sequence
+allocation; no persistent state machine, quota or permission layer was added.
+
+Five embedding tests pass, covering every method, multibyte and combining scalars,
+empty strings/patterns, nonoverlapping replacements, immutable inputs, six invalid
+slice ranges (including usize::MAX), static signature errors, forced-GC List result
+construction, and encoded artifact execution. Language catalog tests (7 existing)
+and the new String navigation/completion test pass without application modules.
+The existing raw-declaration/builder ownership rejection test also passes. An
+initial error assertion used the runtime's IndexOutOfBounds code instead of the
+embedding layer's ScriptTrap category; the corrected test checks both that category
+and the specific slice failure message. No production behavior was changed to
+satisfy that assertion.
+
+ABI/HIR/runtime/embed all-target Clippy with -D warnings passes. Structure checks
+pass for 646 Rust files with no exceptions; formatting and diff checks pass.
+Current specifications and the portable feature source cover the delivered String
+surface. Disposable feature bytes will be regenerated once during FA05, together
+with the final four-route check. No carried build/test failure remains. The phase
+checkpoint uses Roadmap-Step: FA04.

@@ -44,7 +44,10 @@ Engine construction supplies their declarations to source analysis and installs
 only explicit application modules afterward. There is no foundation opt-out.
 List/MutableList declare sorting, reversal and filtering as native default methods;
 ArrayList supplies compact storage overrides. The bundled collection module keeps
-lazy map as an ordinary native function. Additional
+lazy map as an ordinary native function. String inherent signatures also belong to
+the language catalog, with ordinary Rust bodies for UTF-8 byte queries, checked
+slicing, Unicode trimming, literal replacement and eager splitting. Split returns
+a List through the same checked concrete-result adapter. Additional
 containers and algorithms remain application-installable future modules.
 
 HIR consumes native ModuleDecl records directly for static checking, generic

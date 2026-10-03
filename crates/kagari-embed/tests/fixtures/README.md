@@ -7,10 +7,12 @@ source text. All four standalone SDK feature routes consume the same bytes:
 artifact-only, `source`, `native`, and `source,native`.
 
 `main` remains the two-step scalar function used by both the trusted static ABI
-fixture and real Cranelift compilation. `native_library` exercises prepared sorting,
-retention, a lazy adapter, fallible collection and Option/iterator callbacks.
+fixture and real Cranelift compilation. `library_and_object` exercises trait sorting,
+an external native object retaining a callback, and lazy map.
 `required_methods` exercises checked MutableList methods, ArrayList FromIterator,
-numeric Sum, FromStr, derived TryInto and primitive From. Source-free execution forces GC and checks root/object/depth cleanup.
+numeric Sum, FromStr, derived TryInto and primitive From. It also checks all twelve
+String methods and String-key sorting through a List result. Source-free execution
+forces GC and checks root/object/depth cleanup.
 Native preparation explicitly falls back before entry for unsupported library calls;
 the scalar entry must still execute actual native code.
 
