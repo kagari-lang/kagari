@@ -27,32 +27,26 @@ pub struct TypeSubstitution<I: DefinitionReference = DefinitionPath> {
     receivers: HashMap<I, TypeId<I>>,
 }
 
-impl TypeSubstitution {
-    pub fn insert_receiver(&mut self, owner: DefinitionPath, receiver: TypeId) {
-        self.receivers.insert(owner, receiver);
-    }
+impl TypeSubstitution {}
 
-    pub fn receiver(&self, owner: &DefinitionPath) -> Option<&TypeId> {
-        self.receivers.get(owner)
-    }
-}
-
-impl Deref for TypeSubstitution {
-    type Target = HashMap<GenericParameterType, TypeId>;
+impl<I: DefinitionReference> Deref for TypeSubstitution<I> {
+    type Target = HashMap<GenericParameterType<I>, TypeId<I>>;
 
     fn deref(&self) -> &Self::Target {
         &self.parameters
     }
 }
 
-impl DerefMut for TypeSubstitution {
+impl<I: DefinitionReference> DerefMut for TypeSubstitution<I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.parameters
     }
 }
 
-impl FromIterator<(GenericParameterType, TypeId)> for TypeSubstitution {
-    fn from_iter<T: IntoIterator<Item = (GenericParameterType, TypeId)>>(iter: T) -> Self {
+impl<I: DefinitionReference> FromIterator<(GenericParameterType<I>, TypeId<I>)>
+    for TypeSubstitution<I>
+{
+    fn from_iter<T: IntoIterator<Item = (GenericParameterType<I>, TypeId<I>)>>(iter: T) -> Self {
         Self {
             parameters: iter.into_iter().collect(),
             receivers: Default::default(),
@@ -83,22 +77,7 @@ pub struct AssociatedTypeFamily<I: DefinitionReference = DefinitionPath> {
     pub value: TypeId<I>,
 }
 
-impl AssociatedTypeFamily {
-    pub fn apply(&self, outer: &TypeSubstitution, arguments: &[TypeId]) -> Option<TypeId> {
-        if arguments.len() != self.inputs.parameters.len() {
-            return None;
-        }
-        let mut substitution = outer.clone();
-        substitution.extend(
-            self.inputs
-                .parameters
-                .iter()
-                .cloned()
-                .zip(arguments.iter().cloned()),
-        );
-        Some(self.value.instantiate(&substitution))
-    }
-}
+impl AssociatedTypeFamily {}
 
 impl<I: DefinitionReference> PartialEq for GenericParameterType<I> {
     fn eq(&self, other: &Self) -> bool {
@@ -122,44 +101,7 @@ pub struct NominalType<I: DefinitionReference = DefinitionPath> {
     pub associated_types: BTreeMap<I, TypeId<I>>,
 }
 
-impl NominalType {
-    pub fn satisfies(&self, required: &Self) -> bool {
-        self.declaration == required.declaration
-            && self.arguments == required.arguments
-            && required
-                .associated_types
-                .iter()
-                .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
-    }
-
-    pub fn instantiate(&self, substitution: &TypeSubstitution) -> Self {
-        Self {
-            declaration: self.declaration.clone(),
-            associated_types: self
-                .associated_types
-                .iter()
-                .map(|(id, ty)| (id.clone(), ty.instantiate(substitution)))
-                .collect(),
-            arguments: self
-                .arguments
-                .iter()
-                .map(|argument| argument.instantiate(substitution))
-                .collect(),
-        }
-    }
-
-    fn map_arguments(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
-        Self {
-            declaration: self.declaration.clone(),
-            associated_types: self
-                .associated_types
-                .iter()
-                .map(|(id, ty)| (id.clone(), map(ty)))
-                .collect(),
-            arguments: self.arguments.iter().map(&mut map).collect(),
-        }
-    }
-}
+impl NominalType {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId<I: DefinitionReference = DefinitionPath> {
@@ -202,10 +144,6 @@ pub enum TypeId<I: DefinitionReference = DefinitionPath> {
 }
 
 impl TypeId {
-    pub fn is_never(&self) -> bool {
-        matches!(self, Self::Builtin(BuiltinType::Never))
-    }
-
     /// Canonical read-only interface for a native collection or collection view.
     pub fn collection_view(&self) -> Option<Self> {
         let (kind, arguments) = match self {
@@ -253,726 +191,12 @@ impl TypeId {
         matches!(self, Self::Trait(interface) if Protocol::from_id(&interface.declaration) == Some(Protocol::MutableList))
     }
 
-    /// Access is part of type identity; it never changes the underlying object.
-    pub fn collection_access(&self) -> Option<CollectionAccess> {
-        match self {
-            Self::Array(_, access) | Self::Set(_, access) | Self::Map { access, .. } => {
-                Some(*access)
-            }
-            _ => None,
-        }
-    }
-
-    /// Only the outer collection access is weakened. Type arguments stay invariant.
-    pub fn read_only_view(&self) -> Option<Self> {
-        Some(match self {
-            Self::Array(item, _) => Self::Array(item.clone(), ReadOnly),
-            Self::Set(item, _) => Self::Set(item.clone(), ReadOnly),
-            Self::Map { key, value, .. } => Self::Map {
-                key: key.clone(),
-                value: value.clone(),
-                access: ReadOnly,
-            },
-            _ => return None,
-        })
-    }
-
-    pub fn can_weaken_to(&self, target: &Self) -> bool {
-        self.collection_access() == Some(Mutable)
-            && target.collection_access() == Some(ReadOnly)
-            && self
-                .read_only_view()
-                .is_some_and(|view| !view.conflicts_with(target))
-    }
-
-    pub fn contains_projection(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Projection { .. } => return true,
-                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                    pending.extend(&ty.arguments);
-                    pending.extend(ty.associated_types.values());
-                }
-                Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
-                    pending.extend(types)
-                }
-                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
-                    pending.push(ty)
-                }
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::Function { params, result } => {
-                    pending.extend(params);
-                    pending.push(result);
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
     pub fn with_associated_types(&self, interface: &NominalType) -> Self {
         associated::normalize(self, &|projected, _, member, arguments| {
             (arguments.is_empty() && projected.declaration == interface.declaration)
                 .then(|| interface.associated_types.get(member).cloned())
                 .flatten()
         })
-    }
-
-    pub fn contains_host_value(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Host(_) => return true,
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
-                Self::Function { .. } => {}
-                Self::Array(item, _)
-                | Self::Set(item, _)
-                | Self::Iter(item)
-                | Self::Range(item, _) => pending.push(item),
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::NativeObject(nominal)
-                | Self::Struct(nominal)
-                | Self::Enum(nominal)
-                | Self::Trait(nominal) => {
-                    pending.extend(&nominal.arguments);
-                    pending.extend(nominal.associated_types.values())
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
-    pub fn contains_self_type(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Projection {
-                    receiver,
-                    interface,
-                    arguments,
-                    ..
-                } => {
-                    pending.extend(arguments);
-                    pending.push(receiver);
-                    pending.extend(&interface.arguments);
-                    pending.extend(interface.associated_types.values());
-                }
-                Self::SelfType(_) => return true,
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
-                Self::Array(item, _)
-                | Self::Set(item, _)
-                | Self::Iter(item)
-                | Self::Range(item, _) => pending.push(item),
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::Function { params, result } => {
-                    pending.extend(params);
-                    pending.push(result);
-                }
-                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                    pending.extend(&ty.arguments);
-                    pending.extend(ty.associated_types.values())
-                }
-                Self::Inference(_)
-                | Self::Unknown
-                | Self::Error
-                | Self::Builtin(_)
-                | Self::Host(_)
-                | Self::Generic(_) => {}
-            }
-        }
-        false
-    }
-
-    /// Substitute one binder layer; replacements can contain the caller's parameters.
-    pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
-        self.substitute_once(|ty| match ty {
-            Self::Generic(parameter) => substitution.get(parameter),
-            Self::SelfType(owner) => substitution.receiver(owner),
-            _ => None,
-        })
-    }
-
-    /// Visit direct type children. Projection normalization uses a separately
-    /// bounded walk; ordinary substitution remains iterative.
-    pub fn map_children(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
-        match self {
-            Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
-            Self::Iter(ty) => Self::Iter(Box::new(map(ty))),
-            Self::Range(ty, kind) => Self::Range(Box::new(map(ty)), *kind),
-            Self::Array(ty, access) => Self::Array(Box::new(map(ty)), *access),
-            Self::Set(ty, access) => Self::Set(Box::new(map(ty)), *access),
-            Self::Map { key, value, access } => Self::Map {
-                key: Box::new(map(key)),
-                value: Box::new(map(value)),
-                access: *access,
-            },
-            Self::Function { params, result } => Self::Function {
-                params: params.iter().map(&mut map).collect(),
-                result: Box::new(map(result)),
-            },
-            Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(map)),
-            Self::Struct(ty) => Self::Struct(ty.map_arguments(map)),
-            Self::Enum(ty) => Self::Enum(ty.map_arguments(map)),
-            Self::Trait(ty) => Self::Trait(ty.map_arguments(map)),
-            Self::StandardEnum { kind, args } => Self::StandardEnum {
-                kind: *kind,
-                args: args.iter().map(map).collect(),
-            },
-            Self::Projection {
-                receiver,
-                interface,
-                member,
-                arguments,
-            } => Self::Projection {
-                arguments: arguments.iter().map(&mut map).collect(),
-                receiver: Box::new(map(receiver)),
-                interface: Box::new(interface.map_arguments(map)),
-                member: member.clone(),
-            },
-            _ => self.clone(),
-        }
-    }
-
-    /// Preserve known argument context without exposing uninferred callee binders.
-    pub(crate) fn argument_context(
-        &self,
-        substitution: &TypeSubstitution,
-        parameters: &[GenericParameterType],
-    ) -> Self {
-        self.substitute_once(|ty| match ty {
-            Self::Generic(parameter) => substitution
-                .get(parameter)
-                .or_else(|| parameters.contains(parameter).then_some(&Self::Unknown)),
-            _ => None,
-        })
-    }
-
-    /// Rebuild one binding layer, copying inserted types without revisiting them
-    /// as substitution targets. Both generic binders and trait Self use this walk.
-    pub(crate) fn substitute_once<'a>(
-        &'a self,
-        mut replacement: impl FnMut(&Self) -> Option<&'a Self>,
-    ) -> Self {
-        let mut result = Self::Unknown;
-        let mut pending = vec![(self, &mut result, true)];
-        while let Some((source, target, substitute)) = pending.pop() {
-            if substitute && let Some(inserted) = replacement(source) {
-                pending.push((inserted, target, false));
-                continue;
-            }
-            *target = match source {
-                Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(|_| Self::Unknown)),
-                Self::Struct(ty) => Self::Struct(ty.map_arguments(|_| Self::Unknown)),
-                Self::Enum(ty) => Self::Enum(ty.map_arguments(|_| Self::Unknown)),
-                Self::Trait(ty) => Self::Trait(ty.map_arguments(|_| Self::Unknown)),
-                Self::Tuple(items) => Self::Tuple(vec![Self::Unknown; items.len()]),
-                Self::StandardEnum { kind, args } => Self::StandardEnum {
-                    kind: *kind,
-                    args: vec![Self::Unknown; args.len()],
-                },
-                Self::Iter(_) => Self::Iter(Box::new(Self::Unknown)),
-                Self::Range(_, kind) => Self::Range(Box::new(Self::Unknown), *kind),
-                Self::Array(_, access) => Self::Array(Box::new(Self::Unknown), *access),
-                Self::Set(_, access) => Self::Set(Box::new(Self::Unknown), *access),
-                Self::Map { access, .. } => Self::Map {
-                    key: Box::new(Self::Unknown),
-                    value: Box::new(Self::Unknown),
-                    access: *access,
-                },
-                Self::Function { params, .. } => Self::Function {
-                    params: vec![Self::Unknown; params.len()],
-                    result: Box::new(Self::Unknown),
-                },
-                Self::Projection {
-                    interface,
-                    member,
-                    arguments,
-                    ..
-                } => Self::Projection {
-                    arguments: vec![Self::Unknown; arguments.len()],
-                    receiver: Box::new(Self::Unknown),
-                    interface: Box::new(interface.map_arguments(|_| Self::Unknown)),
-                    member: member.clone(),
-                },
-                _ => source.clone(),
-            };
-            match (source, target) {
-                (Self::NativeObject(source), Self::NativeObject(target))
-                | (Self::Struct(source), Self::Struct(target))
-                | (Self::Enum(source), Self::Enum(target))
-                | (Self::Trait(source), Self::Trait(target)) => {
-                    pending.extend(
-                        source
-                            .associated_types
-                            .values()
-                            .zip(target.associated_types.values_mut())
-                            .map(|(source, target)| (source, target, substitute)),
-                    );
-                    pending.extend(
-                        source
-                            .arguments
-                            .iter()
-                            .zip(&mut target.arguments)
-                            .rev()
-                            .map(|(source, target)| (source, target, substitute)),
-                    );
-                }
-                (
-                    Self::Projection {
-                        receiver: sr,
-                        interface: si,
-                        arguments: sa,
-                        ..
-                    },
-                    Self::Projection {
-                        receiver: tr,
-                        interface: ti,
-                        arguments: ta,
-                        ..
-                    },
-                ) => {
-                    pending.extend(
-                        sa.iter()
-                            .zip(ta)
-                            .map(|(source, target)| (source, target, substitute)),
-                    );
-                    pending.push((sr, tr, substitute));
-                    pending.extend(
-                        si.arguments
-                            .iter()
-                            .zip(&mut ti.arguments)
-                            .map(|(source, target)| (source, target, substitute)),
-                    );
-                    pending.extend(
-                        si.associated_types
-                            .values()
-                            .zip(ti.associated_types.values_mut())
-                            .map(|(source, target)| (source, target, substitute)),
-                    );
-                }
-                (Self::Tuple(source), Self::Tuple(target))
-                | (
-                    Self::StandardEnum { args: source, .. },
-                    Self::StandardEnum { args: target, .. },
-                ) => {
-                    pending.extend(
-                        source
-                            .iter()
-                            .zip(target)
-                            .rev()
-                            .map(|(source, target)| (source, target, substitute)),
-                    );
-                }
-                (Self::Range(source, _), Self::Range(target, _))
-                | (Self::Iter(source), Self::Iter(target))
-                | (Self::Array(source, _), Self::Array(target, _))
-                | (Self::Set(source, _), Self::Set(target, _)) => {
-                    pending.push((source, target, substitute));
-                }
-                (
-                    Self::Map {
-                        key: source_key,
-                        value: source_value,
-                        ..
-                    },
-                    Self::Map {
-                        key: target_key,
-                        value: target_value,
-                        ..
-                    },
-                ) => {
-                    pending.push((source_value, target_value, substitute));
-                    pending.push((source_key, target_key, substitute));
-                }
-                (
-                    Self::Function {
-                        params: source_params,
-                        result: source_result,
-                    },
-                    Self::Function {
-                        params: target_params,
-                        result: target_result,
-                    },
-                ) => {
-                    pending.push((source_result, target_result, substitute));
-                    pending.extend(
-                        source_params
-                            .iter()
-                            .zip(target_params)
-                            .rev()
-                            .map(|(source, target)| (source, target, substitute)),
-                    );
-                }
-                _ => {}
-            }
-        }
-        result
-    }
-
-    pub fn is_concrete(&self) -> bool {
-        self.is_resolved_in(&[])
-    }
-
-    /// A caller-owned binder is known context even before monomorphization.
-    pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType]) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::NativeObject(nominal)
-                | Self::Struct(nominal)
-                | Self::Enum(nominal)
-                | Self::Trait(nominal) => {
-                    pending.extend(&nominal.arguments);
-                    pending.extend(nominal.associated_types.values());
-                }
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items);
-                }
-                Self::Array(item, _)
-                | Self::Set(item, _)
-                | Self::Iter(item)
-                | Self::Range(item, _) => pending.push(item),
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::Function { params, result } => {
-                    pending.extend(params);
-                    pending.push(result);
-                }
-                Self::Generic(parameter) if parameters.contains(parameter) => {}
-                Self::Projection {
-                    receiver,
-                    arguments,
-                    interface,
-                    ..
-                } if receiver.is_resolved_in(parameters) && !parameters.is_empty() => {
-                    pending.extend(arguments);
-                    pending.extend(&interface.arguments);
-                    pending.extend(interface.associated_types.values());
-                }
-                Self::Projection { .. }
-                | Self::Generic(_)
-                | Self::Inference(_)
-                | Self::Unknown
-                | Self::Error
-                | Self::SelfType(_) => return false,
-                Self::Builtin(_) | Self::Host(_) => {}
-            }
-        }
-        true
-    }
-
-    pub fn with_self(&self, owner: &DefinitionPath, replacement: &TypeId) -> TypeId {
-        self.substitute_once(|ty| match ty {
-            Self::SelfType(id) if id == owner => Some(replacement),
-            _ => None,
-        })
-    }
-
-    pub fn is_integer(&self) -> bool {
-        matches!(
-            self,
-            Self::Builtin(
-                BuiltinType::I8
-                    | BuiltinType::I16
-                    | BuiltinType::I32
-                    | BuiltinType::I64
-                    | BuiltinType::ISize
-                    | BuiltinType::U8
-                    | BuiltinType::U16
-                    | BuiltinType::U32
-                    | BuiltinType::U64
-                    | BuiltinType::USize
-            )
-        )
-    }
-
-    pub fn supports_equality(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
-                    pending.extend(members);
-                }
-                Self::Inference(_)
-                | Self::Unknown
-                | Self::Error
-                | Self::Trait(_)
-                | Self::Host(_)
-                | Self::Generic(_)
-                | Self::SelfType(_)
-                | Self::Projection { .. } => return false,
-                Self::Function { .. } | Self::Iter(_) | Self::Range(_, _) => return false,
-                // The elements of mutable containers do not participate in identity equality.
-                Self::Builtin(_)
-                | Self::NativeObject(_)
-                | Self::Struct(_)
-                | Self::Enum(_)
-                | Self::Array(_, _)
-                | Self::Map { .. }
-                | Self::Set(_, _) => {}
-            }
-        }
-        true
-    }
-
-    /// Recovery types suppress dependent diagnostics but never authorize codegen.
-    pub fn is_unresolved(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::NativeObject(nominal)
-                | Self::Struct(nominal)
-                | Self::Enum(nominal)
-                | Self::Trait(nominal) => {
-                    pending.extend(&nominal.arguments);
-                    pending.extend(nominal.associated_types.values());
-                }
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items);
-                }
-                Self::Array(item, _)
-                | Self::Set(item, _)
-                | Self::Iter(item)
-                | Self::Range(item, _) => pending.push(item),
-                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::Function { params, result } => {
-                    pending.extend(params);
-                    pending.push(result);
-                }
-                Self::Projection {
-                    receiver,
-                    interface,
-                    arguments,
-                    ..
-                } => {
-                    pending.extend(arguments);
-                    pending.push(receiver);
-                    pending.extend(&interface.arguments);
-                    pending.extend(interface.associated_types.values());
-                }
-                Self::Inference(_) | Self::Unknown | Self::Error => return true,
-                Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
-            }
-        }
-        false
-    }
-
-    /// Seal failed inference without discarding independently known members.
-    pub(crate) fn diagnose_unknowns(&self) -> Self {
-        self.substitute_once(|ty| {
-            matches!(ty, Self::Unknown | Self::Inference(_)).then_some(&Self::Error)
-        })
-    }
-
-    /// Unknown inference holes still need a diagnostic; Error already has one.
-    pub(crate) fn contains_unknown(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Inference(_) | Self::Unknown => return true,
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
-                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                    pending.extend(&ty.arguments);
-                    pending.extend(ty.associated_types.values())
-                }
-                Self::Array(element, _)
-                | Self::Set(element, _)
-                | Self::Iter(element)
-                | Self::Range(element, _) => pending.push(element),
-                Self::Map { key, value, .. } => {
-                    pending.push(key);
-                    pending.push(value);
-                }
-                Self::Function { params, result } => {
-                    pending.extend(params);
-                    pending.push(result);
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
-    /// Fill recovery holes from another checked expression, preserving known facts.
-    pub(crate) fn recover_from(&mut self, other: &Self) {
-        let mut pending = vec![(self, other)];
-        while let Some((left, right)) = pending.pop() {
-            if matches!(right, Self::Unknown | Self::Error) {
-                continue;
-            }
-            match (left, right) {
-                (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
-                (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
-                    pending.extend(left.iter_mut().zip(right).rev());
-                }
-                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
-                    pending.push((left, right));
-                }
-                (Self::Iter(left), Self::Iter(right))
-                | (Self::Array(left, _), Self::Array(right, _))
-                | (Self::Set(left, _), Self::Set(right, _)) => {
-                    pending.push((left, right));
-                }
-                (
-                    Self::Map {
-                        key: lk, value: lv, ..
-                    },
-                    Self::Map {
-                        key: rk, value: rv, ..
-                    },
-                ) => {
-                    pending.push((lv, rv));
-                    pending.push((lk, rk));
-                }
-                (
-                    Self::Function {
-                        params: left_params,
-                        result: left_result,
-                    },
-                    Self::Function {
-                        params: right_params,
-                        result: right_result,
-                    },
-                ) if left_params.len() == right_params.len() => {
-                    pending.push((left_result, right_result));
-                    pending.extend(left_params.iter_mut().zip(right_params).rev());
-                }
-                (Self::NativeObject(left), Self::NativeObject(right))
-                | (Self::Struct(left), Self::Struct(right))
-                | (Self::Enum(left), Self::Enum(right))
-                | (Self::Trait(left), Self::Trait(right))
-                    if left.declaration == right.declaration
-                        && left.arguments.len() == right.arguments.len() =>
-                {
-                    if left
-                        .associated_types
-                        .keys()
-                        .eq(right.associated_types.keys())
-                    {
-                        pending.extend(
-                            left.associated_types
-                                .values_mut()
-                                .zip(right.associated_types.values()),
-                        );
-                    }
-                    pending.extend(left.arguments.iter_mut().zip(&right.arguments).rev());
-                }
-                (
-                    Self::StandardEnum {
-                        kind: lk,
-                        args: left,
-                    },
-                    Self::StandardEnum {
-                        kind: rk,
-                        args: right,
-                    },
-                ) if lk == rk && left.len() == right.len() => {
-                    pending.extend(left.iter_mut().zip(right).rev());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    pub fn conflicts_with(&self, other: &Self) -> bool {
-        let mut pending = vec![(self, other)];
-        while let Some((left, right)) = pending.pop() {
-            match (left, right) {
-                (Self::Inference(_) | Self::Unknown | Self::Error, _)
-                | (_, Self::Inference(_) | Self::Unknown | Self::Error) => {}
-                (left, right)
-                    if left.collection_access().is_some()
-                        && right.collection_access().is_some()
-                        && left.collection_access() != right.collection_access() =>
-                {
-                    return true;
-                }
-                (Self::Tuple(left), Self::Tuple(right)) => {
-                    if left.len() != right.len() {
-                        return true;
-                    }
-                    pending.extend(left.iter().zip(right).rev());
-                }
-                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
-                    pending.push((left, right));
-                }
-                (Self::Iter(left), Self::Iter(right))
-                | (Self::Array(left, _), Self::Array(right, _))
-                | (Self::Set(left, _), Self::Set(right, _)) => {
-                    pending.push((left, right));
-                }
-                (
-                    Self::Map {
-                        key: lk, value: lv, ..
-                    },
-                    Self::Map {
-                        key: rk, value: rv, ..
-                    },
-                ) => {
-                    pending.push((lv, rv));
-                    pending.push((lk, rk));
-                }
-                (
-                    Self::Function {
-                        params: left_params,
-                        result: left_result,
-                    },
-                    Self::Function {
-                        params: right_params,
-                        result: right_result,
-                    },
-                ) => {
-                    if left_params.len() != right_params.len() {
-                        return true;
-                    }
-                    pending.push((left_result, right_result));
-                    pending.extend(left_params.iter().zip(right_params).rev());
-                }
-                (Self::NativeObject(left), Self::NativeObject(right))
-                | (Self::Struct(left), Self::Struct(right))
-                | (Self::Enum(left), Self::Enum(right))
-                | (Self::Trait(left), Self::Trait(right)) => {
-                    if left.declaration != right.declaration
-                        || left.arguments.len() != right.arguments.len()
-                        || !left
-                            .associated_types
-                            .keys()
-                            .eq(right.associated_types.keys())
-                    {
-                        return true;
-                    }
-                    pending.extend(
-                        left.associated_types
-                            .values()
-                            .zip(right.associated_types.values()),
-                    );
-                    pending.extend(left.arguments.iter().zip(&right.arguments).rev());
-                }
-                (
-                    Self::StandardEnum { kind: lk, args: la },
-                    Self::StandardEnum { kind: rk, args: ra },
-                ) => {
-                    if lk != rk || la.len() != ra.len() {
-                        return true;
-                    }
-                    pending.extend(la.iter().zip(ra).rev());
-                }
-                _ if left != right => return true,
-                _ => {}
-            }
-        }
-        false
-    }
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        standard_surface::builtin_type(name).map(Self::Builtin)
     }
 
     pub fn display_name(&self) -> String {
@@ -1139,31 +363,6 @@ impl TypeId {
         }
         output
     }
-
-    pub fn is_heap_backed(&self) -> bool {
-        match self {
-            Self::Inference(_) | Self::Unknown | Self::Error => false,
-            Self::Builtin(ty) => {
-                standard_surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
-            }
-            Self::Tuple(_)
-            | Self::Function { .. }
-            | Self::Iter(_)
-            | Self::Range(_, _)
-            | Self::Array(_, _)
-            | Self::Map { .. }
-            | Self::Set(_, _)
-            | Self::NativeObject(_)
-            | Self::Struct(_)
-            | Self::Enum(_)
-            | Self::Trait(_)
-            | Self::Host(_)
-            | Self::Generic(_)
-            | Self::SelfType(_)
-            | Self::Projection { .. }
-            | Self::StandardEnum { .. } => true,
-        }
-    }
 }
 
 /// Repetition is permitted only when the type proves that no mutable identity is shared.
@@ -1212,3 +411,786 @@ impl<I: DefinitionReference> Default for TypeSubstitution<I> {
 mod mapping;
 
 mod shape;
+
+impl<I: DefinitionReference> TypeSubstitution<I> {
+    pub fn insert_receiver(&mut self, owner: I, receiver: TypeId<I>) {
+        self.receivers.insert(owner, receiver);
+    }
+    pub fn receiver(&self, owner: &I) -> Option<&TypeId<I>> {
+        self.receivers.get(owner)
+    }
+}
+impl<I: DefinitionReference> AssociatedTypeFamily<I> {
+    pub fn apply(&self, outer: &TypeSubstitution<I>, arguments: &[TypeId<I>]) -> Option<TypeId<I>> {
+        if arguments.len() != self.inputs.parameters.len() {
+            return None;
+        }
+        let mut substitution = outer.clone();
+        substitution.extend(
+            self.inputs
+                .parameters
+                .iter()
+                .cloned()
+                .zip(arguments.iter().cloned()),
+        );
+        Some(self.value.instantiate(&substitution))
+    }
+}
+impl<I: DefinitionReference> NominalType<I> {
+    pub fn satisfies(&self, required: &Self) -> bool {
+        self.declaration == required.declaration
+            && self.arguments == required.arguments
+            && required
+                .associated_types
+                .iter()
+                .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
+    }
+    pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> Self {
+        Self {
+            declaration: self.declaration.clone(),
+            associated_types: self
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (id.clone(), ty.instantiate(substitution)))
+                .collect(),
+            arguments: self
+                .arguments
+                .iter()
+                .map(|argument| argument.instantiate(substitution))
+                .collect(),
+        }
+    }
+    fn map_arguments(&self, mut map: impl FnMut(&TypeId<I>) -> TypeId<I>) -> Self {
+        Self {
+            declaration: self.declaration.clone(),
+            associated_types: self
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (id.clone(), map(ty)))
+                .collect(),
+            arguments: self.arguments.iter().map(&mut map).collect(),
+        }
+    }
+}
+impl<I: DefinitionReference> TypeId<I> {
+    pub fn is_never(&self) -> bool {
+        matches!(self, Self::Builtin(BuiltinType::Never))
+    }
+    /// Access is part of type identity; it never changes the underlying object.
+    pub fn collection_access(&self) -> Option<CollectionAccess> {
+        match self {
+            Self::Array(_, access) | Self::Set(_, access) | Self::Map { access, .. } => {
+                Some(*access)
+            }
+            _ => None,
+        }
+    }
+    /// Only the outer collection access is weakened. Type arguments stay invariant.
+    pub fn read_only_view(&self) -> Option<Self> {
+        Some(match self {
+            Self::Array(item, _) => Self::Array(item.clone(), ReadOnly),
+            Self::Set(item, _) => Self::Set(item.clone(), ReadOnly),
+            Self::Map { key, value, .. } => Self::Map {
+                key: key.clone(),
+                value: value.clone(),
+                access: ReadOnly,
+            },
+            _ => return None,
+        })
+    }
+    pub fn can_weaken_to(&self, target: &Self) -> bool {
+        self.collection_access() == Some(Mutable)
+            && target.collection_access() == Some(ReadOnly)
+            && self
+                .read_only_view()
+                .is_some_and(|view| !view.conflicts_with(target))
+    }
+    pub fn contains_projection(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Projection { .. } => return true,
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values());
+                }
+                Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
+                    pending.extend(types)
+                }
+                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
+                    pending.push(ty)
+                }
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+    pub fn contains_host_value(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Host(_) => return true,
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items)
+                }
+                Self::Function { .. } => {}
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values())
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+    pub fn contains_self_type(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Projection {
+                    receiver,
+                    interface,
+                    arguments,
+                    ..
+                } => {
+                    pending.extend(arguments);
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
+                Self::SelfType(_) => return true,
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items)
+                }
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values())
+                }
+                Self::Inference(_)
+                | Self::Unknown
+                | Self::Error
+                | Self::Builtin(_)
+                | Self::Host(_)
+                | Self::Generic(_) => {}
+            }
+        }
+        false
+    }
+    /// Substitute one binder layer; replacements can contain the caller's parameters.
+    pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> TypeId<I> {
+        self.substitute_once(|ty| match ty {
+            Self::Generic(parameter) => substitution.get(parameter),
+            Self::SelfType(owner) => substitution.receiver(owner),
+            _ => None,
+        })
+    }
+    /// Visit direct type children. Projection normalization uses a separately
+    /// bounded walk; ordinary substitution remains iterative.
+    pub fn map_children(&self, mut map: impl FnMut(&TypeId<I>) -> TypeId<I>) -> Self {
+        match self {
+            Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
+            Self::Iter(ty) => Self::Iter(Box::new(map(ty))),
+            Self::Range(ty, kind) => Self::Range(Box::new(map(ty)), *kind),
+            Self::Array(ty, access) => Self::Array(Box::new(map(ty)), *access),
+            Self::Set(ty, access) => Self::Set(Box::new(map(ty)), *access),
+            Self::Map { key, value, access } => Self::Map {
+                key: Box::new(map(key)),
+                value: Box::new(map(value)),
+                access: *access,
+            },
+            Self::Function { params, result } => Self::Function {
+                params: params.iter().map(&mut map).collect(),
+                result: Box::new(map(result)),
+            },
+            Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(map)),
+            Self::Struct(ty) => Self::Struct(ty.map_arguments(map)),
+            Self::Enum(ty) => Self::Enum(ty.map_arguments(map)),
+            Self::Trait(ty) => Self::Trait(ty.map_arguments(map)),
+            Self::StandardEnum { kind, args } => Self::StandardEnum {
+                kind: *kind,
+                args: args.iter().map(map).collect(),
+            },
+            Self::Projection {
+                receiver,
+                interface,
+                member,
+                arguments,
+            } => Self::Projection {
+                arguments: arguments.iter().map(&mut map).collect(),
+                receiver: Box::new(map(receiver)),
+                interface: Box::new(interface.map_arguments(map)),
+                member: member.clone(),
+            },
+            _ => self.clone(),
+        }
+    }
+    /// Preserve known argument context without exposing uninferred callee binders.
+    pub(crate) fn argument_context(
+        &self,
+        substitution: &TypeSubstitution<I>,
+        parameters: &[GenericParameterType<I>],
+    ) -> Self {
+        self.substitute_once(|ty| match ty {
+            Self::Generic(parameter) => substitution
+                .get(parameter)
+                .or_else(|| parameters.contains(parameter).then_some(&Self::Unknown)),
+            _ => None,
+        })
+    }
+    /// Rebuild one binding layer, copying inserted types without revisiting them
+    /// as substitution targets. Both generic binders and trait Self use this walk.
+    pub(crate) fn substitute_once<'a>(
+        &'a self,
+        mut replacement: impl FnMut(&Self) -> Option<&'a Self>,
+    ) -> Self {
+        let mut result = Self::Unknown;
+        let mut pending = vec![(self, &mut result, true)];
+        while let Some((source, target, substitute)) = pending.pop() {
+            if substitute && let Some(inserted) = replacement(source) {
+                pending.push((inserted, target, false));
+                continue;
+            }
+            *target = match source {
+                Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(|_| Self::Unknown)),
+                Self::Struct(ty) => Self::Struct(ty.map_arguments(|_| Self::Unknown)),
+                Self::Enum(ty) => Self::Enum(ty.map_arguments(|_| Self::Unknown)),
+                Self::Trait(ty) => Self::Trait(ty.map_arguments(|_| Self::Unknown)),
+                Self::Tuple(items) => Self::Tuple(vec![Self::Unknown; items.len()]),
+                Self::StandardEnum { kind, args } => Self::StandardEnum {
+                    kind: *kind,
+                    args: vec![Self::Unknown; args.len()],
+                },
+                Self::Iter(_) => Self::Iter(Box::new(Self::Unknown)),
+                Self::Range(_, kind) => Self::Range(Box::new(Self::Unknown), *kind),
+                Self::Array(_, access) => Self::Array(Box::new(Self::Unknown), *access),
+                Self::Set(_, access) => Self::Set(Box::new(Self::Unknown), *access),
+                Self::Map { access, .. } => Self::Map {
+                    key: Box::new(Self::Unknown),
+                    value: Box::new(Self::Unknown),
+                    access: *access,
+                },
+                Self::Function { params, .. } => Self::Function {
+                    params: vec![Self::Unknown; params.len()],
+                    result: Box::new(Self::Unknown),
+                },
+                Self::Projection {
+                    interface,
+                    member,
+                    arguments,
+                    ..
+                } => Self::Projection {
+                    arguments: vec![Self::Unknown; arguments.len()],
+                    receiver: Box::new(Self::Unknown),
+                    interface: Box::new(interface.map_arguments(|_| Self::Unknown)),
+                    member: member.clone(),
+                },
+                _ => source.clone(),
+            };
+            match (source, target) {
+                (Self::NativeObject(source), Self::NativeObject(target))
+                | (Self::Struct(source), Self::Struct(target))
+                | (Self::Enum(source), Self::Enum(target))
+                | (Self::Trait(source), Self::Trait(target)) => {
+                    pending.extend(
+                        source
+                            .associated_types
+                            .values()
+                            .zip(target.associated_types.values_mut())
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.extend(
+                        source
+                            .arguments
+                            .iter()
+                            .zip(&mut target.arguments)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (
+                    Self::Projection {
+                        receiver: sr,
+                        interface: si,
+                        arguments: sa,
+                        ..
+                    },
+                    Self::Projection {
+                        receiver: tr,
+                        interface: ti,
+                        arguments: ta,
+                        ..
+                    },
+                ) => {
+                    pending.extend(
+                        sa.iter()
+                            .zip(ta)
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.push((sr, tr, substitute));
+                    pending.extend(
+                        si.arguments
+                            .iter()
+                            .zip(&mut ti.arguments)
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.extend(
+                        si.associated_types
+                            .values()
+                            .zip(ti.associated_types.values_mut())
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (Self::Tuple(source), Self::Tuple(target))
+                | (
+                    Self::StandardEnum { args: source, .. },
+                    Self::StandardEnum { args: target, .. },
+                ) => {
+                    pending.extend(
+                        source
+                            .iter()
+                            .zip(target)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (Self::Range(source, _), Self::Range(target, _))
+                | (Self::Iter(source), Self::Iter(target))
+                | (Self::Array(source, _), Self::Array(target, _))
+                | (Self::Set(source, _), Self::Set(target, _)) => {
+                    pending.push((source, target, substitute));
+                }
+                (
+                    Self::Map {
+                        key: source_key,
+                        value: source_value,
+                        ..
+                    },
+                    Self::Map {
+                        key: target_key,
+                        value: target_value,
+                        ..
+                    },
+                ) => {
+                    pending.push((source_value, target_value, substitute));
+                    pending.push((source_key, target_key, substitute));
+                }
+                (
+                    Self::Function {
+                        params: source_params,
+                        result: source_result,
+                    },
+                    Self::Function {
+                        params: target_params,
+                        result: target_result,
+                    },
+                ) => {
+                    pending.push((source_result, target_result, substitute));
+                    pending.extend(
+                        source_params
+                            .iter()
+                            .zip(target_params)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                _ => {}
+            }
+        }
+        result
+    }
+    pub fn is_concrete(&self) -> bool {
+        self.is_resolved_in(&[])
+    }
+    /// A caller-owned binder is known context even before monomorphization.
+    pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType<I>]) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values());
+                }
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items);
+                }
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                Self::Generic(parameter) if parameters.contains(parameter) => {}
+                Self::Projection {
+                    receiver,
+                    arguments,
+                    interface,
+                    ..
+                } if receiver.is_resolved_in(parameters) && !parameters.is_empty() => {
+                    pending.extend(arguments);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
+                Self::Projection { .. }
+                | Self::Generic(_)
+                | Self::Inference(_)
+                | Self::Unknown
+                | Self::Error
+                | Self::SelfType(_) => return false,
+                Self::Builtin(_) | Self::Host(_) => {}
+            }
+        }
+        true
+    }
+    pub fn with_self(&self, owner: &I, replacement: &TypeId<I>) -> TypeId<I> {
+        self.substitute_once(|ty| match ty {
+            Self::SelfType(id) if id == owner => Some(replacement),
+            _ => None,
+        })
+    }
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            Self::Builtin(
+                BuiltinType::I8
+                    | BuiltinType::I16
+                    | BuiltinType::I32
+                    | BuiltinType::I64
+                    | BuiltinType::ISize
+                    | BuiltinType::U8
+                    | BuiltinType::U16
+                    | BuiltinType::U32
+                    | BuiltinType::U64
+                    | BuiltinType::USize
+            )
+        )
+    }
+    pub fn supports_equality(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
+                    pending.extend(members);
+                }
+                Self::Inference(_)
+                | Self::Unknown
+                | Self::Error
+                | Self::Trait(_)
+                | Self::Host(_)
+                | Self::Generic(_)
+                | Self::SelfType(_)
+                | Self::Projection { .. } => return false,
+                Self::Function { .. } | Self::Iter(_) | Self::Range(_, _) => return false,
+                // The elements of mutable containers do not participate in identity equality.
+                Self::Builtin(_)
+                | Self::NativeObject(_)
+                | Self::Struct(_)
+                | Self::Enum(_)
+                | Self::Array(_, _)
+                | Self::Map { .. }
+                | Self::Set(_, _) => {}
+            }
+        }
+        true
+    }
+    /// Recovery types suppress dependent diagnostics but never authorize codegen.
+    pub fn is_unresolved(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values());
+                }
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items);
+                }
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                Self::Projection {
+                    receiver,
+                    interface,
+                    arguments,
+                    ..
+                } => {
+                    pending.extend(arguments);
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
+                Self::Inference(_) | Self::Unknown | Self::Error => return true,
+                Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
+            }
+        }
+        false
+    }
+    /// Seal failed inference without discarding independently known members.
+    pub(crate) fn diagnose_unknowns(&self) -> Self {
+        self.substitute_once(|ty| {
+            matches!(ty, Self::Unknown | Self::Inference(_)).then_some(&Self::Error)
+        })
+    }
+    /// Unknown inference holes still need a diagnostic; Error already has one.
+    pub(crate) fn contains_unknown(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Inference(_) | Self::Unknown => return true,
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items)
+                }
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values())
+                }
+                Self::Array(element, _)
+                | Self::Set(element, _)
+                | Self::Iter(element)
+                | Self::Range(element, _) => pending.push(element),
+                Self::Map { key, value, .. } => {
+                    pending.push(key);
+                    pending.push(value);
+                }
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+    /// Fill recovery holes from another checked expression, preserving known facts.
+    pub(crate) fn recover_from(&mut self, other: &Self) {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            if matches!(right, Self::Unknown | Self::Error) {
+                continue;
+            }
+            match (left, right) {
+                (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
+                (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
+                    pending.extend(left.iter_mut().zip(right).rev());
+                }
+                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
+                    pending.push((left, right));
+                }
+                (Self::Iter(left), Self::Iter(right))
+                | (Self::Array(left, _), Self::Array(right, _))
+                | (Self::Set(left, _), Self::Set(right, _)) => {
+                    pending.push((left, right));
+                }
+                (
+                    Self::Map {
+                        key: lk, value: lv, ..
+                    },
+                    Self::Map {
+                        key: rk, value: rv, ..
+                    },
+                ) => {
+                    pending.push((lv, rv));
+                    pending.push((lk, rk));
+                }
+                (
+                    Self::Function {
+                        params: left_params,
+                        result: left_result,
+                    },
+                    Self::Function {
+                        params: right_params,
+                        result: right_result,
+                    },
+                ) if left_params.len() == right_params.len() => {
+                    pending.push((left_result, right_result));
+                    pending.extend(left_params.iter_mut().zip(right_params).rev());
+                }
+                (Self::NativeObject(left), Self::NativeObject(right))
+                | (Self::Struct(left), Self::Struct(right))
+                | (Self::Enum(left), Self::Enum(right))
+                | (Self::Trait(left), Self::Trait(right))
+                    if left.declaration == right.declaration
+                        && left.arguments.len() == right.arguments.len() =>
+                {
+                    if left
+                        .associated_types
+                        .keys()
+                        .eq(right.associated_types.keys())
+                    {
+                        pending.extend(
+                            left.associated_types
+                                .values_mut()
+                                .zip(right.associated_types.values()),
+                        );
+                    }
+                    pending.extend(left.arguments.iter_mut().zip(&right.arguments).rev());
+                }
+                (
+                    Self::StandardEnum {
+                        kind: lk,
+                        args: left,
+                    },
+                    Self::StandardEnum {
+                        kind: rk,
+                        args: right,
+                    },
+                ) if lk == rk && left.len() == right.len() => {
+                    pending.extend(left.iter_mut().zip(right).rev());
+                }
+                _ => {}
+            }
+        }
+    }
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (Self::Inference(_) | Self::Unknown | Self::Error, _)
+                | (_, Self::Inference(_) | Self::Unknown | Self::Error) => {}
+                (left, right)
+                    if left.collection_access().is_some()
+                        && right.collection_access().is_some()
+                        && left.collection_access() != right.collection_access() =>
+                {
+                    return true;
+                }
+                (Self::Tuple(left), Self::Tuple(right)) => {
+                    if left.len() != right.len() {
+                        return true;
+                    }
+                    pending.extend(left.iter().zip(right).rev());
+                }
+                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
+                    pending.push((left, right));
+                }
+                (Self::Iter(left), Self::Iter(right))
+                | (Self::Array(left, _), Self::Array(right, _))
+                | (Self::Set(left, _), Self::Set(right, _)) => {
+                    pending.push((left, right));
+                }
+                (
+                    Self::Map {
+                        key: lk, value: lv, ..
+                    },
+                    Self::Map {
+                        key: rk, value: rv, ..
+                    },
+                ) => {
+                    pending.push((lv, rv));
+                    pending.push((lk, rk));
+                }
+                (
+                    Self::Function {
+                        params: left_params,
+                        result: left_result,
+                    },
+                    Self::Function {
+                        params: right_params,
+                        result: right_result,
+                    },
+                ) => {
+                    if left_params.len() != right_params.len() {
+                        return true;
+                    }
+                    pending.push((left_result, right_result));
+                    pending.extend(left_params.iter().zip(right_params).rev());
+                }
+                (Self::NativeObject(left), Self::NativeObject(right))
+                | (Self::Struct(left), Self::Struct(right))
+                | (Self::Enum(left), Self::Enum(right))
+                | (Self::Trait(left), Self::Trait(right)) => {
+                    if left.declaration != right.declaration
+                        || left.arguments.len() != right.arguments.len()
+                        || !left
+                            .associated_types
+                            .keys()
+                            .eq(right.associated_types.keys())
+                    {
+                        return true;
+                    }
+                    pending.extend(
+                        left.associated_types
+                            .values()
+                            .zip(right.associated_types.values()),
+                    );
+                    pending.extend(left.arguments.iter().zip(&right.arguments).rev());
+                }
+                (
+                    Self::StandardEnum { kind: lk, args: la },
+                    Self::StandardEnum { kind: rk, args: ra },
+                ) => {
+                    if lk != rk || la.len() != ra.len() {
+                        return true;
+                    }
+                    pending.extend(la.iter().zip(ra).rev());
+                }
+                _ if left != right => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+    pub fn from_name(name: &str) -> Option<Self> {
+        standard_surface::builtin_type(name).map(Self::Builtin)
+    }
+    pub fn is_heap_backed(&self) -> bool {
+        match self {
+            Self::Inference(_) | Self::Unknown | Self::Error => false,
+            Self::Builtin(ty) => {
+                standard_surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
+            }
+            Self::Tuple(_)
+            | Self::Function { .. }
+            | Self::Iter(_)
+            | Self::Range(_, _)
+            | Self::Array(_, _)
+            | Self::Map { .. }
+            | Self::Set(_, _)
+            | Self::NativeObject(_)
+            | Self::Struct(_)
+            | Self::Enum(_)
+            | Self::Trait(_)
+            | Self::Host(_)
+            | Self::Generic(_)
+            | Self::SelfType(_)
+            | Self::Projection { .. }
+            | Self::StandardEnum { .. } => true,
+        }
+    }
+}

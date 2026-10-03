@@ -63,7 +63,8 @@ fn native_collection_constructors_infer_items_through_source_aliases() {
         "{:?}",
         file.result().diagnostics()
     );
-    let facts = file.result().facts();
+    let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let call_type = |name: &str| {
         facts
             .lowered
@@ -215,7 +216,8 @@ fn explicit_empty_applications_are_not_erased_to_bare_types() {
             .unwrap();
         let analysis = snapshot(&mut AnalysisDatabase::default(), &sources);
         let file = analysis.file(file).unwrap();
-        let facts = file.result().facts();
+        let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+        let facts = authoring_facts.facts();
         let start = text.find(&format!("{name}<>")).unwrap();
         let reference = facts
             .lowered
@@ -384,12 +386,20 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
     assert_eq!(target.location.range.start, edit.find("bad<T").unwrap() + 4);
     assert_eq!(file.type_at(edit.find("T<>").unwrap()), Some(TypeId::Error));
     let fresh = snapshot(&mut AnalysisDatabase::default(), &sources);
-    file.result()
+    file.to_unverified(&Default::default())
+        .unwrap()
         .facts()
         .typed
         .type_table
         .assert_same_source_facts(
-            &fresh.file(id).unwrap().result().facts().typed.type_table,
+            &fresh
+                .file(id)
+                .unwrap()
+                .to_unverified(&Default::default())
+                .unwrap()
+                .facts()
+                .typed
+                .type_table,
             file.result().facts().lowered.module.body.arena(),
             fresh
                 .file(id)

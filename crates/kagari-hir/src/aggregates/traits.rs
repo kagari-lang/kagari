@@ -49,10 +49,6 @@ pub enum MethodDefault<I: DefinitionReference = DefinitionPath> {
 }
 
 impl MethodSignature {
-    pub fn allows_override(&self) -> bool {
-        self.policy.override_allowed
-    }
-
     fn same_contract(&self, other: &Self) -> bool {
         self.default == other.default
             && self.policy == other.policy
@@ -127,19 +123,6 @@ impl AggregateCatalog {
             }
         }
         Ok(result)
-    }
-
-    pub fn traits(&self) -> impl Iterator<Item = &TraitSignature> {
-        self.traits.values().map(AsRef::as_ref)
-    }
-
-    pub fn trait_(&self, id: &DefinitionPath) -> Option<&TraitSignature> {
-        self.traits.get(id).map(AsRef::as_ref)
-    }
-
-    pub fn trait_method(&self, id: &DefinitionPath) -> Option<&MethodSignature> {
-        let (owner, slot) = self.methods.get(id)?;
-        self.trait_(owner)?.methods.get(*slot)
     }
 
     pub(super) fn add_traits(
@@ -402,3 +385,22 @@ pub fn trait_inheritance_closure(
 }
 
 mod mapping;
+
+impl<I: DefinitionReference> AggregateCatalog<I> {
+    pub fn traits(&self) -> impl Iterator<Item = &TraitSignature<I>> {
+        self.traits.values().map(AsRef::as_ref)
+    }
+    pub fn trait_(&self, id: &I) -> Option<&TraitSignature<I>> {
+        self.traits.get(id).map(AsRef::as_ref)
+    }
+    pub fn trait_method(&self, id: &I) -> Option<&MethodSignature<I>> {
+        let (owner, slot) = self.methods.get(id)?;
+        self.trait_(owner)?.methods.get(*slot)
+    }
+}
+
+impl<I: DefinitionReference> MethodSignature<I> {
+    pub fn allows_override(&self) -> bool {
+        self.policy.override_allowed
+    }
+}

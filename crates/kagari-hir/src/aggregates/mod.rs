@@ -105,10 +105,6 @@ pub struct AggregateCatalog<I: DefinitionReference = DefinitionPath> {
 }
 
 impl AggregateCatalog {
-    pub fn native_type(&self, id: &DefinitionPath) -> Option<&NativeTypeSignature> {
-        self.native_types.get(id).map(Arc::as_ref)
-    }
-
     pub fn intrinsic_implementation(
         &self,
         interface: &NominalType,
@@ -116,52 +112,6 @@ impl AggregateCatalog {
         bounds: &GenericBounds,
     ) -> bool {
         builtin_traits::intrinsic_applies(interface, ty, Some(self), bounds)
-    }
-
-    pub fn implementation_constant(
-        &self,
-        implementation: &DefinitionPath,
-        member: &DefinitionPath,
-    ) -> Option<&DefinitionPath> {
-        self.implementation_constants
-            .get(implementation)
-            .and_then(|members| members.get(member))
-            .or_else(|| {
-                self.implementation_signature(implementation)
-                    .and_then(|implementation| self.trait_(&implementation.trait_type.declaration))
-                    .and_then(|contract| contract.associated_consts.get(member))
-                    .and_then(|member| member.initializer.as_ref())
-            })
-    }
-
-    pub fn inherent_methods(&self) -> impl Iterator<Item = &InherentMethodSignature> {
-        self.inherent_methods.values().map(AsRef::as_ref)
-    }
-
-    pub fn enumerations(&self) -> impl Iterator<Item = &EnumSignature> {
-        self.enumerations.values().map(AsRef::as_ref)
-    }
-
-    pub fn enumeration(&self, id: &DefinitionPath) -> Option<&EnumSignature> {
-        self.enumerations.get(id).map(AsRef::as_ref)
-    }
-
-    pub fn variant(&self, id: &DefinitionPath) -> Option<&VariantSignature> {
-        let (owner, slot) = self.variants.get(id)?;
-        self.enumeration(owner)?.variants.get(*slot)
-    }
-
-    pub fn structures(&self) -> impl Iterator<Item = &StructSignature> {
-        self.structures.values().map(AsRef::as_ref)
-    }
-
-    pub fn structure(&self, id: &DefinitionPath) -> Option<&StructSignature> {
-        self.structures.get(id).map(AsRef::as_ref)
-    }
-
-    pub fn field(&self, id: &DefinitionPath) -> Option<&FieldSignature> {
-        let (owner, slot) = self.fields.get(id)?;
-        self.structure(owner)?.fields.get(*slot)
     }
 
     pub(crate) fn add_module(
@@ -546,3 +496,43 @@ impl<I: DefinitionReference> Default for AggregateCatalog<I> {
 }
 
 mod mapping;
+
+impl<I: DefinitionReference> AggregateCatalog<I> {
+    pub fn native_type(&self, id: &I) -> Option<&NativeTypeSignature<I>> {
+        self.native_types.get(id).map(Arc::as_ref)
+    }
+    pub fn implementation_constant(&self, implementation: &I, member: &I) -> Option<&I> {
+        self.implementation_constants
+            .get(implementation)
+            .and_then(|members| members.get(member))
+            .or_else(|| {
+                self.implementation_signature(implementation)
+                    .and_then(|implementation| self.trait_(&implementation.trait_type.declaration))
+                    .and_then(|contract| contract.associated_consts.get(member))
+                    .and_then(|member| member.initializer.as_ref())
+            })
+    }
+    pub fn inherent_methods(&self) -> impl Iterator<Item = &InherentMethodSignature<I>> {
+        self.inherent_methods.values().map(AsRef::as_ref)
+    }
+    pub fn enumerations(&self) -> impl Iterator<Item = &EnumSignature<I>> {
+        self.enumerations.values().map(AsRef::as_ref)
+    }
+    pub fn enumeration(&self, id: &I) -> Option<&EnumSignature<I>> {
+        self.enumerations.get(id).map(AsRef::as_ref)
+    }
+    pub fn variant(&self, id: &I) -> Option<&VariantSignature<I>> {
+        let (owner, slot) = self.variants.get(id)?;
+        self.enumeration(owner)?.variants.get(*slot)
+    }
+    pub fn structures(&self) -> impl Iterator<Item = &StructSignature<I>> {
+        self.structures.values().map(AsRef::as_ref)
+    }
+    pub fn structure(&self, id: &I) -> Option<&StructSignature<I>> {
+        self.structures.get(id).map(AsRef::as_ref)
+    }
+    pub fn field(&self, id: &I) -> Option<&FieldSignature<I>> {
+        let (owner, slot) = self.fields.get(id)?;
+        self.structure(owner)?.fields.get(*slot)
+    }
+}

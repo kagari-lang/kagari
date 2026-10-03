@@ -41,7 +41,8 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
     ));
     let snapshot = analyze(&mut db, &sources);
     let analysis = snapshot.file(file).unwrap();
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let valid = facts.lowered.module.impls[0].trait_ref.as_ref().unwrap();
     let applied = facts.lowered.module.impls[1].trait_ref.as_ref().unwrap();
     assert_eq!(valid.ty.owner(), HirOwner::Declaration);
@@ -184,7 +185,8 @@ fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() 
                         if *reason == "generic trait references require concrete type arguments"
                 ))
         );
-        let facts = analysis.result().facts();
+        let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+        let facts = authoring_facts.facts();
         for function in &facts.lowered.module.functions {
             let bound = function.generic_params[0].bounds[0].ty;
             assert_eq!(
@@ -239,15 +241,19 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
     else {
         panic!("inherited associated type must retain its declaring interface");
     };
-    assert_eq!(interface.declaration.module.package.0, "kagari-core");
-    assert_eq!(interface.declaration.path.last().unwrap().name, "Iterator");
-    assert_eq!(member.path.last().unwrap().name, "Item");
+    let interface_path = file
+        .definitions()
+        .resolve(interface.declaration)
+        .unwrap()
+        .to_path();
+    let member_path = file.definitions().resolve(*member).unwrap().to_path();
+    assert_eq!(interface_path.module.package.0, "kagari-core");
+    assert_eq!(interface_path.path.last().unwrap().name, "Iterator");
+    assert_eq!(member_path.path.last().unwrap().name, "Item");
     assert!(arguments.is_empty());
     assert_eq!(signature.params[1].ty, signature.return_type);
     let declaration = snapshot
-        .declaration(&crate::declarations::DeclarationId::Definition(
-            member.clone(),
-        ))
+        .declaration(&crate::declarations::DeclarationId::Definition(*member))
         .unwrap();
     assert_eq!(
         snapshot.source(declaration.location.file).unwrap().name(),
@@ -493,7 +499,12 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = analyze(&mut db, &sources);
-    let old_facts = old.file(file).unwrap().result().facts();
+    let authoring_old_facts = old
+        .file(file)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let old_facts = authoring_old_facts.facts();
     let old_ref = old_facts.lowered.module.impls[0]
         .trait_ref
         .as_ref()
@@ -506,10 +517,16 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
     let new = analyze(&mut db, &sources);
     let new_file = new.file(file).unwrap();
     assert!(new_file.signatures_reused());
-    let facts = new_file.result().facts();
+    let authoring_facts = new_file.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     assert!(facts.typed.type_table.type_ref(old_ref).is_none());
     let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
-    let fresh = fresh.file(file).unwrap().result().facts();
+    let authoring_fresh = fresh
+        .file(file)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let fresh = authoring_fresh.facts();
     facts.typed.type_table.assert_same_source_facts(
         &fresh.typed.type_table,
         facts.lowered.module.body.arena(),
@@ -568,8 +585,18 @@ fn untouched()->i32 {1}
         .unwrap();
     let updated = analyze(&mut db, &sources);
     let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
-    let facts = updated.file(file).unwrap().result().facts();
-    let fresh = fresh.file(file).unwrap().result().facts();
+    let authoring_facts = updated
+        .file(file)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let facts = authoring_facts.facts();
+    let authoring_fresh = fresh
+        .file(file)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let fresh = authoring_fresh.facts();
     facts.typed.type_table.assert_same_source_facts(
         &fresh.typed.type_table,
         facts.lowered.module.body.arena(),

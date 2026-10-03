@@ -1,9 +1,10 @@
 use super::*;
+use crate::analysis::ownership;
 use crate::declarations::DeclarationId;
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     diagnostic::DiagnosticKind,
-    identity::FileId,
+    identity::{DefinitionPath, FileId},
     source_database::{SourceDatabase, SourceLayer},
 };
 
@@ -26,7 +27,14 @@ fn owner(
     let DeclarationId::Definition(id) = &declaration.id else {
         panic!("function definition");
     };
-    id.clone()
+    declarations
+        .file(file)
+        .unwrap()
+        .declarations()
+        .definitions()
+        .resolve(*id)
+        .unwrap()
+        .to_path()
 }
 
 fn query(
@@ -158,8 +166,14 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     assert!(second.declarations().get(&old_local.id).is_none());
     assert_eq!(first.declarations().get(&old_local.id), Some(&old_local));
     let fresh = query(&mut AnalysisDatabase::default(), &sources, &good);
-    second.type_table().assert_same_source_facts(
-        fresh.type_table(),
+    ownership::paths(
+        second.type_table(),
+        second.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .assert_same_source_facts(
+        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
         second.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );
@@ -255,8 +269,14 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
     );
     assert!(!second.diagnostics().is_empty());
     let fresh = query(&mut AnalysisDatabase::default(), &sources, &root_owner);
-    second.type_table().assert_same_source_facts(
-        fresh.type_table(),
+    ownership::paths(
+        second.type_table(),
+        second.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .assert_same_source_facts(
+        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
         second.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );
@@ -274,6 +294,7 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
     let declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
+    let file_id = id;
     let methods = declarations
         .file(id)
         .unwrap()
@@ -283,12 +304,20 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
             let DeclarationId::Definition(id) = &d.id else {
                 return None;
             };
+            let path = declarations
+                .file(file_id)
+                .unwrap()
+                .declarations()
+                .definitions()
+                .resolve(*id)
+                .unwrap()
+                .to_path();
             (d.name == "show"
-                && id
+                && path
                     .path
                     .first()
                     .is_some_and(|p| p.kind == kagari_common::identity::DefinitionKind::Impl))
-            .then(|| id.clone())
+            .then_some(path)
         })
         .collect::<Vec<_>>();
     assert_eq!(methods.len(), 2);
@@ -313,8 +342,15 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
         assert_eq!(result.checked_bodies(), 0);
         assert_eq!(result.reused_bodies(), 1);
         let fresh = query(&mut AnalysisDatabase::default(), &sources, &method);
-        result.type_table().assert_same_source_facts(
-            fresh.type_table(),
+        ownership::paths(
+            result.type_table(),
+            result.definitions(),
+            &Default::default(),
+        )
+        .unwrap()
+        .assert_same_source_facts(
+            &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default())
+                .unwrap(),
             result.lowered().module.body.arena(),
             fresh.lowered().module.body.arena(),
         );

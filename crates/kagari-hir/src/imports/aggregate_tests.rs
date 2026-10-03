@@ -44,9 +44,25 @@ fn imported_struct_initializers_and_nested_mutations_use_nominal_fields() {
     }
     for (id, _) in file.result().facts().lowered.module.body.expressions() {
         if let Some(init) = file.result().facts().typed.type_table.struct_init(id) {
-            assert_eq!(init.structure.module.path, ["models"]);
+            assert_eq!(
+                file.definitions()
+                    .resolve(init.structure)
+                    .unwrap()
+                    .to_path()
+                    .module
+                    .path,
+                ["models"]
+            );
             for field in init.fields.iter().flatten() {
-                assert_eq!(field.module.path, ["models"]);
+                assert_eq!(
+                    file.definitions()
+                        .resolve(*field)
+                        .unwrap()
+                        .to_path()
+                        .module
+                        .path,
+                    ["models"]
+                );
                 assert_eq!(
                     file.result().facts().aggregates.field(field).unwrap().slot,
                     0

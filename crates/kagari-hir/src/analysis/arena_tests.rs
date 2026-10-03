@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::ownership;
 use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName};
 
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
@@ -157,32 +158,40 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
     );
     let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
     let latest = analyze(&mut db, &sources);
-    latest
-        .file(id)
+    ownership::paths(
+        latest.file(id).unwrap().signatures().as_ref(),
+        latest.file(id).unwrap().definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .facts()
+    .assert_same_source_facts(
+        ownership::paths(
+            fresh.file(id).unwrap().signatures().as_ref(),
+            fresh.file(id).unwrap().definitions(),
+            &Default::default(),
+        )
         .unwrap()
-        .signatures()
-        .facts()
-        .assert_same_source_facts(
-            fresh.file(id).unwrap().signatures().facts(),
-            latest
-                .file(id)
-                .unwrap()
-                .result()
-                .facts()
-                .lowered
-                .module
-                .body
-                .arena(),
-            fresh
-                .file(id)
-                .unwrap()
-                .result()
-                .facts()
-                .lowered
-                .module
-                .body
-                .arena(),
-        );
+        .facts(),
+        latest
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .lowered
+            .module
+            .body
+            .arena(),
+        fresh
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .lowered
+            .module
+            .body
+            .arena(),
+    );
     assert!(Arc::ptr_eq(
         newest_declarations.file(id).unwrap(),
         latest.declaration_snapshot().file(id).unwrap()

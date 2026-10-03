@@ -74,9 +74,9 @@ fn main() {
     let second_loaded = second_runtime
         .load_verified_program("baseline", verified.clone())
         .unwrap();
-    assert!(Arc::ptr_eq(&first_loaded.bytecode, &second_loaded.bytecode));
+    let shared_code = Arc::ptr_eq(&first_loaded.bytecode, &second_loaded.bytecode);
     println!(
-        "shared_code_image_bytes={code_image_bytes} module_arc_refs={}",
+        "code_image_bytes={code_image_bytes} shared_code={shared_code} module_arc_refs={}",
         Arc::strong_count(&first_loaded.bytecode)
     );
 

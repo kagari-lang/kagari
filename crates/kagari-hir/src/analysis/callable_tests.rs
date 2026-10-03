@@ -37,7 +37,8 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
         "{:?}",
         analysis.result().diagnostics()
     );
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let mut seen = 0;
     for function in &facts.lowered.module.functions {
         let expected = TypeId::Builtin(if function.name == "narrow" {
@@ -97,7 +98,12 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
     let snapshot = fixture::database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let facts = snapshot.file(root).unwrap().result().facts();
+    let authoring_facts = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let facts = authoring_facts.facts();
     for (name, expected) in [
         ("required", FunctionImplementation::Required),
         ("defaulted", FunctionImplementation::Script),
@@ -119,6 +125,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         .find(|item| item.declaration.name == "NativeRead")
         .unwrap();
     let file = snapshot.file(iterator.declaration.location.file).unwrap();
+    let authoring = file.to_unverified(&Default::default()).unwrap();
     for name in ["read", "fixed"] {
         let expected =
             FunctionImplementation::Native(NativeBinding::Default(NativeDefaultApplication {
@@ -133,14 +140,13 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
             .iter()
             .find(|method| method.name == name)
             .unwrap();
-        let function = file
-            .result()
+        let function = authoring
             .facts()
             .typed
             .functions
             .iter()
             .find(|function| {
-                file.result()
+                authoring
                     .facts()
                     .declarations
                     .definition(ResolvedName::Function(function.id))
@@ -174,7 +180,8 @@ fn main() -> i32 {
         "{:?}",
         analysis.result().diagnostics()
     );
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let mut seen = Vec::new();
     for (id, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
@@ -311,7 +318,8 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
         [("flag".into(), TypeId::Builtin(BuiltinType::Bool))]
     );
     assert_eq!(method.result, TypeId::Builtin(BuiltinType::I32));
-    let facts = file.result().facts();
+    let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let mut checked = 0;
     for (site, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
@@ -412,7 +420,8 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
         "{:?}",
         analysis.result().diagnostics()
     );
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let (id, _) = facts
         .lowered
         .module
@@ -460,7 +469,8 @@ fn run(callback: fn(i32) -> bool) {
         "{:?}",
         analysis.result().diagnostics()
     );
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let mut seen = Vec::new();
     for (site, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, args, .. } = &expression.kind else {

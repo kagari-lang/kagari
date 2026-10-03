@@ -262,6 +262,28 @@ strict workspace/all-target Clippy and formatting pass; structure checks cover
 query caches still retain authoring records and are the next ID02 ownership unit;
 this checkpoint does not accept ID02-ID05. No carried build/test error remains.
 
+ID02 cache ownership checkpoint: declaration, signature, complete-file and body
+query caches now publish compact records with immutable definition tables. The
+single parameterized authoring model is projected transiently for source checking,
+proof/reuse algorithms and editor display; no expanded semantic cache is retained.
+Path queries explicitly resolve in the receiving context, while foreign short IDs
+are rejected. Existing arena/body ownership and generation checks remain separate.
+Signature Arc sharing is preserved when an unchanged signature is reused, including
+transitive caller invalidation. AnalysisError carries controlled identity failures;
+oversized external inline sources retain the existing diagnostic recovery behavior.
+
+The initial consumer diagnostics are resolved. HIR's 403 unit tests and eight
+language-contract tests pass; the new cache-prefix/foreign-query/owner-retention
+regression passes separately (404 total unit tests). The first regression run found
+four independent-scope test assumptions and one lost signature Arc; explicit test
+projections and preservation of the reused scoped Arc resolve all five failures.
+The analysis facade's growing test module is split through an ordinary mod boundary.
+Final workspace Clippy, compiler/embed integration and final matrix acceptance are
+in progress under ID05; no phase acceptance is claimed before those checks finish.
+The foundation measurement now reports module sharing: nonempty scoped metadata is
+normalized per runtime, while original immutable version identity remains retained.
+
+
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
 BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,

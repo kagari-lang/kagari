@@ -34,7 +34,10 @@ use kagari_common::{
     identity::{
         FileId, Revision,
         map::{DefinitionContext, DefinitionMap},
-        table::DefinitionTable,
+        mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
     source::SourceFile,
     source_database::SourceSnapshot,
@@ -49,6 +52,8 @@ use std::{
     sync::Arc,
 };
 
+const DEFAULT_MAX_SEMANTIC_DIAGNOSTICS: usize = 1_000;
+
 pub mod call_queries;
 pub mod documentation_queries;
 pub mod error;
@@ -59,6 +64,7 @@ mod standard_query_tests;
 pub mod body_queries;
 
 pub mod declaration_queries;
+pub(crate) mod ownership;
 pub mod signature_queries;
 
 #[derive(Debug)]
@@ -67,18 +73,18 @@ pub struct FileAnalysis {
     source: Arc<SourceFile>,
 
     parsed: Parse,
-    result: AnalysisResult<AnalyzedModule>,
+    result: DefinitionMetadata<AnalysisResult<AnalyzedModule<DefinitionId>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingInfo {
     pub ty: TypeId,
-    pub declaration: Declaration,
+    pub declaration: Declaration<DefinitionId>,
 }
 
 impl FileAnalysis {
     pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
-        let facts = self.result.facts();
+        let facts = self.result.records().facts();
         let expressions = facts
             .lowered
             .module
@@ -91,7 +97,12 @@ impl FileAnalysis {
                 let field = facts.typed.type_table.expr_field(id)?;
                 let span = facts.lowered.source_map.expr_reference_span(id)?;
                 (span.start <= offset && offset < span.end)
-                    .then(|| facts.names.hosts.field(field))
+                    .then(|| {
+                        facts
+                            .names
+                            .hosts
+                            .field(&self.definitions().resolve(*field).ok()?.to_path())
+                    })
                     .flatten()
             });
         let places = facts
@@ -106,7 +117,12 @@ impl FileAnalysis {
                 let field = facts.typed.type_table.place_field(id)?;
                 let span = facts.lowered.source_map.place_member_span(id)?;
                 (span.start <= offset && offset < span.end)
-                    .then(|| facts.names.hosts.field(field))
+                    .then(|| {
+                        facts
+                            .names
+                            .hosts
+                            .field(&self.definitions().resolve(*field).ok()?.to_path())
+                    })
                     .flatten()
             });
         expressions.chain(places).next()
@@ -118,12 +134,12 @@ impl FileAnalysis {
         self.signatures_reused
     }
 
-    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
-        &self.result.facts().signatures
+    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures<DefinitionId>>> {
+        &self.result.records().facts().signatures
     }
 
-    pub fn source_function_at(&self, offset: usize) -> Option<&ImportedFunction> {
-        let facts = self.result.facts();
+    pub fn source_function_at(&self, offset: usize) -> Option<&ImportedFunction<DefinitionId>> {
+        let facts = self.result.records().facts();
         facts
             .lowered
             .module
@@ -189,7 +205,7 @@ impl FileAnalysis {
     }
 
     pub fn host_function_at(&self, offset: usize) -> Option<&HostFunctionDeclaration> {
-        let facts = self.result.facts();
+        let facts = self.result.records().facts();
         facts
             .lowered
             .module
@@ -252,7 +268,7 @@ impl FileAnalysis {
 
     /// Portable host documentation has no synthetic source-file location.
     pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
-        let facts = self.result.facts();
+        let facts = self.result.records().facts();
         if let Some((index, _)) = facts
             .lowered
             .source_map
@@ -308,22 +324,24 @@ impl FileAnalysis {
         &self.source
     }
 
-    pub fn result(&self) -> &AnalysisResult<AnalyzedModule> {
-        &self.result
+    pub fn result(&self) -> &AnalysisResult<AnalyzedModule<DefinitionId>> {
+        self.result.records()
     }
 
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
-        let facts = self.result.facts();
-        type_at_in(&facts.lowered, &facts.typed.type_table, offset)
+        let facts = self.result.records().facts();
+        let ty = type_at_in(&facts.lowered, &facts.typed.type_table, offset)?;
+        ownership::paths(&ty, self.definitions(), &CancellationToken::default()).ok()
     }
 
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
-        let facts = self.result.facts();
-        member_receiver_type_in(&facts.lowered, &facts.typed.type_table, offset)
+        let facts = self.result.records().facts();
+        let ty = member_receiver_type_in(&facts.lowered, &facts.typed.type_table, offset)?;
+        ownership::paths(&ty, self.definitions(), &CancellationToken::default()).ok()
     }
 
-    pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
-        let facts = self.result.facts();
+    pub fn definition_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
+        let facts = self.result.records().facts();
         if let Some(declaration) = facts.declarations.site_at(offset) {
             return Some(declaration);
         }
@@ -544,7 +562,7 @@ impl FileAnalysis {
     }
 
     pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {
-        let facts = self.result.facts();
+        let facts = self.result.records().facts();
         facts
             .names
             .visible_bindings(offset)
@@ -563,7 +581,11 @@ impl FileAnalysis {
                     _ => None,
                 }
                 .unwrap_or(TypeId::Unknown);
-                Some(BindingInfo { declaration, ty })
+                Some(BindingInfo {
+                    declaration,
+                    ty: ownership::paths(&ty, self.definitions(), &CancellationToken::default())
+                        .ok()?,
+                })
             })
             .collect()
     }
@@ -572,12 +594,12 @@ impl FileAnalysis {
 /// An enclosing annotation claims the position even when its terminal name is
 /// unresolved. This prevents an outer expression or type application target
 /// from leaking into a missing nested type reference.
-fn type_reference_at<'a>(
+fn type_reference_at<'a, I: DefinitionReference>(
     lowered: &LoweredModule,
-    table: &TypeTable,
-    declarations: &'a Declarations,
+    table: &TypeTable<I>,
+    declarations: &'a Declarations<I>,
     offset: usize,
-) -> Option<Option<&'a Declaration>> {
+) -> Option<Option<&'a Declaration<I>>> {
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
             TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
@@ -595,11 +617,11 @@ fn type_reference_at<'a>(
     })
 }
 
-fn type_reference_target_at(
+fn type_reference_target_at<I: DefinitionReference>(
     lowered: &LoweredModule,
-    table: &TypeTable,
+    table: &TypeTable<I>,
     offset: usize,
-) -> Option<Option<TypeTarget>> {
+) -> Option<Option<TypeTarget<I>>> {
     let (index, _) = lowered
         .source_map
         .type_spans()
@@ -620,7 +642,11 @@ fn type_reference_target_at(
     Some(target)
 }
 
-fn type_at_in(lowered: &LoweredModule, table: &TypeTable, offset: usize) -> Option<TypeId> {
+fn type_at_in<I: DefinitionReference>(
+    lowered: &LoweredModule,
+    table: &TypeTable<I>,
+    offset: usize,
+) -> Option<TypeId<I>> {
     let expressions = lowered.module.body.expressions().filter_map(|(id, _)| {
         let span = lowered.source_map.expr_span(id);
         (span.start <= offset && offset < span.end)
@@ -661,11 +687,11 @@ fn type_at_in(lowered: &LoweredModule, table: &TypeTable, offset: usize) -> Opti
         .map(|(_, ty)| ty)
 }
 
-fn member_receiver_type_in(
+fn member_receiver_type_in<I: DefinitionReference>(
     lowered: &LoweredModule,
-    table: &TypeTable,
+    table: &TypeTable<I>,
     offset: usize,
-) -> Option<TypeId> {
+) -> Option<TypeId<I>> {
     let expressions = lowered.module.body.expressions().filter_map(|(id, expr)| {
         let ExprKind::Field { receiver, .. } = &expr.kind else {
             return None;
@@ -722,7 +748,7 @@ impl Default for AnalysisDatabase {
             definitions: DefinitionContext::new().expect("analysis definition context exhausted"),
             parse_limits: Default::default(),
             const_limits: Default::default(),
-            max_semantic_diagnostics: 1_000,
+            max_semantic_diagnostics: DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
             body_cache: DefinitionMap::default(),
             body_revision: Revision::default(),
             declaration_cache: None,
@@ -807,8 +833,18 @@ impl AnalysisDatabase {
             .collect::<BTreeMap<_, _>>();
         let mut environments = signature_snapshot.body_environments(cancel)?;
         let mut files = HashMap::new();
-        for (id, (file, parsed, prepared)) in signatures {
+        for (id, (file, parsed, scoped_prepared)) in signatures {
             cancel.check()?;
+            let prepared = ownership::paths(
+                &scoped_prepared,
+                scoped_prepared.declarations.definitions(),
+                cancel,
+            )?;
+            let previous_authoring = self
+                .files
+                .get(&id)
+                .map(|old| old.to_unverified(cancel))
+                .transpose()?;
             let signature_queries::BodyEnvironment {
                 imported_functions,
                 aggregates,
@@ -817,14 +853,36 @@ impl AnalysisDatabase {
             let analysis = match self.files.get(&id) {
                 Some(previous)
                     if previous.source.revision() == file.revision()
-                        && previous.result.facts().lowered.module.body.arena()
+                        && previous
+                            .result
+                            .records()
+                            .facts()
+                            .lowered
+                            .module
+                            .body
+                            .arena()
                             == prepared.lowered.module.body.arena()
-                        && previous.result.facts().names.hosts.revision()
+                        && previous.result.records().facts().names.hosts.revision()
                             == self.hosts.revision()
-                        && previous.result.facts().names.imports == imports
-                        && previous.result.facts().imported_functions == imported_functions
-                        && previous.result.facts().aggregates == aggregates
-                        && previous.result.facts().declarations.imported_types
+                        && previous.result.records().facts().names.imports == imports
+                        && previous_authoring
+                            .as_ref()
+                            .expect("previous authoring facts")
+                            .facts()
+                            .imported_functions
+                            == imported_functions
+                        && previous_authoring
+                            .as_ref()
+                            .expect("previous authoring facts")
+                            .facts()
+                            .aggregates
+                            == aggregates
+                        && previous_authoring
+                            .as_ref()
+                            .expect("previous authoring facts")
+                            .facts()
+                            .declarations
+                            .imported_types
                             == prepared.declarations.imported_types =>
                 {
                     previous.clone()
@@ -835,18 +893,45 @@ impl AnalysisDatabase {
                         .files
                         .get(&id)
                         .filter(|old| {
-                            old.result.facts().names.hosts.revision() == self.hosts.revision()
-                                && old.result.facts().names.imports.same_bindings(&imports)
-                                && old.result.facts().imported_functions == imported_functions
-                                && old.result.facts().aggregates.same_contracts(&aggregates)
-                                && old.result.facts().declarations.imported_types
+                            old.result.records().facts().names.hosts.revision()
+                                == self.hosts.revision()
+                                && old
+                                    .result
+                                    .records()
+                                    .facts()
+                                    .names
+                                    .imports
+                                    .same_bindings(&imports)
+                                && previous_authoring
+                                    .as_ref()
+                                    .expect("previous authoring facts")
+                                    .facts()
+                                    .imported_functions
+                                    == imported_functions
+                                && previous_authoring
+                                    .as_ref()
+                                    .expect("previous authoring facts")
+                                    .facts()
+                                    .aggregates
+                                    .same_contracts(&aggregates)
+                                && previous_authoring
+                                    .as_ref()
+                                    .expect("previous authoring facts")
+                                    .facts()
+                                    .declarations
+                                    .imported_types
                                     == prepared.declarations.imported_types
                                 && old.source.module_identity() == file.module_identity()
                         })
                         .map(|old| BodyReuse {
-                            previous_diagnostics: old.result.diagnostics(),
-                            previous_lowered: &old.result.facts().lowered,
-                            previous_types: &old.result.facts().typed.type_table,
+                            previous_diagnostics: old.result.records().diagnostics(),
+                            previous_lowered: &old.result.records().facts().lowered,
+                            previous_types: &previous_authoring
+                                .as_ref()
+                                .expect("previous authoring facts")
+                                .facts()
+                                .typed
+                                .type_table,
                             old_text: old.source.text(),
                             new_text: file.text(),
                         });
@@ -862,6 +947,15 @@ impl AnalysisDatabase {
                         reuse.as_ref(),
                         cancel,
                     );
+                    let metadata = ownership::scope(&result, &self.definitions, cancel)?;
+                    let definitions = metadata.definitions().clone();
+                    let mut records = metadata.into_records();
+                    records
+                        .facts
+                        .declarations
+                        .publish_definitions(definitions.clone());
+                    records.facts.signatures = scoped_prepared.signatures.clone();
+                    let result = DefinitionMetadata::checked(definitions, records, cancel)?;
                     Arc::new(FileAnalysis {
                         signatures_reused,
                         source: file,
@@ -935,7 +1029,7 @@ impl AnalysisSnapshot {
     }
 
     pub fn source_import_at(&self, file: FileId, offset: usize) -> Option<SourceImport> {
-        let facts = self.analysis_at(file, offset)?.result.facts();
+        let facts = self.analysis_at(file, offset)?.result.records().facts();
         let expression = facts
             .lowered
             .module
@@ -971,12 +1065,12 @@ impl AnalysisSnapshot {
         })
     }
 
-    pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration> {
+    pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration<DefinitionId>> {
         let analysis = self.analysis_at(file, offset)?;
         if let Some(declaration) = analysis.definition_at(offset) {
             return Some(declaration);
         }
-        let facts = analysis.result.facts();
+        let facts = analysis.result.records().facts();
         if let Some(Some(TypeTarget::AssociatedType(member))) =
             type_reference_target_at(&facts.lowered, &facts.typed.type_table, offset)
         {
@@ -998,11 +1092,13 @@ impl AnalysisSnapshot {
             ExportItem::Module(id) => ResolvedName::Module(id),
             ExportItem::Struct(id) => ResolvedName::Struct(id),
             ExportItem::Enum(id) => ResolvedName::Enum(id),
-            ExportItem::Variant(id) => return file.result.facts().declarations.variant(id),
+            ExportItem::Variant(id) => {
+                return file.result.records().facts().declarations.variant(id);
+            }
             ExportItem::Trait(id) => ResolvedName::Trait(id),
             ExportItem::Import(_) => return None,
         };
-        file.result.facts().declarations.target(resolved)
+        file.result.records().facts().declarations.target(resolved)
     }
 
     pub fn module_graph(&self) -> &ModuleGraph {
@@ -1021,10 +1117,14 @@ impl AnalysisSnapshot {
         self.files.get(&id)
     }
 
-    pub fn declaration(&self, id: &DeclarationId) -> Option<&Declaration> {
+    pub fn declaration<I: DefinitionReference>(
+        &self,
+        id: &DeclarationId<I>,
+    ) -> Option<&Declaration<DefinitionId>> {
+        let id = ownership::locate(id, self.definitions())?;
         self.files
             .values()
-            .find_map(|file| file.result.facts().declarations.get(id))
+            .find_map(|file| file.result.records().facts().declarations.get(&id))
     }
 
     /// Read a source owned by this analysis, including its installed standard package.
@@ -1073,128 +1173,17 @@ mod type_application_tests;
 mod type_name_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+mod tests;
 
-    #[test]
-    fn body_edits_reuse_other_bodies_but_signatures_invalidate_them() {
-        let mut sources = SourceDatabase::default();
-        let file = sources
-            .set(
-                "body.kgr",
-                "fn a() -> i32 { 1 } fn b() -> i32 { a() }".into(),
-                SourceLayer::Base,
-            )
-            .unwrap();
-        let mut db = AnalysisDatabase::default();
-        let token = CancellationToken::default();
-        let first = db.snapshot(sources.snapshot(), &token).unwrap();
-        assert_eq!(
-            first
-                .file(file)
-                .unwrap()
-                .result
-                .facts()
-                .typed
-                .checked_bodies,
-            2
-        );
-        sources
-            .set(
-                "body.kgr",
-                "fn a() -> i32 { 100 + 2 } fn b() -> i32 { a() }".into(),
-                SourceLayer::Overlay,
-            )
-            .unwrap();
-        let second = db.snapshot(sources.snapshot(), &token).unwrap();
-        let result = &second.file(file).unwrap().result;
-        assert_eq!(result.facts().typed.reused_bodies, 1);
-        assert_eq!(result.facts().typed.checked_bodies, 1);
-        assert!(result.clone().into_codegen().is_ok());
-        sources
-            .set(
-                "body.kgr",
-                "fn a() -> bool { true } fn b() -> i32 { a() }".into(),
-                SourceLayer::Overlay,
-            )
-            .unwrap();
-        let third = db.snapshot(sources.snapshot(), &token).unwrap();
-        let result = &third.file(file).unwrap().result;
-        assert_eq!(result.facts().typed.reused_bodies, 0);
-        assert!(!result.diagnostics().is_empty());
+impl FileAnalysis {
+    pub fn definitions(&self) -> &DefinitionTable {
+        self.result.definitions()
     }
-
-    #[test]
-    fn broken_body_preserves_neighbor_and_member_receiver() {
-        let mut sources = SourceDatabase::default();
-        let text = "struct P { var n: i32 } fn bad() { val p = P { n: 1 }; p. } fn good() -> i32 { val answer = 42; answer }";
-        let file = sources
-            .set("a.kgr", text.into(), SourceLayer::Base)
-            .unwrap();
-        let snapshot = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), &CancellationToken::default())
-            .unwrap();
-        let facts = snapshot.file(file).unwrap();
-        assert!(!facts.result().diagnostics().is_empty());
-        assert_eq!(
-            facts.member_receiver_type(text.find("p. }").unwrap() + 2),
-            Some(TypeId::Struct(crate::types::NominalType {
-                associated_types: Default::default(),
-                declaration: facts
-                    .result()
-                    .facts()
-                    .declarations
-                    .definition(ResolvedName::Struct(StructId::new(0)))
-                    .unwrap()
-                    .clone(),
-                arguments: Vec::new(),
-            }))
-        );
-        let offset = text.rfind("answer").unwrap();
-        assert_eq!(
-            facts.type_at(offset),
-            Some(TypeId::Builtin(BuiltinType::I32))
-        );
-        assert_eq!(
-            facts
-                .visible_bindings(offset)
-                .iter()
-                .map(|b| b.declaration.name.as_str())
-                .collect::<Vec<_>>(),
-            vec!["answer"]
-        );
-        assert!(facts.result.clone().into_codegen().is_err());
-    }
-
-    #[test]
-    fn snapshots_reuse_unchanged_files_and_cancellation_does_not_publish() {
-        let mut sources = SourceDatabase::default();
-        let a = sources
-            .set("a.kgr", "fn a() -> i32 { 1 }".into(), SourceLayer::Base)
-            .unwrap();
-        let b = sources
-            .set("b.kgr", "fn b() -> i32 { 2 }".into(), SourceLayer::Base)
-            .unwrap();
-        let mut db = AnalysisDatabase::default();
-        let first = db
-            .snapshot(sources.snapshot(), &CancellationToken::default())
-            .unwrap();
-        sources
-            .set("b.kgr", "fn b() -> i32 { 3 }".into(), SourceLayer::Overlay)
-            .unwrap();
-        let second = db
-            .snapshot(sources.snapshot(), &CancellationToken::default())
-            .unwrap();
-        assert!(Arc::ptr_eq(first.file(a).unwrap(), second.file(a).unwrap()));
-        assert!(!Arc::ptr_eq(
-            first.file(b).unwrap(),
-            second.file(b).unwrap()
-        ));
-        let cancel = CancellationToken::default();
-        cancel.cancel();
-        assert!(db.snapshot(sources.snapshot(), &cancel).is_err());
-        assert!(first.file(b).unwrap().source().text().contains("{ 2 }"));
+    /// Materialize mutable authoring facts at an editor/compiler query boundary.
+    pub fn to_unverified(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<AnalysisResult<AnalyzedModule>, DefinitionMappingError> {
+        self.result.to_paths(cancel)
     }
 }

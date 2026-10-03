@@ -137,7 +137,7 @@ fn main() -> kagari_embed::CompileResult<()> {
             .definition_at(good_name)
             .expect("declaration site")
             .id,
-        kagari_hir::declarations::DeclarationId::Definition(good.clone())
+        kagari_hir::declarations::DeclarationId::Definition(*good)
     );
     assert!(analysis.definition_at(good_name - "fn ".len()).is_none());
     let local_name = text.find("val answer").expect("local declaration") + "val ".len();
@@ -290,7 +290,12 @@ fn main() -> kagari_embed::CompileResult<()> {
     };
     assert_eq!(
         point_type.id,
-        kagari_hir::declarations::DeclarationId::Definition(definition.declaration.clone())
+        kagari_hir::declarations::DeclarationId::Definition(
+            analysis
+                .definitions()
+                .lookup(&definition.declaration)
+                .unwrap()
+        )
     );
     assert!(definition.arguments.is_empty());
     println!("nominal type -> {nominal:?}");

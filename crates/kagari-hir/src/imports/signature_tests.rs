@@ -56,7 +56,7 @@ fn signatures_and_imported_calls_survive_dependency_body_errors() {
                     .type_table
                     .call_resolution(id)
                     .is_some_and(|call| {
-                        call.target == CallTarget::SourceFunction(signature.declaration.clone())
+                        call.target == CallTarget::SourceFunction(signature.declaration)
                     })
             })
     );

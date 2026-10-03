@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::ownership;
 use crate::{
     declarations::DeclarationId,
     resolver::resolved::ResolvedName,
@@ -70,8 +71,10 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
             file.result().diagnostics()
         );
     }
-    let fa = a.result().facts();
-    let fb = b.result().facts();
+    let authoring_fa = a.to_unverified(&Default::default()).unwrap();
+    let fa = authoring_fa.facts();
+    let authoring_fb = b.to_unverified(&Default::default()).unwrap();
+    let fb = authoring_fb.facts();
     assert_eq!(
         fa.lowered.module.traits[0].id,
         fb.lowered.module.traits[0].id
@@ -126,11 +129,11 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
     let offset = SOURCE.find("p.get").unwrap() + 2;
     assert_eq!(
         a.definition_at(offset).unwrap().id,
-        DeclarationId::Definition(ma)
+        DeclarationId::Definition(a.definitions().lookup(&ma).unwrap())
     );
     assert_eq!(
         b.definition_at(offset).unwrap().id,
-        DeclarationId::Definition(mb)
+        DeclarationId::Definition(b.definitions().lookup(&mb).unwrap())
     );
 }
 
@@ -142,7 +145,12 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = analyze(&mut db, &sources);
-    let before = old.file(file).unwrap().result().facts();
+    let authoring_before = old
+        .file(file)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let before = authoring_before.facts();
     let (trait_id, method_id, point) = targets(before);
     let previous_impl = before
         .typed
@@ -160,7 +168,8 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         "{:?}",
         after.result().diagnostics()
     );
-    let facts = after.result().facts();
+    let authoring_facts = after.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let table = &facts.typed.type_table;
     assert!(table.implements(&interface(&trait_id), &point));
     let next_impl = table
@@ -183,7 +192,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
             .definition_at(edited.find("p.get").unwrap() + 2)
             .unwrap()
             .id,
-        DeclarationId::Definition(method_id.clone())
+        DeclarationId::Definition(after.definitions().lookup(&method_id).unwrap())
     );
     assert_eq!(
         old.file(file)
@@ -191,7 +200,13 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
             .definition_at(SOURCE.find("p.get").unwrap() + 2)
             .unwrap()
             .id,
-        DeclarationId::Definition(method_id)
+        DeclarationId::Definition(
+            old.file(file)
+                .unwrap()
+                .definitions()
+                .lookup(&method_id)
+                .unwrap()
+        )
     );
     assert_eq!(
         before.typed.type_table.implementation_method(
@@ -211,7 +226,12 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = analyze(&mut db, &sources);
-    let before = old.file(file).unwrap().result().facts();
+    let authoring_before = old
+        .file(file)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let before = authoring_before.facts();
     let read = before
         .declarations
         .iter()
@@ -271,8 +291,14 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        fresh.type_table(),
+    ownership::paths(
+        reused.type_table(),
+        reused.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .assert_same_source_facts(
+        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

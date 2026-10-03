@@ -1,4 +1,5 @@
 use super::tests::{analyze, insert};
+use crate::analysis::ownership;
 use crate::{analysis::AnalysisDatabase, types::TypeId};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
@@ -87,7 +88,7 @@ fn imported_annotations_preserve_nominal_identity_and_definition_locations() {
         .unwrap();
     assert_eq!(signature.params[0].ty, signature.return_type);
     assert!(
-        matches!(&signature.return_type, TypeId::Struct(id) if id.declaration.module.path == ["types"])
+        matches!(&signature.return_type, TypeId::Struct(id) if file.definitions().resolve(id.declaration).unwrap().to_path().module.path == ["types"])
     );
     for needle in [
         "[D]",
@@ -302,8 +303,21 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
     let file = changed.file(root).unwrap();
     assert!(!file.signatures_reused());
     let fresh = analyze(&db);
-    file.signatures().facts().assert_same_source_facts(
-        fresh.file(root).unwrap().signatures().facts(),
+    ownership::paths(
+        file.signatures().as_ref(),
+        file.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .facts()
+    .assert_same_source_facts(
+        ownership::paths(
+            fresh.file(root).unwrap().signatures().as_ref(),
+            fresh.file(root).unwrap().definitions(),
+            &Default::default(),
+        )
+        .unwrap()
+        .facts(),
         file.result().facts().lowered.module.body.arena(),
         fresh
             .file(root)

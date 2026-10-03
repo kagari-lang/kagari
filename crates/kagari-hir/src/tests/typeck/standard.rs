@@ -93,7 +93,12 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     let snapshot = AnalysisDatabase::default()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let facts = snapshot.file(root).unwrap().result().facts();
+    let authoring_facts = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let facts = authoring_facts.facts();
     let declarations = snapshot.declaration_snapshot();
     for (kind, arity, variants) in [
         (StandardEnum::Option, 1, ["Some", "None"]),
@@ -163,7 +168,13 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .find(|function| {
                         function.implementation
                             == FunctionImplementation::Native(NativeBinding::Entry(
-                                catalog::shared().definition(DefinitionKind::Function, binding),
+                                snapshot
+                                    .definitions()
+                                    .lookup(
+                                        &catalog::shared()
+                                            .definition(DefinitionKind::Function, binding),
+                                    )
+                                    .unwrap(),
                             ))
                     })
             })
@@ -172,7 +183,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     let map_get = signature("$foundation_map_get");
     let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
     for kind in [Protocol::Eq, Protocol::Hash] {
-        assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == kind.nominal().declaration)));
+        assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == snapshot.definitions().lookup(&kind.nominal().declaration).unwrap())));
     }
     assert_eq!(map_get.params.len(), 2);
     for binding in [
@@ -183,7 +194,10 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         assert_eq!(
             signature(binding).implementation,
             FunctionImplementation::Native(NativeBinding::Entry(
-                catalog::shared().definition(DefinitionKind::Function, binding)
+                snapshot
+                    .definitions()
+                    .lookup(&catalog::shared().definition(DefinitionKind::Function, binding))
+                    .unwrap()
             ))
         );
     }

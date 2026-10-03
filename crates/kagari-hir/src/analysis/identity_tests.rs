@@ -415,12 +415,13 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         .facts()
         .declarations
         .definitions();
-    assert_eq!(&definitions.resolve(binding.body).unwrap().to_path(), owner);
+    assert_eq!(binding.body, *owner);
+    assert!(definitions.resolve(binding.body).is_ok());
     let independent = snapshot(&mut AnalysisDatabase::default(), &sources);
     assert!(independent.definitions().resolve(binding.body).is_err());
     assert_eq!(
         first.definitions().resolve(binding.body).unwrap().to_path(),
-        *owner
+        definitions.resolve(*owner).unwrap().to_path()
     );
     assert_eq!(first.declaration(&function_b.id).unwrap().location.file, b);
     let unchanged = snapshot(&mut db, &sources);
@@ -518,8 +519,9 @@ fn field_navigation_distinguishes_owners_and_retains_rejected_write_targets() {
     let DeclarationId::Definition(id) = &writable.id else {
         panic!("field definition")
     };
-    assert_eq!(id.path[0].name, "B");
-    assert_eq!(id.path[1].kind, DefinitionKind::Field);
+    let path = analysis.definitions().resolve(*id).unwrap().to_path();
+    assert_eq!(path.path[0].name, "B");
+    assert_eq!(path.path[1].kind, DefinitionKind::Field);
     assert_eq!(
         analysis
             .definition_at(text.rfind("b.x }").unwrap())
@@ -617,7 +619,7 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
         analysis.type_at(later),
         Some(TypeId::Struct(crate::types::NominalType {
             associated_types: Default::default(),
-            declaration: id.clone(),
+            declaration: analysis.definitions().resolve(*id).unwrap().to_path(),
             arguments: Vec::new()
         }))
     );
@@ -627,7 +629,7 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
         analysis.type_at(annotation),
         Some(TypeId::Struct(crate::types::NominalType {
             associated_types: Default::default(),
-            declaration: id.clone(),
+            declaration: analysis.definitions().resolve(*id).unwrap().to_path(),
             arguments: Vec::new()
         }))
     );
@@ -667,7 +669,18 @@ fn generic_parameter_identity_is_owner_and_position_based() {
         panic!("generic parameter")
     };
     assert_eq!(*position, 0);
-    assert_eq!(owner.path.last().unwrap().name, "first");
+    assert_eq!(
+        analysis
+            .definitions()
+            .resolve(*owner)
+            .unwrap()
+            .to_path()
+            .path
+            .last()
+            .unwrap()
+            .name,
+        "first"
+    );
     let renamed = text.replacen(
         "first<T>(value: T) -> T { val copy: T",
         "first<U>(value: U) -> U { val copy: U",
@@ -769,7 +782,7 @@ fn same_spelled_nominal_types_in_different_modules_are_distinct() {
         };
         assert_eq!(
             left.definition_at(offset).unwrap().id,
-            DeclarationId::Definition(definition.clone())
+            DeclarationId::Definition(left.definitions().lookup(definition).unwrap())
         );
     }
 }
@@ -895,7 +908,18 @@ fn inherited_generic_parameters_keep_the_trait_or_impl_owner() {
         else {
             panic!("generic owner")
         };
-        assert_eq!(owner.path.last().unwrap().kind, kind);
+        assert_eq!(
+            analysis
+                .definitions()
+                .resolve(*owner)
+                .unwrap()
+                .to_path()
+                .path
+                .last()
+                .unwrap()
+                .kind,
+            kind
+        );
         assert_eq!(*actual, position);
     }
     assert_ne!(method.id, own.id);
@@ -1081,4 +1105,81 @@ fn independently_constructed_hir_types_observe_conversion_bounds() {
         ty.visit_definitions(&mut |_| Ok(()), &cancelled),
         Err(DefinitionMappingError::Cancelled)
     ));
+}
+
+#[test]
+fn published_cache_scopes_retain_prefixes_and_reject_foreign_queries() {
+    use kagari_common::identity::{mapping::DefinitionRecord, table::DefinitionId};
+    let text = "struct Player { var hp: i32 } fn identity<T>(value: T) -> T { value } fn read(p: Player) -> i32 { p.hp }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("cache-scopes.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut database = AnalysisDatabase::default();
+    let first = snapshot(&mut database, &sources);
+    let analysis = first.file(file).unwrap().clone();
+    let signature = first.signature_snapshot().file(file).unwrap().clone();
+    let declaration = analysis
+        .result()
+        .facts()
+        .declarations
+        .iter()
+        .find(|d| d.name == "read")
+        .unwrap();
+    let DeclarationId::Definition(owner) = declaration.id else {
+        panic!("function owner");
+    };
+    let path = analysis.definitions().resolve(owner).unwrap().to_path();
+    let body = database
+        .body(sources.snapshot(), &owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    fn validate<T: DefinitionRecord<DefinitionId>>(records: &T, definitions: &DefinitionTable) {
+        records
+            .visit_definitions(
+                &mut |id| {
+                    definitions.resolve(*id)?;
+                    Ok(())
+                },
+                &Default::default(),
+            )
+            .unwrap();
+    }
+    validate(analysis.result(), analysis.definitions());
+    validate(signature.signatures().as_ref(), signature.definitions());
+    validate(body.type_table(), body.definitions());
+    assert!(Arc::ptr_eq(analysis.signatures(), signature.signatures()));
+    let mut independent = AnalysisDatabase::default();
+    assert!(
+        independent
+            .body(sources.snapshot(), &owner, &Default::default())
+            .is_err()
+    );
+    let independent_body = independent
+        .body(sources.snapshot(), &path, &Default::default())
+        .unwrap()
+        .unwrap();
+    assert_ne!(*independent_body.owner(), owner);
+    sources
+        .set(
+            "cache-scopes.kgr",
+            format!("{text} fn added() {{}}"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let second = snapshot(&mut database, &sources);
+    assert!(second.definitions().resolve(owner).is_ok());
+    drop(database);
+    drop(first);
+    drop(second);
+    drop(sources);
+    assert_eq!(
+        body.definitions().resolve(*body.owner()).unwrap().to_path(),
+        path
+    );
+    assert_eq!(
+        analysis.definitions().resolve(owner).unwrap().to_path(),
+        path
+    );
+    validate(signature.signatures().as_ref(), signature.definitions());
 }

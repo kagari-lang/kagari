@@ -32,7 +32,12 @@ fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
 #[test]
 fn native_capabilities_require_installed_impls_and_declared_storage_access() {
     let (snapshot, root) = snapshot("fn main() {}");
-    let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
+    let authoring_catalog = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let catalog = &authoring_catalog.facts().aggregates;
     let item = TypeId::Builtin(BuiltinType::I32);
     let mutable = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
     let readonly = TypeId::Array(Box::new(item.clone()), CollectionAccess::ReadOnly);
@@ -110,7 +115,12 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
     let (snapshot, root) = snapshot(
         "trait Sum<T> { fn sum(self, value: T) -> T; } struct Values {} impl Sum<i32> for Values { fn sum(self, value: i32) -> i32 { value } }",
     );
-    let facts = snapshot.file(root).unwrap().result().facts();
+    let authoring_facts = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let facts = authoring_facts.facts();
     let implementation = facts
         .aggregates
         .implementations()
@@ -176,7 +186,12 @@ impl Iterator for Cursor {
 fn main() {}
 "#,
     );
-    let facts = snapshot.file(root).unwrap().result().facts();
+    let authoring_facts = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let facts = authoring_facts.facts();
     let implementation = facts
         .aggregates
         .implementations()
@@ -250,7 +265,7 @@ fn every_native_signature_retains_resolved_public_types() {
             ) {
                 continue;
             }
-            let substitution: TypeSubstitution = function
+            let substitution: TypeSubstitution<_> = function
                 .generic_params
                 .iter()
                 .map(|parameter| {
@@ -290,7 +305,12 @@ fn every_native_signature_retains_resolved_public_types() {
 #[test]
 fn checked_native_enum_signatures_preserve_slots_and_payloads() {
     let (snapshot, root) = snapshot("fn main() {}");
-    let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
+    let authoring_catalog = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let catalog = &authoring_catalog.facts().aggregates;
     for (kind, arity, expected) in [
         (StandardEnum::Option, 1, vec![("Some", 1), ("None", 0)]),
         (StandardEnum::Result, 2, vec![("Ok", 1), ("Err", 1)]),

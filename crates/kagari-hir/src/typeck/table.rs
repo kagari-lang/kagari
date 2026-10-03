@@ -184,11 +184,6 @@ pub struct ResolvedHostPlacePath<I: DefinitionReference = DefinitionPath> {
 }
 
 impl TypeTable {
-    #[cfg(test)]
-    pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
-        self.host_place_paths.keys().copied()
-    }
-
     pub fn insert_iteration(&mut self, id: ExprId, fact: ResolvedIteration) {
         self.iterations.insert(id, fact);
     }
@@ -1034,5 +1029,12 @@ impl<I: DefinitionReference> TypeTable<I> {
     }
     pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall<I>> {
         self.calls.get(&id).cloned()
+    }
+}
+
+impl<I: DefinitionReference> TypeTable<I> {
+    #[cfg(test)]
+    pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
+        self.host_place_paths.keys().copied()
     }
 }

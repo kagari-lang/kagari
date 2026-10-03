@@ -1,7 +1,7 @@
 //! Declaration queries stop before body name resolution, typing or const evaluation.
 use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
-    analysis::{AnalysisDatabase, error::AnalysisError},
+    analysis::{AnalysisDatabase, error::AnalysisError, ownership},
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::ModuleGraph,
@@ -14,7 +14,7 @@ use kagari_abi::language;
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::Diagnostic,
-    identity::{FileId, Revision},
+    identity::{FileId, Revision, reference::DefinitionReference, table::DefinitionId},
     source::SourceFile,
     source_database::SourceSnapshot,
     span::Span,
@@ -37,12 +37,12 @@ mod tests;
 #[derive(Debug)]
 pub struct FileDeclarations {
     pub(super) parsed: Parse,
-    pub(super) declared: DeclaredAnalysis,
+    pub(super) declared: DeclaredAnalysis<DefinitionId>,
     diagnostics: DiagnosticBuffer,
 }
 
 impl FileDeclarations {
-    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
+    pub fn member_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
         self.declarations().member_at(offset)
     }
 
@@ -55,7 +55,7 @@ impl FileDeclarations {
     }
 
     /// Named declarations, members and generic parameters; no local bindings.
-    pub fn declarations(&self) -> &Declarations {
+    pub fn declarations(&self) -> &Declarations<DefinitionId> {
         &self.declared.declarations
     }
 
@@ -100,10 +100,14 @@ impl DeclarationSnapshot {
         &self.graph
     }
 
-    pub fn declaration(&self, id: &DeclarationId) -> Option<&Declaration> {
-        self.files
-            .values()
-            .find_map(|file| file.declarations().get(id))
+    pub fn declaration<I: DefinitionReference>(
+        &self,
+        id: &DeclarationId<I>,
+    ) -> Option<&Declaration<DefinitionId>> {
+        self.files.values().find_map(|file| {
+            let id = ownership::locate(id, file.declarations().definitions())?;
+            file.declarations().get(&id)
+        })
     }
 }
 
@@ -240,6 +244,10 @@ impl AnalysisDatabase {
                 );
                 let mut diagnostics = declared.names.diagnostics.clone();
                 diagnostics.extend(parsed.diagnostics().iter().cloned());
+                let metadata = ownership::scope(&declared, &self.definitions, cancel)?;
+                let definitions = metadata.definitions().clone();
+                let mut declared = metadata.into_records();
+                declared.declarations.publish_definitions(definitions);
                 Arc::new(FileDeclarations {
                     parsed,
                     declared,
@@ -255,5 +263,18 @@ impl AnalysisDatabase {
             graph,
             files: Arc::new(files),
         })
+    }
+}
+
+impl FileDeclarations {
+    pub(super) fn authoring(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<DeclaredAnalysis, AnalysisError> {
+        Ok(ownership::paths(
+            &self.declared,
+            self.declarations().definitions(),
+            cancel,
+        )?)
     }
 }

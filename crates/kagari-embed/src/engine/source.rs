@@ -12,7 +12,7 @@ use kagari_bytecode::{
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::HostInterfaceError,
-    identity::{DefinitionPath, FileId, ModuleIdentity},
+    identity::{FileId, ModuleIdentity, reference::DefinitionReference},
     source::SourceFile,
     source_database::{SourceLayer, SourceSnapshot},
 };
@@ -44,6 +44,9 @@ use std::sync::Arc;
 fn analysis_error(error: AnalysisError) -> EmbeddingError {
     match error {
         AnalysisError::Cancelled => EmbeddingError::Cancelled,
+        AnalysisError::Identity(error) => EmbeddingError::Source {
+            message: format!("invalid analysis definition metadata: {error}"),
+        },
         AnalysisError::NativeApi(error) => EmbeddingError::Source {
             message: error.to_string(),
         },
@@ -190,10 +193,10 @@ impl KagariEngine {
     }
 
     /// Query one function body and module-constant prerequisites by declaration identity.
-    pub fn body(
+    pub fn body<I: DefinitionReference>(
         &self,
         source: SourceSnapshot,
-        function: &DefinitionPath,
+        function: &I,
         cancel: &CancellationToken,
     ) -> CompileResult<Option<Arc<FunctionAnalysis>>> {
         self.analysis

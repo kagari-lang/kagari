@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn deep_recovery_and_conflicts_use_iterative_member_walks() {
-        let mut recovering = TypeId::Error;
+        let mut recovering: TypeId = TypeId::Error;
         let mut integer = TypeId::Builtin(BuiltinType::I32);
         let mut boolean = TypeId::Builtin(BuiltinType::Bool);
         for _ in 0..10_000 {
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn recovery_keeps_independent_facts_without_crossing_shape_boundaries() {
-        let mut value = TypeId::Map {
+        let mut value: TypeId = TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::I32)),
             value: Box::new(TypeId::Tuple(vec![
                 TypeId::Error,
@@ -284,7 +284,7 @@ mod tests {
             }
         );
         assert!(value.conflicts_with(&other));
-        let mut different_arity = TypeId::Tuple(vec![TypeId::Error]);
+        let mut different_arity: TypeId = TypeId::Tuple(vec![TypeId::Error]);
         different_arity.recover_from(&TypeId::Tuple(vec![TypeId::Builtin(BuiltinType::I32); 2]));
         assert_eq!(different_arity, TypeId::Tuple(vec![TypeId::Error]));
         let declaration = DefinitionPath {

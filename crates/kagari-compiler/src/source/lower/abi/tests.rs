@@ -41,7 +41,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             declared.source().name(),
             analyzed.result().diagnostics()
         );
-        let abi = collect_module_abi(analyzed.result().facts());
+        let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
             matches!(item, PublicAbiItem::Type(ty) if matches!(ty.kind, TypeAbiKind::Native(_)))
         }).collect();
@@ -93,7 +93,11 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     let snapshot = AnalysisDatabase::default()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let root = snapshot.file(root).unwrap();
+    let root = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
     let mut contracts = BTreeMap::new();
     for declared in snapshot.declaration_snapshot().files() {
         if declared.source().module_identity().package.0 != "kagari-core" {
@@ -106,7 +110,8 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             declared.source().name(),
             analyzed.result().diagnostics()
         );
-        let module = collect_module_abi(analyzed.result().facts());
+        let module =
+            collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
         for kind in Protocol::ALL {
             let id = traits::identity(kind);
             if id.module != *declared.source().module_identity() {
@@ -119,7 +124,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
                 &id,
             )
             .expect("lowered source trait");
-            let source = root.result().facts().aggregates.trait_(&id).unwrap();
+            let source = root.facts().aggregates.trait_(&id).unwrap();
             assert_eq!(record.generic_params.len(), source.generic_params.len());
             assert_eq!(record.methods.len(), source.methods.len());
             for (slot, method) in source.methods.iter().enumerate() {
@@ -199,7 +204,7 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
         .unwrap();
     for declared in snapshot.declaration_snapshot().files() {
         let analyzed = snapshot.file(declared.source().id()).unwrap();
-        let abi = collect_module_abi(analyzed.result().facts());
+        let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
         let identity = declared.source().module_identity();
         for declaration in &abi.native_declarations {
             assert!(

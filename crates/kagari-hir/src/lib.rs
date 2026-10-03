@@ -1,3 +1,4 @@
+use crate::analysis::ownership::recover_invalid_identity;
 use crate::{
     hir::ids::BodySelection,
     imports::{functions::ImportedFunctions, types::ImportedTypes},
@@ -135,6 +136,18 @@ impl CheckedAnalysis {
         cancel: &CancellationToken,
     ) -> Result<AnalyzedModule, DefinitionMappingError> {
         self.0.to_paths(cancel)
+    }
+
+    pub(crate) fn adopt_scoped(
+        module: &AnalyzedModule<DefinitionId>,
+        definitions: &DefinitionTable,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self(DefinitionMetadata::checked(
+            definitions.clone(),
+            module.clone(),
+            cancel,
+        )?))
     }
 
     pub(crate) fn adopt(
@@ -398,6 +411,9 @@ fn analyze_prepared(
 }
 
 pub fn analyze_source(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
+    if !source.module_identity().within_path_limit() {
+        return recover_invalid_identity(source);
+    }
     let snapshot = AnalysisDatabase::default()
         .snapshot(
             SourceSnapshot::single_file(Arc::new(source.clone())),
@@ -407,8 +423,8 @@ pub fn analyze_source(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
     snapshot
         .file(source.id())
         .expect("requested source belongs to its snapshot")
-        .result()
-        .clone()
+        .to_unverified(&CancellationToken::default())
+        .expect("checked source metadata must project for authoring")
 }
 
 pub(crate) struct AnalysisPolicy {
@@ -479,3 +495,22 @@ mod tests;
 
 mod identity_mapping;
 mod identity_records;
+
+impl AnalysisResult<AnalyzedModule<DefinitionId>> {
+    pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
+        let module = self.into_checked()?;
+        CheckedAnalysis::adopt_scoped(
+            &module,
+            module.declarations.definitions(),
+            &CancellationToken::default(),
+        )
+        .map_err(|_| {
+            Box::new(DiagnosticBuffer::from_iter([Diagnostic::error(
+                DiagnosticKind::CompileLimitExceeded {
+                    resource: "definition metadata",
+                    limit: 1_000_000,
+                },
+            )]))
+        })
+    }
+}

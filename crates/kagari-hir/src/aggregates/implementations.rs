@@ -327,13 +327,6 @@ impl AggregateCatalog {
         result
     }
 
-    pub fn implementation_signature(
-        &self,
-        id: &DefinitionPath,
-    ) -> Option<&ImplementationSignature> {
-        self.implementations.get(id).map(AsRef::as_ref)
-    }
-
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
@@ -973,3 +966,9 @@ mod search_tests {
 }
 
 mod mapping;
+
+impl<I: DefinitionReference> AggregateCatalog<I> {
+    pub fn implementation_signature(&self, id: &I) -> Option<&ImplementationSignature<I>> {
+        self.implementations.get(id).map(AsRef::as_ref)
+    }
+}

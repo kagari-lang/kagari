@@ -1,6 +1,9 @@
 //! Source query regressions, including native implementations and protocol views.
 
-use crate::{declarations::DeclarationId, language::semantics::ProtocolSemantics, types::TypeId};
+use crate::{
+    analysis::ownership, declarations::DeclarationId, language::semantics::ProtocolSemantics,
+    types::TypeId,
+};
 use kagari_abi::language::Protocol;
 use kagari_common::collection::CollectionAccess;
 
@@ -72,7 +75,8 @@ mod tests {
         let analysis = snapshot.file(file).unwrap();
         let item_type = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));
-        let catalog = &analysis.result().facts().aggregates;
+        let authoring_catalog = analysis.to_unverified(&Default::default()).unwrap();
+        let catalog = &authoring_catalog.facts().aggregates;
         let interface = Protocol::Iterator.nominal();
         let (implementation, arguments) = catalog
             .engine_implementation(&interface, &receiver, &Default::default())
@@ -153,7 +157,12 @@ mod tests {
         let snapshot = AnalysisDatabase::default()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
-        let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
+        let authoring_catalog = snapshot
+            .file(root)
+            .unwrap()
+            .to_unverified(&Default::default())
+            .unwrap();
+        let catalog = &authoring_catalog.facts().aggregates;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let string = TypeId::Builtin(kagari_abi::scalar::BuiltinType::String);
         let target = TypeId::Map {
@@ -348,7 +357,16 @@ mod trait_tests {
                     .uri
             );
             let signature = analysis.call_signature_at(offset).unwrap();
-            assert_eq!(signature.declaration, api.declaration.id);
+            assert_eq!(
+                signature.declaration,
+                ownership::paths(
+                    &api.declaration,
+                    snapshot.definitions(),
+                    &Default::default()
+                )
+                .unwrap()
+                .id
+            );
             assert!(signature.parameters.is_empty());
             assert_eq!(
                 signature.result,
@@ -394,8 +412,8 @@ mod trait_tests {
         assert_eq!(user.declaration.name, "get");
         assert_eq!(user.declaration.location.file, file);
         assert!(user.documentation.is_empty());
-        let iterator = analysis
-            .result()
+        let authoring_iterator = analysis.to_unverified(&Default::default()).unwrap();
+        let iterator = authoring_iterator
             .facts()
             .aggregates
             .trait_(&Protocol::Iterator.nominal().declaration)
@@ -535,7 +553,12 @@ mod collection_access_tests {
         let snapshot = AnalysisDatabase::default()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
-        let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
+        let authoring_catalog = snapshot
+            .file(root)
+            .unwrap()
+            .to_unverified(&Default::default())
+            .unwrap();
+        let catalog = &authoring_catalog.facts().aggregates;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let receivers = [
             TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),
@@ -585,13 +608,14 @@ mod collection_access_tests {
                         .signature_snapshot()
                         .file(declaration.location.file)
                         .unwrap();
+                    let authoring = file.authoring(&Default::default()).unwrap();
                     let Some(ResolvedName::Function(function)) =
-                        file.declarations().definition_target(target)
+                        authoring.declarations.definition_target(target)
                     else {
                         panic!("implementation method")
                     };
-                    let method = file
-                        .signatures()
+                    let method = authoring
+                        .signatures
                         .facts()
                         .functions()
                         .iter()

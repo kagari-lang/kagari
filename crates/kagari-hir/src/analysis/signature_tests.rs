@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::ownership;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -9,8 +10,21 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
     let fresh = snapshot(&mut AnalysisDatabase::default(), sources);
     let fresh = fresh.file(file.source().id()).unwrap();
-    file.signatures().facts().assert_same_source_facts(
-        fresh.signatures().facts(),
+    ownership::paths(
+        file.signatures().as_ref(),
+        file.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .facts()
+    .assert_same_source_facts(
+        ownership::paths(
+            fresh.signatures().as_ref(),
+            fresh.definitions(),
+            &Default::default(),
+        )
+        .unwrap()
+        .facts(),
         file.result().facts().lowered.module.body.arena(),
         fresh.result().facts().lowered.module.body.arena(),
     );
@@ -19,6 +33,8 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
         fresh.signatures().diagnostics()
     );
     assert_eq!(file.result().diagnostics(), fresh.result().diagnostics());
+    let authoring = file.to_unverified(&Default::default()).unwrap();
+    let authoring_fresh = fresh.to_unverified(&Default::default()).unwrap();
     // Navigation must use this revision's declarations, including generic bounds.
     for (index, span) in file
         .result()
@@ -31,9 +47,8 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
     {
         let id = file.result().facts().lowered.source_map.type_id(index);
         assert_eq!(
-            file.result().facts().typed.type_table.type_ref(id),
-            fresh
-                .result()
+            authoring.facts().typed.type_table.type_ref(id),
+            authoring_fresh
                 .facts()
                 .typed
                 .type_table

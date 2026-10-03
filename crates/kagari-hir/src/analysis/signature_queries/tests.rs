@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::ownership;
 use crate::{
     declarations::DeclarationId,
     native::NativeBinding,
@@ -40,15 +41,40 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
                 )
             })
     );
-    let original = &file.prepared.lowered;
-    assert!(reuse_signatures(original, file.signatures(), original, &Default::default()).is_some());
+    let authoring = file.authoring(&Default::default()).unwrap();
+    let original = &authoring.lowered;
+    assert!(
+        reuse_signatures(
+            original,
+            &authoring.signatures,
+            original,
+            &Default::default()
+        )
+        .is_some()
+    );
     let mut changed = original.as_ref().clone();
     changed.native_functions.clear();
     assert_eq!(changed.source.text(), original.source.text());
-    assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
+    assert!(
+        reuse_signatures(
+            original,
+            &authoring.signatures,
+            &changed,
+            &Default::default()
+        )
+        .is_none()
+    );
     let mut changed = original.as_ref().clone();
     changed.registered_native_api = false;
-    assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
+    assert!(
+        reuse_signatures(
+            original,
+            &authoring.signatures,
+            &changed,
+            &Default::default()
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -394,23 +420,31 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
             .any(|d| d.kind.code() == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")
     );
     let fresh = query(&mut AnalysisDatabase::default(), &sources);
-    changed
-        .file(id)
+    ownership::paths(
+        changed.file(id).unwrap().signatures().as_ref(),
+        changed.file(id).unwrap().definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .facts()
+    .assert_same_source_facts(
+        ownership::paths(
+            fresh.file(id).unwrap().signatures().as_ref(),
+            fresh.file(id).unwrap().definitions(),
+            &Default::default(),
+        )
         .unwrap()
-        .signatures()
-        .facts()
-        .assert_same_source_facts(
-            fresh.file(id).unwrap().signatures().facts(),
-            changed
-                .file(id)
-                .unwrap()
-                .prepared
-                .lowered
-                .module
-                .body
-                .arena(),
-            fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
-        );
+        .facts(),
+        changed
+            .file(id)
+            .unwrap()
+            .prepared
+            .lowered
+            .module
+            .body
+            .arena(),
+        fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
+    );
 }
 
 #[test]
@@ -491,23 +525,31 @@ fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
     let second = query(&mut db, &sources);
     assert!(second.file(id).unwrap().reused());
     let fresh = query(&mut AnalysisDatabase::default(), &sources);
-    second
-        .file(id)
+    ownership::paths(
+        second.file(id).unwrap().signatures().as_ref(),
+        second.file(id).unwrap().definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .facts()
+    .assert_same_source_facts(
+        ownership::paths(
+            fresh.file(id).unwrap().signatures().as_ref(),
+            fresh.file(id).unwrap().definitions(),
+            &Default::default(),
+        )
         .unwrap()
-        .signatures()
-        .facts()
-        .assert_same_source_facts(
-            fresh.file(id).unwrap().signatures().facts(),
-            second
-                .file(id)
-                .unwrap()
-                .prepared
-                .lowered
-                .module
-                .body
-                .arena(),
-            fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
-        );
+        .facts(),
+        second
+            .file(id)
+            .unwrap()
+            .prepared
+            .lowered
+            .module
+            .body
+            .arena(),
+        fresh.file(id).unwrap().prepared.lowered.module.body.arena(),
+    );
     assert_eq!(
         second.file(id).unwrap().diagnostics(),
         fresh.file(id).unwrap().diagnostics()

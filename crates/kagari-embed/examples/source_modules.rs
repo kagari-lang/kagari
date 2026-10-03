@@ -5,7 +5,10 @@ use kagari_abi::types::{AbiType, PublicAbiItem};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, PackageId},
+    identity::{
+        ModuleIdentity, PackageId,
+        mapping::{DefinitionMapper, DefinitionRecord},
+    },
     source_database::SourceLayer,
 };
 use kagari_compiler::{bytecode, source::program};
@@ -48,7 +51,15 @@ fn main() {
     println!(
         "imported {} -> {}",
         function.signature.name,
-        function.signature.return_type.display_name()
+        function
+            .signature
+            .return_type
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |id| Ok(file.definitions().resolve(*id)?.to_path()),
+                &CancellationToken::default()
+            ))
+            .unwrap()
+            .display_name()
     );
     assert!(
         file.result().diagnostics().is_empty(),

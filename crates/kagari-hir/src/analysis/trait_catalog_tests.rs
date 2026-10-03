@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::ownership;
 use crate::tests::native as fixture;
 use crate::{
     aggregates::traits::MethodDefault, declarations::DeclarationId, native::NativeBinding,
@@ -47,7 +48,8 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         "{:?}",
         file.result().diagnostics()
     );
-    let catalog = &file.result().facts().aggregates;
+    let authoring_catalog = file.to_unverified(&Default::default()).unwrap();
+    let catalog = &authoring_catalog.facts().aggregates;
     let local = catalog
         .traits()
         .find(|item| item.declaration.name == "Local")
@@ -133,7 +135,8 @@ fn native_defaults_do_not_create_script_implementation_bodies() {
         "{:?}",
         file.result().diagnostics()
     );
-    let catalog = &file.result().facts().aggregates;
+    let authoring_catalog = file.to_unverified(&Default::default()).unwrap();
+    let catalog = &authoring_catalog.facts().aggregates;
     let implementation = catalog
         .implementations()
         .find(|item| !item.engine_owned)
@@ -194,8 +197,10 @@ fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
         "{:?}",
         after.result().diagnostics()
     );
-    let before = &before.result().facts().aggregates;
-    let after = &after.result().facts().aggregates;
+    let authoring_before = before.to_unverified(&Default::default()).unwrap();
+    let before = &authoring_before.facts().aggregates;
+    let authoring_after = after.to_unverified(&Default::default()).unwrap();
+    let after = &authoring_after.facts().aggregates;
     assert!(!before.same_contracts(after));
     let a = before
         .traits()
@@ -226,7 +231,8 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
         file.result().diagnostics()[0].kind.code(),
         "KG_TYPE_UNKNOWN_TRAIT"
     );
-    let facts = file.result().facts();
+    let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let method = &facts
         .aggregates
         .traits()
@@ -277,7 +283,8 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
     let root = insert(&mut sources, "root", text);
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let analysis = snapshot.file(root).unwrap();
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     assert_eq!(
         facts
             .aggregates
@@ -365,8 +372,8 @@ fn invalid_method_parameter_does_not_discard_later_parameters_or_cascade_errors(
     let root = insert(&mut sources, "root", text);
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let file = snapshot.file(root).unwrap();
-    let method = &file
-        .result()
+    let authoring_method = file.to_unverified(&Default::default()).unwrap();
+    let method = &authoring_method
         .facts()
         .aggregates
         .traits()
@@ -420,7 +427,8 @@ fn ambiguous_methods_have_no_call_target_and_duplicate_bounds_do_not_create_ambi
                 .count(),
             1
         );
-        let facts = file.result().facts();
+        let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+        let facts = authoring_facts.facts();
         assert!(
             !facts.lowered.module.body.expressions().any(|(id, _)| facts
                 .typed
@@ -480,7 +488,12 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
     let root = insert(&mut sources, "root", text);
     let mut db = AnalysisDatabase::default();
     let old = analyze(&mut db, &sources);
-    let before = old.file(root).unwrap().result().facts();
+    let authoring_before = old
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let before = authoring_before.facts();
     let DeclarationId::Definition(owner) = &before
         .declarations
         .iter()
@@ -525,7 +538,8 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
             &after_body_edit
                 .file(root)
                 .unwrap()
-                .result()
+                .to_unverified(&Default::default())
+                .unwrap()
                 .facts()
                 .aggregates
         )
@@ -552,8 +566,14 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    invalidated.type_table().assert_same_source_facts(
-        fresh.type_table(),
+    ownership::paths(
+        invalidated.type_table(),
+        invalidated.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .assert_same_source_facts(
+        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
         invalidated.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

@@ -78,7 +78,8 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                     .is_none()
             );
             let diagnostics = analysis.result().diagnostics();
-            let facts = analysis.result().facts();
+            let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+            let facts = authoring_facts.facts();
             let valid = facts
                 .aggregates
                 .structures()

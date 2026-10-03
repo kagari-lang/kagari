@@ -7,7 +7,7 @@ use crate::{
         AnalysisDatabase,
         declaration_queries::{DeclarationSnapshot, FileDeclarations},
         error::AnalysisError,
-        type_at_in, type_reference_at, type_reference_target_at,
+        ownership, type_at_in, type_reference_at, type_reference_target_at,
     },
     declarations::{Declaration, Declarations},
     imports::{
@@ -20,10 +20,15 @@ use crate::{
 };
 
 use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
+    cancellation::CancellationToken,
     diagnostic::Diagnostic,
     host_interface::type_declaration::HostTypeDeclaration,
-    identity::{FileId, Revision},
+    identity::{
+        DefinitionPath, FileId, Revision,
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
     source::SourceFile,
     source_database::SourceSnapshot,
 };
@@ -38,14 +43,14 @@ mod tests;
 #[derive(Debug, Clone)]
 pub struct FileSignatures {
     pub(super) declaration: Arc<FileDeclarations>,
-    pub(super) prepared: PreparedAnalysis,
+    pub(super) prepared: PreparedAnalysis<DefinitionId>,
     diagnostics: DiagnosticBuffer,
 }
 
 impl FileSignatures {
     /// Navigate checked signature type names and declaration sites without
     /// resolving any function body.
-    pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
+    pub fn definition_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
         self.prepared.declarations.site_at(offset).or_else(|| {
             type_reference_at(
                 &self.prepared.lowered,
@@ -72,22 +77,28 @@ impl FileSignatures {
     /// Type annotations checked by this signature query; body annotations have
     /// no facts until a body query checks them.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
-        type_at_in(
+        let ty = type_at_in(
             &self.prepared.lowered,
             self.prepared.signatures.facts().type_table(),
             offset,
+        )?;
+        ownership::paths(
+            &ty,
+            self.declarations().definitions(),
+            &CancellationToken::default(),
         )
+        .ok()
     }
 
     pub fn source(&self) -> &SourceFile {
         self.declaration.source()
     }
 
-    pub fn declarations(&self) -> &Declarations {
+    pub fn declarations(&self) -> &Declarations<DefinitionId> {
         &self.prepared.declarations
     }
 
-    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
+    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures<DefinitionId>>> {
         &self.prepared.signatures
     }
 
@@ -105,19 +116,26 @@ impl FileSignatures {
 pub struct SignatureSnapshot {
     pub(super) declarations: DeclarationSnapshot,
     pub(super) files: Arc<BTreeMap<FileId, Arc<FileSignatures>>>,
-    aggregates: Arc<AggregateCatalog>,
+    aggregates: Arc<AggregateCatalog<DefinitionId>>,
+    definitions: DefinitionTable,
 }
 
 impl SignatureSnapshot {
     pub(super) fn body_environments(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<HashMap<FileId, BodyEnvironment>, Cancelled> {
-        let catalog = FunctionCatalog::new(self.files.values().map(|file| &file.prepared));
+    ) -> Result<HashMap<FileId, BodyEnvironment>, AnalysisError> {
+        let prepared = self
+            .files
+            .values()
+            .map(|file| file.authoring(cancel))
+            .collect::<Result<Vec<_>, _>>()?;
+        let aggregates = ownership::paths(self.aggregates.as_ref(), &self.definitions, cancel)?;
+        let catalog = FunctionCatalog::new(prepared.iter());
         let mut result = HashMap::new();
         for (id, file) in self.files.iter() {
             cancel.check()?;
-            let aggregates = self.aggregates.for_module(
+            let aggregates = aggregates.for_module(
                 file.source().module_identity(),
                 self.module_graph(),
                 cancel,
@@ -158,9 +176,9 @@ impl SignatureSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct BodyEnvironment {
-    pub imported_functions: ImportedFunctions,
-    pub aggregates: AggregateCatalog,
+pub(super) struct BodyEnvironment<I: DefinitionReference = DefinitionPath> {
+    pub imported_functions: ImportedFunctions<I>,
+    pub aggregates: AggregateCatalog<I>,
 }
 
 impl AnalysisDatabase {
@@ -192,7 +210,12 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<SignatureSnapshot, AnalysisError> {
         let declarations = self.prepare_declarations(source, cancel)?;
-        let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
+        let authoring_declarations = declarations
+            .files
+            .iter()
+            .map(|(id, file)| Ok((*id, file.authoring(cancel)?)))
+            .collect::<Result<BTreeMap<_, _>, AnalysisError>>()?;
+        let catalog = TypeCatalog::new(authoring_declarations.values());
         let mut imported_types = HashMap::new();
         for (id, file) in declarations.files.iter() {
             cancel.check()?;
@@ -203,15 +226,21 @@ impl AnalysisDatabase {
             cancel.check()?;
             let imported = imported_types.remove(id).expect("declared type bindings");
             let old = self.signature_cache.as_ref().and_then(|old| old.file(*id));
+            let previous = old.map(|old| old.authoring(cancel)).transpose()?;
             let result = if let Some(old) = old.filter(|old| {
                 Arc::ptr_eq(&old.declaration, declaration)
-                    && old.prepared.declarations.imported_types == imported
+                    && previous
+                        .as_ref()
+                        .expect("old authoring signatures")
+                        .declarations
+                        .imported_types
+                        == imported
             }) {
                 old.clone()
             } else {
-                let prepared = declaration.declared.clone().check_signatures(
+                let prepared = authoring_declarations[id].clone().check_signatures(
                     imported,
-                    old.map(|old| &old.prepared),
+                    previous.as_ref(),
                     cancel,
                 );
                 let mut diagnostics = declaration
@@ -220,6 +249,18 @@ impl AnalysisDatabase {
                     .cloned()
                     .collect::<DiagnosticBuffer>();
                 diagnostics.extend(prepared.signatures.diagnostics().iter().cloned());
+                let shared_signatures = previous
+                    .as_ref()
+                    .zip(old)
+                    .filter(|(previous, _)| Arc::ptr_eq(&prepared.signatures, &previous.signatures))
+                    .map(|(_, old)| old.prepared.signatures.clone());
+                let metadata = ownership::scope(&prepared, &self.definitions, cancel)?;
+                let definitions = metadata.definitions().clone();
+                let mut prepared = metadata.into_records();
+                prepared.declarations.publish_definitions(definitions);
+                if let Some(signatures) = shared_signatures {
+                    prepared.signatures = signatures;
+                }
                 Arc::new(FileSignatures {
                     declaration: declaration.clone(),
                     prepared,
@@ -230,7 +271,7 @@ impl AnalysisDatabase {
         }
         let mut aggregates = AggregateCatalog::default();
         for file in files.values() {
-            let prepared = &file.prepared;
+            let prepared = file.authoring(cancel)?;
             aggregates.add_module(
                 &prepared.lowered,
                 &prepared.declarations,
@@ -244,19 +285,67 @@ impl AnalysisDatabase {
                 &declarations.graph,
                 cancel,
             )?;
-            if let Some(signatures) = file.prepared.completed_signatures(&visible, cancel)? {
+            let authoring = file.authoring(cancel)?;
+            if let Some(signatures) = authoring.completed_signatures(&visible, cancel)? {
+                let signatures = ownership::scope(signatures.as_ref(), &self.definitions, cancel)?
+                    .into_records();
                 let file = Arc::make_mut(file);
-                file.prepared.signatures = signatures;
+                file.prepared.signatures = Arc::new(signatures);
+                file.prepared
+                    .declarations
+                    .publish_definitions(self.definitions.snapshot());
                 file.diagnostics = file.declaration.diagnostics().iter().cloned().collect();
                 file.diagnostics
                     .extend(file.prepared.signatures.diagnostics().iter().cloned());
             }
         }
         cancel.check()?;
+        let aggregates = ownership::scope(&aggregates, &self.definitions, cancel)?.into_records();
         Ok(SignatureSnapshot {
             declarations,
             files: Arc::new(files),
             aggregates: Arc::new(aggregates),
+            definitions: self.definitions.snapshot(),
         })
+    }
+}
+
+impl FileSignatures {
+    pub(super) fn authoring(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<PreparedAnalysis, AnalysisError> {
+        Ok(ownership::paths(
+            &self.prepared,
+            self.declarations().definitions(),
+            cancel,
+        )?)
+    }
+}
+
+impl<I: DefinitionReference> DefinitionRecord<I> for BodyEnvironment<I> {
+    type Rebind<J: DefinitionReference> = BodyEnvironment<J>;
+    fn map_identities<J: DefinitionReference>(
+        &self,
+        mapper: &mut DefinitionMapper<'_, I, J>,
+    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        Ok(BodyEnvironment {
+            imported_functions: self.imported_functions.map_identities(mapper)?,
+            aggregates: self.aggregates.map_identities(mapper)?,
+        })
+    }
+    fn visit_definitions(
+        &self,
+        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        self.imported_functions.visit_definitions(visit, cancel)?;
+        self.aggregates.visit_definitions(visit, cancel)
+    }
+}
+
+impl FileSignatures {
+    pub fn definitions(&self) -> &DefinitionTable {
+        self.prepared.declarations.definitions()
     }
 }

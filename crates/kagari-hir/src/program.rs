@@ -126,11 +126,14 @@ impl AnalysisSnapshot {
                 .any(|diagnostic| diagnostic.severity == Severity::Error)
             {
                 modules.push(
-                    CheckedAnalysis::adopt(file.result().facts(), cancel).map_err(|error| {
-                        match error {
-                            DefinitionMappingError::Cancelled => ProgramCheckError::Cancelled,
-                            error => ProgramCheckError::Identity(error),
-                        }
+                    CheckedAnalysis::adopt_scoped(
+                        file.result().facts(),
+                        file.definitions(),
+                        cancel,
+                    )
+                    .map_err(|error| match error {
+                        DefinitionMappingError::Cancelled => ProgramCheckError::Cancelled,
+                        error => ProgramCheckError::Identity(error),
                     })?,
                 );
             }

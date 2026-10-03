@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::ownership;
 use crate::{declarations::DeclarationId, hir::expr::ExprKind};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
@@ -26,7 +27,8 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
         "{:?}",
         analysis.result().diagnostics()
     );
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let mut checked = 0;
     for (id, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
@@ -103,7 +105,8 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
         "{:?}",
         analysis.result().diagnostics()
     );
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     for (needle, native) in [
         ("Some(value)", false),
         ("None=>", false),
@@ -119,7 +122,8 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
         let DeclarationId::Definition(id) = &declaration.id else {
             panic!("variant declaration")
         };
-        let variant = facts.aggregates.variant(id).unwrap();
+        let path = analysis.definitions().resolve(*id).unwrap().to_path();
+        let variant = facts.aggregates.variant(&path).unwrap();
         let enumeration = facts.aggregates.enumeration(&variant.owner).unwrap();
         assert_eq!(enumeration.native_type.is_some(), native, "{needle}");
     }
@@ -169,8 +173,8 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
     assert!(new.check_program(file, &Default::default()).is_err());
     for (snapshot, text) in [(&old, text), (&new, changed.as_str())] {
         let analysis = snapshot.file(file).unwrap();
-        let enumeration = analysis
-            .result()
+        let authoring_enumeration = analysis.to_unverified(&Default::default()).unwrap();
+        let enumeration = authoring_enumeration
             .facts()
             .aggregates
             .enumerations()
@@ -179,13 +183,23 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
         for argument in ["bool", "i32", "Missing"] {
             let start = text.find(&format!("Event<{argument}>")).unwrap();
             assert_eq!(
-                analysis.definition_at(start),
-                Some(&enumeration.declaration)
+                analysis.definition_at(start).map(|d| ownership::paths(
+                    d,
+                    analysis.definitions(),
+                    &Default::default()
+                )
+                .unwrap()),
+                Some(enumeration.declaration.clone())
             );
             let variant = start + format!("Event<{argument}>::").len();
             assert_eq!(
-                analysis.definition_at(variant),
-                Some(&enumeration.variants[1].declaration)
+                analysis.definition_at(variant).map(|d| ownership::paths(
+                    d,
+                    analysis.definitions(),
+                    &Default::default()
+                )
+                .unwrap()),
+                Some(enumeration.variants[1].declaration.clone())
             );
             let Some(TypeId::Enum(ty)) = analysis.type_at(variant) else {
                 panic!("variant type fact");
@@ -238,7 +252,8 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
         .unwrap();
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let analysis = snapshot.file(file).unwrap();
-    let facts = analysis.result().facts();
+    let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let enumeration = facts
         .aggregates
         .enumerations()
@@ -257,8 +272,13 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     assert_eq!(analysis.type_at(wrong), analysis.type_at(good));
     for owner in [good, wrong, text.find("Event::Absent").unwrap()] {
         assert_eq!(
-            analysis.definition_at(owner),
-            Some(&enumeration.declaration)
+            analysis.definition_at(owner).map(|d| ownership::paths(
+                d,
+                analysis.definitions(),
+                &Default::default()
+            )
+            .unwrap()),
+            Some(enumeration.declaration.clone())
         );
         assert!(analysis.definition_at(owner + "Event".len()).is_none());
     }
@@ -267,12 +287,16 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
         analysis.definition_at(wrong + "Event::".len())
     );
     assert_eq!(
-        analysis.definition_at(good + "Event::".len()),
-        Some(&enumeration.variants[1].declaration)
+        analysis
+            .definition_at(good + "Event::".len())
+            .map(|d| ownership::paths(d, analysis.definitions(), &Default::default()).unwrap()),
+        Some(enumeration.variants[1].declaration.clone())
     );
     assert_eq!(
-        analysis.definition_at(text.find("Event::Empty").unwrap() + "Event::".len()),
-        Some(&enumeration.variants[0].declaration)
+        analysis
+            .definition_at(text.find("Event::Empty").unwrap() + "Event::".len())
+            .map(|d| ownership::paths(d, analysis.definitions(), &Default::default()).unwrap()),
+        Some(enumeration.variants[0].declaration.clone())
     );
     assert!(
         analysis
@@ -382,7 +406,12 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = analyze(&mut db, &sources);
-    let old_facts = old.file(file).unwrap().result().facts();
+    let authoring_old_facts = old
+        .file(file)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let old_facts = authoring_old_facts.facts();
     let DeclarationId::Definition(owner) = &old_facts
         .declarations
         .iter()
@@ -423,8 +452,14 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        fresh.type_table(),
+    ownership::paths(
+        reused.type_table(),
+        reused.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .assert_same_source_facts(
+        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

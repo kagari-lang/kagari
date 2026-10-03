@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::ownership;
 use crate::{
     builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
     resolver::resolved::ResolvedName, typeck::table::CallTarget,
@@ -229,12 +230,19 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
         .unwrap();
     assert_eq!(reused.reused_bodies(), 1);
     assert!(reused.type_table().call_resolution(old_call).is_none());
+    let owner_path = old.definitions().resolve(*owner).unwrap().to_path();
     let fresh = AnalysisDatabase::default()
-        .body(sources.snapshot(), owner, &Default::default())
+        .body(sources.snapshot(), &owner_path, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        fresh.type_table(),
+    ownership::paths(
+        reused.type_table(),
+        reused.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .assert_same_source_facts(
+        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );
@@ -634,12 +642,19 @@ fn standard_variants_and_propagation_rebase_on_body_reuse() {
         .unwrap()
         .unwrap();
     assert_eq!(reused.reused_bodies(), 1);
+    let owner_path = old.definitions().resolve(*owner).unwrap().to_path();
     let fresh = AnalysisDatabase::default()
-        .body(sources.snapshot(), owner, &Default::default())
+        .body(sources.snapshot(), &owner_path, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        fresh.type_table(),
+    ownership::paths(
+        reused.type_table(),
+        reused.definitions(),
+        &Default::default(),
+    )
+    .unwrap()
+    .assert_same_source_facts(
+        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

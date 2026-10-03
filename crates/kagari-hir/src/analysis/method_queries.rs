@@ -32,7 +32,10 @@ impl FileAnalysis {
         if receiver.is_unresolved() {
             return Vec::new();
         }
-        let facts = self.result.facts();
+        let Ok(authoring) = self.to_unverified(&CancellationToken::default()) else {
+            return Vec::new();
+        };
+        let facts = authoring.facts();
         let empty = GenericBounds::default();
         let assumptions = facts
             .typed

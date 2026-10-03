@@ -47,8 +47,11 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             installed.documentation.get(id).cloned().unwrap_or_default()
         );
         assert!(metadata.written_signature.contains(&declaration.name));
-        let other = independent.documentation(&declaration.id).unwrap();
-        assert_eq!(other.declaration.id, declaration.id);
+        assert!(independent.documentation(&declaration.id).is_none());
+        let other = independent
+            .documentation(&DeclarationId::Definition(id.clone()))
+            .unwrap();
+        assert_ne!(other.declaration.id, declaration.id);
         assert_eq!(other.declaration.name, declaration.name);
         assert_eq!(other.declaration.location.range, range);
         assert_eq!(other.documentation, metadata.documentation);
@@ -58,7 +61,14 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
     }
     assert!(count > 0);
     for kind in Protocol::ALL {
-        assert!(identities.contains(&DeclarationId::Definition(standard_traits::identity(kind))));
+        assert!(
+            identities.contains(&DeclarationId::Definition(
+                file.declarations()
+                    .definitions()
+                    .lookup(&standard_traits::identity(kind))
+                    .unwrap()
+            ))
+        );
     }
 }
 
@@ -100,12 +110,18 @@ impl Items for Values {
         let DeclarationId::Definition(identity) = &declaration.id else {
             panic!("associated declaration identity")
         };
-        assert_eq!(identity.path[0].kind, owner);
+        let path = file
+            .declarations()
+            .definitions()
+            .resolve(*identity)
+            .unwrap()
+            .to_path();
+        assert_eq!(path.path[0].kind, owner);
         assert_eq!(
-            identity.path[1].kind,
+            path.path[1].kind,
             kagari_common::identity::DefinitionKind::AssociatedType
         );
-        assert!(identities.insert(identity.clone()));
+        assert!(identities.insert(*identity));
         assert_eq!(file.declarations().get(&declaration.id), Some(declaration));
         let metadata = snapshot.documentation(&declaration.id).unwrap();
         assert_eq!(metadata.documentation, documentation);

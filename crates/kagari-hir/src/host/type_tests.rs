@@ -286,7 +286,8 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
                 file.result().diagnostics()
             );
         }
-        let facts = file.result().facts();
+        let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+        let facts = authoring_facts.facts();
         let call_type = facts
             .lowered
             .module
@@ -404,7 +405,8 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     let new_file = new.file(root).unwrap();
     assert_eq!(new_file.result().facts().typed.reused_bodies, 1);
     let path_fact = |file: &crate::analysis::FileAnalysis| {
-        let facts = file.result().facts();
+        let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+        let facts = authoring_facts.facts();
         facts
             .lowered
             .module
@@ -510,7 +512,12 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         old_file.host_field_at(write_start + "target.".len()),
         Some(&field)
     );
-    let old_table = &old.file(root).unwrap().result().facts().typed.type_table;
+    let authoring_old_table = old
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let old_table = &authoring_old_table.facts().typed.type_table;
     let old_place = old_table.host_write_places().next().unwrap();
     let old_path = old_table.host_place_path(old_place).unwrap().clone();
     sources
@@ -525,7 +532,8 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .unwrap();
     let file = new.file(root).unwrap();
     assert_eq!(file.result().facts().typed.reused_bodies, 1);
-    let table = &file.result().facts().typed.type_table;
+    let authoring_table = file.to_unverified(&Default::default()).unwrap();
+    let table = &authoring_table.facts().typed.type_table;
     let place = table.host_write_places().next().unwrap();
     let path = table.host_place_path(place).unwrap();
     assert_ne!(old_path.root, path.root);
@@ -617,7 +625,8 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         "{:?}",
         file.result().diagnostics()
     );
-    let facts = file.result().facts();
+    let authoring_facts = file.to_unverified(&Default::default()).unwrap();
+    let facts = authoring_facts.facts();
     let reads: Vec<_> = facts
         .lowered
         .module
