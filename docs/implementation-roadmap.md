@@ -51,7 +51,8 @@ rather than adding aliases.
 The source/tooling and foundation-role owner names follow the consumer map; do
 not create extra crates solely to satisfy this list.
 
-Proposed phases, in order, to be activated explicitly for implementation:
+Phases, in order. One implementation request may activate the complete AC01-AC05
+track; that scope does not require a separate approval for each phase:
 
 - [ ] **AC01: Extract the narrow ABI and semantic contract boundary.** Inventory
   every current ABI/common module and its production/build consumers. Retain
@@ -130,6 +131,53 @@ failure must be bounded within its owning phase and recorded with command,
 diagnostics and follow-up. Do not publish an executable bundle with unchecked
 roles or contracts. Reuse successful checks until a relevant change warrants
 rerunning them; run the full matrix at AC05.
+
+### Continuous goal execution and phase commits
+
+The intended full-track execution is one continuous goal covering AC01-AC05,
+including implementation, verification and commits. The user may launch it
+overnight and review the results later. Once that full scope is activated, finish
+AC01, commit its checkpoint, then continue AC02-AC05 automatically. Phase
+boundaries are reviewable commits, not requests for approval or reasons to end
+the goal. Preparing these instructions does not itself launch implementation.
+
+Create one coherent Conventional Commit per completed phase, with the exact
+`Roadmap-Step: AC01` through `Roadmap-Step: AC05` trailer. Include that phase's
+code, tests, affected documentation and checklist/status update in the same
+commit. Do not squash the five phase checkpoints together or rewrite them during
+later phases. Later integration fixes belong to the phase that performs them.
+
+Before each checkpoint, review structure/imports and run the structure checker,
+formatting/diff checks and focused checks appropriate to the phase. AC01 must
+also demonstrate the ABI/contract dependency boundary. Resolve failures owned
+by the phase before calling it complete. The existing bounded intermediate-error
+policy applies during work; it does not waive a phase's acceptance. AC05 runs
+the final workspace commands, behavior matrix and standalone feature/backend
+checks, resolves every carried error, and only then creates its final commit.
+
+Resolve routine module placement, API shape, import and fixture choices using
+the documented ownership rules and inspected consumers. Record material design
+decisions here without reopening settled boundaries. Do not wait for the user
+between phases or stop after merely describing the next phase. Keep unrelated
+queued designs outside this goal.
+
+On continuation or restart, use the phase checkboxes, Git trailers, working-tree
+diff and recorded outstanding issues to resume the unfinished phase. Preserve
+uncommitted work; do not restart completed migrations or rerun unchanged checks
+without a relevant reason. Keep resumable decisions/errors in this roadmap and
+temporary command output under ignored `target/`.
+
+If required external information, unavailable tooling or a material scope
+conflict prevents further progress, record the exact blocker and finish any
+independent authorized work. Do not fabricate success, weaken validation or mark
+the goal complete with required work outstanding. Overnight execution expresses
+the desired workflow, not a guarantee that a machine finishes by a clock deadline.
+
+The final handoff for the user's review must state phase completion and commit
+hashes, resulting crate/data ownership, validation actually performed, and any
+remaining errors or limitations. AC01-AC05 checkboxes, current baseline and
+architecture/specifications must reflect the implemented result. An incomplete
+run must identify its unfinished phase and resumable work clearly.
 
 Acceptance includes both sides of the boundary: source-defined operator traits,
 native-generated library traits and application traits use the same record/selection
@@ -237,17 +285,28 @@ directly. Use the final commands in [verification policy](#execution-and-verific
 in addition to this matrix. These commands are future implementation checks,
 not a claim that they ran during documentation preparation.
 
-A self-contained first implementation request is:
+A self-contained full-track goal request is:
 
 ```text
-Implement AC01 of docs/implementation-roadmap.md in this checkout.
+Goal: Complete AC01-AC05 of docs/implementation-roadmap.md in this checkout.
 Read AGENTS.md and the linked architecture/specifications first.
 Split kagari-contract from the physical kagari-abi and migrate its consumers,
-using the documented naming table. Preserve current language behavior, Rust
-foundation authority and source-free validation. Keep AC02-AC05 queued.
-Run the affected checks and AC01 dependency/acceptance checks, update this
-roadmap with the actual status and any carried errors, and commit the checkpoint
-with Roadmap-Step: AC01. Stop at AC01 acceptance.
+using the documented naming table. Then implement source-authored core traits
+and validated language roles, native-generated library declaration analysis,
+library-policy localization, loading/tooling integration and common cleanup.
+Preserve the documented language, storage, generic, source-free validation,
+cancellation, GC and reload behavior. Keep unrelated queued designs out of scope.
+Execute all five phases continuously; after each phase's acceptance, create one
+Conventional Commit with the matching Roadmap-Step trailer (AC01 through AC05)
+and continue immediately.
+Do not wait for confirmation between phases. Resolve routine implementation
+choices from the documented boundaries and actual consumers.
+Keep this roadmap's checklist, current status and material decisions/errors
+up to date so execution can resume without this conversation. Run the required
+focused checks, then the complete AC05 acceptance matrix and workspace checks.
+Complete the goal only when all five phases and required checks are finished.
+For the user's later review, report the five commits, implemented boundaries,
+actual validation and any remaining blockers or limitations.
 ```
 
 ## Other queued designs

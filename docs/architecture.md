@@ -272,6 +272,9 @@ core traits and language-role selection; AC03 integrates native-authored library
 declarations and replaces generic collection/conversion recognition. Common's
 broader ownership cleanup remains AC04 except for dependencies that must move to
 make the first split acyclic. No language behavior changes are required by AC01.
+When the full track is activated as a goal, continue through AC01-AC05 without
+phase-by-phase approval, with one validated commit per phase under the roadmap's
+[continuous execution policy](implementation-roadmap.md#continuous-goal-execution-and-phase-commits).
 
 ### Ownership boundaries
 
