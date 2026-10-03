@@ -2,7 +2,7 @@
 //! Recognition uses nominal identity; an application trait with the same name
 //! never acquires syntax or implicit-value semantics.
 use kagari_common::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
 
 pub mod catalog;
@@ -61,8 +61,8 @@ pub enum Protocol {
     Product,
 }
 
-pub fn identity(protocol: Protocol) -> DefinitionId {
-    DefinitionId {
+pub fn identity(protocol: Protocol) -> DefinitionPath {
+    DefinitionPath {
         module: module_identity(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
@@ -157,7 +157,7 @@ impl Protocol {
         }
     }
 
-    pub fn from_id(id: &DefinitionId) -> Option<Self> {
+    pub fn from_id(id: &DefinitionPath) -> Option<Self> {
         if id.module != module_identity() || id.path.len() != 1 {
             return None;
         }

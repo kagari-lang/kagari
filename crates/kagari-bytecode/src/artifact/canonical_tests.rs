@@ -455,14 +455,14 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
     };
     use kagari_common::{
         host_interface::{path::HostPathDeclaration, type_declaration::PathAccess},
-        identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     };
 
     let valid = BytecodeProgram {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
-    let id = |kind| DefinitionId {
+    let id = |kind| DefinitionPath {
         module: valid.modules[0].identity.clone(),
         path: vec![DefinitionPathSegment {
             kind,

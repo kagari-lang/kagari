@@ -10,7 +10,7 @@ use crate::{
         NominalAbiType, ParameterAbi, TraitAbi,
     },
 };
-use kagari_common::identity::{DefinitionId, associated_type_id};
+use kagari_common::identity::{DefinitionPath, associated_type_id};
 
 pub(super) fn contract(kind: Protocol, parameters: &[&str]) -> TraitAbi {
     let owner = language::identity(kind);
@@ -47,7 +47,7 @@ pub(super) fn output(kind: Protocol, name: &str) -> AbiType {
 }
 
 pub(super) fn associated(
-    owner: &DefinitionId,
+    owner: &DefinitionPath,
     name: &str,
     bounds: Vec<ConstraintAbi>,
 ) -> AssociatedTypeAbi {

@@ -11,7 +11,7 @@ use crate::{
 use kagari_abi::callable::MethodPolicy;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionId, FileSpan, ModuleIdentity},
+    identity::{self, DefinitionPath, FileSpan, ModuleIdentity},
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -29,8 +29,8 @@ pub struct MethodParameter {
 pub struct MethodSignature {
     pub default: Option<MethodDefault>,
     pub policy: MethodPolicy,
-    pub id: DefinitionId,
-    pub owner: DefinitionId,
+    pub id: DefinitionPath,
+    pub owner: DefinitionPath,
     pub slot: usize,
     pub name: String,
     pub generic_params: Vec<GenericParameterType>,
@@ -69,22 +69,22 @@ impl MethodSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitSignature {
-    pub associated_type_parameters: BTreeMap<DefinitionId, AssociatedTypeParameters>,
-    pub associated_consts: BTreeMap<DefinitionId, AssociatedConstSignature>,
-    pub id: DefinitionId,
+    pub associated_type_parameters: BTreeMap<DefinitionPath, AssociatedTypeParameters>,
+    pub associated_consts: BTreeMap<DefinitionPath, AssociatedConstSignature>,
+    pub id: DefinitionPath,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: GenericBounds,
     pub supertraits: Vec<NominalType>,
     pub methods: Vec<MethodSignature>,
     pub declaration: Declaration,
-    pub associated_types: BTreeMap<DefinitionId, Vec<ConstraintTarget>>,
+    pub associated_types: BTreeMap<DefinitionPath, Vec<ConstraintTarget>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociatedConstSignature {
     pub declaration: Declaration,
     pub ty: TypeId,
-    pub initializer: Option<DefinitionId>,
+    pub initializer: Option<DefinitionPath>,
 }
 
 impl AggregateCatalog {
@@ -133,11 +133,11 @@ impl AggregateCatalog {
         self.traits.values().map(AsRef::as_ref)
     }
 
-    pub fn trait_(&self, id: &DefinitionId) -> Option<&TraitSignature> {
+    pub fn trait_(&self, id: &DefinitionPath) -> Option<&TraitSignature> {
         self.traits.get(id).map(AsRef::as_ref)
     }
 
-    pub fn trait_method(&self, id: &DefinitionId) -> Option<&MethodSignature> {
+    pub fn trait_method(&self, id: &DefinitionPath) -> Option<&MethodSignature> {
         let (owner, slot) = self.methods.get(id)?;
         self.trait_(owner)?.methods.get(*slot)
     }
@@ -311,7 +311,7 @@ impl AggregateCatalog {
         module: &ModuleIdentity,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
-        let start = DefinitionId {
+        let start = DefinitionPath {
             module: module.clone(),
             path: Vec::new(),
         };
@@ -361,11 +361,11 @@ pub fn trait_inheritance_closure(
     interface: &NominalType,
     receiver: &TypeId,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionId) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
+    lookup: &impl Fn(&DefinitionPath) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
 ) -> Result<Vec<NominalType>, ImplementationSearchError> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
-    let mut pending = vec![(interface.clone(), Vec::<DefinitionId>::new())];
+    let mut pending = vec![(interface.clone(), Vec::<DefinitionPath>::new())];
     while let Some((applied, mut path)) = pending.pop() {
         cancel
             .check()

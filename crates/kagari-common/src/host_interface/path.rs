@@ -2,7 +2,7 @@
 #[cfg(test)]
 use crate::collection::CollectionAccess;
 use crate::host_interface::{
-    DefinitionId, HostInterface, HostInterfaceError,
+    DefinitionPath, HostInterface, HostInterfaceError,
     type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     value_type::HostValueType,
 };
@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HostPathDeclaration {
-    pub root: DefinitionId,
+    pub root: DefinitionPath,
     #[serde(deserialize_with = "super::decode_limits::members")]
     pub segments: Vec<HostPathSegmentDeclaration>,
     pub access: PathAccess,
@@ -28,7 +28,7 @@ impl HostPathDeclaration {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HostPathSegmentDeclaration {
-    Field(DefinitionId),
+    Field(DefinitionPath),
     Index(HostIndexSegmentDeclaration),
     Virtual(HostVirtualSegmentDeclaration),
 }

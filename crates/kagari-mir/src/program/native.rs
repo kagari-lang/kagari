@@ -16,7 +16,7 @@ use kagari_abi::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 
 pub(super) fn validate(
@@ -41,7 +41,7 @@ pub(super) fn validate(
                 return None;
             };
             Some((
-                DefinitionId {
+                DefinitionPath {
                     module: module.identity.clone(),
                     path: vec![DefinitionPathSegment {
                         kind: DefinitionKind::Trait,

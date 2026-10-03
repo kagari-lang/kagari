@@ -132,7 +132,7 @@ Generic parameter declarations are identified by owner and parameter position;
 renaming a parameter preserves this identity. Inherited parameters keep their
 trait/impl owner, and method parameters have their method owner. An implicit impl
 receiver uses the impl header's context even when a method shadows a generic name.
-Semantic Struct/Enum/Trait TypeId values now carry the same DefinitionId used by
+Semantic Struct/Enum/Trait TypeId values currently carry the same DefinitionPath used by
 navigation. Generic TypeId equality and hashing use owner and parameter position;
 the retained parameter name is diagnostic metadata. Implicit Self has its own
 trait-owned type identity, distinct from an ordinary parameter named Self.

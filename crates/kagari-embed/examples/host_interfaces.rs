@@ -10,7 +10,7 @@ use kagari_common::{
         },
         value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     source_database::SourceLayer,
 };
 
@@ -27,7 +27,7 @@ use kagari_runtime::{
 
 const SOURCE: &str = include_str!("../../../examples/host-interfaces.kgr");
 
-fn member(owner: &DefinitionId, kind: DefinitionKind, name: &str) -> DefinitionId {
+fn member(owner: &DefinitionPath, kind: DefinitionKind, name: &str) -> DefinitionPath {
     let mut id = owner.clone();
     id.path.push(DefinitionPathSegment {
         kind,
@@ -47,7 +47,7 @@ fn compile_offline() -> (
     let file = engine
         .set_source("mem://host-interface", SOURCE.into(), SourceLayer::Base)
         .unwrap();
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: engine
             .source_snapshot()
             .file(file)

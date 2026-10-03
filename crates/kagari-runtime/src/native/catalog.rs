@@ -5,16 +5,16 @@ use kagari_abi::{
     declaration::{ImplDecl, ModuleDecl},
     types::{NativeDeclaration, TraitAbi, TypeAbi, TypeAbiKind},
 };
-use kagari_common::identity::{DefinitionId, DefinitionKind};
+use kagari_common::identity::{DefinitionKind, DefinitionPath};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone, Default)]
 pub struct DeclarationCatalog {
-    pub(crate) types: Arc<BTreeMap<DefinitionId, TypeAbi>>,
-    pub(crate) traits: Arc<BTreeMap<DefinitionId, TraitAbi>>,
-    pub(crate) declarations: Arc<BTreeMap<DefinitionId, NativeDeclaration>>,
-    pub(crate) implementations: Arc<BTreeMap<DefinitionId, ImplDecl>>,
+    pub(crate) types: Arc<BTreeMap<DefinitionPath, TypeAbi>>,
+    pub(crate) traits: Arc<BTreeMap<DefinitionPath, TraitAbi>>,
+    pub(crate) declarations: Arc<BTreeMap<DefinitionPath, NativeDeclaration>>,
+    pub(crate) implementations: Arc<BTreeMap<DefinitionPath, ImplDecl>>,
 }
 
 impl DeclarationCatalog {
@@ -60,13 +60,13 @@ impl DeclarationCatalog {
         Ok(result)
     }
 
-    pub(crate) fn get(&self, declaration: &DefinitionId) -> Option<&TraitAbi> {
+    pub(crate) fn get(&self, declaration: &DefinitionPath) -> Option<&TraitAbi> {
         self.traits.get(declaration)
     }
 
     pub(crate) fn insert(
         &mut self,
-        declaration: DefinitionId,
+        declaration: DefinitionPath,
         contract: TraitAbi,
     ) -> Result<(), RuntimeError> {
         if let Some(previous) = self.traits.get(&declaration) {
@@ -83,7 +83,7 @@ impl DeclarationCatalog {
 
     pub(crate) fn insert_type(
         &mut self,
-        id: DefinitionId,
+        id: DefinitionPath,
         declaration: TypeAbi,
     ) -> Result<(), RuntimeError> {
         if let Some(previous) = self.types.get(&id) {
@@ -116,7 +116,7 @@ impl DeclarationCatalog {
 
     pub(crate) fn insert_implementation(
         &mut self,
-        id: DefinitionId,
+        id: DefinitionPath,
         implementation: ImplDecl,
     ) -> Result<(), RuntimeError> {
         if let Some(previous) = self.implementations.get(&id) {

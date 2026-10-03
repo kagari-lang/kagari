@@ -22,7 +22,7 @@ use kagari_common::{
         type_declaration::{HostTypeOwnership, PathAccess, Visibility},
         value_type::HostValueType,
     },
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 use std::iter;
 
@@ -222,7 +222,7 @@ impl HostRegistry {
 
     pub(crate) fn validate_type_identity(
         &self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         symbol: &str,
     ) -> Result<(), RuntimeError> {
         host_interface::validate_host_type_identity(declaration)
@@ -239,7 +239,7 @@ impl HostRegistry {
         Ok(())
     }
 
-    pub(super) fn matches_type(&self, type_id: TypeId, declaration: &DefinitionId) -> bool {
+    pub(super) fn matches_type(&self, type_id: TypeId, declaration: &DefinitionPath) -> bool {
         self.type_declarations.get(declaration) == Some(&type_id)
     }
 
@@ -908,7 +908,7 @@ impl HostRegistry {
         self.types.get(&type_id)
     }
 
-    pub fn host_type_by_declaration(&self, declaration: &DefinitionId) -> Option<&HostTypeInfo> {
+    pub fn host_type_by_declaration(&self, declaration: &DefinitionPath) -> Option<&HostTypeInfo> {
         self.types.get(self.type_declarations.get(declaration)?)
     }
 

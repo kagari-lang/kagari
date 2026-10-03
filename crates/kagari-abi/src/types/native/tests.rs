@@ -7,11 +7,11 @@ use crate::{
         AbiType, FieldAbi, GenericParameterAbi, PublicAbiItem, TypeAbiKind, VariantAbi, verify,
     },
 };
-use kagari_common::identity::{DefinitionId, DefinitionPathSegment, ModuleIdentity};
+use kagari_common::identity::{DefinitionPath, DefinitionPathSegment, ModuleIdentity};
 
 fn declaration(kind: NativeTypeConstructor) -> (ModuleIdentity, TypeAbi) {
     let module = ModuleIdentity::single_file("native-contract.kgr");
-    let owner = DefinitionId {
+    let owner = DefinitionPath {
         module: module.clone(),
         path: vec![DefinitionPathSegment {
             kind: kind.declaration_kind(),
@@ -111,7 +111,7 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
         } else {
             let mut wrong = ty.clone();
             wrong.generic_params.push(GenericParameterAbi {
-                owner: DefinitionId {
+                owner: DefinitionPath {
                     module: module.clone(),
                     path: vec![],
                 },

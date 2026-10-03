@@ -12,7 +12,7 @@ use crate::{
         substitution::{MAX_TYPE_NODES, TypeTransformError},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 
 pub struct ApplicationValidator<'a, F, G> {
     lookup: F,
@@ -22,8 +22,8 @@ pub struct ApplicationValidator<'a, F, G> {
 
 impl<'a, 'declaration, F, G> ApplicationValidator<'a, F, G>
 where
-    F: Fn(&DefinitionId) -> Option<&'declaration TraitAbi>,
-    G: Fn(&DefinitionId) -> Option<&'declaration TypeAbi>,
+    F: Fn(&DefinitionPath) -> Option<&'declaration TraitAbi>,
+    G: Fn(&DefinitionPath) -> Option<&'declaration TypeAbi>,
 {
     pub fn new(cancel: &'a CancellationToken, lookup: F, storage: G) -> Self {
         Self {

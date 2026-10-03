@@ -4,7 +4,7 @@ use crate::source::{
     types::raise_type,
 };
 use kagari_abi::native_import::NativeImport;
-use kagari_common::{identity::DefinitionId, span::Span};
+use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     native::NativeBinding,
@@ -16,7 +16,7 @@ impl InstancePlanner<'_> {
         &self,
         receiver: &TypeId,
         interface: &NominalType,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<NativeImport, MirLoweringError> {
@@ -65,7 +65,7 @@ impl InstancePlanner<'_> {
 
     pub(super) fn prepare_default_target(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<bool, MirLoweringError> {

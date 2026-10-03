@@ -16,7 +16,7 @@ use kagari_abi::{language::Protocol, scalar::BuiltinType};
 use kagari_common::{
     collection::CollectionAccess,
     diagnostic::{Diagnostic, DiagnosticKind},
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 
 impl<'a> BodyChecker<'a> {
@@ -332,7 +332,7 @@ impl<'a> BodyChecker<'a> {
         Some(field)
     }
 
-    pub(super) fn resolve_struct_id(&self, path: &str) -> Option<DefinitionId> {
+    pub(super) fn resolve_struct_id(&self, path: &str) -> Option<DefinitionPath> {
         if let Some(binding) = self.declarations.names.lookup(path) {
             match binding.target()? {
                 target @ ResolvedName::Struct(_) => {
@@ -348,7 +348,7 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
-    pub(super) fn resolve_enum_id(&self, path: &str) -> Option<DefinitionId> {
+    pub(super) fn resolve_enum_id(&self, path: &str) -> Option<DefinitionPath> {
         if let Some(binding) = self.declarations.names.lookup(path) {
             match binding.target()? {
                 target @ ResolvedName::Enum(_) => {

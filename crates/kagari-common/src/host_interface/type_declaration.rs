@@ -5,7 +5,7 @@ use crate::{
         HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, codec, hash,
         host_type_identity, validate_host_type_identity, value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 
 use bincode::Options;
@@ -41,7 +41,7 @@ pub enum Visibility {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostFieldDeclaration {
-    pub id: DefinitionId,
+    pub id: DefinitionPath,
     pub name: String,
     pub ty: HostValueType,
     pub readable: bool,
@@ -52,7 +52,7 @@ pub struct HostFieldDeclaration {
 }
 
 impl HostFieldDeclaration {
-    pub fn new(owner: &DefinitionId, name: impl Into<String>, ty: HostValueType) -> Self {
+    pub fn new(owner: &DefinitionPath, name: impl Into<String>, ty: HostValueType) -> Self {
         let name = name.into();
         Self {
             id: member_id(owner, DefinitionKind::Field, &name),
@@ -76,7 +76,7 @@ impl HostFieldDeclaration {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostMethodDeclaration {
-    pub id: DefinitionId,
+    pub id: DefinitionPath,
     pub name: String,
     pub receiver: HostPassingStyle,
     #[serde(deserialize_with = "super::decode_limits::members")]
@@ -89,19 +89,19 @@ pub struct HostMethodDeclaration {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostTraitMethodBinding {
-    pub trait_method: DefinitionId,
-    pub host_method: DefinitionId,
+    pub trait_method: DefinitionPath,
+    pub host_method: DefinitionPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostAssociatedTypeBinding {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub ty: HostValueType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostTraitImplementationDeclaration {
-    pub trait_id: DefinitionId,
+    pub trait_id: DefinitionPath,
     #[serde(deserialize_with = "super::decode_limits::members")]
     pub trait_arguments: Vec<HostValueType>,
     #[serde(deserialize_with = "super::decode_limits::members")]
@@ -113,7 +113,7 @@ pub struct HostTraitImplementationDeclaration {
 
 impl HostTraitImplementationDeclaration {
     pub fn new(
-        trait_id: DefinitionId,
+        trait_id: DefinitionPath,
         trait_arguments: Vec<HostValueType>,
         methods: Vec<HostTraitMethodBinding>,
     ) -> Self {
@@ -129,7 +129,7 @@ impl HostTraitImplementationDeclaration {
 
 impl HostMethodDeclaration {
     pub fn new(
-        owner: &DefinitionId,
+        owner: &DefinitionPath,
         name: impl Into<String>,
         params: Vec<HostParameter>,
         return_type: HostValueType,
@@ -157,7 +157,7 @@ impl HostMethodDeclaration {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostTypeDeclaration {
-    pub id: DefinitionId,
+    pub id: DefinitionPath,
     pub symbol: String,
     pub ownership: HostTypeOwnership,
     #[serde(deserialize_with = "super::decode_limits::members")]
@@ -175,7 +175,7 @@ impl HostTypeDeclaration {
     /// Executable contract derived solely from this member declaration.
     pub fn method_contract(
         &self,
-        id: &DefinitionId,
+        id: &DefinitionPath,
     ) -> Result<super::HostFunctionDeclaration, HostInterfaceError> {
         self.validate()?;
         let method = self
@@ -394,7 +394,7 @@ impl HostTypeDeclaration {
     }
 }
 
-fn member_id(owner: &DefinitionId, kind: DefinitionKind, name: &str) -> DefinitionId {
+fn member_id(owner: &DefinitionPath, kind: DefinitionKind, name: &str) -> DefinitionPath {
     let mut id = owner.clone();
     id.path.push(DefinitionPathSegment {
         kind,
@@ -405,8 +405,8 @@ fn member_id(owner: &DefinitionId, kind: DefinitionKind, name: &str) -> Definiti
 }
 
 fn validate_member(
-    owner: &DefinitionId,
-    id: &DefinitionId,
+    owner: &DefinitionPath,
+    id: &DefinitionPath,
     name: &str,
     kind: DefinitionKind,
 ) -> Result<(), HostInterfaceError> {
@@ -435,8 +435,8 @@ mod tests {
         identity::{ModuleIdentity, PackageId},
     };
 
-    fn script_trait(name: &str) -> DefinitionId {
-        DefinitionId {
+    fn script_trait(name: &str) -> DefinitionPath {
+        DefinitionPath {
             module: ModuleIdentity {
                 package: PackageId("pkg".into()),
                 path: vec!["api".into()],

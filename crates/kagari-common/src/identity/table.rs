@@ -7,10 +7,12 @@ mod tests;
 pub mod wire;
 
 use crate::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, MAX_IDENTITY_PATH_SEGMENTS,
+    ModuleIdentity,
 };
 use std::{
     collections::HashMap,
+    num::NonZeroU32,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
@@ -21,19 +23,19 @@ use thiserror::Error;
 static NEXT_TABLE: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DefinitionTableId(u32);
+pub struct DefinitionTableId(NonZeroU32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DefinitionIndex(u32);
 
-/// Transitional name until the owned-path consumers migrate in ID02.
+/// Compact declaration identity, meaningful only in its explicitly owned table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ScopedDefinitionId {
+pub struct DefinitionId {
     table: DefinitionTableId,
     index: DefinitionIndex,
 }
 
-impl ScopedDefinitionId {
+impl DefinitionId {
     pub fn table(self) -> DefinitionTableId {
         self.table
     }
@@ -112,10 +114,7 @@ impl DefinitionTable {
         self.data.symbols.len()
     }
 
-    pub fn resolve(
-        &self,
-        id: ScopedDefinitionId,
-    ) -> Result<DefinitionView<'_>, DefinitionTableError> {
+    pub fn resolve(&self, id: DefinitionId) -> Result<DefinitionView<'_>, DefinitionTableError> {
         validate_id(self.id, &self.data, id)?;
         Ok(DefinitionView {
             data: &self.data,
@@ -123,7 +122,7 @@ impl DefinitionTable {
         })
     }
 
-    pub fn lookup(&self, path: &DefinitionId) -> Option<ScopedDefinitionId> {
+    pub fn lookup(&self, path: &DefinitionPath) -> Option<DefinitionId> {
         let module = *self.data.module_indices.get(&path.module)?;
         let mut index = *self.data.node_indices.get(&Node::Root(module))?;
         for segment in &path.path {
@@ -135,7 +134,7 @@ impl DefinitionTable {
                 occurrence: segment.occurrence,
             })?;
         }
-        Some(ScopedDefinitionId {
+        Some(DefinitionId {
             table: self.id,
             index,
         })
@@ -155,7 +154,9 @@ impl DefinitionTableBuilder {
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| DefinitionTableError::TableIdentityExhausted)?;
         Ok(Self {
-            id: DefinitionTableId(id),
+            id: DefinitionTableId(
+                NonZeroU32::new(id).ok_or(DefinitionTableError::TableIdentityExhausted)?,
+            ),
             data: Arc::new(TableData::default()),
         })
     }
@@ -167,10 +168,7 @@ impl DefinitionTableBuilder {
         }
     }
 
-    pub fn resolve(
-        &self,
-        id: ScopedDefinitionId,
-    ) -> Result<DefinitionView<'_>, DefinitionTableError> {
+    pub fn resolve(&self, id: DefinitionId) -> Result<DefinitionView<'_>, DefinitionTableError> {
         validate_id(self.id, &self.data, id)?;
         Ok(DefinitionView {
             data: &self.data,
@@ -181,7 +179,7 @@ impl DefinitionTableBuilder {
     pub fn intern_root(
         &mut self,
         module: &ModuleIdentity,
-    ) -> Result<ScopedDefinitionId, DefinitionTableError> {
+    ) -> Result<DefinitionId, DefinitionTableError> {
         if !module.within_path_limit() {
             return Err(DefinitionTableError::PathLimit);
         }
@@ -200,11 +198,11 @@ impl DefinitionTableBuilder {
 
     pub fn intern_child(
         &mut self,
-        parent: ScopedDefinitionId,
+        parent: DefinitionId,
         kind: DefinitionKind,
         name: &str,
         occurrence: u32,
-    ) -> Result<ScopedDefinitionId, DefinitionTableError> {
+    ) -> Result<DefinitionId, DefinitionTableError> {
         validate_id(self.id, &self.data, parent)?;
         let depth = usize::from(self.data.depths[parent.index()]) + 1;
         if depth > MAX_IDENTITY_PATH_SEGMENTS {
@@ -233,8 +231,8 @@ impl DefinitionTableBuilder {
 
     pub fn intern_path(
         &mut self,
-        path: &DefinitionId,
-    ) -> Result<ScopedDefinitionId, DefinitionTableError> {
+        path: &DefinitionPath,
+    ) -> Result<DefinitionId, DefinitionTableError> {
         if !path.within_path_limit() {
             return Err(DefinitionTableError::PathLimit);
         }
@@ -249,7 +247,7 @@ impl DefinitionTableBuilder {
     pub fn import(
         &mut self,
         source: &DefinitionTable,
-        ids: impl IntoIterator<Item = ScopedDefinitionId>,
+        ids: impl IntoIterator<Item = DefinitionId>,
     ) -> Result<DefinitionRemap, DefinitionTableError> {
         let mut mapping = DefinitionRemap {
             source: source.id,
@@ -269,7 +267,7 @@ impl DefinitionTableBuilder {
             }
             for index in pending.into_iter().rev() {
                 let mapped = if source.id == self.id {
-                    let id = ScopedDefinitionId {
+                    let id = DefinitionId {
                         table: self.id,
                         index,
                     };
@@ -303,11 +301,7 @@ impl DefinitionTableBuilder {
         Ok(mapping)
     }
 
-    fn intern_node(
-        &mut self,
-        node: Node,
-        depth: u8,
-    ) -> Result<ScopedDefinitionId, DefinitionTableError> {
+    fn intern_node(&mut self, node: Node, depth: u8) -> Result<DefinitionId, DefinitionTableError> {
         let index = if let Some(index) = self.data.node_indices.get(&node) {
             *index
         } else {
@@ -318,7 +312,7 @@ impl DefinitionTableBuilder {
             data.node_indices.insert(node, index);
             index
         };
-        Ok(ScopedDefinitionId {
+        Ok(DefinitionId {
             table: self.id,
             index,
         })
@@ -329,7 +323,7 @@ impl DefinitionTableBuilder {
 pub struct DefinitionRemap {
     source: DefinitionTableId,
     target: DefinitionTableId,
-    entries: Vec<Option<ScopedDefinitionId>>,
+    entries: Vec<Option<DefinitionId>>,
 }
 
 impl DefinitionRemap {
@@ -337,7 +331,7 @@ impl DefinitionRemap {
         self.target
     }
 
-    pub fn map(&self, id: ScopedDefinitionId) -> Result<ScopedDefinitionId, DefinitionTableError> {
+    pub fn map(&self, id: DefinitionId) -> Result<DefinitionId, DefinitionTableError> {
         if id.table != self.source {
             return Err(DefinitionTableError::ForeignTable);
         }
@@ -388,8 +382,8 @@ impl<'a> DefinitionView<'a> {
         }
     }
 
-    pub fn to_path(self) -> DefinitionId {
-        DefinitionId {
+    pub fn to_path(self) -> DefinitionPath {
+        DefinitionPath {
             module: self.module().clone(),
             path: self
                 .segments()
@@ -434,7 +428,7 @@ impl<'a> Iterator for DefinitionSegments<'a> {
 fn validate_id(
     table: DefinitionTableId,
     data: &TableData,
-    id: ScopedDefinitionId,
+    id: DefinitionId,
 ) -> Result<(), DefinitionTableError> {
     if id.table != table {
         return Err(DefinitionTableError::ForeignTable);

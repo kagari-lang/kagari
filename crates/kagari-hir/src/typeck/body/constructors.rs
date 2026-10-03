@@ -18,12 +18,12 @@ use crate::{
 };
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 use std::collections::HashSet;
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn enum_member(&self, expr: ExprId) -> Option<(DefinitionId, String)> {
+    pub(super) fn enum_member(&self, expr: ExprId) -> Option<(DefinitionPath, String)> {
         if let Some(variant) = self
             .names
             .expr_resolution(expr)

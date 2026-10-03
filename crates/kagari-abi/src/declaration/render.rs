@@ -10,7 +10,7 @@ use crate::{
 };
 use kagari_common::{
     collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, associated_type_id},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
     span::Span,
 };
 use std::collections::BTreeMap;
@@ -34,7 +34,7 @@ pub struct NativeBoundSite {
 pub struct DeclarationSource {
     pub uri: String,
     pub text: String,
-    pub sites: BTreeMap<DefinitionId, NativeDeclarationSite>,
+    pub sites: BTreeMap<DefinitionPath, NativeDeclarationSite>,
 }
 
 impl ModuleDecl {
@@ -397,11 +397,11 @@ impl ModuleDecl {
 struct Renderer<'a> {
     module: &'a ModuleDecl,
     text: String,
-    sites: BTreeMap<DefinitionId, NativeDeclarationSite>,
+    sites: BTreeMap<DefinitionPath, NativeDeclarationSite>,
 }
 
 impl Renderer<'_> {
-    fn doc(&mut self, id: &DefinitionId) {
+    fn doc(&mut self, id: &DefinitionPath) {
         if let Some(documentation) = self.module.documentation.get(id) {
             for line in documentation.lines() {
                 if id.path.len() > 1 {
@@ -438,7 +438,7 @@ impl Renderer<'_> {
 
     fn site(
         &mut self,
-        id: DefinitionId,
+        id: DefinitionPath,
         start: usize,
         name_span: Span,
         generics: Vec<Span>,
@@ -458,7 +458,7 @@ impl Renderer<'_> {
 
     fn function(
         &mut self,
-        id: DefinitionId,
+        id: DefinitionPath,
         function: &FunctionAbi,
         method: bool,
     ) -> Result<(), DeclarationError> {
@@ -559,7 +559,7 @@ impl Renderer<'_> {
 }
 
 /// Separate lexical names for method binders and their enclosing declaration.
-pub fn parameter_spelling(owner: &DefinitionId, position: usize) -> String {
+pub fn parameter_spelling(owner: &DefinitionPath, position: usize) -> String {
     let prefix = if owner
         .path
         .last()

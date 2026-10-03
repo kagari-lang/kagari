@@ -9,16 +9,16 @@ use kagari_abi::{
         proofs::{ProofCatalog, implementation::Implementation},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use std::{collections::BTreeSet, iter};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Reference {
-    Type(DefinitionId),
-    Trait(DefinitionId),
-    Template(DefinitionId),
+    Type(DefinitionPath),
+    Trait(DefinitionPath),
+    Template(DefinitionPath),
     Obligation(AbiType, NominalAbiType),
-    Implementation(DefinitionId),
+    Implementation(DefinitionPath),
 }
 
 #[derive(Default)]
@@ -175,7 +175,7 @@ impl References {
 impl DeclarationCatalog {
     pub(crate) fn dependency_closure<'a>(
         &self,
-        traits: impl IntoIterator<Item = &'a DefinitionId>,
+        traits: impl IntoIterator<Item = &'a DefinitionPath>,
         declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<DependencyClosure, RuntimeError> {

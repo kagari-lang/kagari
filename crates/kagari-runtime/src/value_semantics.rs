@@ -313,11 +313,11 @@ mod tests {
             program::{BytecodeProgram, ModuleRef},
         };
         use kagari_common::identity::{
-            DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+            DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
         };
 
         let identity = ModuleIdentity::single_file("enum-equality.kgr");
-        let declaration = DefinitionId {
+        let declaration = DefinitionPath {
             module: identity.clone(),
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Enum,
@@ -328,7 +328,7 @@ mod tests {
         let mut other_declaration = declaration.clone();
         other_declaration.path[0].name = "OtherEvent".into();
         let variant = |name: &str, payload| EnumVariantLayout {
-            declaration: DefinitionId {
+            declaration: DefinitionPath {
                 module: identity.clone(),
                 path: declaration
                     .path
@@ -364,7 +364,7 @@ mod tests {
                         declaration: other_declaration.clone(),
                         arguments: Vec::new(),
                         variants: vec![EnumVariantLayout {
-                            declaration: DefinitionId {
+                            declaration: DefinitionPath {
                                 module: identity.clone(),
                                 path: other_declaration
                                     .path

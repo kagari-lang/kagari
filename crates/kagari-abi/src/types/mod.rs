@@ -25,7 +25,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
     host_interface::value_type::HostValueType,
-    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
     range::RangeKind,
 };
 
@@ -110,7 +110,7 @@ pub struct FunctionAbi {
 pub struct NativeDeclaration {
     /// Concrete value produced by Rust before a checked interface-result adapter.
     pub concrete_result: Option<AbiType>,
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub function: FunctionAbi,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub callable_requirements: Vec<NativeCallableRequirement>,
@@ -170,11 +170,11 @@ pub struct VariantAbi {
 /// ValueType describes only the representation used by instruction operands.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NominalAbiType {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::map")]
-    pub associated_types: BTreeMap<DefinitionId, AbiType>,
+    pub associated_types: BTreeMap<DefinitionPath, AbiType>,
 }
 
 impl NominalAbiType {
@@ -196,14 +196,14 @@ pub enum AbiType {
         arguments: Vec<AbiType>,
         receiver: Box<AbiType>,
         interface: Box<NominalAbiType>,
-        member: DefinitionId,
+        member: DefinitionPath,
     },
-    Host(DefinitionId),
+    Host(DefinitionPath),
     /// Receiver template in a trait signature, never an executable value layout.
-    SelfType(DefinitionId),
+    SelfType(DefinitionPath),
     /// Valid only in a declaration template, never in an executable layout.
     Parameter {
-        owner: DefinitionId,
+        owner: DefinitionPath,
         position: usize,
     },
     Builtin(BuiltinType),
@@ -334,7 +334,7 @@ impl AbiType {
         true
     }
 
-    pub fn instantiate(&self, owner: &DefinitionId, arguments: &[AbiType]) -> Option<Self> {
+    pub fn instantiate(&self, owner: &DefinitionPath, arguments: &[AbiType]) -> Option<Self> {
         let result = TypeSubstitution::for_owner(owner, arguments)
             .apply(self, &CancellationToken::default())
             .ok()?;
@@ -361,7 +361,7 @@ pub struct TraitAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedConstAbi {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub ty: AbiType,
     pub default_value: Option<String>,
 }
@@ -372,14 +372,14 @@ pub struct AssociatedTypeAbi {
     pub generic_params: Vec<GenericParameterAbi>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub parameter_bounds: Vec<GenericBoundAbi>,
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub bounds: Vec<ConstraintAbi>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedTypeFamilyAbi {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -394,7 +394,7 @@ pub struct InterfaceTableAbi {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub associated_consts: Vec<ConstAbi>,
     pub host_bridge: bool,
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
@@ -545,21 +545,21 @@ pub fn interface_method_semantics(
 /// Executable contract for a private trait absent from the public ABI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraitContract {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub abi: TraitAbi,
 }
 
 /// Concrete executable identity; diagnostic function names are not binding keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ConcreteFunctionIdentity {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericParameterAbi {
-    pub owner: DefinitionId,
+    pub owner: DefinitionPath,
     pub position: usize,
 }
 
@@ -584,7 +584,7 @@ pub fn trait_contract<'a>(
     owner: &ModuleIdentity,
     public_items: &'a [PublicAbiItem],
     private: &'a [TraitContract],
-    id: &DefinitionId,
+    id: &DefinitionPath,
 ) -> Option<&'a TraitAbi> {
     if id.module != *owner
         || id.path.len() != 1
@@ -606,7 +606,7 @@ pub fn trait_contract<'a>(
 }
 
 /// Whether a canonical standard interface uses collection identity semantics.
-pub fn is_collection_interface(id: &DefinitionId) -> bool {
+pub fn is_collection_interface(id: &DefinitionPath) -> bool {
     Protocol::from_id(id).is_some_and(Protocol::collection)
 }
 
@@ -614,7 +614,7 @@ pub fn is_collection_interface(id: &DefinitionId) -> bool {
 pub fn native_storage_contract<'a>(
     owner: &ModuleIdentity,
     items: &'a [PublicAbiItem],
-    id: &DefinitionId,
+    id: &DefinitionPath,
 ) -> Option<&'a TypeAbi> {
     if id.module != *owner
         || id.path.len() != 1

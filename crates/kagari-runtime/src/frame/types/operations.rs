@@ -4,13 +4,13 @@ use kagari_abi::{
     native_import::callables::NativeCallableRequirement,
     types::{AbiType, NominalAbiType},
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use std::{collections::HashMap, rc::Rc};
 
 #[derive(Debug, Default)]
 struct ReceiverMethods {
     slots: Vec<Option<usize>>,
-    members: HashMap<DefinitionId, usize>,
+    members: HashMap<DefinitionPath, usize>,
 }
 
 #[derive(Debug)]

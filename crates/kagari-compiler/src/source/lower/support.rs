@@ -20,7 +20,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, NominalAbiType},
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 
 use kagari_mir::{
     ids::LocalId,
@@ -51,7 +51,7 @@ impl FunctionLowerer<'_, '_> {
         &self,
         protocol: Protocol,
         slot: usize,
-    ) -> Result<DefinitionId, MirLoweringError> {
+    ) -> Result<DefinitionPath, MirLoweringError> {
         self.planner
             .catalog
             .trait_(&standard_traits::identity(protocol))
@@ -202,7 +202,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn aggregate_field_ref(
         &self,
-        field: &DefinitionId,
+        field: &DefinitionPath,
         receiver: &TypeId,
     ) -> Result<AggregateFieldRef, MirLoweringError> {
         let field = self

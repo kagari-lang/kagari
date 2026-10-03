@@ -10,7 +10,7 @@ use crate::types::{
     AbiType,
     substitution::{TypeSubstitution, TypeTransformError},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use serde::{Deserialize, Serialize};
 
 /// Declaration policy is independent of the implementation's provider or entry.
@@ -34,7 +34,7 @@ impl Default for MethodPolicy {
 pub enum CallableImplementation {
     Required,
     Script,
-    Native(DefinitionId),
+    Native(DefinitionPath),
     /// A trait default applies an ordinary registered function template. Its
     /// arguments belong to the enclosing trait/method binder, including Self.
     NativeDefault(NativeDefaultApplication),
@@ -42,7 +42,7 @@ pub enum CallableImplementation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeDefaultApplication {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
 }

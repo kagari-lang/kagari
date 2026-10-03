@@ -8,14 +8,14 @@ use crate::{
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
 };
 
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumLayout {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -24,7 +24,7 @@ pub struct EnumLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumVariantLayout {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub payload: Vec<AbiType>,
 }
@@ -329,7 +329,7 @@ pub fn validate_enum_layouts(
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StructLayout {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -348,7 +348,7 @@ impl StructLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StructFieldLayout {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub name: String,
     pub ty: AbiType,
     pub mutable: bool,

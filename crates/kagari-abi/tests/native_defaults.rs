@@ -17,14 +17,14 @@ use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
     identity::{
-        DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
         associated_type_id,
     },
 };
 use std::collections::BTreeMap;
 
-fn identity(kind: DefinitionKind, name: &str) -> DefinitionId {
-    DefinitionId {
+fn identity(kind: DefinitionKind, name: &str) -> DefinitionPath {
+    DefinitionPath {
         module: ModuleIdentity {
             package: PackageId("game".into()),
             path: vec!["defaults".into()],
@@ -41,7 +41,7 @@ fn scalar() -> AbiType {
     AbiType::Builtin(BuiltinType::I32)
 }
 
-fn interface(owner: &DefinitionId, arguments: Vec<AbiType>) -> NominalAbiType {
+fn interface(owner: &DefinitionPath, arguments: Vec<AbiType>) -> NominalAbiType {
     NominalAbiType {
         declaration: owner.clone(),
         arguments,
@@ -66,7 +66,7 @@ fn function(name: &str, implementation: CallableImplementation, parameter: AbiTy
 }
 
 struct Fixture {
-    owner: DefinitionId,
+    owner: DefinitionPath,
     contract: TraitAbi,
     template: NativeDeclaration,
     table: InterfaceTableAbi,

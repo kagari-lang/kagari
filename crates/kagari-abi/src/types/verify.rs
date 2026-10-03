@@ -14,7 +14,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface,
-    identity::{self, DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    identity::{self, DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
     range::RangeKind,
 };
 
@@ -26,7 +26,7 @@ use std::{
     iter,
 };
 
-type Parameters = HashSet<(DefinitionId, usize)>;
+type Parameters = HashSet<(DefinitionPath, usize)>;
 
 fn scalar_const_type(ty: &AbiType) -> bool {
     matches!(
@@ -813,14 +813,14 @@ fn owner(
     parent: &[DefinitionPathSegment],
     kind: DefinitionKind,
     name: &str,
-) -> DefinitionId {
+) -> DefinitionPath {
     let mut path = parent.to_vec();
     path.push(DefinitionPathSegment {
         kind,
         name: name.into(),
         occurrence: 0,
     });
-    DefinitionId {
+    DefinitionPath {
         module: module.clone(),
         path,
     }
@@ -828,7 +828,7 @@ fn owner(
 
 fn parameters(
     declared: &[GenericParameterAbi],
-    owner: &DefinitionId,
+    owner: &DefinitionPath,
     outer: &Parameters,
 ) -> Option<Parameters> {
     let mut params = outer.clone();
@@ -854,7 +854,7 @@ fn bounds_valid(
 fn bounds_valid_in(
     bounds: &[GenericBoundAbi],
     params: &Parameters,
-    self_owner: Option<&DefinitionId>,
+    self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
     if !bounds.windows(2).all(|pair| pair[0].ty < pair[1].ty) {
@@ -887,7 +887,7 @@ pub(crate) fn native_bounds_valid(
 fn constraints_valid(
     constraints: &[ConstraintAbi],
     params: &Parameters,
-    self_owner: Option<&DefinitionId>,
+    self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
     constraints.windows(2).all(|pair| pair[0] < pair[1])
@@ -904,7 +904,7 @@ fn function_valid(
     module: &ModuleIdentity,
     parent: &[DefinitionPathSegment],
     outer: &Parameters,
-    self_owner: Option<&DefinitionId>,
+    self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
     let implementation_valid = match &function.implementation {
@@ -962,7 +962,7 @@ fn function_valid(
 fn signature_valid(
     function: &FunctionAbi,
     params: &Parameters,
-    self_owner: Option<&DefinitionId>,
+    self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
     function
@@ -973,7 +973,7 @@ fn signature_valid(
         .all(|ty| type_valid(ty, params, self_owner, cancel))
 }
 
-fn nominal_valid(id: &DefinitionId, kind: DefinitionKind) -> bool {
+fn nominal_valid(id: &DefinitionPath, kind: DefinitionKind) -> bool {
     !id.module.package.0.is_empty()
         && !id.module.path.is_empty()
         && !id.module.path.iter().any(String::is_empty)
@@ -1001,7 +1001,7 @@ pub fn types_in_scope<'a>(
 fn type_valid(
     ty: &AbiType,
     params: &Parameters,
-    self_owner: Option<&DefinitionId>,
+    self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
     let mut pending = vec![ty];

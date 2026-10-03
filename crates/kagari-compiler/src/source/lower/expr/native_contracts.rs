@@ -7,7 +7,7 @@ use kagari_abi::{
     native_import::{NativeImport, NativeSignature},
     types::{ConcreteFunctionIdentity, substitution::TypeSubstitution},
 };
-use kagari_common::{identity::DefinitionId, span::Span};
+use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     callable::AppliedCallSignature,
@@ -169,7 +169,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_native_implementation(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         receiver: &TypeId,
         result: &TypeId,
@@ -251,7 +251,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         receiver: &TypeId,
         interface: &NominalType,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         arguments: &[TypeId],
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {

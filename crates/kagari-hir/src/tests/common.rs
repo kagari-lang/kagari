@@ -22,8 +22,8 @@ pub fn definition(
     lowered: &LoweredModule,
     kind: kagari_common::identity::DefinitionKind,
     name: &str,
-) -> kagari_common::identity::DefinitionId {
-    kagari_common::identity::DefinitionId {
+) -> kagari_common::identity::DefinitionPath {
+    kagari_common::identity::DefinitionPath {
         module: lowered.source.module_identity().clone(),
         path: vec![kagari_common::identity::DefinitionPathSegment {
             kind,

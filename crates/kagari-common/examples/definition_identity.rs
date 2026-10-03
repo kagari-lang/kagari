@@ -1,7 +1,7 @@
 //! Single-thread identity representation probe, with separate allocation counting.
 use kagari_common::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
-    table::{DefinitionTableBuilder, ScopedDefinitionId},
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+    table::{DefinitionId, DefinitionTableBuilder},
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -65,7 +65,7 @@ fn median_ns(mut operation: impl FnMut()) -> u128 {
 
 fn main() {
     const COPIES: usize = 100_000;
-    let path = DefinitionId {
+    let path = DefinitionPath {
         module: ModuleIdentity::single_file("game.kgr"),
         path: vec![
             DefinitionPathSegment {
@@ -100,8 +100,8 @@ fn main() {
     let scoped_ns = median_ns(scoped);
     println!(
         "{{\"copies\":{COPIES},\"owned_bytes\":{},\"scoped_bytes\":{},\"owned_allocations\":{owned_allocations},\"scoped_allocations\":{scoped_allocations},\"owned_median_ns\":{owned_ns},\"scoped_median_ns\":{scoped_ns}}}",
+        size_of::<DefinitionPath>(),
         size_of::<DefinitionId>(),
-        size_of::<ScopedDefinitionId>(),
     );
     assert_eq!(scoped_allocations, 0);
 }

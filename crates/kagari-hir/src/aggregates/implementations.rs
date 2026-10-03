@@ -20,7 +20,7 @@ use crate::{
 use kagari_abi::language::{self as standard_traits, Protocol};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionId},
+    identity::{self, DefinitionPath},
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -60,14 +60,14 @@ impl SearchBudget<'_> {
 pub struct ImplementationSignature {
     /// Derived from the retained installation object, never a source identity.
     pub(crate) engine_owned: bool,
-    pub associated_type_families: BTreeMap<DefinitionId, AssociatedTypeFamily>,
-    pub id: DefinitionId,
+    pub associated_type_families: BTreeMap<DefinitionPath, AssociatedTypeFamily>,
+    pub id: DefinitionPath,
     pub trait_type: NominalType,
     pub for_type: TypeId,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: GenericBounds,
     /// Trait method identity to implementation method identity.
-    pub methods: BTreeMap<DefinitionId, DefinitionId>,
+    pub methods: BTreeMap<DefinitionPath, DefinitionPath>,
 }
 
 impl AggregateCatalog {
@@ -327,7 +327,10 @@ impl AggregateCatalog {
         result
     }
 
-    pub fn implementation_signature(&self, id: &DefinitionId) -> Option<&ImplementationSignature> {
+    pub fn implementation_signature(
+        &self,
+        id: &DefinitionPath,
+    ) -> Option<&ImplementationSignature> {
         self.implementations.get(id).map(AsRef::as_ref)
     }
 
@@ -422,7 +425,8 @@ impl AggregateCatalog {
     pub(crate) fn overlapping_implementations(
         &self,
     ) -> Vec<(&ImplementationSignature, &ImplementationSignature)> {
-        let mut by_trait: BTreeMap<&DefinitionId, Vec<&ImplementationSignature>> = BTreeMap::new();
+        let mut by_trait: BTreeMap<&DefinitionPath, Vec<&ImplementationSignature>> =
+            BTreeMap::new();
         let mut overlaps = Vec::new();
         for implementation in self.implementations.values() {
             let previous = by_trait
@@ -506,10 +510,10 @@ impl AggregateCatalog {
 
     pub fn implementation_method(
         &self,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         trait_type: &NominalType,
         receiver: &TypeId,
-    ) -> Option<(DefinitionId, Vec<TypeId>)> {
+    ) -> Option<(DefinitionPath, Vec<TypeId>)> {
         let cancel = CancellationToken::default();
         let mut budget = SearchBudget {
             checks_left: usize::MAX,
@@ -555,7 +559,7 @@ impl AggregateCatalog {
     /// its script body or symbolic native application remains owned by the trait module.
     pub fn default_method(
         &self,
-        target: &DefinitionId,
+        target: &DefinitionPath,
     ) -> Option<(&ImplementationSignature, &MethodSignature)> {
         let mut owner = target.clone();
         let name = owner.path.pop()?;
@@ -575,7 +579,7 @@ impl AggregateCatalog {
     pub fn implementation_methods(
         &self,
         implementation: &ImplementationSignature,
-    ) -> Vec<DefinitionId> {
+    ) -> Vec<DefinitionPath> {
         self.trait_(&implementation.trait_type.declaration)
             .into_iter()
             .flat_map(|contract| &contract.methods)
@@ -619,7 +623,7 @@ impl AggregateCatalog {
         max_checks: usize,
         max_depth: usize,
         cancel: &CancellationToken,
-    ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
+    ) -> Result<Option<(DefinitionPath, Vec<TypeId>)>, ImplementationSearchError> {
         let mut budget = SearchBudget {
             checks_left: max_checks,
             depth: 0,
@@ -850,8 +854,8 @@ mod search_tests {
         DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
     };
 
-    fn definition(kind: DefinitionKind, name: &str) -> DefinitionId {
-        DefinitionId {
+    fn definition(kind: DefinitionKind, name: &str) -> DefinitionPath {
+        DefinitionPath {
             module: ModuleIdentity {
                 package: PackageId("pkg".into()),
                 path: vec!["module".into()],

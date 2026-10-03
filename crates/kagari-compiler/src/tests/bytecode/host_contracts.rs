@@ -262,7 +262,7 @@ fn host_trait_bounds_accept_host_implementation_evidence() {
             },
             value_type::HostValueType,
         },
-        identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     };
 
     let mut module = host_trait_test_program(
@@ -273,7 +273,7 @@ fn host_trait_bounds_accept_host_implementation_evidence() {
     let host_id = host.id.clone();
     let method = HostMethodDeclaration::new(&host_id, "mark", vec![], HostValueType::I32);
     host.methods.push(method.clone());
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: member.identity.clone(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,

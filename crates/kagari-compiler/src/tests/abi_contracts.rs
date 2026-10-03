@@ -8,7 +8,7 @@ use kagari_abi::{
 use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
 
 use kagari_common::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
 };
 use kagari_hir::types::abi::lower_type;
 
@@ -23,14 +23,14 @@ fn owner(
     parent: &[DefinitionPathSegment],
     kind: DefinitionKind,
     name: &str,
-) -> DefinitionId {
+) -> DefinitionPath {
     let mut path = parent.to_vec();
     path.push(DefinitionPathSegment {
         kind,
         name: name.into(),
         occurrence: 0,
     });
-    DefinitionId {
+    DefinitionPath {
         module: module.clone(),
         path,
     }

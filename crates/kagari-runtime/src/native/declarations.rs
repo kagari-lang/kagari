@@ -13,7 +13,7 @@ use kagari_abi::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, ParameterAbi,
     },
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) fn normalize_bounds(signature: &mut FunctionAbi) {
@@ -178,8 +178,8 @@ pub struct SelectedCall {
 }
 
 pub struct FunctionBuilder<'a> {
-    pub(crate) id: DefinitionId,
-    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionId, AbiType>,
+    pub(crate) id: DefinitionPath,
+    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionPath, AbiType>,
     pub(crate) signature: &'a mut FunctionAbi,
     pub(crate) requirements: &'a mut Vec<NativeCallableRequirement>,
     pub(crate) names: &'a mut Vec<String>,

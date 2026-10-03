@@ -2,7 +2,7 @@
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_abi::language::{Protocol, identity};
 use kagari_common::{
-    identity::{DefinitionId, associated_type_id},
+    identity::{DefinitionPath, associated_type_id},
     span::Span,
 };
 use kagari_hir::types::{TypeId, TypeSubstitution};
@@ -10,7 +10,7 @@ use kagari_hir::types::{TypeId, TypeSubstitution};
 impl InstancePlanner<'_> {
     pub(super) fn require_iterator_view(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), MirLoweringError> {

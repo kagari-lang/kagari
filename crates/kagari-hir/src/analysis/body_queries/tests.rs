@@ -12,7 +12,7 @@ fn owner(
     sources: &SourceDatabase,
     file: FileId,
     name: &str,
-) -> DefinitionId {
+) -> DefinitionPath {
     let declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -32,7 +32,7 @@ fn owner(
 fn query(
     db: &mut AnalysisDatabase,
     sources: &SourceDatabase,
-    owner: &DefinitionId,
+    owner: &DefinitionPath,
 ) -> Arc<FunctionAnalysis> {
     db.body(sources.snapshot(), owner, &Default::default())
         .unwrap()

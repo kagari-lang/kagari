@@ -7,13 +7,13 @@ use kagari_abi::callable::witness::OperationWitness;
 use kagari_abi::types::{
     TraitAbi, TypeAbi, applications::ApplicationValidator, substitution::TypeTransformError,
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 
 pub(super) fn validate<'a>(
     module: &MirModule,
     cancel: &CancellationToken,
-    lookup: impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
-    storage: impl Fn(&DefinitionId) -> Option<&'a TypeAbi>,
+    lookup: impl Fn(&DefinitionPath) -> Option<&'a TraitAbi>,
+    storage: impl Fn(&DefinitionPath) -> Option<&'a TypeAbi>,
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(cancel, lookup, storage);
     validator.declarations(&module.abi.public_items, &module.abi.trait_contracts)?;

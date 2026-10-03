@@ -12,7 +12,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::HostFunctionDeclaration,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
 };
 use serde::{Deserialize, Serialize};
 pub mod callables;
@@ -22,8 +22,8 @@ pub mod result;
 
 /// An installed declaration names an entry within its module's binding namespace.
 /// The name does not select compiler/verifier policy or grant registration authority.
-pub fn binding_id(module: &ModuleIdentity, name: &str) -> DefinitionId {
-    DefinitionId {
+pub fn binding_id(module: &ModuleIdentity, name: &str) -> DefinitionPath {
+    DefinitionPath {
         module: module.clone(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Function,
@@ -47,7 +47,7 @@ pub struct NativeImport {
     /// A shared native entry retains method binders in its template application.
     pub generic: Option<GenericBody>,
     pub instance: ConcreteFunctionIdentity,
-    pub binding: DefinitionId,
+    pub binding: DefinitionPath,
     pub signature: NativeSignature,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub requirements: Vec<GenericBoundAbi>,

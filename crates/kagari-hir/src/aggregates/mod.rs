@@ -2,7 +2,7 @@
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionId, ModuleIdentity},
+    identity::{self, DefinitionPath, ModuleIdentity},
 };
 
 use crate::{
@@ -31,8 +31,8 @@ use std::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldSignature {
-    pub id: DefinitionId,
-    pub owner: DefinitionId,
+    pub id: DefinitionPath,
+    pub owner: DefinitionPath,
     pub slot: usize,
     pub name: String,
     pub visibility: Visibility,
@@ -44,7 +44,7 @@ pub struct FieldSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InherentMethodSignature {
     pub id: SourceFunctionId,
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub site: Declaration,
     pub owner: TypeId,
     pub visibility: Visibility,
@@ -53,7 +53,7 @@ pub struct InherentMethodSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructSignature {
-    pub id: DefinitionId,
+    pub id: DefinitionPath,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: GenericBounds,
     pub declaration: Declaration,
@@ -62,7 +62,7 @@ pub struct StructSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeTypeSignature {
-    pub id: DefinitionId,
+    pub id: DefinitionPath,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: GenericBounds,
     pub declaration: Declaration,
@@ -71,8 +71,8 @@ pub struct NativeTypeSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantSignature {
-    pub id: DefinitionId,
-    pub owner: DefinitionId,
+    pub id: DefinitionPath,
+    pub owner: DefinitionPath,
     pub slot: usize,
     pub name: String,
     pub payload: Vec<TypeId>,
@@ -81,7 +81,7 @@ pub struct VariantSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumSignature {
-    pub id: DefinitionId,
+    pub id: DefinitionPath,
     pub native_type: Option<NativeTypeKind>,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: GenericBounds,
@@ -91,21 +91,21 @@ pub struct EnumSignature {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AggregateCatalog {
-    implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
+    implementation_constants: BTreeMap<DefinitionPath, BTreeMap<DefinitionPath, DefinitionPath>>,
     host_implementations: Vec<(NominalType, TypeId)>,
-    traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
-    implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
-    methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
-    inherent_methods: BTreeMap<DefinitionId, Arc<InherentMethodSignature>>,
-    native_types: BTreeMap<DefinitionId, Arc<NativeTypeSignature>>,
-    structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
-    fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
-    enumerations: BTreeMap<DefinitionId, Arc<EnumSignature>>,
-    variants: BTreeMap<DefinitionId, (DefinitionId, usize)>,
+    traits: BTreeMap<DefinitionPath, Arc<TraitSignature>>,
+    implementations: BTreeMap<DefinitionPath, Arc<ImplementationSignature>>,
+    methods: BTreeMap<DefinitionPath, (DefinitionPath, usize)>,
+    inherent_methods: BTreeMap<DefinitionPath, Arc<InherentMethodSignature>>,
+    native_types: BTreeMap<DefinitionPath, Arc<NativeTypeSignature>>,
+    structures: BTreeMap<DefinitionPath, Arc<StructSignature>>,
+    fields: BTreeMap<DefinitionPath, (DefinitionPath, usize)>,
+    enumerations: BTreeMap<DefinitionPath, Arc<EnumSignature>>,
+    variants: BTreeMap<DefinitionPath, (DefinitionPath, usize)>,
 }
 
 impl AggregateCatalog {
-    pub fn native_type(&self, id: &DefinitionId) -> Option<&NativeTypeSignature> {
+    pub fn native_type(&self, id: &DefinitionPath) -> Option<&NativeTypeSignature> {
         self.native_types.get(id).map(Arc::as_ref)
     }
 
@@ -120,9 +120,9 @@ impl AggregateCatalog {
 
     pub fn implementation_constant(
         &self,
-        implementation: &DefinitionId,
-        member: &DefinitionId,
-    ) -> Option<&DefinitionId> {
+        implementation: &DefinitionPath,
+        member: &DefinitionPath,
+    ) -> Option<&DefinitionPath> {
         self.implementation_constants
             .get(implementation)
             .and_then(|members| members.get(member))
@@ -142,11 +142,11 @@ impl AggregateCatalog {
         self.enumerations.values().map(AsRef::as_ref)
     }
 
-    pub fn enumeration(&self, id: &DefinitionId) -> Option<&EnumSignature> {
+    pub fn enumeration(&self, id: &DefinitionPath) -> Option<&EnumSignature> {
         self.enumerations.get(id).map(AsRef::as_ref)
     }
 
-    pub fn variant(&self, id: &DefinitionId) -> Option<&VariantSignature> {
+    pub fn variant(&self, id: &DefinitionPath) -> Option<&VariantSignature> {
         let (owner, slot) = self.variants.get(id)?;
         self.enumeration(owner)?.variants.get(*slot)
     }
@@ -155,11 +155,11 @@ impl AggregateCatalog {
         self.structures.values().map(AsRef::as_ref)
     }
 
-    pub fn structure(&self, id: &DefinitionId) -> Option<&StructSignature> {
+    pub fn structure(&self, id: &DefinitionPath) -> Option<&StructSignature> {
         self.structures.get(id).map(AsRef::as_ref)
     }
 
-    pub fn field(&self, id: &DefinitionId) -> Option<&FieldSignature> {
+    pub fn field(&self, id: &DefinitionPath) -> Option<&FieldSignature> {
         let (owner, slot) = self.fields.get(id)?;
         self.structure(owner)?.fields.get(*slot)
     }
@@ -416,7 +416,7 @@ impl AggregateCatalog {
         for module in reachable {
             cancel.check()?;
             self.include_traits(&mut result, &module, cancel)?;
-            let start = DefinitionId {
+            let start = DefinitionPath {
                 module: module.clone(),
                 path: Vec::new(),
             };

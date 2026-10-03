@@ -12,7 +12,7 @@ use kagari_abi::{
 };
 use kagari_common::{
     collection::CollectionAccess::{self, Mutable, ReadOnly},
-    identity::DefinitionId,
+    identity::DefinitionPath,
     range::RangeKind,
 };
 use std::{
@@ -24,15 +24,15 @@ use std::{
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TypeSubstitution {
     parameters: HashMap<GenericParameterType, TypeId>,
-    receivers: HashMap<DefinitionId, TypeId>,
+    receivers: HashMap<DefinitionPath, TypeId>,
 }
 
 impl TypeSubstitution {
-    pub fn insert_receiver(&mut self, owner: DefinitionId, receiver: TypeId) {
+    pub fn insert_receiver(&mut self, owner: DefinitionPath, receiver: TypeId) {
         self.receivers.insert(owner, receiver);
     }
 
-    pub fn receiver(&self, owner: &DefinitionId) -> Option<&TypeId> {
+    pub fn receiver(&self, owner: &DefinitionPath) -> Option<&TypeId> {
         self.receivers.get(owner)
     }
 }
@@ -66,7 +66,7 @@ mod nominal_tests;
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
 pub struct GenericParameterType {
-    pub owner: DefinitionId,
+    pub owner: DefinitionPath,
     pub position: usize,
     pub name: String,
 }
@@ -117,9 +117,9 @@ impl Hash for GenericParameterType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NominalType {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub arguments: Vec<TypeId>,
-    pub associated_types: BTreeMap<DefinitionId, TypeId>,
+    pub associated_types: BTreeMap<DefinitionPath, TypeId>,
 }
 
 impl NominalType {
@@ -186,15 +186,15 @@ pub enum TypeId {
     Struct(NominalType),
     Enum(NominalType),
     Trait(NominalType),
-    Host(DefinitionId),
+    Host(DefinitionPath),
     Generic(GenericParameterType),
     Projection {
         arguments: Vec<TypeId>,
         receiver: Box<TypeId>,
         interface: Box<NominalType>,
-        member: DefinitionId,
+        member: DefinitionPath,
     },
-    SelfType(DefinitionId),
+    SelfType(DefinitionPath),
     StandardEnum {
         kind: StandardEnum,
         args: Vec<TypeId>,
@@ -666,7 +666,7 @@ impl TypeId {
         true
     }
 
-    pub fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
+    pub fn with_self(&self, owner: &DefinitionPath, replacement: &TypeId) -> TypeId {
         self.substitute_once(|ty| match ty {
             Self::SelfType(id) if id == owner => Some(replacement),
             _ => None,

@@ -11,8 +11,8 @@ use kagari_common::identity::{
     DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
 };
 
-fn declaration() -> (DefinitionId, TraitAbi) {
-    let id = DefinitionId {
+fn declaration() -> (DefinitionPath, TraitAbi) {
+    let id = DefinitionPath {
         module: ModuleIdentity::single_file("contracts.kgr"),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,

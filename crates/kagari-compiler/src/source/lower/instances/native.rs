@@ -8,13 +8,13 @@ use kagari_abi::{
     native_import::{NativeImport, NativeSignature},
     types::{ConcreteFunctionIdentity, GenericParameterAbi, substitution::TypeSubstitution},
 };
-use kagari_common::{identity::DefinitionId, span::Span};
+use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::types::{TypeId, abi::lower_type};
 
 impl InstancePlanner<'_> {
     pub(crate) fn prepare_native_target(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<bool, MirLoweringError> {
@@ -58,7 +58,7 @@ impl InstancePlanner<'_> {
 
     pub(super) fn native_target_import(
         &self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<NativeImport, MirLoweringError> {

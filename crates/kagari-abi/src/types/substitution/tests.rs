@@ -4,8 +4,8 @@ use kagari_common::identity::{
     DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
 };
 
-fn owner(name: &str) -> DefinitionId {
-    DefinitionId {
+fn owner(name: &str) -> DefinitionPath {
+    DefinitionPath {
         module: ModuleIdentity::single_file("substitution.kgr"),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
@@ -15,7 +15,7 @@ fn owner(name: &str) -> DefinitionId {
     }
 }
 
-fn parameter(owner: &DefinitionId, position: usize) -> AbiType {
+fn parameter(owner: &DefinitionPath, position: usize) -> AbiType {
     AbiType::Parameter {
         owner: owner.clone(),
         position,
@@ -105,7 +105,7 @@ fn substitution_checks_combined_depth_after_inserting_a_replacement() {
     );
 }
 
-fn projection(interface: &NominalAbiType, member: &DefinitionId) -> AbiType {
+fn projection(interface: &NominalAbiType, member: &DefinitionPath) -> AbiType {
     AbiType::Projection {
         receiver: Box::new(AbiType::SelfType(interface.declaration.clone())),
         interface: Box::new(interface.clone()),

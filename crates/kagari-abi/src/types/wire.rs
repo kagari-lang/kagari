@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-use kagari_common::{collection::CollectionAccess, identity::DefinitionId, range::RangeKind};
+use kagari_common::{collection::CollectionAccess, identity::DefinitionPath, range::RangeKind};
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{self, Error as DeError, SeqAccess, Visitor},
@@ -24,10 +24,10 @@ use std::{
 
 #[derive(Serialize, Deserialize)]
 enum Node {
-    Host(DefinitionId),
-    SelfType(DefinitionId),
+    Host(DefinitionPath),
+    SelfType(DefinitionPath),
     Parameter {
-        owner: DefinitionId,
+        owner: DefinitionPath,
         position: usize,
     },
     Builtin(BuiltinType),
@@ -38,21 +38,21 @@ enum Node {
     Array(CollectionAccess),
     Map(CollectionAccess),
     Set(CollectionAccess),
-    Struct(DefinitionId, u32),
-    NativeObject(DefinitionId, u32),
-    Enum(DefinitionId, u32),
+    Struct(DefinitionPath, u32),
+    NativeObject(DefinitionPath, u32),
+    Enum(DefinitionPath, u32),
     Trait(
-        DefinitionId,
+        DefinitionPath,
         u32,
-        #[serde(deserialize_with = "crate::decode_limits::nested")] Vec<DefinitionId>,
+        #[serde(deserialize_with = "crate::decode_limits::nested")] Vec<DefinitionPath>,
     ),
     Projection {
         member_arguments: u32,
-        member: DefinitionId,
-        owner: DefinitionId,
+        member: DefinitionPath,
+        owner: DefinitionPath,
         arguments: u32,
         #[serde(deserialize_with = "crate::decode_limits::nested")]
-        bindings: Vec<DefinitionId>,
+        bindings: Vec<DefinitionPath>,
     },
     StandardEnum(StandardEnum, u32),
 }
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn abi_type_wire_round_trips_all_composite_shapes() {
-        let id = DefinitionId {
+        let id = DefinitionPath {
             module: ModuleIdentity::single_file("types.kgr"),
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Struct,
@@ -454,7 +454,7 @@ mod tests {
 
     #[test]
     fn associated_type_wire_preserves_identity_and_rejects_noncanonical_bindings() {
-        let trait_id = DefinitionId {
+        let trait_id = DefinitionPath {
             module: ModuleIdentity::single_file("associated.kgr"),
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Trait,

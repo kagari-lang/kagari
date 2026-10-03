@@ -12,7 +12,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
     let mut counter = HostTypeDeclaration::new("demo.Counter");
     let method = HostMethodDeclaration::new(&counter.id, "read", vec![], HostValueType::I32);
     counter.methods.push(method.clone());
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: ModuleIdentity {
             package: PackageId("pkg".into()),
             path: vec!["api".into()],
@@ -111,7 +111,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
         .unwrap()
         .module_identity()
         .clone();
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module,
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
@@ -243,7 +243,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             SourceLayer::Base,
         )
         .unwrap();
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: engine
             .source_snapshot()
             .file(file)

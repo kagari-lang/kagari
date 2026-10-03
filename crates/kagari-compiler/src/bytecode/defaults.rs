@@ -6,7 +6,7 @@ use kagari_abi::types::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 use kagari_mir::verify::VerifiedMirModule;
 
@@ -24,7 +24,7 @@ pub(super) fn catalog<'a>(
                     return None;
                 };
                 Some((
-                    DefinitionId {
+                    DefinitionPath {
                         module: module.identity.clone(),
                         path: vec![DefinitionPathSegment {
                             kind: DefinitionKind::Trait,

@@ -1,8 +1,8 @@
 use super::*;
 use std::mem::size_of;
 
-fn path(module: &str, name: &str) -> DefinitionId {
-    DefinitionId {
+fn path(module: &str, name: &str) -> DefinitionPath {
+    DefinitionPath {
         module: ModuleIdentity::single_file(module),
         path: vec![
             DefinitionPathSegment {
@@ -21,7 +21,8 @@ fn path(module: &str, name: &str) -> DefinitionId {
 
 #[test]
 fn short_ids_share_paths_and_names_without_deep_copy() {
-    assert_eq!(size_of::<ScopedDefinitionId>(), 8);
+    assert_eq!(size_of::<DefinitionId>(), 8);
+    assert_eq!(size_of::<Option<DefinitionId>>(), 8);
     let mut table = DefinitionTableBuilder::new().unwrap();
     let expected = path("game", "hp");
     let hp = table.intern_path(&expected).unwrap();
@@ -58,7 +59,7 @@ fn foreign_tables_and_absent_indices_do_not_resolve() {
         second.intern_child(hp, DefinitionKind::Field, "mp", 0),
         Err(DefinitionTableError::ForeignTable)
     );
-    let absent = ScopedDefinitionId {
+    let absent = DefinitionId {
         table: hp.table,
         index: DefinitionIndex(u32::MAX),
     };

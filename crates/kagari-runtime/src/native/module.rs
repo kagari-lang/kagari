@@ -16,7 +16,7 @@ use kagari_abi::{
     declaration::{ModuleDecl, render::DeclarationSource},
     types::TypeAbiKind,
 };
-use kagari_common::identity::{DefinitionId, DefinitionKind};
+use kagari_common::identity::{DefinitionKind, DefinitionPath};
 use std::{collections::BTreeMap, iter, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone)]
@@ -26,14 +26,14 @@ pub struct NativeModule {
     owned: DeclarationCatalog,
     catalog: DeclarationCatalog,
     required: DeclarationCatalog,
-    storage: Rc<BTreeMap<DefinitionId, NativeStorage>>,
+    storage: Rc<BTreeMap<DefinitionPath, NativeStorage>>,
 }
 
 impl NativeModule {
     pub(crate) fn checked(
         declaration: ModuleDecl,
-        bindings: Vec<(DefinitionId, NativeBinding)>,
-        storage: BTreeMap<DefinitionId, NativeStorage>,
+        bindings: Vec<(DefinitionPath, NativeBinding)>,
+        storage: BTreeMap<DefinitionPath, NativeStorage>,
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
         declaration
@@ -171,7 +171,7 @@ impl NativeModule {
         Ok(())
     }
 
-    pub fn trait_id(&self, name: &str) -> NativeResult<DefinitionId> {
+    pub fn trait_id(&self, name: &str) -> NativeResult<DefinitionPath> {
         self.declaration
             .traits
             .iter()

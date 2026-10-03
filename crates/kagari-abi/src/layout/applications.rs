@@ -3,10 +3,10 @@ use crate::{
     layout::{EnumLayout, StructLayout},
     types::{AbiType, GenericParameterAbi, substitution::TypeSubstitution, verify::types_in_scope},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use std::borrow::Cow;
 
-fn parameters(owner: &DefinitionId, arguments: &[AbiType]) -> Option<Vec<GenericParameterAbi>> {
+fn parameters(owner: &DefinitionPath, arguments: &[AbiType]) -> Option<Vec<GenericParameterAbi>> {
     if arguments.iter().all(AbiType::is_concrete) {
         return Some(vec![]);
     }
@@ -23,7 +23,7 @@ fn parameters(owner: &DefinitionId, arguments: &[AbiType]) -> Option<Vec<Generic
         .collect()
 }
 
-fn accepts(owner: &DefinitionId, template: &[AbiType], arguments: &[AbiType]) -> bool {
+fn accepts(owner: &DefinitionPath, template: &[AbiType], arguments: &[AbiType]) -> bool {
     template == arguments
         || (template.len() == arguments.len()
             && parameters(owner, template).is_some_and(|parameters| !parameters.is_empty()))

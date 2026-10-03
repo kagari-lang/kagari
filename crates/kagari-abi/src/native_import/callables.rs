@@ -12,7 +12,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, associated_type_id},
+    identity::{DefinitionPath, associated_type_id},
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 pub struct NativeCallableRequirement {
     pub receiver: AbiType,
     pub interface: NominalAbiType,
-    pub member: DefinitionId,
+    pub member: DefinitionPath,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
 }

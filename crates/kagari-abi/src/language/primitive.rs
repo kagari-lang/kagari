@@ -11,7 +11,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, associated_type_id},
+    identity::{DefinitionPath, associated_type_id},
 };
 use std::collections::BTreeMap;
 
@@ -73,7 +73,7 @@ pub fn requirements(
 pub fn associated_output(
     interface: &NominalAbiType,
     receiver: &AbiType,
-    member: &DefinitionId,
+    member: &DefinitionPath,
     cancel: &CancellationToken,
 ) -> Result<Option<AbiType>, TypeTransformError> {
     let copier = TypeSubstitution::default();

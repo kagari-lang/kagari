@@ -35,7 +35,7 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, associated_type_id},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
     span::Span,
 };
@@ -465,7 +465,7 @@ impl Importer<'_> {
 
     fn generics(
         &mut self,
-        owner: &DefinitionId,
+        owner: &DefinitionPath,
         params: &[GenericParameterAbi],
     ) -> Vec<GenericParam> {
         params
@@ -484,7 +484,7 @@ impl Importer<'_> {
 
     fn function(
         &mut self,
-        owner: &DefinitionId,
+        owner: &DefinitionPath,
         function: &FunctionAbi,
         kind: FunctionKind,
         generic_params: Vec<GenericParam>,

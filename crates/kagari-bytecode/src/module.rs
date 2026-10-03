@@ -19,7 +19,7 @@ use kagari_abi::{
 };
 use kagari_common::{
     host_interface::HostInterface,
-    identity::{DefinitionId, ModuleIdentity},
+    identity::{DefinitionPath, ModuleIdentity},
     span::Span,
 };
 use serde::{Deserialize, Serialize};
@@ -154,7 +154,7 @@ pub struct InterfaceTableRecord {
     /// static method instances and cannot be selected by MakeInterface.
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub methods: Vec<InterfaceMethodSlot>,
     /// Preselected ancestor tables, including their receiver argument mappings.
@@ -179,13 +179,13 @@ pub struct InterfaceViewRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceResultAdapter {
-    pub method: DefinitionId,
+    pub method: DefinitionPath,
     pub implementation: ConcreteFunctionIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceMethodSlot {
-    pub method: DefinitionId,
+    pub method: DefinitionPath,
     pub target: CallableTarget,
     /// Arguments for the target's shared entry, expressed in the table and
     /// method binder scopes. Receiver arguments are captured when boxing;

@@ -5,7 +5,7 @@ use crate::{
     typeck::table::{CallTarget, ConstraintTarget},
 };
 use kagari_common::{
-    identity::DefinitionId,
+    identity::DefinitionPath,
     source_database::{SourceDatabase, SourceLayer},
 };
 
@@ -16,7 +16,7 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
         .unwrap()
 }
 
-fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
+fn targets(facts: &AnalyzedModule) -> (DefinitionPath, DefinitionPath, TypeId) {
     let definition = facts
         .declarations
         .definition(ResolvedName::Trait(facts.lowered.module.traits[0].id))
@@ -43,7 +43,7 @@ fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
     (definition, method, point)
 }
 
-fn interface(id: &DefinitionId) -> crate::types::NominalType {
+fn interface(id: &DefinitionPath) -> crate::types::NominalType {
     crate::types::NominalType {
         associated_types: Default::default(),
         declaration: id.clone(),

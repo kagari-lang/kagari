@@ -9,7 +9,7 @@ use kagari_bytecode::{
 };
 
 use kagari_common::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
 };
 use kagari_runtime::{
     Runtime,
@@ -34,7 +34,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
         program::{BytecodeProgram, ModuleRef},
     };
     let identity = ModuleIdentity::single_file("interface-fixture.kgr");
-    let declaration = |kind, name: &str| DefinitionId {
+    let declaration = |kind, name: &str| DefinitionPath {
         module: identity.clone(),
         path: vec![DefinitionPathSegment {
             kind,
@@ -98,7 +98,7 @@ pub fn layout(
     name: &str,
     fields: &[(&str, AbiType, bool)],
 ) -> StructLayoutRef {
-    let declaration = DefinitionId {
+    let declaration = DefinitionPath {
         module: ModuleIdentity::single_file("layout-fixture.kgr"),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Struct,

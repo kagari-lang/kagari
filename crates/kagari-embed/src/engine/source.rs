@@ -12,7 +12,7 @@ use kagari_bytecode::{
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::HostInterfaceError,
-    identity::{DefinitionId, FileId, ModuleIdentity},
+    identity::{DefinitionPath, FileId, ModuleIdentity},
     source::SourceFile,
     source_database::{SourceLayer, SourceSnapshot},
 };
@@ -193,7 +193,7 @@ impl KagariEngine {
     pub fn body(
         &self,
         source: SourceSnapshot,
-        function: &DefinitionId,
+        function: &DefinitionPath,
         cancel: &CancellationToken,
     ) -> CompileResult<Option<Arc<FunctionAnalysis>>> {
         self.analysis

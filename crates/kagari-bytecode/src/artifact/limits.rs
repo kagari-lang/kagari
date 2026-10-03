@@ -20,7 +20,7 @@ use kagari_abi::{
 
 use kagari_common::{
     host_interface::{HostInterface, path::HostPathSegmentDeclaration, value_type::HostValueType},
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
@@ -475,7 +475,7 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
 }
 
 pub(super) fn host_identity_limit(interface: &HostInterface) -> bool {
-    let valid = |id: &DefinitionId| id.within_path_limit();
+    let valid = |id: &DefinitionPath| id.within_path_limit();
     let value = |ty: &HostValueType| ty.nominal_references().into_iter().all(valid);
     interface.types.iter().all(|ty| {
         valid(&ty.id)

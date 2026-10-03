@@ -6,8 +6,8 @@ use kagari_abi::{
 };
 use kagari_common::identity::{ModuleIdentity, associated_type_id};
 
-fn id(kind: DefinitionKind, name: &str) -> DefinitionId {
-    DefinitionId {
+fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
+    DefinitionPath {
         module: ModuleIdentity::single_file("linked.kgr"),
         path: vec![DefinitionPathSegment {
             kind,

@@ -11,8 +11,8 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id},
 };
 
-fn id(kind: DefinitionKind, name: &str) -> DefinitionId {
-    DefinitionId {
+fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
+    DefinitionPath {
         module: ModuleIdentity::single_file("proof.kgr"),
         path: vec![DefinitionPathSegment {
             kind,
@@ -22,7 +22,7 @@ fn id(kind: DefinitionKind, name: &str) -> DefinitionId {
     }
 }
 
-fn nominal(id: DefinitionId, arguments: Vec<AbiType>) -> NominalAbiType {
+fn nominal(id: DefinitionPath, arguments: Vec<AbiType>) -> NominalAbiType {
     NominalAbiType {
         declaration: id,
         arguments,

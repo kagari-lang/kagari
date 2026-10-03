@@ -17,7 +17,7 @@ use kagari_abi::{
     types::{ConcreteFunctionIdentity, NativeDeclaration, substitution::TypeSubstitution},
 };
 use kagari_common::{
-    identity::{DefinitionId, associated_type_id},
+    identity::{DefinitionPath, associated_type_id},
     span::Span,
 };
 use kagari_hir::{
@@ -33,7 +33,7 @@ use kagari_hir::{
 impl InstancePlanner<'_> {
     pub(crate) fn registered_native_declaration(
         &self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
     ) -> Option<&NativeDeclaration> {
         self.modules
             .get(&declaration.module)?

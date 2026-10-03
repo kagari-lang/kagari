@@ -30,7 +30,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     host_interface::HostInterface,
-    identity::{DefinitionId, ModuleIdentity},
+    identity::{DefinitionPath, ModuleIdentity},
     span::Span,
 };
 use kagari_mir::{
@@ -183,7 +183,7 @@ impl BytecodeLoweringContext<'_> {
 
     fn interface_ref(
         &mut self,
-        implementation: &DefinitionId,
+        implementation: &DefinitionPath,
         arguments: &[AbiType],
     ) -> (ModuleRef, InterfaceTableRef) {
         let (module, owner) = if let Some(program) = self.program {

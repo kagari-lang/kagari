@@ -12,7 +12,7 @@ use crate::{
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionId, FileId, Revision},
+    identity::{DefinitionPath, FileId, Revision},
 };
 use std::collections::HashMap;
 
@@ -26,7 +26,7 @@ pub struct SourceFunctionId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedFunction {
     pub id: SourceFunctionId,
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub site: Declaration,
     pub signature: TypedFunction,
 }
@@ -34,11 +34,11 @@ pub struct ImportedFunction {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportedFunctions {
     functions: HashMap<ResolvedName, ImportedFunction>,
-    methods: HashMap<DefinitionId, ImportedFunction>,
+    methods: HashMap<DefinitionPath, ImportedFunction>,
 }
 
 impl ImportedFunctions {
-    pub fn target(&self, id: &DefinitionId) -> Option<&ImportedFunction> {
+    pub fn target(&self, id: &DefinitionPath) -> Option<&ImportedFunction> {
         self.methods.get(id).or_else(|| {
             self.functions
                 .values()

@@ -12,7 +12,7 @@ use kagari_abi::{
     types::{AbiType, GenericParameterAbi, NominalAbiType},
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use std::{cell::OnceCell, rc::Rc};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub(crate) struct InterfaceMethodBinding {
     pub(crate) entry_parameters: Vec<GenericParameterAbi>,
     pub(crate) entry_arguments: Vec<AbiType>,
     pub(crate) result_adapter: Option<InterfaceResultBinding>,
-    pub(crate) method: DefinitionId,
+    pub(crate) method: DefinitionPath,
     pub(crate) target: CallableTarget,
     pub(crate) parameter_types: Vec<AbiType>,
     pub(crate) return_type: AbiType,

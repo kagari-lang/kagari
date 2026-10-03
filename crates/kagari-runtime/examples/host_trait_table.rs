@@ -7,7 +7,7 @@ use kagari_common::{
         },
         value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 use kagari_runtime::{
     Runtime,
@@ -20,7 +20,7 @@ fn main() {
     let method = HostMethodDeclaration::new(&counter.id, "read", vec![], HostValueType::I32);
     counter.methods.push(method.clone());
 
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: ModuleIdentity {
             package: PackageId("demo".into()),
             path: vec!["api".into()],

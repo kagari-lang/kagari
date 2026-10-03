@@ -4,7 +4,7 @@ use kagari_abi::{
     declaration::ImplDecl,
     types::{AbiType, InterfaceTableAbi, PublicAbiItem},
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 
 pub(super) fn validate(
     required: &DeclarationCatalog,
@@ -53,7 +53,7 @@ pub(super) fn validate(
 }
 
 fn implementation_matches(
-    id: &DefinitionId,
+    id: &DefinitionPath,
     expected: &ImplDecl,
     actual: &InterfaceTableAbi,
 ) -> bool {

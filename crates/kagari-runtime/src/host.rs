@@ -16,7 +16,7 @@ use kagari_common::{
         type_declaration::HostTypeDeclaration,
         value_type::HostValueType,
     },
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 use std::{
     cell::RefCell,
@@ -252,7 +252,7 @@ impl HostPathSegment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostPathSegmentRegistration {
     Field {
-        declaration: DefinitionId,
+        declaration: DefinitionPath,
     },
     Index {
         declaration: HostIndexSegmentDeclaration,
@@ -987,7 +987,7 @@ impl fmt::Debug for HostFunction {
 impl HostFunction {
     pub fn method(
         owner: &HostTypeDeclaration,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static,
     ) -> Result<Self, RuntimeError> {
         let declaration = owner
@@ -1188,10 +1188,10 @@ pub struct HostRegistry {
     next_path_descriptor_id: usize,
     functions: Vec<HostFunction>,
     function_names: HashMap<String, HostFunctionId>,
-    function_declarations: HashMap<DefinitionId, HostFunctionId>,
+    function_declarations: HashMap<DefinitionPath, HostFunctionId>,
     types: HashMap<TypeId, HostTypeInfo>,
     type_names: HashMap<String, TypeId>,
-    type_declarations: HashMap<DefinitionId, TypeId>,
+    type_declarations: HashMap<DefinitionPath, TypeId>,
     roots: HashMap<HostObjectId, HostRootHandle>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,

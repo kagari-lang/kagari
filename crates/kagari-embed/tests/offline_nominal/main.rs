@@ -8,7 +8,7 @@ use kagari_common::{
         },
         value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
     source::SourceFile,
     source_database::SourceLayer,
 };

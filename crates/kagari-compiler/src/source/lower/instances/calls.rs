@@ -5,7 +5,7 @@ use kagari_abi::{
     native_import::NativeSignature,
     types::ConcreteFunctionIdentity,
 };
-use kagari_common::{identity::DefinitionId, span::Span};
+use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
     types::{GenericParameterType, TypeId, TypeSubstitution, abi::lower_type},
@@ -14,7 +14,7 @@ use kagari_hir::{
 impl InstancePlanner<'_> {
     pub(crate) fn shared_call(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         signature: NativeSignature,
         span: Span,

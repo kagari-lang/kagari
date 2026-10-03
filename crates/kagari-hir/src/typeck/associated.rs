@@ -16,7 +16,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
-    identity::{DefinitionId, associated_type_id},
+    identity::{DefinitionPath, associated_type_id},
 };
 
 use smallvec::SmallVec;
@@ -272,7 +272,7 @@ fn family_inputs(
 pub(super) fn member_arity(
     module: &Module,
     declarations: &Declarations,
-    owner: &DefinitionId,
+    owner: &DefinitionPath,
     name: &str,
 ) -> Option<usize> {
     if let Some(item) = module
@@ -297,7 +297,7 @@ pub(super) fn member_arity(
 pub(super) fn members(
     module: &Module,
     declarations: &Declarations,
-    owner: &DefinitionId,
+    owner: &DefinitionPath,
 ) -> Vec<String> {
     if let Some(item) = module
         .traits
@@ -492,7 +492,7 @@ pub(super) fn resolve_projection_name(
     projection_reference(ty, id)
 }
 
-fn projection_reference(ty: TypeId, member: DefinitionId) -> ResolvedTypeRef {
+fn projection_reference(ty: TypeId, member: DefinitionPath) -> ResolvedTypeRef {
     let target = (ty != TypeId::Error).then_some(TypeTarget::AssociatedType(member));
     ResolvedTypeRef { ty, target }
 }
@@ -749,14 +749,14 @@ fn inherited_traits(
 /// projections stop at an explicit budget rather than recursing indefinitely.
 pub(crate) fn normalize(
     ty: &TypeId,
-    lookup: &impl Fn(&NominalType, &TypeId, &DefinitionId, &[TypeId]) -> Option<TypeId>,
+    lookup: &impl Fn(&NominalType, &TypeId, &DefinitionPath, &[TypeId]) -> Option<TypeId>,
 ) -> TypeId {
     if !ty.contains_projection() {
         return ty.clone();
     }
     fn walk(
         ty: &TypeId,
-        lookup: &impl Fn(&NominalType, &TypeId, &DefinitionId, &[TypeId]) -> Option<TypeId>,
+        lookup: &impl Fn(&NominalType, &TypeId, &DefinitionPath, &[TypeId]) -> Option<TypeId>,
         depth: usize,
         remaining: &mut usize,
     ) -> TypeId {

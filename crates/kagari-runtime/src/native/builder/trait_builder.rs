@@ -16,20 +16,20 @@ use kagari_abi::{
         AbiType, AssociatedTypeAbi, ConstraintAbi, GenericParameterAbi, NominalAbiType, TraitAbi,
     },
 };
-use kagari_common::identity::{DefinitionId, DefinitionKind, associated_type_id};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
 use std::{collections::BTreeMap, sync::Arc};
 
 mod defaults;
 
 pub struct TraitBuilder<'module> {
     module: &'module mut ModuleBuilder,
-    id: DefinitionId,
+    id: DefinitionPath,
     declaration: TraitAbi,
     parameter_names: Vec<String>,
-    method_parameters: BTreeMap<DefinitionId, Vec<String>>,
-    requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
-    defaults: BTreeMap<DefinitionId, NativeBinding>,
-    concrete_results: BTreeMap<DefinitionId, AbiType>,
+    method_parameters: BTreeMap<DefinitionPath, Vec<String>>,
+    requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
+    defaults: BTreeMap<DefinitionPath, NativeBinding>,
+    concrete_results: BTreeMap<DefinitionPath, AbiType>,
 }
 
 impl<'module> TraitBuilder<'module> {

@@ -15,7 +15,7 @@ use crate::{
 };
 use kagari_common::{
     collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind, associated_type_id},
+    identity::{DefinitionKind, DefinitionPath, associated_type_id},
     range::RangeKind,
 };
 
@@ -83,7 +83,7 @@ fn hash_bounds(key: AbiType) -> Vec<GenericBoundAbi> {
     }]
 }
 
-fn parameters(owner: &DefinitionId, names: &[&str]) -> Vec<GenericParameterAbi> {
+fn parameters(owner: &DefinitionPath, names: &[&str]) -> Vec<GenericParameterAbi> {
     names
         .iter()
         .enumerate()
@@ -94,7 +94,7 @@ fn parameters(owner: &DefinitionId, names: &[&str]) -> Vec<GenericParameterAbi> 
         .collect()
 }
 
-fn binding(module: &ModuleDecl, family: &str, name: &str) -> DefinitionId {
+fn binding(module: &ModuleDecl, family: &str, name: &str) -> DefinitionPath {
     module.definition(
         DefinitionKind::Function,
         &format!("$foundation_{family}_{name}"),

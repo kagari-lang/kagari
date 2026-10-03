@@ -26,10 +26,10 @@ use kagari_abi::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 
-fn contract<'a>(id: &DefinitionId, closure: &[&'a BytecodeModule]) -> Option<&'a TraitAbi> {
+fn contract<'a>(id: &DefinitionPath, closure: &[&'a BytecodeModule]) -> Option<&'a TraitAbi> {
     let owner = closure.iter().find(|module| module.identity == id.module)?;
     abi::trait_contract(
         &owner.identity,
@@ -142,13 +142,13 @@ fn executable_interface(
     true
 }
 
-fn declarations(module: &BytecodeModule) -> impl Iterator<Item = (DefinitionId, &TraitAbi)> {
+fn declarations(module: &BytecodeModule) -> impl Iterator<Item = (DefinitionPath, &TraitAbi)> {
     let public = module.public_items.iter().filter_map(|item| {
         let PublicAbiItem::Trait(record) = item else {
             return None;
         };
         Some((
-            DefinitionId {
+            DefinitionPath {
                 module: module.identity.clone(),
                 path: vec![DefinitionPathSegment {
                     kind: DefinitionKind::Trait,

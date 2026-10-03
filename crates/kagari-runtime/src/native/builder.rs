@@ -23,16 +23,16 @@ use crate::{
 use kagari_abi::{
     callable::CallableImplementation, declaration::ModuleDecl, native_import::NativeSignature,
 };
-use kagari_common::identity::{DefinitionId, DefinitionKind, ModuleIdentity, PackageId};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct ModuleBuilder {
     pub(crate) declaration: ModuleDecl,
     pub(crate) providers: DeclarationCatalog,
-    pub(crate) bindings: BTreeMap<DefinitionId, NativeBinding>,
-    pub(crate) storage: BTreeMap<DefinitionId, NativeStorage>,
-    function_parameters: BTreeMap<DefinitionId, Vec<String>>,
+    pub(crate) bindings: BTreeMap<DefinitionPath, NativeBinding>,
+    pub(crate) storage: BTreeMap<DefinitionPath, NativeStorage>,
+    function_parameters: BTreeMap<DefinitionPath, Vec<String>>,
 }
 
 impl ModuleBuilder {

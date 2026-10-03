@@ -24,7 +24,7 @@ use kagari_common::{
         },
         value_type::HostValueType,
     },
-    identity::{DefinitionId, ModuleIdentity},
+    identity::{DefinitionPath, ModuleIdentity},
     span::Span,
 };
 use std::{
@@ -77,11 +77,11 @@ pub struct HostDeclarations {
     revision: u64,
     interface: HostInterface,
     signatures: Vec<HostSignature>,
-    origins: HashMap<DefinitionId, HostDeclarationOrigin>,
+    origins: HashMap<DefinitionPath, HostDeclarationOrigin>,
     paths: HashMap<String, HostFunctionId>,
-    methods: HashMap<(DefinitionId, String), HostFunctionId>,
+    methods: HashMap<(DefinitionPath, String), HostFunctionId>,
     type_paths: HashMap<String, HostTypeId>,
-    type_identities: HashMap<DefinitionId, HostTypeId>,
+    type_identities: HashMap<DefinitionPath, HostTypeId>,
     modules: Vec<String>,
 }
 
@@ -142,7 +142,7 @@ impl HostDeclarations {
 
     pub fn trait_method_binding(
         &self,
-        trait_method: &DefinitionId,
+        trait_method: &DefinitionPath,
         trait_type: &NominalType,
         receiver: &TypeId,
     ) -> Option<HostFunctionId> {
@@ -550,7 +550,7 @@ impl HostDeclarations {
         self.paths.get(path).copied()
     }
 
-    pub fn method(&self, owner: &DefinitionId, name: &str) -> Option<HostFunctionId> {
+    pub fn method(&self, owner: &DefinitionPath, name: &str) -> Option<HostFunctionId> {
         self.methods.get(&(owner.clone(), name.to_owned())).copied()
     }
 
@@ -607,7 +607,7 @@ impl HostDeclarations {
         })
     }
 
-    pub fn origin(&self, id: &DefinitionId) -> Option<&HostDeclarationOrigin> {
+    pub fn origin(&self, id: &DefinitionPath) -> Option<&HostDeclarationOrigin> {
         self.origins.get(id)
     }
 
@@ -630,7 +630,7 @@ impl HostDeclarations {
 
     pub(crate) fn source_path(
         &self,
-        root: &DefinitionId,
+        root: &DefinitionPath,
         steps: &[HostSourcePathStep],
     ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
         let mut matches = self.interface.paths.iter().filter(|path| {
@@ -669,7 +669,7 @@ impl HostDeclarations {
         self.type_paths.get(path).copied()
     }
 
-    pub fn nominal_type(&self, declaration: &DefinitionId) -> Option<HostTypeId> {
+    pub fn nominal_type(&self, declaration: &DefinitionPath) -> Option<HostTypeId> {
         self.type_identities.get(declaration).copied()
     }
 
@@ -679,7 +679,7 @@ impl HostDeclarations {
             .flatten()
     }
 
-    pub fn field(&self, id: &DefinitionId) -> Option<&HostFieldDeclaration> {
+    pub fn field(&self, id: &DefinitionPath) -> Option<&HostFieldDeclaration> {
         let mut owner = id.clone();
         owner.path.pop()?;
         self.type_declaration(self.nominal_type(&owner)?)?

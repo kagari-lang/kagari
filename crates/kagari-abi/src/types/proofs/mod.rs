@@ -25,7 +25,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 use std::{
     cell::Cell,
@@ -42,8 +42,8 @@ pub struct ProofCatalog<'a> {
     implementations: Vec<Implementation<'a>>,
     hosts: Vec<&'a HostTypeDeclaration>,
     enumerations: BTreeMap<NominalAbiType, Vec<&'a AbiType>>,
-    contracts: BTreeMap<DefinitionId, &'a TraitAbi>,
-    native_declarations: BTreeMap<DefinitionId, &'a NativeDeclaration>,
+    contracts: BTreeMap<DefinitionPath, &'a TraitAbi>,
+    native_declarations: BTreeMap<DefinitionPath, &'a NativeDeclaration>,
 }
 
 struct Budget<'a> {
@@ -72,7 +72,7 @@ impl<'a> Budget<'a> {
 }
 
 impl<'a> ProofCatalog<'a> {
-    pub fn trait_contract(&self, declaration: &DefinitionId) -> Option<&'a TraitAbi> {
+    pub fn trait_contract(&self, declaration: &DefinitionPath) -> Option<&'a TraitAbi> {
         self.contracts.get(declaration).copied()
     }
 
@@ -80,7 +80,7 @@ impl<'a> ProofCatalog<'a> {
         implementations: Vec<Implementation<'a>>,
         hosts: Vec<&'a HostTypeDeclaration>,
         enumerations: impl IntoIterator<Item = &'a EnumLayout>,
-        contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitAbi)>,
+        contracts: impl IntoIterator<Item = (DefinitionPath, &'a TraitAbi)>,
         native_declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
@@ -223,12 +223,12 @@ impl<'a> ProofCatalog<'a> {
     }
 
     /// A protocol slot from a validated carried trait declaration.
-    pub fn method(&self, interface: &DefinitionId, slot: usize) -> Option<&FunctionAbi> {
+    pub fn method(&self, interface: &DefinitionPath, slot: usize) -> Option<&FunctionAbi> {
         self.contracts.get(interface)?.methods.get(slot)
     }
 
     /// Trait-owned generic parameters, separately from a method's local scope.
-    pub fn parameters(&self, interface: &DefinitionId) -> Option<&[GenericParameterAbi]> {
+    pub fn parameters(&self, interface: &DefinitionPath) -> Option<&[GenericParameterAbi]> {
         self.contracts
             .get(interface)
             .map(|contract| contract.generic_params.as_slice())

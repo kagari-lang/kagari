@@ -8,7 +8,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, associated_type_id},
+    identity::{DefinitionPath, associated_type_id},
 };
 use std::collections::HashSet;
 
@@ -22,7 +22,7 @@ pub fn erased_iterator_view<'a>(
     interface: &NominalAbiType,
     receiver: &AbiType,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
+    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitAbi>,
 ) -> Result<Option<NominalAbiType>, TypeTransformError> {
     if interface.declaration != identity(Protocol::Iterable) {
         return Ok(None);
@@ -41,7 +41,7 @@ pub fn interface_views<'a>(
     interface: &NominalAbiType,
     receiver: &AbiType,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
+    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitAbi>,
 ) -> Result<Vec<NominalAbiType>, TypeTransformError> {
     let mut closure = trait_closure(interface, receiver, cancel, lookup)?;
     for parent in &mut closure {
@@ -87,14 +87,14 @@ pub fn trait_closure<'a>(
     interface: &NominalAbiType,
     receiver: &AbiType,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
+    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitAbi>,
 ) -> Result<Vec<NominalAbiType>, TypeTransformError> {
     let empty = TypeSubstitution::default();
     let root = empty.apply_nominal(interface, cancel)?;
     let receiver = empty.apply(receiver, cancel)?;
     let mut result = Vec::new();
     let mut seen = HashSet::new();
-    let mut pending = vec![(root, Vec::<DefinitionId>::new())];
+    let mut pending = vec![(root, Vec::<DefinitionPath>::new())];
     let mut remaining = MAX_EDGES;
     while let Some((applied, mut path)) = pending.pop() {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;

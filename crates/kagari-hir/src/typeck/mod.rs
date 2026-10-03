@@ -19,7 +19,7 @@ use crate::{
     types::{GenericParameterType, TypeId},
 };
 
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use smallvec::SmallVec;
 pub(crate) mod applications;
 pub(crate) mod associated;
@@ -51,13 +51,13 @@ pub type GenericBounds = HashMap<TypeId, Vec<ConstraintTarget>>;
 
 #[derive(Debug, Clone)]
 pub struct ModuleSignatures {
-    pub(crate) type_bounds: HashMap<DefinitionId, GenericBounds>,
+    pub(crate) type_bounds: HashMap<DefinitionPath, GenericBounds>,
     pub(crate) functions: TypedFunctionBuffer,
     pub(crate) type_table: TypeTable,
 }
 
 impl ModuleSignatures {
-    pub fn type_bounds(&self, id: &DefinitionId) -> Option<&GenericBounds> {
+    pub fn type_bounds(&self, id: &DefinitionPath) -> Option<&GenericBounds> {
         self.type_bounds.get(id)
     }
 

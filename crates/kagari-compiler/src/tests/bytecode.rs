@@ -40,10 +40,10 @@ fn add_readable_host(module: &mut BytecodeModule) {
             },
             value_type::HostValueType,
         },
-        identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     };
 
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: module.identity.clone(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,

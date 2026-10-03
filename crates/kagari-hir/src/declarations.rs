@@ -2,7 +2,7 @@
 
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, FileSpan},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, FileSpan},
     source::SourceFile,
     span::Span,
 };
@@ -42,15 +42,15 @@ pub struct AnalysisId(u64);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BindingId {
     pub analysis: AnalysisId,
-    pub body: DefinitionId,
+    pub body: DefinitionPath,
     slot: ResolvedName,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DeclarationId {
-    Definition(DefinitionId),
+    Definition(DefinitionPath),
     GenericParameter {
-        owner: DefinitionId,
+        owner: DefinitionPath,
         position: usize,
     },
     Binding(BindingId),
@@ -73,7 +73,7 @@ pub struct Declarations {
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
     sites: HashSet<DeclarationKey>,
-    impl_identities: HashMap<ImplId, DefinitionId>,
+    impl_identities: HashMap<ImplId, DefinitionPath>,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     native_enums: HashMap<EnumId, NativeTypeKind>,
 }
@@ -102,7 +102,7 @@ impl Declarations {
         self.native_enums.get(&id).cloned()
     }
 
-    pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionId> {
+    pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionPath> {
         self.impl_identities.get(&id)
     }
 
@@ -166,14 +166,14 @@ impl Declarations {
         &self.imported_types
     }
 
-    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
+    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionPath> {
         match &self.target(name)?.id {
             DeclarationId::Definition(id) => Some(id),
             _ => None,
         }
     }
 
-    pub fn definition_target(&self, id: &DefinitionId) -> Option<ResolvedName> {
+    pub fn definition_target(&self, id: &DefinitionPath) -> Option<ResolvedName> {
         match self
             .identities
             .get(&DeclarationId::Definition(id.clone()))?
@@ -201,7 +201,7 @@ impl Declarations {
 
     /// Parameters declared by this owner, in declaration order. Inherited method
     /// binders keep their original owner and are not included here.
-    pub fn parameters_of(&self, owner: &DefinitionId) -> Vec<GenericParameterType> {
+    pub fn parameters_of(&self, owner: &DefinitionPath) -> Vec<GenericParameterType> {
         let mut params = self
             .iter()
             .filter_map(|declaration| {
@@ -582,7 +582,7 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
-    fn generic_params(&mut self, owner: &DefinitionId, params: &[GenericParam], map: &SourceMap) {
+    fn generic_params(&mut self, owner: &DefinitionPath, params: &[GenericParam], map: &SourceMap) {
         let mut position = 0;
         for param in params {
             if self.cancel.check().is_err() {
@@ -612,7 +612,7 @@ impl Builder<'_> {
         parent: &[DefinitionPathSegment],
         kind: DefinitionKind,
         name: &str,
-    ) -> DefinitionId {
+    ) -> DefinitionPath {
         let occurrence = self
             .occurrences
             .entry((parent.to_vec(), kind, name.into()))
@@ -626,7 +626,7 @@ impl Builder<'_> {
         *occurrence = occurrence
             .checked_add(1)
             .expect("declaration identity exhausted");
-        DefinitionId {
+        DefinitionPath {
             module: self.source.module_identity().clone(),
             path,
         }
@@ -640,7 +640,7 @@ impl Builder<'_> {
         name: &str,
         range: Span,
         site: bool,
-    ) -> DefinitionId {
+    ) -> DefinitionPath {
         let id = self.identity(parent, kind, name);
         self.insert(
             key,

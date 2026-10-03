@@ -129,13 +129,13 @@ mod tests {
     use crate::{language::semantics::ProtocolSemantics, types::NominalType};
     use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
-        DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
 
     #[test]
     fn collection_context_infers_slots_across_native_and_declared_views() {
         let parameter = GenericParameterType {
-            owner: DefinitionId {
+            owner: DefinitionPath {
                 module: ModuleIdentity::single_file("views.kgr"),
                 path: vec![DefinitionPathSegment {
                     kind: DefinitionKind::Function,
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn deep_inference_is_iterative_cancellable_and_preserves_member_order() {
         let parameter = GenericParameterType {
-            owner: DefinitionId {
+            owner: DefinitionPath {
                 module: ModuleIdentity::single_file("deep.kgr"),
                 path: vec![DefinitionPathSegment {
                     kind: DefinitionKind::Function,
@@ -287,7 +287,7 @@ mod tests {
         let mut different_arity = TypeId::Tuple(vec![TypeId::Error]);
         different_arity.recover_from(&TypeId::Tuple(vec![TypeId::Builtin(BuiltinType::I32); 2]));
         assert_eq!(different_arity, TypeId::Tuple(vec![TypeId::Error]));
-        let declaration = DefinitionId {
+        let declaration = DefinitionPath {
             module: ModuleIdentity::single_file("a.kgr"),
             path: vec![],
         };
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn nominal_inference_requires_matching_declaration_kind_and_arity() {
-        let declaration = DefinitionId {
+        let declaration = DefinitionPath {
             module: ModuleIdentity::single_file("generic.kgr"),
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Struct,

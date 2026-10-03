@@ -297,8 +297,8 @@ fn main() -> i32 { boxed().read() }
         .unwrap();
     let value = vm.execute(&loaded, "boxed").unwrap().return_value;
     let root = vm.runtime().root_value(value.clone()).unwrap();
-    use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
-    let method = DefinitionId {
+    use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+    let method = DefinitionPath {
         module: loaded.bytecode.identity.clone(),
         path: vec![
             DefinitionPathSegment {

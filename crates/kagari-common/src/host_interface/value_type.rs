@@ -1,6 +1,6 @@
 //! Composite declarations use bounded, flat preorder encoding on the wire.
 use super::HostInterfaceError;
-use crate::{collection::CollectionAccess, identity::DefinitionId};
+use crate::{collection::CollectionAccess, identity::DefinitionPath};
 use bincode::Options;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
@@ -22,7 +22,7 @@ pub enum HostValueType {
     F64,
     String,
     /// An opaque type is identified by its declaration, never a registry slot.
-    Opaque(DefinitionId),
+    Opaque(DefinitionPath),
     Tuple(Vec<HostValueType>),
     Array(Box<HostValueType>, CollectionAccess),
     Map {
@@ -48,7 +48,7 @@ impl HostValueType {
         ))
     }
 
-    pub fn nominal_references(&self) -> Vec<&DefinitionId> {
+    pub fn nominal_references(&self) -> Vec<&DefinitionPath> {
         let mut pending = vec![self];
         let mut declarations = Vec::new();
         while let Some(ty) = pending.pop() {
@@ -144,7 +144,7 @@ enum Node {
     F32,
     F64,
     String,
-    Opaque(DefinitionId),
+    Opaque(DefinitionPath),
     Tuple(u32),
     Array(CollectionAccess),
     Map(CollectionAccess),

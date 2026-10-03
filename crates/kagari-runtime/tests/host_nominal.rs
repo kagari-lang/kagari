@@ -6,7 +6,7 @@ use kagari_common::{
         type_declaration::HostTypeDeclaration,
         value_type::HostValueType,
     },
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 
 use std::{cell::Cell, rc::Rc};
@@ -27,7 +27,7 @@ fn runtime() -> Runtime {
     })
 }
 
-fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionId) -> (TypeId, Value) {
+fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionPath) -> (TypeId, Value) {
     let mut registration = HostTypeRegistration::new(HostTypeDeclaration::new(symbol), "Object");
     registration.declaration.id = declaration;
     registration.declaration.ownership = HostTypeOwnership::HostRoot;

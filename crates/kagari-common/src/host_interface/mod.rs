@@ -13,7 +13,7 @@ use crate::{
         type_declaration::HostTypeDeclaration,
         value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 
 const MAGIC: [u8; 4] = *b"KHI\0";
@@ -35,7 +35,7 @@ impl HostValueType {
 
 /// Default identity for a type in the application host namespace. Providers may
 /// supply their own package/module identity independently of the export label.
-pub fn host_type_identity(symbol: &str) -> DefinitionId {
+pub fn host_type_identity(symbol: &str) -> DefinitionPath {
     let mut id = HostFunctionDeclaration::new(symbol, Vec::new(), HostValueType::Unit).id;
     id.path
         .last_mut()
@@ -44,7 +44,7 @@ pub fn host_type_identity(symbol: &str) -> DefinitionId {
     id
 }
 
-pub fn validate_host_type_identity(id: &DefinitionId) -> Result<(), HostInterfaceError> {
+pub fn validate_host_type_identity(id: &DefinitionPath) -> Result<(), HostInterfaceError> {
     if !id.within_path_limit() {
         return Err(HostInterfaceError::TooLarge);
     }
@@ -89,7 +89,7 @@ pub struct HostFunctionEffects {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostFunctionDeclaration {
-    pub id: DefinitionId,
+    pub id: DefinitionPath,
     /// The binding/export label is distinct from nominal declaration identity.
     pub symbol: String,
     #[serde(deserialize_with = "decode_limits::members")]
@@ -101,7 +101,7 @@ pub struct HostFunctionDeclaration {
 }
 
 impl HostFunctionDeclaration {
-    pub fn method_owner(&self) -> Option<DefinitionId> {
+    pub fn method_owner(&self) -> Option<DefinitionPath> {
         if self.id.path.last()?.kind != DefinitionKind::Method {
             return None;
         }
@@ -129,7 +129,7 @@ impl HostFunctionDeclaration {
         let mut path = symbol.split('.').map(str::to_owned).collect::<Vec<_>>();
         let name = path.pop().unwrap_or_default();
         Self {
-            id: DefinitionId {
+            id: DefinitionPath {
                 module: ModuleIdentity {
                     package: PackageId("host".into()),
                     path,

@@ -12,7 +12,7 @@ use kagari_abi::{
     standard::surface::StandardEnum,
 };
 
-use kagari_common::identity::{DefinitionId, associated_type_id};
+use kagari_common::identity::{DefinitionPath, associated_type_id};
 
 use crate::builtin::surface;
 
@@ -358,7 +358,7 @@ pub fn iteration_outputs(
     receiver: &TypeId,
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
-) -> Option<BTreeMap<DefinitionId, TypeId>> {
+) -> Option<BTreeMap<DefinitionPath, TypeId>> {
     if let TypeId::Trait(interface) = receiver {
         let inherited = catalog?
             .interface_closure(interface, receiver, &Default::default())

@@ -13,7 +13,7 @@ use kagari_common::{
         },
         value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 use kagari_runtime::{
     Runtime,
@@ -27,7 +27,7 @@ fn host_trait_table_requires_bound_method_callbacks_before_linking() {
     let mut owner = HostTypeDeclaration::new("demo.Counter");
     let method = HostMethodDeclaration::new(&owner.id, "read", vec![], HostValueType::I32);
     owner.methods.push(method.clone());
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: ModuleIdentity {
             package: PackageId("pkg".into()),
             path: vec!["api".into()],

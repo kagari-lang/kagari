@@ -25,7 +25,7 @@ use kagari_abi::{
     representation::ValueType,
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, substitution::TypeSubstitution},
 };
-use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use std::{cell::OnceCell, rc::Rc, slice};
 
 impl Runtime {
@@ -243,7 +243,7 @@ impl Runtime {
                 name: method.name.clone(),
                 occurrence: 0,
             });
-            let method_id = DefinitionId {
+            let method_id = DefinitionPath {
                 module: interface_type.declaration.module.clone(),
                 path,
             };
@@ -590,7 +590,7 @@ impl Runtime {
     pub fn resolve_interface_method(
         &self,
         value: &Value,
-        method: &DefinitionId,
+        method: &DefinitionPath,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let Value::Interface(id) = value else {
             return Err(RuntimeError::module_validation("expected interface value"));

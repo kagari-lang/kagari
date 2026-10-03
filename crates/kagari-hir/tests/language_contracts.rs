@@ -8,7 +8,7 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
-    identity::{DefinitionId, associated_type_id},
+    identity::{DefinitionPath, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_hir::analysis::AnalysisDatabase;
@@ -123,7 +123,7 @@ fn language_records_are_available_without_native_modules() {
 #[test]
 fn portable_collection_view_preserves_concrete_iterator_proofs() {
     let module = language::declarations();
-    let lookup = |id: &DefinitionId| {
+    let lookup = |id: &DefinitionPath| {
         module.traits.iter().find(|contract| {
             Protocol::from_id(id).is_some_and(|protocol| protocol.name() == contract.name)
         })

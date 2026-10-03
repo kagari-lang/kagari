@@ -4,7 +4,7 @@ use crate::{
     module::{LoadedModule, ModuleKey},
 };
 use kagari_abi::types::{AbiType, NominalAbiType, substitution::TypeSubstitution};
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use std::{borrow::Cow, collections::HashSet, ptr};
 
 #[derive(Clone, Copy)]
@@ -16,7 +16,7 @@ pub(crate) struct TypeView<'a> {
 }
 
 struct Application<'a> {
-    declaration: &'a DefinitionId,
+    declaration: &'a DefinitionPath,
     arguments: Vec<TypeView<'a>>,
 }
 

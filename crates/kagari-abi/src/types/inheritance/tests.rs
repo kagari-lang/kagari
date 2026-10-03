@@ -9,8 +9,8 @@ use kagari_common::identity::{
 };
 use std::collections::BTreeMap;
 
-fn id(name: &str) -> DefinitionId {
-    DefinitionId {
+fn id(name: &str) -> DefinitionPath {
+    DefinitionPath {
         module: ModuleIdentity::single_file("inheritance.kgr"),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
@@ -20,7 +20,7 @@ fn id(name: &str) -> DefinitionId {
     }
 }
 
-fn applied(owner: &DefinitionId, arguments: Vec<AbiType>) -> NominalAbiType {
+fn applied(owner: &DefinitionPath, arguments: Vec<AbiType>) -> NominalAbiType {
     NominalAbiType {
         declaration: owner.clone(),
         arguments,
@@ -28,7 +28,7 @@ fn applied(owner: &DefinitionId, arguments: Vec<AbiType>) -> NominalAbiType {
     }
 }
 
-fn contract(owner: &DefinitionId, arity: usize, parents: Vec<NominalAbiType>) -> TraitAbi {
+fn contract(owner: &DefinitionPath, arity: usize, parents: Vec<NominalAbiType>) -> TraitAbi {
     TraitAbi {
         name: owner.path.last().unwrap().name.clone(),
         generic_params: (0..arity)

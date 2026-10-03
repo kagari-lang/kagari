@@ -31,7 +31,7 @@ use kagari_common::{
         HostFunctionDeclaration,
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
     },
-    identity::{DefinitionId, FileId, Revision},
+    identity::{DefinitionPath, FileId, Revision},
     source::SourceFile,
     source_database::SourceSnapshot,
 };
@@ -699,7 +699,7 @@ pub struct AnalysisDatabase {
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
-    body_cache: HashMap<DefinitionId, Arc<FunctionAnalysis>>,
+    body_cache: HashMap<DefinitionPath, Arc<FunctionAnalysis>>,
     body_revision: Revision,
     declaration_cache: Option<DeclarationSnapshot>,
     signature_cache: Option<SignatureSnapshot>,

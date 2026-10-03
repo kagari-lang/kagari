@@ -13,7 +13,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -65,12 +65,12 @@ pub struct ModuleDecl {
     pub implementations: Vec<ImplDecl>,
     pub functions: Vec<FunctionAbi>,
     /// Registered templates remain addressable by identity without public exports.
-    pub private_functions: BTreeSet<DefinitionId>,
-    pub documentation: BTreeMap<DefinitionId, String>,
+    pub private_functions: BTreeSet<DefinitionPath>,
+    pub documentation: BTreeMap<DefinitionPath, String>,
     /// Ordered callback slots owned by each native declaration. The compiler
     /// specializes these requirements; generated source does not select targets.
-    pub callable_requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
-    pub concrete_results: BTreeMap<DefinitionId, AbiType>,
+    pub callable_requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
+    pub concrete_results: BTreeMap<DefinitionPath, AbiType>,
 }
 
 impl ModuleDecl {
@@ -91,8 +91,8 @@ impl ModuleDecl {
         }
     }
 
-    pub fn definition(&self, kind: DefinitionKind, name: &str) -> DefinitionId {
-        DefinitionId {
+    pub fn definition(&self, kind: DefinitionKind, name: &str) -> DefinitionPath {
+        DefinitionPath {
             module: self.identity.clone(),
             path: vec![DefinitionPathSegment {
                 kind,
@@ -102,14 +102,14 @@ impl ModuleDecl {
         }
     }
 
-    pub fn implementation_id(&self, index: usize) -> DefinitionId {
+    pub fn implementation_id(&self, index: usize) -> DefinitionPath {
         let mut id = self.definition(DefinitionKind::Impl, "");
         id.path[0].occurrence =
             u32::try_from(index).expect("native implementation slot exceeds identity range");
         id
     }
 
-    pub fn method_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+    pub fn method_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
         let mut id = owner.clone();
         id.path.push(DefinitionPathSegment {
             kind: DefinitionKind::Method,
@@ -144,7 +144,7 @@ impl ModuleDecl {
         trait_type: NominalAbiType,
         for_type: AbiType,
         generic_params: Vec<GenericParameterAbi>,
-        bindings: &[(&str, DefinitionId)],
+        bindings: &[(&str, DefinitionPath)],
     ) -> Result<(), DeclarationError> {
         let owner = ModuleDecl::new(trait_type.declaration.module.clone())
             .definition(DefinitionKind::Trait, &contract.name);
@@ -610,14 +610,14 @@ impl ModuleDecl {
     /// HIR/portable proofs; this check does not infer an implementation body.
     pub fn validate_trait_implementations(
         &self,
-        contracts: &BTreeMap<DefinitionId, TraitAbi>,
+        contracts: &BTreeMap<DefinitionPath, TraitAbi>,
     ) -> Result<(), DeclarationError> {
         self.check_implementations(contracts, true)
     }
 
     fn check_implementations(
         &self,
-        contracts: &BTreeMap<DefinitionId, TraitAbi>,
+        contracts: &BTreeMap<DefinitionPath, TraitAbi>,
         require_external: bool,
     ) -> Result<(), DeclarationError> {
         let invalid =

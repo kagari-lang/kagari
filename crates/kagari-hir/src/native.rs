@@ -7,7 +7,7 @@ use kagari_abi::{
     callable::NativeDefaultApplication, scalar::BuiltinType, standard::surface::StandardEnum,
     types::native::NativeStorageLayout,
 };
-use kagari_common::{collection::CollectionAccess, identity::DefinitionId, range::RangeKind};
+use kagari_common::{collection::CollectionAccess, identity::DefinitionPath, range::RangeKind};
 
 pub(crate) mod api;
 
@@ -15,7 +15,7 @@ pub(crate) mod api;
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeBinding {
-    Entry(DefinitionId),
+    Entry(DefinitionPath),
     Host(HostFunctionId),
     /// Symbolic registered template application; selection resolves an Entry.
     Default(NativeDefaultApplication),
@@ -24,7 +24,7 @@ pub enum NativeBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeTypeKind {
     Storage {
-        declaration: DefinitionId,
+        declaration: DefinitionPath,
         arity: usize,
         layout: NativeStorageLayout,
     },

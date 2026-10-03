@@ -62,6 +62,27 @@ DefinitionId; ScopedDefinitionId is the temporary short-type name until ID02
 replaces the owned model. No production runtime speedup or end-to-end migration
 is claimed by ID01, and ID02-ID05 remain required. No carried error.
 
+ID02 entry checkpoint: rename the owned portable representation to DefinitionPath
+through all 128 affected Rust files (including ID01 files), and give the eight-byte
+table-owned type its final DefinitionId name at identity::table. No aliases or
+re-exports preserve the old API. This is API terminology separation, not adoption
+of compact IDs by executable metadata: GenericParameterAbi, nominal ABI/HIR types,
+native registrations and runtime type environments still carry DefinitionPath.
+The remaining ID02 ownership/remapping work and ID03-ID05 are not accepted. The
+workspace/all-target check and full workspace regression suite pass, including the
+unchanged complete language-contract matrix (80.26 seconds; not a paired speedup
+measurement), source-free artifact execution, backend and pinned-reload coverage.
+Use a NonZeroU32 table discriminator so both DefinitionId and Option<DefinitionId>
+occupy eight bytes; the final focused common rerun passes all 33 tests. Strict
+workspace/all-target Clippy, fmt, structure (663 files, zero findings/exceptions)
+and diff checks pass. Portable fixture/source correspondence still passes without
+regeneration because this checkpoint changes Rust API names, not encoded layouts.
+The independent feature-consumer matrix remains an ID05 integration requirement;
+no carried build/test error remains. This checkpoint does not complete ID02 or
+the full execution plan. Breaking Rust API change: import DefinitionPath for
+owned path construction and identity::table::DefinitionId for compact contextual
+references; the transitional ScopedDefinitionId name is removed.
+
 ## Kagari/Lua execution diagnosis (completed, 2026-10-03)
 
 BP02 owns diagnosis of BP01's large measured execution gap. Add a checked,

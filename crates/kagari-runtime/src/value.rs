@@ -8,7 +8,7 @@ use crate::{
 use kagari_abi::{
     representation::ValueType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -204,7 +204,7 @@ enum KeyPart {
     Str(String),
     Tuple(usize),
     StandardEnum(u8),
-    DeclaredEnum(HostRegistryId, DefinitionId, Vec<AbiType>, DefinitionId),
+    DeclaredEnum(HostRegistryId, DefinitionPath, Vec<AbiType>, DefinitionPath),
     Identity(u8, HeapObjectId),
 }
 

@@ -14,7 +14,7 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::HostInterface,
-    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
 };
 use std::collections::{HashMap, HashSet};
 
@@ -36,11 +36,11 @@ pub enum ProgramErrorKind {
     Cancelled,
     InvalidGraph,
     Verification(MirVerificationError),
-    UnresolvedFunction(DefinitionId),
-    FunctionContract(DefinitionId),
-    StructContract(DefinitionId),
-    EnumContract(DefinitionId),
-    InterfaceContract(DefinitionId),
+    UnresolvedFunction(DefinitionPath),
+    FunctionContract(DefinitionPath),
+    StructContract(DefinitionPath),
+    EnumContract(DefinitionPath),
+    InterfaceContract(DefinitionPath),
 }
 
 #[derive(Debug)]

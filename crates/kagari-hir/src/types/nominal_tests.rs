@@ -4,8 +4,8 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
 
-fn definition(module: &str, kind: DefinitionKind) -> DefinitionId {
-    DefinitionId {
+fn definition(module: &str, kind: DefinitionKind) -> DefinitionPath {
+    DefinitionPath {
         module: ModuleIdentity::single_file(module),
         path: vec![DefinitionPathSegment {
             kind,
@@ -238,7 +238,7 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
         replacement = TypeId::Set(Box::new(replacement), CollectionAccess::Mutable);
     }
     let result = template.with_self(&owner, &replacement);
-    fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionId) {
+    fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionPath) {
         for _ in 0..depth {
             let TypeId::Set(inner, _) = ty else {
                 panic!("missing set layer")

@@ -13,7 +13,7 @@ use crate::{
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionId, FileId, Revision},
+    identity::{DefinitionPath, FileId, Revision},
 };
 use std::{
     cell::RefCell,
@@ -42,7 +42,7 @@ pub struct ImportedType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedTraitMethod {
     pub name: String,
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub struct ImportedTypes {
     // Internal namespace entries have no public alias. Resolve by their bound
     // target so equal member spellings in different modules cannot overwrite facts.
     resolutions: HashMap<ResolvedName, ImportedType>,
-    nominal_types: HashMap<DefinitionId, ImportedType>,
+    nominal_types: HashMap<DefinitionPath, ImportedType>,
     variants: HashMap<ResolvedName, Declaration>,
 }
 
@@ -72,7 +72,7 @@ impl ImportedTypes {
         self.resolutions.values().find(|ty| ty.id == id)
     }
 
-    pub fn by_declaration(&self, id: &DefinitionId) -> Option<&ImportedType> {
+    pub fn by_declaration(&self, id: &DefinitionPath) -> Option<&ImportedType> {
         self.resolutions
             .values()
             .chain(self.nominal_types.values())
@@ -82,7 +82,7 @@ impl ImportedTypes {
 
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
-    surfaces: RefCell<Option<HashMap<DefinitionId, ImportedType>>>,
+    surfaces: RefCell<Option<HashMap<DefinitionPath, ImportedType>>>,
 }
 
 impl<'a> TypeCatalog<'a> {

@@ -2,10 +2,10 @@
 use crate::{
     decode_limits::bounded_vec,
     identity::{
-        DefinitionId, DefinitionKind, ModuleIdentity,
+        DefinitionKind, DefinitionPath, ModuleIdentity,
         table::{
-            DefinitionIndex, DefinitionRemap, DefinitionTable, DefinitionTableBuilder,
-            DefinitionTableError, Node, ScopedDefinitionId,
+            DefinitionId, DefinitionIndex, DefinitionRemap, DefinitionTable,
+            DefinitionTableBuilder, DefinitionTableError, Node,
         },
     },
 };
@@ -65,7 +65,7 @@ pub struct DefinitionEncoding {
 impl DefinitionEncoding {
     pub fn reference(
         &self,
-        id: ScopedDefinitionId,
+        id: DefinitionId,
     ) -> Result<PortableDefinitionRef, DefinitionTableError> {
         if id.table() != self.owner {
             return Err(DefinitionTableError::ForeignTable);
@@ -79,14 +79,14 @@ impl DefinitionEncoding {
 
 pub struct DefinitionDecoding {
     pub table: DefinitionTable,
-    references: Vec<ScopedDefinitionId>,
+    references: Vec<DefinitionId>,
 }
 
 impl DefinitionDecoding {
     pub fn resolve(
         &self,
         reference: PortableDefinitionRef,
-    ) -> Result<ScopedDefinitionId, DefinitionTableError> {
+    ) -> Result<DefinitionId, DefinitionTableError> {
         self.references
             .get(reference.index())
             .copied()
@@ -105,7 +105,7 @@ impl DefinitionTable {
     /// Encode only requested definitions and ancestors, ordered by exact identity.
     pub fn encode(
         &self,
-        ids: impl IntoIterator<Item = ScopedDefinitionId>,
+        ids: impl IntoIterator<Item = DefinitionId>,
     ) -> Result<DefinitionEncoding, DefinitionTableError> {
         let mut required = HashSet::new();
         for id in ids {
@@ -124,10 +124,10 @@ impl DefinitionTable {
         if required.len() > MAX_PORTABLE_IDENTITY_RECORDS {
             return Err(DefinitionTableError::PortableLimit);
         }
-        let mut paths: Vec<(DefinitionId, DefinitionIndex)> = required
+        let mut paths: Vec<(DefinitionPath, DefinitionIndex)> = required
             .into_iter()
             .map(|index| {
-                let id = ScopedDefinitionId {
+                let id = DefinitionId {
                     table: self.id,
                     index,
                 };

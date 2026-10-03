@@ -8,7 +8,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use kagari_runtime::{
     Runtime,
     error_trace::ResultFailure,
@@ -180,7 +180,7 @@ impl Vm {
     pub fn invoke_interface_method(
         &mut self,
         interface: &Value,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         arguments: &[Value],
     ) -> Result<Value, VmError> {
         let resolved = self

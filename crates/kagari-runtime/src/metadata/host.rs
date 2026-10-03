@@ -15,7 +15,7 @@ use kagari_common::{
         type_declaration::{PathAccess, Visibility},
         value_type::HostValueType,
     },
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 use std::{collections::HashMap, fmt::Display};
 
@@ -127,7 +127,7 @@ fn metadata_error(error: impl Display) -> RuntimeError {
 
 fn intern(
     inner: &mut TypeRegistryInner,
-    nominal: &HashMap<DefinitionId, TypeId>,
+    nominal: &HashMap<DefinitionPath, TypeId>,
     ty: &HostValueType,
 ) -> Result<TypeId, RuntimeError> {
     if let HostValueType::Opaque(id) = ty {

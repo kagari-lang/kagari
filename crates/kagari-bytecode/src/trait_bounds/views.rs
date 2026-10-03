@@ -21,7 +21,7 @@ use kagari_abi::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 
 pub struct InterfaceLinks {
@@ -49,7 +49,7 @@ pub fn links(
     let AbiType::Trait(interface) = &table.trait_type else {
         return Err(invalid);
     };
-    let lookup = |id: &DefinitionId| contract(id, closure);
+    let lookup = |id: &DefinitionPath| contract(id, closure);
     let mut parents = vec![];
     for parent in interface_views(interface, &table.for_type, cancel, &lookup)?
         .into_iter()

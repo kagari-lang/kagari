@@ -18,7 +18,7 @@ use kagari_abi::{
     types::{AbiType, GenericParameterAbi, NominalAbiType, substitution::TypeSubstitution},
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -106,7 +106,11 @@ impl TypeEnvironment {
         Ok(())
     }
 
-    pub(crate) fn argument(&self, owner: &DefinitionId, position: usize) -> Option<&TypeArgument> {
+    pub(crate) fn argument(
+        &self,
+        owner: &DefinitionPath,
+        position: usize,
+    ) -> Option<&TypeArgument> {
         self.parameters
             .iter()
             .position(|parameter| parameter.owner == *owner && parameter.position == position)

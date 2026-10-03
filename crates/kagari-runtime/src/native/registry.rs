@@ -22,7 +22,7 @@ use kagari_abi::{
     types::{AbiType, NativeDeclaration, verify::validate_native_declarations},
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget, program::ModuleRef};
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,
@@ -62,8 +62,8 @@ pub(crate) fn link_host(
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct NativeRegistry {
-    entries: HashMap<DefinitionId, Rc<BindingRegistration>>,
-    pub(crate) storage: HashMap<DefinitionId, NativeStorage>,
+    entries: HashMap<DefinitionPath, Rc<BindingRegistration>>,
+    pub(crate) storage: HashMap<DefinitionPath, NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
 }
 

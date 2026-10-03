@@ -3,7 +3,7 @@
 
 use kagari_common::{
     host_interface::{HostInterface, HostInterfaceError},
-    identity::DefinitionId,
+    identity::DefinitionPath,
     source_database::normalize_source_name,
     span::Span,
 };
@@ -68,7 +68,7 @@ impl HostDeclarationOrigin {
 #[derive(Debug, Clone, Default)]
 pub struct HostInput {
     pub interface: HostInterface,
-    pub origins: HashMap<DefinitionId, HostDeclarationOrigin>,
+    pub origins: HashMap<DefinitionPath, HostDeclarationOrigin>,
 }
 
 impl From<HostInterface> for HostInput {

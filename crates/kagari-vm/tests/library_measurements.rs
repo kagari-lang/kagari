@@ -3,7 +3,7 @@
 mod native_allocations_counter;
 use kagari_abi::{declaration::ModuleDecl, scalar::BuiltinType, types::AbiType};
 use kagari_common::{
-    identity::DefinitionId,
+    identity::DefinitionPath,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -13,7 +13,7 @@ use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
 use std::{hint::black_box, time::Instant};
 
-fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
+fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(

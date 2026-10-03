@@ -10,7 +10,7 @@ use kagari_abi::{
     standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
 };
-use kagari_common::{host_interface::path::HostPathDeclaration, identity::DefinitionId};
+use kagari_common::{host_interface::path::HostPathDeclaration, identity::DefinitionPath};
 use smallvec::SmallVec;
 
 use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
@@ -170,7 +170,7 @@ pub enum Instruction {
     MakeInterface {
         dst: MirValue,
         value: MirValue,
-        implementation: DefinitionId,
+        implementation: DefinitionPath,
         #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
         arguments: Vec<AbiType>,
     },
@@ -453,7 +453,7 @@ pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
 /// Unlinked declaration contract. It cannot be encoded as an executable call.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceFunctionContract {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]

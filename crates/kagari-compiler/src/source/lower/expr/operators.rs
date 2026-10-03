@@ -23,7 +23,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     standard::RuntimePrimitive,
 };
-use kagari_common::{identity::DefinitionId, integer::IntegerOp};
+use kagari_common::{identity::DefinitionPath, integer::IntegerOp};
 
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
@@ -93,7 +93,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         interface: NominalType,
         receiver: TypeId,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
         self.lower_applied_method(interface, receiver, method, &[], args)
@@ -103,7 +103,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         interface: NominalType,
         receiver: TypeId,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         method_arguments: &[TypeId],
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {

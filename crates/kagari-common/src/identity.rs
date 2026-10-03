@@ -82,8 +82,9 @@ impl fmt::Display for ModuleIdentity {
     }
 }
 
+/// Exact portable declaration identity, independent of any in-memory table index.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct DefinitionId {
+pub struct DefinitionPath {
     pub module: ModuleIdentity,
     #[serde(deserialize_with = "definition_path")]
     pub path: Vec<DefinitionPathSegment>,
@@ -120,13 +121,13 @@ pub struct FileSpan {
     pub range: Span,
 }
 
-impl DefinitionId {
+impl DefinitionPath {
     pub fn within_path_limit(&self) -> bool {
         self.module.within_path_limit() && self.path.len() <= MAX_IDENTITY_PATH_SEGMENTS
     }
 }
 
-pub fn associated_type_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+pub fn associated_type_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
     let mut id = owner.clone();
     id.path.push(DefinitionPathSegment {
         kind: DefinitionKind::AssociatedType,
@@ -136,7 +137,7 @@ pub fn associated_type_id(owner: &DefinitionId, name: &str) -> DefinitionId {
     id
 }
 
-pub fn associated_const_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+pub fn associated_const_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
     let mut id = owner.clone();
     id.path.push(DefinitionPathSegment {
         kind: DefinitionKind::Const,
@@ -170,7 +171,7 @@ mod tests {
                 .contains("module identity path segment count limit exceeded")
         );
 
-        let id = DefinitionId {
+        let id = DefinitionPath {
             module,
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Function,
@@ -181,7 +182,7 @@ mod tests {
         let mut bytes = codec().serialize(&id).unwrap();
         let count_offset = codec().serialized_size(&id.module).unwrap() as usize;
         bytes[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
-        let error = codec().deserialize::<DefinitionId>(&bytes).unwrap_err();
+        let error = codec().deserialize::<DefinitionPath>(&bytes).unwrap_err();
         assert!(
             error
                 .to_string()

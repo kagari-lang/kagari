@@ -17,7 +17,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind},
+    identity::{DefinitionKind, DefinitionPath},
 };
 use serde::{Deserialize, Serialize};
 
@@ -145,7 +145,7 @@ impl OperationWitness {
 /// inherited traits. This is declaration work, never executable-body inspection.
 pub fn required_operations<'a>(
     bounds: &[GenericBoundAbi],
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
+    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitAbi>,
     cancel: &CancellationToken,
 ) -> Result<Vec<NativeCallableRequirement>, TypeTransformError> {
     let mut operations = vec![];

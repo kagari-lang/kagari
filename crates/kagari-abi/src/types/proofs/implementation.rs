@@ -10,14 +10,14 @@ use crate::{
         verify::types_in_scope,
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 
 /// Source-independent facts from a verified interface or validated registration.
 /// The caller owns declaration/method validation; proof checks applicability.
 pub enum Implementation<'a> {
     Interface(&'a InterfaceTableAbi),
     Native {
-        declaration: &'a DefinitionId,
+        declaration: &'a DefinitionPath,
         implementation: &'a ImplDecl,
     },
 }
@@ -29,7 +29,7 @@ impl<'a> From<&'a InterfaceTableAbi> for Implementation<'a> {
 }
 
 impl<'a> Implementation<'a> {
-    pub(super) fn declaration(&self) -> &DefinitionId {
+    pub(super) fn declaration(&self) -> &DefinitionPath {
         match self {
             Self::Interface(table) => &table.declaration,
             Self::Native { declaration, .. } => declaration,

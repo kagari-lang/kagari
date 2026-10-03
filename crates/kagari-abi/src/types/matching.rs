@@ -7,7 +7,7 @@ use crate::{
     },
 };
 
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 
 /// The actual checked header, independently of its declaration/executable source.
 #[derive(Clone, Copy)]
@@ -186,7 +186,7 @@ pub(crate) fn projection_output(
     families: &[AssociatedTypeFamilyAbi],
     interface: &NominalAbiType,
     receiver: &AbiType,
-    member: &DefinitionId,
+    member: &DefinitionPath,
     arguments: &[AbiType],
     cancel: &CancellationToken,
 ) -> Result<Option<AbiType>, TypeTransformError> {
@@ -226,8 +226,8 @@ mod tests {
     };
     use std::slice;
 
-    fn id(kind: DefinitionKind, name: &str) -> DefinitionId {
-        DefinitionId {
+    fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
+        DefinitionPath {
             module: ModuleIdentity::single_file("match.kgr"),
             path: vec![DefinitionPathSegment {
                 kind,

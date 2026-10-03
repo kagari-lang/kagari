@@ -18,7 +18,7 @@ use kagari_common::{
         type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -193,9 +193,9 @@ fn host_trait_matches(
 fn matches_host_type(
     expected: &AbiType,
     actual: &AbiType,
-    owner: &DefinitionId,
+    owner: &DefinitionPath,
     arguments: &[AbiType],
-    outputs: &BTreeMap<DefinitionId, AbiType>,
+    outputs: &BTreeMap<DefinitionPath, AbiType>,
     receiver: &AbiType,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
@@ -281,7 +281,7 @@ pub fn references(
     structures: &[StructLayout],
     enums: &[EnumLayout],
     cancel: &CancellationToken,
-) -> Result<BTreeSet<DefinitionId>, Cancelled> {
+) -> Result<BTreeSet<DefinitionPath>, Cancelled> {
     let mut pending = Vec::new();
     for item in items {
         cancel.check()?;

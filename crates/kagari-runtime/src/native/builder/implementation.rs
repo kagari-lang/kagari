@@ -12,7 +12,7 @@ use kagari_abi::{
     declaration::{ImplDecl, ModuleDecl},
     types::{GenericParameterAbi, substitution::TypeSubstitution},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use std::collections::BTreeMap;
 
 pub struct ImplementationBuilder<'module> {
@@ -230,7 +230,7 @@ impl<'module> ImplementationBuilder<'module> {
 
 pub struct MethodsBuilder {
     applied: AppliedTrait,
-    id: DefinitionId,
+    id: DefinitionPath,
     receiver_codec: Option<Codec>,
     bindings: BTreeMap<String, NativeBinding>,
 }

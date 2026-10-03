@@ -3,7 +3,7 @@ use crate::source::lower::MirLoweringError;
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::{path::HostPathSegmentDeclaration, type_declaration::HostTypeDeclaration},
-    identity::DefinitionId,
+    identity::DefinitionPath,
 };
 use kagari_hir::host::HostDeclarations;
 use kagari_mir::{
@@ -17,7 +17,7 @@ use std::{
 
 pub(super) fn collect(
     hosts: &HostDeclarations,
-    roots: BTreeSet<DefinitionId>,
+    roots: BTreeSet<DefinitionPath>,
     functions: &[MirFunction],
     cancel: &CancellationToken,
 ) -> Result<Vec<HostTypeDeclaration>, MirLoweringError> {

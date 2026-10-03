@@ -23,7 +23,7 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
     span::Span,
 };
 
@@ -62,7 +62,7 @@ impl Default for MirLoweringOptions {
 /// converted only when a concrete MIR identity is emitted.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct InstanceKey {
-    pub declaration: DefinitionId,
+    pub declaration: DefinitionPath,
     pub arguments: Vec<TypeId>,
 }
 
@@ -119,13 +119,13 @@ pub(super) struct InstancePlanner<'a> {
     pub options: &'a MirLoweringOptions,
     pub instances: Vec<Instance>,
     pub layout_roots: Vec<(TypeId, Span)>,
-    pub host_types: BTreeSet<DefinitionId>,
-    pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
+    pub host_types: BTreeSet<DefinitionPath>,
+    pub host_interfaces: Vec<(DefinitionPath, TypeId, NominalType, Span)>,
     pub native_targets: Vec<NativeImport>,
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
     keys: HashMap<InstanceKey, InstanceId>,
     generic_count: usize,
-    interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
+    interfaces: HashSet<(DefinitionPath, Vec<TypeId>)>,
     instruction_count: usize,
     failure: Option<Diagnostic>,
 }
@@ -213,7 +213,7 @@ impl<'a> InstancePlanner<'a> {
         self.modules[&instance.origin]
     }
 
-    pub fn aggregate_catalog(&self, declaration: &DefinitionId) -> &'a AggregateCatalog {
+    pub fn aggregate_catalog(&self, declaration: &DefinitionPath) -> &'a AggregateCatalog {
         self.modules
             .get(&declaration.module)
             .map(|module| &module.aggregates)
@@ -277,7 +277,7 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
         let (origin, function, substitution) = context;
-        let declaration = DefinitionId {
+        let declaration = DefinitionPath {
             module: self.module.lowered.source.module_identity().clone(),
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Function,
@@ -319,7 +319,7 @@ impl<'a> InstancePlanner<'a> {
         Ok(id)
     }
 
-    pub fn native_function(&self, declaration: &DefinitionId) -> Option<&TypedFunction> {
+    pub fn native_function(&self, declaration: &DefinitionPath) -> Option<&TypedFunction> {
         let module = self.modules.get(&declaration.module)?;
         let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {
             return None;
@@ -330,7 +330,7 @@ impl<'a> InstancePlanner<'a> {
         })
     }
 
-    pub fn constant(&self, declaration: &DefinitionId) -> Option<ScalarValue> {
+    pub fn constant(&self, declaration: &DefinitionPath) -> Option<ScalarValue> {
         let module = self.modules.get(&declaration.module)?;
         let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {
             return None;
@@ -340,7 +340,7 @@ impl<'a> InstancePlanner<'a> {
 
     pub fn enqueue_declaration(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: Vec<TypeId>,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
@@ -450,7 +450,7 @@ impl<'a> InstancePlanner<'a> {
         receiver: &TypeId,
         interface: &NominalType,
         span: Span,
-    ) -> Result<DefinitionId, MirLoweringError> {
+    ) -> Result<DefinitionPath, MirLoweringError> {
         self.check()?;
         if let Some((id, ..)) = self
             .host_interfaces
@@ -463,7 +463,7 @@ impl<'a> InstancePlanner<'a> {
         let base = self.module.lowered.module.impls.len();
         let occurrence = u32::try_from(base + self.host_interfaces.len())
             .map_err(|_| MirLoweringError::MissingBinding("host interface identity limit"))?;
-        let id = DefinitionId {
+        let id = DefinitionPath {
             module: self.module.lowered.source.module_identity().clone(),
             path: vec![DefinitionPathSegment {
                 kind: DefinitionKind::Impl,
@@ -505,7 +505,7 @@ impl<'a> InstancePlanner<'a> {
 
     pub(super) fn record_interface(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), MirLoweringError> {

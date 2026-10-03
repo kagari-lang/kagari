@@ -13,7 +13,7 @@ use crate::{
 };
 use kagari_abi::types::{AbiType, GenericParameterAbi};
 use kagari_bytecode::instruction::{EnumId, StructId};
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionPath;
 use std::{borrow::Cow, rc::Rc, slice};
 
 impl ExecutionFrame {
@@ -81,7 +81,7 @@ impl ExecutionFrame {
     fn layout_environment(
         &self,
         runtime: &Runtime,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[AbiType],
     ) -> Result<Option<Rc<TypeEnvironment>>, RuntimeError> {
         if arguments.iter().all(AbiType::is_concrete) {

@@ -176,11 +176,11 @@ fn interface_instruction_module() -> BytecodeModule {
     };
     use kagari_bytecode::{instruction::InterfaceTableRef, module::InterfaceTableRecord};
     use kagari_common::identity::{
-        DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
 
     let identity = ModuleIdentity::single_file("interface-instruction.kgr");
-    let declaration = |kind, name: &str| DefinitionId {
+    let declaration = |kind, name: &str| DefinitionPath {
         module: identity.clone(),
         path: vec![DefinitionPathSegment {
             kind,

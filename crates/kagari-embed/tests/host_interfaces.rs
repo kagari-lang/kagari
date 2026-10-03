@@ -14,7 +14,7 @@ use kagari_common::{
         },
         value_type::HostValueType,
     },
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     source_database::SourceLayer,
 };
 use kagari_embed::{
@@ -31,7 +31,7 @@ const SOURCE: &str = concat!(
     "\nfn answer() -> i32 { 42 }\npub fn fail() -> i32 { boxed().read(-1) }\n"
 );
 
-fn member(owner: &DefinitionId, kind: DefinitionKind, name: &str) -> DefinitionId {
+fn member(owner: &DefinitionPath, kind: DefinitionKind, name: &str) -> DefinitionPath {
     let mut id = owner.clone();
     id.path.push(DefinitionPathSegment {
         kind,
@@ -51,7 +51,7 @@ fn fixture() -> (
     let file = engine
         .set_source("mem://host-interface", SOURCE.into(), SourceLayer::Base)
         .unwrap();
-    let trait_id = DefinitionId {
+    let trait_id = DefinitionPath {
         module: engine
             .source_snapshot()
             .file(file)

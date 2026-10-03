@@ -1,6 +1,6 @@
 //! Bounded binder substitution over executable types, without source inference.
 use crate::types::{AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType};
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use std::collections::BTreeMap;
 
 pub(crate) const MAX_TYPE_DEPTH: usize = 64;
@@ -17,23 +17,23 @@ pub enum TypeTransformError {
 /// binder layer: a replacement may itself refer to parameters in the caller.
 #[derive(Default)]
 pub struct TypeSubstitution<'a> {
-    parameters: BTreeMap<&'a DefinitionId, BTreeMap<usize, &'a AbiType>>,
-    receivers: BTreeMap<&'a DefinitionId, &'a AbiType>,
+    parameters: BTreeMap<&'a DefinitionPath, BTreeMap<usize, &'a AbiType>>,
+    receivers: BTreeMap<&'a DefinitionPath, &'a AbiType>,
 }
 
 impl<'a> TypeSubstitution<'a> {
-    pub fn bind(&mut self, owner: &'a DefinitionId, position: usize, value: &'a AbiType) {
+    pub fn bind(&mut self, owner: &'a DefinitionPath, position: usize, value: &'a AbiType) {
         self.parameters
             .entry(owner)
             .or_default()
             .insert(position, value);
     }
 
-    pub fn bind_receiver(&mut self, owner: &'a DefinitionId, value: &'a AbiType) {
+    pub fn bind_receiver(&mut self, owner: &'a DefinitionPath, value: &'a AbiType) {
         self.receivers.insert(owner, value);
     }
 
-    pub fn for_owner(owner: &'a DefinitionId, arguments: &'a [AbiType]) -> Self {
+    pub fn for_owner(owner: &'a DefinitionPath, arguments: &'a [AbiType]) -> Self {
         let mut substitution = Self::default();
         for (position, argument) in arguments.iter().enumerate() {
             substitution.bind(owner, position, argument);
@@ -101,7 +101,7 @@ impl<'a> TypeSubstitution<'a> {
             .collect())
     }
 
-    pub fn parameter(&self, owner: &DefinitionId, position: usize) -> Option<&'a AbiType> {
+    pub fn parameter(&self, owner: &DefinitionPath, position: usize) -> Option<&'a AbiType> {
         self.parameters.get(owner)?.get(&position).copied()
     }
 
@@ -155,7 +155,7 @@ pub fn resolve_associated_outputs(
 pub type ProjectionLookup<'a> = dyn Fn(
         &NominalAbiType,
         &AbiType,
-        &DefinitionId,
+        &DefinitionPath,
         &[AbiType],
     ) -> Result<Option<AbiType>, TypeTransformError>
     + 'a;
@@ -205,7 +205,7 @@ impl<'a, 'b> Transform<'a, 'b> {
         Ok(())
     }
 
-    fn id(&self, id: &DefinitionId) -> Result<DefinitionId, TypeTransformError> {
+    fn id(&self, id: &DefinitionPath) -> Result<DefinitionPath, TypeTransformError> {
         if !id.within_path_limit() {
             return Err(TypeTransformError::LimitExceeded);
         }

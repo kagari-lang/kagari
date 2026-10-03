@@ -26,7 +26,7 @@ use crate::{
 };
 
 use kagari_common::{
-    cancellation::CancellationToken, diagnostic::Diagnostic, identity::DefinitionId,
+    cancellation::CancellationToken, diagnostic::Diagnostic, identity::DefinitionPath,
     source::SourceFile, source_database::SourceSnapshot,
 };
 use std::sync::Arc;
@@ -36,7 +36,7 @@ mod tests;
 
 #[derive(Debug)]
 pub struct FunctionAnalysis {
-    owner: DefinitionId,
+    owner: DefinitionPath,
     function: FunctionId,
     signatures: SignatureSnapshot,
     file: Arc<FileSignatures>,
@@ -67,7 +67,7 @@ impl FunctionAnalysis {
             .flatten()
     }
 
-    pub fn owner(&self) -> &DefinitionId {
+    pub fn owner(&self) -> &DefinitionPath {
         &self.owner
     }
 
@@ -119,7 +119,7 @@ impl AnalysisDatabase {
     pub fn body(
         &mut self,
         source: SourceSnapshot,
-        owner: &DefinitionId,
+        owner: &DefinitionPath,
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<FunctionAnalysis>>, AnalysisError> {
         let signatures = self.prepare_signatures(source, cancel)?;

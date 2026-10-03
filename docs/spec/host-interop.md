@@ -148,7 +148,7 @@ borrow, schema and output checks below continue to apply.
 
 The current function API is `HostFunction::new(declaration, callback)`. Its
 `HostFunctionDeclaration` comes from `kagari_common::host_interface`, which has no
-runtime dependency. It carries a `DefinitionId`, export label, typed parameters
+runtime dependency. It carries a `DefinitionPath`, export label, typed parameters
 and result, passing styles, effects and documentation.
 `HostValueType` covers scalar and composite representations plus opaque nominal
 types. Opaque references use declaration identities, not runtime type slots.
@@ -242,7 +242,7 @@ set_host_interface accepts decoded declarations and performs no runtime
 registration. Source may call demo::echo directly, import demo::echo with an
 optional alias, use a nested import group, or import demo as a module alias.
 Function declarations use dotted export labels; source paths use double colons.
-Labels select the exposed source path; DefinitionId remains the binding identity.
+Labels select the exposed source path; DefinitionPath remains the exact binding identity.
 The std namespace is reserved. Ambiguous function/module paths and unspellable
 declaration paths are rejected. Unknown imports and duplicate import aliases
 produce source diagnostics instead of disappearing during lowering.

@@ -42,7 +42,7 @@ use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind, TypePosition},
-    identity::DefinitionId,
+    identity::DefinitionPath,
     span::Span,
 };
 
@@ -882,7 +882,7 @@ pub(super) struct MethodComparison<'a> {
     pub trait_generic_count: usize,
     pub impl_generic_count: usize,
     pub receiver: &'a TypeId,
-    pub trait_owner: &'a DefinitionId,
+    pub trait_owner: &'a DefinitionPath,
     pub trait_arguments: &'a [TypeId],
     pub catalog: &'a AggregateCatalog,
     pub span: Span,

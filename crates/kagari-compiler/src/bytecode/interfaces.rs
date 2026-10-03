@@ -13,7 +13,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 use kagari_mir::{
     instruction::Instruction, program::VerifiedMirProgram, verify::VerifiedMirModule,
@@ -74,7 +74,7 @@ pub(super) fn interface_instances(
 
 pub(super) fn table_arguments(
     ir: &VerifiedMirModule,
-    declaration: &DefinitionId,
+    declaration: &DefinitionPath,
     arguments: &[AbiType],
 ) -> Vec<AbiType> {
     if arguments.iter().all(AbiType::is_concrete) {
@@ -320,7 +320,7 @@ pub(super) fn collect_interface_tables(
         .collect()
 }
 
-fn child(owner: &DefinitionId, segment: DefinitionPathSegment) -> DefinitionId {
+fn child(owner: &DefinitionPath, segment: DefinitionPathSegment) -> DefinitionPath {
     let mut declaration = owner.clone();
     declaration.path.push(segment);
     declaration

@@ -8,7 +8,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, NominalAbiType, TraitAbi, TypeAbi},
 };
-use kagari_common::identity::{DefinitionId, associated_type_id};
+use kagari_common::identity::{DefinitionPath, associated_type_id};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,13 +70,13 @@ pub struct ParameterRef {
 
 #[derive(Debug, Clone)]
 pub struct TypeRef {
-    pub(crate) id: DefinitionId,
+    pub(crate) id: DefinitionPath,
     pub(crate) declaration: Arc<TypeAbi>,
     pub(crate) parameter_names: Vec<String>,
 }
 
 impl TypeRef {
-    pub fn id(&self) -> &DefinitionId {
+    pub fn id(&self) -> &DefinitionPath {
         &self.id
     }
 
@@ -125,7 +125,7 @@ impl ParameterRef {
 
 #[derive(Debug, Clone)]
 pub struct TraitRef {
-    pub(crate) id: DefinitionId,
+    pub(crate) id: DefinitionPath,
     pub(crate) contract: Arc<TraitAbi>,
 }
 
@@ -162,12 +162,12 @@ impl TraitRef {
         Type(AbiType::SelfType(self.id.clone()))
     }
 
-    pub fn id(&self) -> &DefinitionId {
+    pub fn id(&self) -> &DefinitionPath {
         &self.id
     }
 }
 
-fn kagari_method_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+fn kagari_method_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
     ModuleDecl::method_id(owner, name)
 }
 
@@ -203,16 +203,16 @@ impl AppliedTrait {
 #[derive(Debug, Clone)]
 pub struct MethodRef {
     pub(crate) owner: TraitRef,
-    pub(crate) id: DefinitionId,
+    pub(crate) id: DefinitionPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionRef {
-    pub(crate) id: DefinitionId,
+    pub(crate) id: DefinitionPath,
 }
 
 impl FunctionRef {
-    pub fn id(&self) -> &DefinitionId {
+    pub fn id(&self) -> &DefinitionPath {
         &self.id
     }
 }

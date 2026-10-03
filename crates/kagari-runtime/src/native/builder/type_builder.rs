@@ -9,12 +9,12 @@ use crate::{
     },
 };
 use kagari_abi::types::{AbiType, GenericParameterAbi, TypeAbi, TypeAbiKind};
-use kagari_common::identity::{DefinitionId, DefinitionKind};
+use kagari_common::identity::{DefinitionKind, DefinitionPath};
 use std::sync::Arc;
 
 pub struct TypeBuilder<'module> {
     module: &'module mut ModuleBuilder,
-    id: DefinitionId,
+    id: DefinitionPath,
     name: String,
     parameter_names: Vec<String>,
     parameters: Vec<GenericParameterAbi>,

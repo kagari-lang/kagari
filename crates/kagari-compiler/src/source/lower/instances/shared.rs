@@ -9,7 +9,7 @@ use kagari_abi::{
     native_import::callables::NativeCallableRequirement,
     types::GenericParameterAbi,
 };
-use kagari_common::{identity::DefinitionId, span::Span};
+use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
     typeck::{GenericBounds, TypedFunction, table::ConstraintTarget},
@@ -25,7 +25,7 @@ impl InstancePlanner<'_> {
     /// bounds rather than inspecting one selected default body.
     pub(crate) fn method_operations(
         &mut self,
-        method: &DefinitionId,
+        method: &DefinitionPath,
         interface: &NominalType,
         arguments: &[TypeId],
         span: Span,
@@ -118,7 +118,7 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn enqueue_interface_method(
         &mut self,
-        declaration: &DefinitionId,
+        declaration: &DefinitionPath,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), MirLoweringError> {
