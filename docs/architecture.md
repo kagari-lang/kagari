@@ -261,7 +261,7 @@ ABI owns lowered representations and physical runtime/codegen interfaces. The
 dependency is `contract -> abi`; ABI must not resolve script types or know Add,
 List or ArrayList type arguments.
 
-A generic TraitDecl record belongs to contract. The particular Add or List
+A generic TraitDef record belongs to contract. The particular Add or List
 definition belongs to its language-foundation or native-library owner. During
 AC01 those definitions can keep their existing Rust authority and recognition
 behavior, outside ABI. Moving the data does not claim completion of the later
@@ -284,11 +284,59 @@ make the first split acyclic. No language behavior changes are required by AC01.
 | Substitution and implementation proofs | Focused contract verification, including linked and bounded checks |
 | Source rendering, navigation and diagnostics | Source/tooling ownership; no executable dependency on generated text |
 
-Use module-owned names: AbiType -> Type, NominalAbiType -> NominalType,
-FunctionAbi/TypeAbi/TraitAbi -> FunctionDecl/TypeDecl/TraitDecl,
-ParameterAbi -> Parameter, GenericBoundAbi -> GenericBound,
-InterfaceTableAbi -> InterfaceTable. Keep ModuleDecl/ImplDecl. Reconcile runtime
-authoring versus portable declarations before renaming; add no compatibility aliases.
+### Naming policy for the split
+
+Use short, meaning-based names with module ownership, following rustc's distinction
+between types, declarations/definitions, signatures and physical calling data.
+Remove Abi prefixes/suffixes from semantic records during AC01. Do not replace
+them with a blanket Contract prefix/suffix. Keep `kagari-abi` as the physical crate
+name; a crate name need not be repeated in every type it owns.
+
+The naming references are rustc's [type model](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/index.html)
+(Ty, TraitDef, FieldDef, VariantDef and FnSig) and
+[function declaration](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.FnDecl.html).
+Its [FnAbi](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callconv/struct.FnAbi.html)
+and [ArgAbi](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callconv/struct.ArgAbi.html)
+describe native argument passing. Borrow the naming distinctions, not rustc's
+interning, lifetimes, type system or record layouts.
+
+| Current name | Target name | Meaning |
+| --- | --- | --- |
+| AbiType | Ty | Semantic type expression |
+| NominalAbiType | NominalTy | Applied nominal type, including its arguments and associated bindings |
+| FunctionAbi | FnDecl | Named function declaration, including generics, parameters and implementation policy |
+| ParameterAbi | Param | Named value parameter |
+| TypeAbi / TypeAbiKind | TypeDef / TypeDefKind | Type definition and its struct/enum/native category |
+| TraitAbi | TraitDef | Trait definition, parents and associated members |
+| ConstAbi | ConstDef | Named constant definition |
+| FieldAbi / VariantAbi | FieldDef / VariantDef | Field and enum-variant definitions |
+| GenericParameterAbi | GenericParam | Scoped generic parameter identity |
+| GenericBoundAbi / ConstraintAbi | GenericBound / Constraint | A type's bounds and individual constraints |
+| AssociatedConstAbi / AssociatedTypeAbi | AssociatedConstDef / AssociatedTypeDef | Associated-member declarations |
+| AssociatedTypeFamilyAbi | AssociatedTypeFamily | Implementation-side associated type family |
+| InterfaceTableAbi | InterfaceTable | Checked interface implementation/member table |
+| PublicAbiItem | PublicItem | Public module contract record |
+| ModuleAbi | ModuleContract | Executable module's carried declaration/verification metadata |
+
+ModuleContract names a specific responsibility, not a suffix applied to every
+semantic record. Reconcile it with native authoring's ModuleDecl before selecting
+the final representation; do not preserve two equivalent models just for these
+names. Keep ImplDecl and existing meaningful names such as TraitContract.
+PublicAbiItemBuffer is currently only a Vec alias; migrate uses to Vec<PublicItem>
+rather than carrying that alias forward.
+
+NominalTy is not renamed TraitRef because it also represents struct/enum instances
+and associated bindings. FnDecl is not FnSig because it carries names, binders,
+bounds and implementation policy in addition to parameter/result types. Use FnSig
+only for an actual isolated signature when a consumer needs that structure.
+TypeDefKind describes declarations; TyKind would describe type-expression variants.
+This naming task does not introduce either new wrapper solely to imitate rustc.
+
+ABI keeps descriptive names such as NativeType, NativeHelperSignature, JitValue
+and ExecutableEntryPoint. Apply representation qualifiers where they distinguish
+actual contracts. Migrate direct consumers without forwarding aliases or broad
+re-exports. The table is the target for queued implementation; current code and
+implemented specifications may still use the old names until that migration.
 
 ### Language items and ordinary trait records
 

@@ -58,6 +58,11 @@ Proposed phases, in order, to be activated explicitly for implementation:
   physical representations, helper signatures, entry descriptors and physical roots
   in ABI; extract semantic types, declarations, logical layouts, call records
   and focused verification into contract. Move source generation to tooling.
+  Apply the [naming policy](architecture.md#naming-policy-for-the-split): Ty,
+  NominalTy, FnDecl, TraitDef and other meaning-based names replace semantic
+  Abi prefixes/suffixes. Do not substitute a blanket Contract suffix, copy rustc
+  layouts or add speculative wrappers. Reconcile authoring/portable module records
+  and remove redundant aliases while migrating consumers.
   Migrate direct imports with no forwarding API. Produce an acyclic graph with
   `contract -> abi` and no frontend dependency from executable consumers. Existing
   foundation declarations can retain their current authority at this checkpoint,
