@@ -232,7 +232,7 @@ enum_item       ::= visibility? enum_decl ;
 
 visibility      ::= "pub" ;
 
-attribute       ::= "#" "[" path attribute_args? "]" ;
+attribute       ::= "#" "[" path (attribute_args | "=" attribute_value)? "]" ;
 
 attribute_args  ::= "(" attribute_arg_list? ")" ;
 
@@ -251,6 +251,9 @@ Notes:
 
 - `const` is the syntax for compile-time immutable values.
 - attributes provide the extensibility point for features such as reflection and tooling annotations
+- `#[lang = "role"]` binds a reserved language role only in the installed core
+  trait source. HIR rejects unknown, duplicate, missing, malformed or unauthorized
+  bindings and checks the declaration's visibility, binders, parents and members.
 - Only outer `#[...]` attributes are supported. The legacy `@...` form and
   inner `#![...]` attributes are rejected. This syntax does not introduce macros.
 - an intended future use is `#[reflect]`

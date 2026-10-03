@@ -1,6 +1,5 @@
 use crate::{
     hir::{expr::ExprKind, ids::ExprId},
-    language::semantics::ProtocolSemantics,
     native::NativeTypeKind,
     typeck::{BodyTypeEnv, body::BodyChecker, completion, table::CallTarget},
     types::TypeId,
@@ -140,7 +139,9 @@ impl BodyChecker<'_> {
                         self.propagation_defaults
                             .push((target.clone(), source.clone()));
                     }
-                    let mut interface = Protocol::From.nominal();
+                    let Some(mut interface) = self.aggregates.language_trait(Protocol::From) else {
+                        return TypeId::Error;
+                    };
                     interface.arguments.push(source.clone());
                     if source.is_unresolved() || target.is_unresolved() {
                         true

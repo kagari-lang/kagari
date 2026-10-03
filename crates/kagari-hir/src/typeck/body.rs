@@ -6,7 +6,6 @@ use crate::{
         ids::{BlockId, ConstId, ExprId},
     },
     imports::functions::ImportedFunctions,
-    language::semantics::ProtocolSemantics,
     lower::LoweredModule,
     resolver::resolved::{ResolvedName, ResolvedNames},
     typeck::{
@@ -333,7 +332,11 @@ impl<'a> BodyChecker<'a> {
                 .unwrap_or(false);
                 if completes
                     && self
-                        .record_operator(expr_id, *expr, &ty, protocol.nominal(), env)
+                        .aggregates
+                        .language_trait(protocol)
+                        .and_then(|requested| {
+                            self.record_operator(expr_id, *expr, &ty, requested, env)
+                        })
                         .is_none()
                     && !ty.is_unresolved()
                 {

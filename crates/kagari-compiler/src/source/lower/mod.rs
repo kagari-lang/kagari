@@ -1,12 +1,13 @@
 use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
 use instances::InstancePlanner;
 use kagari_common::{
+    cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::mapping::DefinitionMappingError,
 };
 use kagari_contract::{
     host as module_host,
-    types::{ConcreteFunctionIdentity, Ty},
+    types::{ConcreteFunctionIdentity, ModuleContract, Ty},
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
@@ -70,6 +71,14 @@ impl From<DefinitionMappingError> for MirLoweringError {
             error => Self::Identity(error),
         }
     }
+}
+
+/// Project a checked source module's declarations for source-independent products.
+pub fn module_contract(
+    module: &CheckedAnalysis,
+    cancel: &CancellationToken,
+) -> Result<ModuleContract, DefinitionMappingError> {
+    Ok(abi::collect_module_abi(&module.to_unverified(cancel)?))
 }
 
 pub fn lower_to_mir(

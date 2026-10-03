@@ -83,6 +83,11 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(Declarations {
+            language_items: self
+                .language_items
+                .iter()
+                .map(|(role, id)| Ok((*role, mapper.reference(id)?)))
+                .collect::<Result<_, DefinitionMappingError>>()?,
             imported_types: self.imported_types.map_identities(mapper)?,
             names: self.names.clone(),
             hosts: self.hosts.clone(),
@@ -130,6 +135,10 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for id in self.language_items.values() {
+            check_cancel(cancel)?;
+            visit(id)?;
+        }
         self.imported_types.visit_definitions(visit, cancel)?;
         for value0 in self.targets.values() {
             (value0).visit_definitions(visit, cancel)?;

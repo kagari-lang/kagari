@@ -5,6 +5,12 @@ This document defines Kagari traits and their use as interface value types.
 The main goal is to preserve useful abstraction mechanisms from Rust-like languages while keeping the script-facing model closer to Kotlin interfaces than Rust trait objects.
 
 Reflection rules are defined separately in [reflection.md](reflection.md).
+The 24 language traits are declared in
+[`library/core/language.kgr`](../../library/core/language.kgr) and analyzed as
+ordinary traits. Their reserved `#[lang = "role"]` attributes identify declarations
+for syntax and implicit value rules; an application trait with the same name does
+not acquire that role. Installed source-free products contain their checked trait
+records, while native implementations remain separately registered.
 Security rules are defined separately in [security.md](security.md).
 Host interop rules are defined separately in [host-interop.md](host-interop.md).
 Runtime model rules are defined separately in [runtime.md](runtime.md).

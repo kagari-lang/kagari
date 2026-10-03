@@ -1,0 +1,138 @@
+// Core language traits. This source owns the declarations and language roles.
+
+#[lang = "iterator"]
+pub trait Iterator {
+    type Item;
+    fn next(self) -> Option<<Self as Iterator>::Item>;
+}
+
+#[lang = "iterable"]
+pub trait Iterable {
+    type Item;
+    type Iter: Iterator<Item = <Self as Iterable>::Item>;
+    fn iter(self) -> <Self as Iterable>::Iter;
+}
+
+#[lang = "partial_eq"]
+pub trait PartialEq {
+    fn eq(self, arg1: Self) -> bool;
+}
+
+#[lang = "eq"]
+pub trait Eq: PartialEq {
+}
+
+#[lang = "hash"]
+pub trait Hash {
+    fn hash(self) -> i64;
+}
+
+#[lang = "partial_ord"]
+pub trait PartialOrd: PartialEq {
+    fn partial_cmp(self, arg1: Self) -> Option<Ordering>;
+}
+
+#[lang = "ord"]
+pub trait Ord: Eq + PartialOrd {
+    fn cmp(self, arg1: Self) -> Ordering;
+}
+
+#[lang = "add"]
+pub trait Add<T0> {
+    type Output;
+    fn add(self, arg1: T0) -> <Self as Add<T0>>::Output;
+}
+
+#[lang = "sub"]
+pub trait Sub<T0> {
+    type Output;
+    fn sub(self, arg1: T0) -> <Self as Sub<T0>>::Output;
+}
+
+#[lang = "mul"]
+pub trait Mul<T0> {
+    type Output;
+    fn mul(self, arg1: T0) -> <Self as Mul<T0>>::Output;
+}
+
+#[lang = "div"]
+pub trait Div<T0> {
+    type Output;
+    fn div(self, arg1: T0) -> <Self as Div<T0>>::Output;
+}
+
+#[lang = "rem"]
+pub trait Rem<T0> {
+    type Output;
+    fn rem(self, arg1: T0) -> <Self as Rem<T0>>::Output;
+}
+
+#[lang = "bit_and"]
+pub trait BitAnd<T0> {
+    type Output;
+    fn bitand(self, arg1: T0) -> <Self as BitAnd<T0>>::Output;
+}
+
+#[lang = "bit_or"]
+pub trait BitOr<T0> {
+    type Output;
+    fn bitor(self, arg1: T0) -> <Self as BitOr<T0>>::Output;
+}
+
+#[lang = "bit_xor"]
+pub trait BitXor<T0> {
+    type Output;
+    fn bitxor(self, arg1: T0) -> <Self as BitXor<T0>>::Output;
+}
+
+#[lang = "shl"]
+pub trait Shl<T0> {
+    type Output;
+    fn shl(self, arg1: T0) -> <Self as Shl<T0>>::Output;
+}
+
+#[lang = "shr"]
+pub trait Shr<T0> {
+    type Output;
+    fn shr(self, arg1: T0) -> <Self as Shr<T0>>::Output;
+}
+
+#[lang = "neg"]
+pub trait Neg {
+    type Output;
+    fn neg(self) -> <Self as Neg>::Output;
+}
+
+#[lang = "not"]
+pub trait Not {
+    type Output;
+    fn not(self) -> <Self as Not>::Output;
+}
+
+#[lang = "index"]
+pub trait Index<T0> {
+    type Output;
+    fn index(self, arg1: T0) -> <Self as Index<T0>>::Output;
+}
+
+#[lang = "fn"]
+pub trait Fn<T0> {
+    type Output;
+    fn call(self, arg1: T0) -> <Self as Fn<T0>>::Output;
+}
+
+#[lang = "debug"]
+pub trait Debug {
+    fn debug(self) -> String;
+}
+
+#[lang = "display"]
+pub trait Display {
+    fn display(self) -> String;
+}
+
+#[lang = "from"]
+pub trait From<T0> {
+    fn from(value: T0) -> Self;
+}
+

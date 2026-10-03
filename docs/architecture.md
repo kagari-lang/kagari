@@ -95,7 +95,7 @@ decoded or changed inputs are bounded, validated and sealed again. See
 
 ## Language contracts and native implementations
 
-The current compiler-owned `core::language` catalog defines all 38 foundation
+The installed `core::language` foundation defines all 38 foundation
 traits, primitive/value declarations, standard enums, range forms, String and the
 canonical ArrayList/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
 These declarations remain available independently of optional libraries.
@@ -113,8 +113,14 @@ dependencies and publishes atomically. Runtime construction always installs the
 foundation and bundled algorithms, reusing immutable registrations at host-thread
 lifetime while retaining independent heaps, host state and generations.
 
-Currently HIR consumes native declaration records directly. Generated `.kgr`
-provides documentation and navigation, not executable semantics. Artifacts carry
+HIR analyzes the 24 handwritten traits in `library/core/language.kgr` through
+ordinary trait lowering. Header collection binds LangRole to declaration IDs;
+signature completion validates installed origin, uniqueness, required roles,
+binders, parents and member types before body selection. Contract decodes a bounded,
+validated source-compiled trait product without a frontend. The regeneration
+example checks that product against checked source analysis.
+Ordinary native library records still use direct ingestion until AC03; their generated
+`.kgr` provides documentation and navigation. Artifacts carry
 declarations, native imports, signatures and selected witnesses; loading checks
 them against installed implementations without parsing source. The proposal below
 changes frontend declaration ingestion while preserving source-free execution.
@@ -365,7 +371,8 @@ The proposed target retains 24 of the current 38 traits as language items:
 21 have direct syntax consumers and three support existing implicit value
 implementations. Their declarations are ordinary foundation source, analyzed
 through parser/HIR. Language roles select those declarations; builtin or native
-implementations remain separate. This is a queued design, not implemented support.
+implementations remain separate. Core source and role collection are implemented
+in AC02; native library ingestion and policy localization remain AC03 work.
 
 | Core traits | Count | Compiler consumer |
 | --- | --- | --- |

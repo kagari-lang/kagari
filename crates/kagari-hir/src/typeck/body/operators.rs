@@ -8,7 +8,7 @@ use crate::{
         },
         ids::ExprId,
     },
-    language::semantics::{self as traits, ProtocolSemantics, callable_signature},
+    language::semantics::{self as traits, callable_signature},
     typeck::{
         BodyTypeEnv, body::BodyChecker, completion, constraints, table::CallTarget,
         ty::display_type_id,
@@ -58,8 +58,8 @@ impl BodyChecker<'_> {
                 PrefixOp::Neg => Protocol::Neg,
                 PrefixOp::Not => Protocol::Not,
             };
-            if let Some(result) =
-                self.record_operator(expr_id, *expr, &inner, protocol.nominal(), env)
+            if let Some(requested) = self.aggregates.language_trait(protocol)
+                && let Some(result) = self.record_operator(expr_id, *expr, &inner, requested, env)
             {
                 return result;
             }
@@ -176,8 +176,8 @@ impl BodyChecker<'_> {
         };
         if let (Some(protocol), Some(left)) = (arithmetic, lhs_ty.as_ref())
             && rhs_completes
+            && let Some(mut requested) = self.aggregates.language_trait(protocol)
         {
-            let mut requested = protocol.nominal();
             requested.arguments.push(rhs_ty.clone());
             if let Some(result) = self.record_operator(expr_id, *lhs, left, requested, env) {
                 return result;
@@ -190,8 +190,9 @@ impl BodyChecker<'_> {
             && !matches!(left, TypeId::Unknown | TypeId::Error)
             && rhs_completes
             && !left.conflicts_with(&rhs_ty)
+            && let Some(requested) = self.aggregates.language_trait(Protocol::PartialOrd)
             && self
-                .record_operator(expr_id, *lhs, left, Protocol::PartialOrd.nominal(), env)
+                .record_operator(expr_id, *lhs, left, requested, env)
                 .is_some()
         {
             TypeId::Builtin(BuiltinType::Bool)
@@ -224,12 +225,13 @@ impl BodyChecker<'_> {
             return TypeId::Unknown;
         };
         if completes {
-            let mut requested = Protocol::Index.nominal();
-            requested.arguments.push(index_ty.clone());
-            if let Some(result) =
-                self.record_operator(expr_id, *receiver, &receiver_ty, requested, env)
-            {
-                return result;
+            if let Some(mut requested) = self.aggregates.language_trait(Protocol::Index) {
+                requested.arguments.push(index_ty.clone());
+                if let Some(result) =
+                    self.record_operator(expr_id, *receiver, &receiver_ty, requested, env)
+                {
+                    return result;
+                }
             }
             self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id)
                 .unwrap_or(TypeId::Error)
@@ -245,11 +247,12 @@ impl<'a> BodyChecker<'a> {
         ty: &TypeId,
         env: &BodyTypeEnv,
     ) -> Option<(NominalType, TypeId)> {
+        let callable = self.aggregates.language_trait(Protocol::Fn)?;
         let mut candidates = self
             .trait_bounds_for(ty, env)
             .into_iter()
             .filter_map(|interface| {
-                if Protocol::from_id(&interface.declaration) != Some(Protocol::Fn) {
+                if interface.declaration != callable.declaration {
                     return None;
                 }
                 let (mut interface, output) = self.select_operator(ty, interface, env)?;
@@ -460,7 +463,9 @@ impl<'a> BodyChecker<'a> {
                 let supports_ordering = |ty: &TypeId| {
                     matches!(ty, TypeId::Unknown | TypeId::Error)
                         || self
-                            .select_operator(ty, Protocol::PartialOrd.nominal(), env)
+                            .aggregates
+                            .language_trait(Protocol::PartialOrd)
+                            .and_then(|requested| self.select_operator(ty, requested, env))
                             .is_some()
                         || constraints::type_satisfies_standard_constraint(
                             ty,

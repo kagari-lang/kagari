@@ -150,6 +150,23 @@ fn main()->i32 {(Wrap{item:20}+Wrap{item:22}).item}
 }
 
 #[test]
+fn same_named_application_trait_does_not_replace_the_language_role() {
+    execute(
+        r#"
+use core::language::Add as LanguageAdd;
+trait Add<Rhs> { fn unrelated(self, rhs: Rhs) -> i32; }
+struct Number { val value: i32 }
+impl Add<Number> for Number { fn unrelated(self, rhs: Number) -> i32 { 0 } }
+impl LanguageAdd<Number> for Number {
+    type Output = i32;
+    fn add(self, rhs: Number) -> i32 { self.value + rhs.value }
+}
+fn main() -> i32 { Number { value: 20 } + Number { value: 22 } }
+"#,
+    );
+}
+
+#[test]
 fn unary_protocols_support_generic_and_different_output_types() {
     execute(
         r#"

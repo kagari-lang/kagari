@@ -24,6 +24,7 @@ mod native;
 pub mod protocols;
 pub mod traits;
 
+use kagari_contract::language::{Protocol, role::LangRole};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -91,6 +92,7 @@ pub struct EnumSignature<I: DefinitionReference = DefinitionPath> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateCatalog<I: DefinitionReference = DefinitionPath> {
+    language_items: BTreeMap<LangRole, I>,
     implementation_constants: BTreeMap<I, BTreeMap<I, I>>,
     host_implementations: Vec<(NominalType<I>, TypeId<I>)>,
     traits: BTreeMap<I, Arc<TraitSignature<I>>>,
@@ -105,6 +107,17 @@ pub struct AggregateCatalog<I: DefinitionReference = DefinitionPath> {
 }
 
 impl AggregateCatalog {
+    pub fn language_trait(&self, protocol: Protocol) -> Option<NominalType> {
+        let role = LangRole::from_protocol(protocol)?;
+        let declaration = self.language_items.get(&role)?.clone();
+        self.trait_(&declaration)?;
+        Some(NominalType {
+            declaration,
+            arguments: vec![],
+            associated_types: BTreeMap::new(),
+        })
+    }
+
     pub fn intrinsic_implementation(
         &self,
         interface: &NominalType,
@@ -121,6 +134,12 @@ impl AggregateCatalog {
         signatures: &ModuleSignatures,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
+        self.language_items.extend(
+            declarations
+                .language_items
+                .iter()
+                .map(|(role, id)| (*role, id.clone())),
+        );
         for item in &lowered.module.opaque_types {
             cancel.check()?;
             let Some(declaration) = declarations.target(ResolvedName::OpaqueType(item.id)) else {
@@ -363,6 +382,7 @@ impl AggregateCatalog {
             }
         }
         let mut result = Self::default();
+        result.language_items = self.language_items.clone();
         for module in reachable {
             cancel.check()?;
             self.include_traits(&mut result, &module, cancel)?;
@@ -480,6 +500,7 @@ impl AggregateCatalog {
 impl<I: DefinitionReference> Default for AggregateCatalog<I> {
     fn default() -> Self {
         Self {
+            language_items: Default::default(),
             implementation_constants: Default::default(),
             host_implementations: Default::default(),
             traits: Default::default(),

@@ -4,6 +4,7 @@ mod collections;
 mod construction;
 mod construction_defaults;
 mod contracts;
+mod core_traits;
 mod defaults;
 mod list_methods;
 mod strings;

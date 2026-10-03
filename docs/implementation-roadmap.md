@@ -1,8 +1,8 @@
 # Kagari Implementation Roadmap
 
 This is the single queue and progress owner for pending work. AC01-AC05 are active
-under the continuous implementation goal. AC01 is complete; AC02 is next and
-AC03-AC05 remain pending. Other queued proposals are outside this goal.
+under the continuous implementation goal. AC01-AC02 are complete; AC03 is next and
+AC04-AC05 remain pending. Other queued proposals are outside this goal.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -12,8 +12,9 @@ checklists, intermediate errors and execution logs remain in Git history.
 The compiler-to-MIR/bytecode pipeline, source-free artifact validation, synchronous
 native calls, registered GC storage, shared generic interface methods, collection
 and String APIs, scoped definition identities, installation-based access and
-cooperative cancellation are implemented. Current foundation declarations remain
-compiler-owned; the cleanup below proposes a new owner/analysis split.
+cooperative cancellation are implemented. Physical ABI and semantic contracts are
+separate. Core trait source and checked language-role collection are implemented;
+native library ingestion and policy localization remain AC03 work.
 
 Immutable preparation, foundation registration reuse and shared interface metadata
 are implemented. Remaining measured costs and reproduction commands live in
@@ -34,7 +35,7 @@ The [architecture proposal](architecture.md#contract-and-common-responsibility-c
 defines the [trait inventory](architecture.md#proposed-core-trait-inventory),
 [ABI data inventory](architecture.md#narrow-abi-data-inventory), authority,
 analysis/registration flows, syntax bridges and dependency rules.
-Implementation is active; language-role parser support remains pending AC02.
+Implementation is active; core source and language-role parser/HIR support are complete.
 
 Agreed priority: complete **AC01, the ABI/contract split, first**. Source-authored
 core traits and `#[lang]` handling follow in AC02; native-generated declaration
@@ -87,7 +88,7 @@ track; that scope does not require a separate approval for each phase:
   source, replacing library recognition and broad common cleanup are not AC01
   prerequisites. Carried library recognition must be recorded for AC02/AC03,
   rather than reported as a completed policy migration.
-- [ ] **AC02: Analyze core language traits and collect language roles.**
+- [x] **AC02: Analyze core language traits and collect language roles.**
   Parse/lower the new attribute; collect declaration IDs after headers are known,
   before semantic rules need them. Validate role uniqueness, origin, required
   declaration/member shapes and missing required roles. Collect headers before
@@ -232,6 +233,31 @@ and ABI/contract build graphs; source-free SDK compilation; contract/bytecode an
 Cranelift suites; runtime native execution, native builder, offline types and
 installation access; HIR language contracts; structure, formatting and diff checks.
 No carried build/test error remains. Temporary output lives in `target/ac-cleanup`.
+
+AC02 replaces Rust constructors for the 24 core trait declarations with handwritten
+`library/core/language.kgr` and its source-compiled `language/traits.bin` product.
+Only source tooling includes the text; contract decodes and validates the bounded
+product without a frontend. `regenerate_language_traits --check` checks source/
+product correspondence through checked HIR and compiler declaration projection.
+Core traits use ordinary trait lowering inside the foundation module; native
+library ingestion remains the AC03 transition. A source-independent LangRole
+inventory contains only the 24 language roles. HIR collects actual IDs after
+headers, validates installed origin/uniqueness/presence/member shapes, and carries
+that mapping through identity scoping into body selection. No new trait semantics
+or optional library availability is introduced.
+
+AC02 acceptance passes: workspace all-target compilation; all syntax/HIR/compiler
+tests (80 syntax, 410 HIR unit, eight language contracts, 161 compiler unit,
+four foundation and ten source-program tests); operator/callable/iteration,
+standard/conversion, Result/Option and interpolation embedding suites; a same-named
+application Add trait executes alongside the source-authored core Add through
+direct, encoded and native execution. Six role tests cover all 24 roles and invalid
+origin, presence, uniqueness, syntax, visibility, binders, parents and member shapes.
+The checked core product regeneration comparison, structure (725 files), formatting
+and diff checks pass. The discovered documentation/inventory and standalone indexed
+assignment regressions are resolved. Native view documentation remains in native
+registration records until AC04's source-navigation ownership integration. No carried
+build/test failure remains; command logs are in `target/ac-cleanup/ac02-*.log`.
 
 Acceptance includes both sides of the boundary: source-defined operator traits,
 native-generated library traits and application traits use the same record/selection

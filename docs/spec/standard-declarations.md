@@ -7,11 +7,13 @@ macro or compiled standard-library binary is involved.
 
 ## Ownership and installation
 
-The compiler-owned `core::language` catalog contains complete language contracts:
+The installed `core::language` foundation contains complete language contracts:
 operators, comparisons, hashing, Index, Fn, iteration, collection interfaces,
 formatting and error conversion. It also declares Option/Result/Ordering/Bound,
 range forms and the default ArrayList/HashMap/HashSet types. Their basic native
-operations are always available. Array literals construct ArrayList.
+operations are always available. Array literals construct ArrayList. The 24 core
+traits come from handwritten Kagari source and validated language roles. Their
+checked portable product remains usable without syntax/HIR or source parsing.
 
 Map/Set interfaces do not prescribe storage or traversal order. Default HashMap
 and HashSet use Rust `std::collections` hash tables and require Eq + Hash keys.

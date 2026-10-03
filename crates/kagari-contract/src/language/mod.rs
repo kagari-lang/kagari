@@ -8,6 +8,7 @@ use kagari_common::identity::{
 use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
 pub mod catalog;
 pub mod primitive;
+pub mod role;
 
 /// Public source spelling; the portable package identity is independent.
 pub const SOURCE_PACKAGE: &str = "core";

@@ -1,6 +1,5 @@
 use crate::{
     hir::ids::ExprId,
-    language::semantics::ProtocolSemantics,
     typeck::{BodyTypeEnv, body::BodyChecker, table::ResolvedIteration},
     types::TypeId,
 };
@@ -14,8 +13,11 @@ impl BodyChecker<'_> {
         receiver: &TypeId,
         env: &BodyTypeEnv,
     ) -> Option<TypeId> {
-        let (interface, iterator) =
-            self.select_operator(receiver, Protocol::Iterable.nominal(), env)?;
+        let (interface, iterator) = self.select_operator(
+            receiver,
+            self.aggregates.language_trait(Protocol::Iterable)?,
+            env,
+        )?;
         let member = associated_type_id(&interface.declaration, "Item");
         let item = interface
             .associated_types
@@ -29,7 +31,7 @@ impl BodyChecker<'_> {
                     arguments: vec![],
                 })
             });
-        let mut next = Protocol::Iterator.nominal();
+        let mut next = self.aggregates.language_trait(Protocol::Iterator)?;
         next.associated_types
             .insert(associated_type_id(&next.declaration, "Item"), item.clone());
         self.type_table.insert_iteration(

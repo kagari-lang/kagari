@@ -292,6 +292,11 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AggregateCatalog<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(AggregateCatalog {
+            language_items: self
+                .language_items
+                .iter()
+                .map(|(role, id)| Ok((*role, mapper.reference(id)?)))
+                .collect::<Result<_, DefinitionMappingError>>()?,
             implementation_constants: map_entries(
                 self.implementation_constants.len(),
                 self.implementation_constants.iter().map(|(key, value)| {
@@ -411,6 +416,10 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AggregateCatalog<I> {
                 check_cancel(cancel)?;
                 visit(value1)?;
             }
+        }
+        for id in self.language_items.values() {
+            check_cancel(cancel)?;
+            visit(id)?;
         }
         for value0 in &self.host_implementations {
             (value0).0.visit_definitions(visit, cancel)?;

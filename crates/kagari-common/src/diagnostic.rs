@@ -10,6 +10,10 @@ pub enum Severity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
+    InvalidLanguageRole {
+        role: String,
+        reason: String,
+    },
     AmbiguousImport {
         path: String,
     },
@@ -380,6 +384,7 @@ impl DiagnosticKind {
             Self::ExpectedExpression => "KG_PARSE_EXPECTED_EXPRESSION",
             Self::MissingFunctionName => "KG_RESOLVE_MISSING_FUNCTION_NAME",
             Self::UnknownName { .. } => "KG_RESOLVE_UNKNOWN_NAME",
+            Self::InvalidLanguageRole { .. } => "KG_LANGUAGE_ROLE",
             Self::UnknownAttribute { .. } => "KG_ATTRIBUTE_UNKNOWN",
             Self::UnsupportedAttribute { .. } => "KG_ATTRIBUTE_UNSUPPORTED",
             Self::UnsupportedSyntax { .. } => "KG_SYNTAX_UNSUPPORTED",
@@ -526,6 +531,9 @@ impl Display for DiagnosticKind {
             Self::ExpectedExpression => write!(f, "expected expression"),
             Self::MissingFunctionName => write!(f, "missing function name"),
             Self::UnknownName { name } => write!(f, "unknown name `{name}`"),
+            Self::InvalidLanguageRole { role, reason } => {
+                write!(f, "invalid language role `{role}`: {reason}")
+            }
             Self::UnknownAttribute { name } => write!(f, "unknown attribute `@{name}`"),
             Self::UnsupportedAttribute { name } => {
                 write!(f, "attribute `@{name}` has no compiler behavior yet")

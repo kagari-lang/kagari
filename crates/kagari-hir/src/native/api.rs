@@ -18,7 +18,7 @@ use crate::{
         ty::{TypeData, TypeKind},
         writeability::Writeability,
     },
-    lower::{LoweredModule, context::Lowerer},
+    lower::{LoweredModule, context::Lowerer, lower_attributes},
     native::{NativeBinding, NativeTypeKind},
 };
 use kagari_common::{
@@ -31,6 +31,7 @@ use kagari_common::{
 use kagari_contract::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{DeclarationError, ModuleDecl},
+    language::{self, Protocol, role::LangRole},
     scalar::BuiltinType,
     standard::surface::builtin_type_spec,
     types::{
@@ -38,7 +39,10 @@ use kagari_contract::{
         TypeDefKind, native::NativeTypeConstructor,
     },
 };
-use kagari_syntax::parser::{Parse, ParseLimits, parse_declarations};
+use kagari_syntax::{
+    ast::item::Item as AstItem,
+    parser::{Parse, ParseLimits, parse_declarations},
+};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -50,8 +54,18 @@ pub(crate) fn import(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    definition.validate()?;
     let generated = declaration_source(&definition)?;
+    import_source(definition, providers, &generated, limits, cancel)
+}
+
+pub(crate) fn import_source(
+    definition: &ModuleDecl,
+    providers: &[Arc<ModuleDecl>],
+    generated: &DeclarationSource,
+    limits: ParseLimits,
+    cancel: &CancellationToken,
+) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
+    definition.validate()?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())
@@ -85,7 +99,7 @@ pub(crate) fn import(
         external_imports: HashSet::new(),
     };
     importer.import_types()?;
-    importer.import_traits()?;
+    importer.import_traits(&parsed)?;
     importer.import_implementations()?;
     importer.import_functions()?;
     let mut occupied: HashSet<String> = importer
@@ -123,14 +137,16 @@ pub(crate) fn import(
         });
     }
     let (module, source_map) = importer.lowerer.finish();
+    let attributes = lower_attributes(&parsed.syntax());
     Ok((
         parsed,
         Arc::new(LoweredModule {
             source,
             module,
             source_map,
-            attributes: vec![],
+            attributes,
             registered_native_api: true,
+            language_foundation: definition.identity == language::module_identity(),
             native_package_alias: definition.package_alias.clone(),
             registered_declarations: definition.native_declarations(),
             native_types: importer.native_types,
@@ -270,11 +286,37 @@ impl Importer<'_> {
         Ok(())
     }
 
-    fn import_traits(&mut self) -> Result<(), DeclarationError> {
+    fn import_traits(&mut self, parsed: &Parse) -> Result<(), DeclarationError> {
         let definition = self.definition;
         let generated = self.generated;
         for item in &definition.traits {
             let owner = definition.definition(DefinitionKind::Trait, &item.name);
+            if definition.identity == language::module_identity()
+                && Protocol::from_id(&owner)
+                    .and_then(LangRole::from_protocol)
+                    .is_some()
+            {
+                let source = parsed
+                    .syntax()
+                    .items()
+                    .find_map(|item| match item {
+                        AstItem::TraitDef(item)
+                            if item.name_text().as_deref() == Some(owner.path[0].name.as_str()) =>
+                        {
+                            Some(item)
+                        }
+                        _ => None,
+                    })
+                    .ok_or_else(|| DeclarationError("missing core language trait source".into()))?;
+                let item = self.lowerer.lower_trait(&source);
+                self.lowerer.module.items.push(Item::Trait(item.id));
+                self.lowerer.module.exports.push(Export {
+                    name: item.name.clone(),
+                    item: ExportItem::Trait(item.id),
+                });
+                self.lowerer.module.traits.push(item);
+                continue;
+            }
             let site = &generated.sites[&owner];
             let id = self.lowerer.source_map.push_trait(site.span);
             self.lowerer

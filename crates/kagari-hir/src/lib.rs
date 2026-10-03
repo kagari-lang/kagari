@@ -2,6 +2,7 @@ use crate::analysis::ownership::recover_invalid_identity;
 use crate::{
     hir::ids::BodySelection,
     imports::{functions::ImportedFunctions, types::ImportedTypes},
+    language::items as language_items,
     resolver::{
         collect::{collect_declarations, resolve_bodies},
         resolved::{DeclarationNames, ResolvedNames},
@@ -191,6 +192,7 @@ impl PreparedAnalysis {
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<AnalysisResult<typeck::ModuleSignatures>>>, Cancelled> {
         let mut diagnostics = DiagnosticBuffer::new();
+        language_items::validate_shapes(&self.declarations, aggregates, &mut diagnostics);
         associated_consts::validate(
             &self.lowered,
             &self.declarations,
@@ -351,8 +353,10 @@ fn declare_analysis(
                 limit: MAX_IDENTITY_PATH_SEGMENTS,
             }));
     }
-    let declarations =
+    let mut declarations =
         Declarations::collect_named(&lowered.source, &lowered, &names.facts, definitions, cancel);
+    declarations.language_items =
+        language_items::collect(&lowered, &declarations, &mut names.diagnostics);
     DeclaredAnalysis {
         lowered,
         names,
@@ -461,7 +465,7 @@ pub(crate) fn analyze_parsed(
             continue;
         }
         let kind = match attribute.name.as_str() {
-            "meta" => continue,
+            "meta" | "lang" => continue,
             "reflect" | "requires" | "profile" => DiagnosticKind::UnsupportedAttribute {
                 name: attribute.name.clone(),
             },

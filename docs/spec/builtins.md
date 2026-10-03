@@ -1,7 +1,8 @@
 # Language Foundation and Native Libraries
 
-The compiler-owned `core::language` catalog defines complete language types and
-protocols. Runtime supplies their basic checked native implementations. Optional
+The installed `core::language` foundation defines complete language types and
+protocols. Its 24 core traits are handwritten source with validated language roles;
+ordinary library declarations are Rust-authored. Runtime supplies their basic checked native implementations. Optional
 library modules and application modules use the same explicit registration API;
 see [native declarations](standard-declarations.md). Generated `.kgr` serves tooling
 and is not an executable standard library.
@@ -15,7 +16,7 @@ collection snapshots and additional container classes, remain withdrawn.
 
 ## Foundation trait inventory
 
-The current compiler-owned foundation contains these 38 traits. All remain
+The installed foundation contains these 38 traits. All remain
 available without optional libraries. This is the implemented inventory, not a
 decision that every trait needs a compiler language role.
 
@@ -40,7 +41,8 @@ moves ordinary collection/library declarations to native-library ownership and
 keeps actual language dependencies explicit. Its
 [proposed partition](../architecture.md#proposed-core-trait-inventory) selects
 24 language items and 14 ordinary native-library traits, retaining mandatory
-availability of all 38. This has not been implemented. Algorithms and additional
+availability of all 38. Core source and role collection are implemented; ordinary
+native declaration ingestion and collection-policy replacement are AC03 work. Algorithms and additional
 container implementations remain separate from trait declarations.
 Try and FromResidual are not added; Option/Result `?` keeps its current semantics.
 

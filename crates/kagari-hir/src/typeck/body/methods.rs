@@ -467,7 +467,7 @@ impl<'a> BodyChecker<'a> {
         if matches!(receiver_ty, TypeId::Array(_, _)) && name == "index" && args.len() == 1 {
             let index_ty = self.infer_expr_type(args[0], env);
             let protocol = Protocol::Index;
-            let mut requested = protocol.nominal();
+            let mut requested = self.aggregates.language_trait(protocol)?;
             requested.arguments.push(index_ty);
             if let Some((interface, _)) = self.select_operator(&receiver_ty, requested, env) {
                 trait_types.retain(|candidate| candidate.declaration != interface.declaration);

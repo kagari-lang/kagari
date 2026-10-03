@@ -1,6 +1,9 @@
 use kagari_syntax::{
     ast::{
-        item::{Attribute, AttributeArg, SourceFile as AstSourceFile},
+        item::{
+            Attribute, AttributeArg, AttributeValue as AstAttributeValue,
+            SourceFile as AstSourceFile,
+        },
         traits::AstNode,
     },
     parser::parse,
@@ -36,6 +39,7 @@ pub struct LoweredModule {
     pub source_map: SourceMap,
     pub attributes: Vec<AttributeFact>,
     pub(crate) registered_native_api: bool,
+    pub(crate) language_foundation: bool,
     pub(crate) native_package_alias: Option<String>,
     pub(crate) registered_declarations: Vec<NativeDeclaration>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
@@ -54,6 +58,7 @@ impl LoweredModule {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttributeFact {
     pub name: String,
+    pub value: Option<AttributeValue>,
     pub arguments: Option<Vec<AttributeArgument>>,
     pub span: Span,
     pub target_span: Span,
@@ -75,15 +80,7 @@ pub enum AttributeValue {
 
 fn attribute_argument(arg: AttributeArg) -> AttributeArgument {
     let value = match arg.value() {
-        Some(value) => {
-            if let Some(literal) = value.literal() {
-                AttributeValue::Literal(literal.text().unwrap_or_default())
-            } else if let Some(path) = value.path() {
-                AttributeValue::Path(path.text().unwrap_or_default())
-            } else {
-                AttributeValue::List(value.elements().map(attribute_argument).collect())
-            }
-        }
+        Some(value) => attribute_value(value),
         None => AttributeValue::Missing,
     };
     AttributeArgument {
@@ -92,7 +89,17 @@ fn attribute_argument(arg: AttributeArg) -> AttributeArgument {
     }
 }
 
-fn lower_attributes(module: &AstSourceFile) -> Vec<AttributeFact> {
+fn attribute_value(value: AstAttributeValue) -> AttributeValue {
+    if let Some(literal) = value.literal() {
+        AttributeValue::Literal(literal.text().unwrap_or_default())
+    } else if let Some(path) = value.path() {
+        AttributeValue::Path(path.text().unwrap_or_default())
+    } else {
+        AttributeValue::List(value.elements().map(attribute_argument).collect())
+    }
+}
+
+pub(crate) fn lower_attributes(module: &AstSourceFile) -> Vec<AttributeFact> {
     module
         .syntax()
         .descendants()
@@ -102,6 +109,7 @@ fn lower_attributes(module: &AstSourceFile) -> Vec<AttributeFact> {
             let target = parent.text_range();
             Some(AttributeFact {
                 name: attribute.name_text().unwrap_or_default(),
+                value: attribute.value().map(attribute_value),
                 arguments: attribute
                     .args()
                     .map(|args| args.arguments().map(attribute_argument).collect()),
@@ -136,6 +144,7 @@ pub(crate) fn lower_module_controlled(
         source_map,
         attributes,
         registered_native_api: false,
+        language_foundation: false,
         native_package_alias: None,
         registered_declarations: vec![],
         native_types: HashMap::new(),

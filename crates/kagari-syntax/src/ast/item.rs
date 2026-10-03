@@ -159,6 +159,10 @@ impl Attribute {
     pub fn args(&self) -> Option<AttributeArgs> {
         support::child(self.syntax())
     }
+
+    pub fn value(&self) -> Option<AttributeValue> {
+        support::child(self.syntax())
+    }
 }
 
 impl AttributeArgs {

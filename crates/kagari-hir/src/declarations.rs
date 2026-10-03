@@ -1,4 +1,5 @@
 //! Declaration and binding identities owned by one semantic analysis.
+use kagari_contract::language::role::LangRole;
 
 use kagari_common::{
     cancellation::CancellationToken,
@@ -31,7 +32,7 @@ use crate::{
     types::GenericParameterType,
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -67,6 +68,7 @@ pub struct Declaration<I: DefinitionReference = DefinitionPath> {
 
 #[derive(Debug, Clone)]
 pub struct Declarations<I: DefinitionReference = DefinitionPath> {
+    pub(crate) language_items: BTreeMap<LangRole, I>,
     pub(crate) imported_types: ImportedTypes<I>,
     pub(crate) names: Arc<NameTable>,
     pub(crate) hosts: Arc<HostDeclarations>,
@@ -114,6 +116,7 @@ impl Declarations {
             source,
             cancel,
             result: Self {
+                language_items: BTreeMap::new(),
                 imported_types: Default::default(),
                 names: names.items.clone(),
                 hosts: names.hosts.clone(),

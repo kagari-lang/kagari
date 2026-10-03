@@ -1,4 +1,6 @@
-//! Generated declaration text and coordinates; never an executable input.
+//! Native declaration views combined with authoritative handwritten core traits.
+mod core;
+use crate::native::render::core::{core_text, record_sites};
 use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
@@ -6,7 +8,7 @@ use kagari_common::{
 };
 use kagari_contract::{
     declaration::{DeclarationError, ModuleDecl},
-    language,
+    language::{self, Protocol, role::LangRole},
     scalar::BuiltinType,
     types::{
         Constraint, FnDecl, GenericBound, GenericParam, NominalTy, Ty, TypeDefKind,
@@ -136,6 +138,13 @@ impl DeclarationView<'_> {
         }
         for item in &self.traits {
             let id = self.definition(DefinitionKind::Trait, &item.name);
+            if self.identity == language::module_identity()
+                && let Some(role) = Protocol::from_id(&id).and_then(LangRole::from_protocol)
+            {
+                output.text.push_str(&core_text(self, &id, role));
+                output.text.push_str("\n\n");
+                continue;
+            }
             output.doc(&id);
             let start = output.text.len();
             output.text.push_str("pub trait ");
@@ -233,7 +242,7 @@ impl DeclarationView<'_> {
         while output.text.ends_with("\n\n") {
             output.text.pop();
         }
-        Ok(DeclarationSource {
+        let mut source = DeclarationSource {
             uri: format!(
                 "kagari://native/{}/{}.kgr",
                 self.identity.package.0,
@@ -241,7 +250,11 @@ impl DeclarationView<'_> {
             ),
             text: output.text,
             sites: output.sites,
-        })
+        };
+        if self.identity == language::module_identity() {
+            record_sites(&mut source, self);
+        }
+        Ok(source)
     }
 
     fn type_spelling(&self, ty: &Ty) -> Result<String, DeclarationError> {

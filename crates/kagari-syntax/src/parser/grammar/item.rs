@@ -134,7 +134,15 @@ impl<'a> Parser<'a> {
                 }
                 kind = self.nth_nontrivia_kind_from(&mut cursor)?;
             }
-            if kind == TokenKind::LParen {
+            if kind == TokenKind::Eq {
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                while kind != TokenKind::RBracket {
+                    if kind == TokenKind::Eof {
+                        return None;
+                    }
+                    kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                }
+            } else if kind == TokenKind::LParen {
                 let mut depth = 1usize;
                 while depth > 0 {
                     kind = self.nth_nontrivia_kind_from(&mut cursor)?;
@@ -181,7 +189,11 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         self.parse_path();
         self.bump_trivia();
-        if self.at(TokenKind::LParen) {
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.bump_trivia();
+            self.parse_attribute_value();
+        } else if self.at(TokenKind::LParen) {
             self.start_node(SyntaxKind::AttributeArgs);
             self.bump();
             self.bump_trivia();
