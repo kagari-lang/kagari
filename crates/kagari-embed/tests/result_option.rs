@@ -348,12 +348,9 @@ fn main()->i32 {
 }
 
 #[test]
-fn malformed_standard_enum_operations_are_rejected_before_execution() {
+fn malformed_nominal_enum_operations_are_rejected_before_execution() {
     use kagari_bytecode::instruction::BytecodeInstruction;
-    use {
-        kagari_contract::operations::StandardEnumOp,
-        kagari_types::{scalar::BuiltinType, surface::StandardEnum as StandardEnumKind, ty::Ty},
-    };
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),
@@ -367,30 +364,23 @@ fn malformed_standard_enum_operations_are_rejected_before_execution() {
             .iter_mut()
             .flat_map(|m| &mut m.functions)
             .flat_map(|f| &mut f.instructions)
-            .find(|i| matches!(i, BytecodeInstruction::StandardEnum { .. }))
+            .find(|i| matches!(i, BytecodeInstruction::MakeEnum { .. }))
             .unwrap();
-        let BytecodeInstruction::StandardEnum { op, ty, value, .. } = instruction else {
+        let BytecodeInstruction::MakeEnum {
+            variant,
+            arguments,
+            fields,
+            ..
+        } = instruction
+        else {
             unreachable!()
         };
         match case {
-            0 => *op = StandardEnumOp::Make(9),
-            1 => {
-                *ty = Ty::StandardEnum {
-                    kind: StandardEnumKind::Result,
-                    args: vec![Ty::Builtin(BuiltinType::I32)],
-                }
-            }
-            2 => *value = None,
-            3 => {
-                *ty = Ty::StandardEnum {
-                    kind: StandardEnumKind::Option,
-                    args: vec![Ty::StandardEnum {
-                        kind: StandardEnumKind::Result,
-                        args: vec![],
-                    }],
-                }
-            }
-            _ => *op = StandardEnumOp::Read(1),
+            0 => *variant = 9,
+            1 => arguments.clear(),
+            2 => fields.clear(),
+            3 => arguments[0] = Ty::Builtin(BuiltinType::Bool),
+            _ => *variant = 1,
         }
         assert!(
             BytecodeArtifact::from_program(program, Default::default()).is_err(),

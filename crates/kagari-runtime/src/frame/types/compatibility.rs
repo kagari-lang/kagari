@@ -318,10 +318,7 @@ fn children_match<'a>(
                     .zip(b.associated_types.values())
                     .all(|(a, b)| test(a, b))
         }
-        (Ty::Tuple(a), Ty::Tuple(b))
-        | (Ty::StandardEnum { args: a, .. }, Ty::StandardEnum { args: b, .. }) => {
-            a.iter().zip(b).all(|(a, b)| test(a, b))
-        }
+        (Ty::Tuple(a), Ty::Tuple(b)) => a.iter().zip(b).all(|(a, b)| test(a, b)),
         (Ty::Array(a, _), Ty::Array(b, _))
         | (Ty::Set(a, _), Ty::Set(b, _))
         | (Ty::Iter(a), Ty::Iter(b))

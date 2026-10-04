@@ -1,6 +1,6 @@
 //! Canonical declaration ownership and public package spelling of the bundled library.
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_types::{scalar::BuiltinType, surface::StandardEnum, ty::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 pub fn module(package: &str, path: &str) -> ModuleIdentity {
     ModuleIdentity {
@@ -70,15 +70,6 @@ pub fn receiver_owner(ty: &Ty) -> Option<ModuleIdentity> {
         Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),
         Ty::Iter(_) => module("core", "iter"),
         Ty::Range(..) => module("core", "ops"),
-        Ty::StandardEnum { kind, .. } => type_owner(match kind {
-            StandardEnum::Bound => "Bound",
-            StandardEnum::ParseError => "ParseError",
-            StandardEnum::TryFromIntError => "TryFromIntError",
-            StandardEnum::Infallible => "Infallible",
-            StandardEnum::Option => "Option",
-            StandardEnum::Result => "Result",
-            StandardEnum::Ordering => "Ordering",
-        }),
         _ => return None,
     })
 }

@@ -2,9 +2,38 @@ use super::compile;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::{GcObjectKind, HeapObjectId},
+    range::index_bound,
     reflection,
     value::{Value, ValueCategory},
 };
+use std::ops::Bound;
+
+#[test]
+fn index_bounds_validate_the_applied_type_even_without_a_payload() {
+    let (mut vm, loaded) = compile(
+        r#"use core::ops::Bound;
+        enum ForeignBound { Unbounded }
+        fn valid() -> Bound<usize> { Bound::Unbounded }
+        fn wrong_argument() -> Bound<i32> { Bound::Unbounded }
+        fn wrong_owner() -> ForeignBound { ForeignBound::Unbounded }
+        "#,
+        None,
+    );
+    let valid = vm.execute(&loaded, "valid").unwrap();
+    assert_eq!(
+        index_bound(vm.runtime().gc(), &valid.return_value).unwrap(),
+        Bound::Unbounded
+    );
+    for name in ["wrong_argument", "wrong_owner"] {
+        let invalid = vm.execute(&loaded, name).unwrap();
+        assert_eq!(
+            index_bound(vm.runtime().gc(), &invalid.return_value)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+    }
+}
 
 #[test]
 fn assigns_stable_object_identity_and_kind() {

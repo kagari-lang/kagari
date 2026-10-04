@@ -5,7 +5,7 @@ use kagari_contract::{
     callable::{interface::InterfaceCallContract, shared::SharedCall},
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
-    operations::{IterOp, StandardEnumOp},
+    operations::IterOp,
     standard::RuntimePrimitive,
 };
 use kagari_types::ty::{NominalTy, Ty};
@@ -253,23 +253,16 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         lhs: Register,
         rhs: Option<Register>,
     },
-    MapResultError {
+    ForwardEnumOrigin {
         dst: Register,
         original: Register,
-        error: Register,
-        ty: Ty<I>,
+        value: Register,
     },
     Iter {
         dst: Register,
         value: Option<Register>,
         ty: Ty<I>,
         op: IterOp,
-    },
-    StandardEnum {
-        dst: Register,
-        value: Option<Register>,
-        ty: Ty<I>,
-        op: StandardEnumOp,
     },
     LoadConst {
         dst: Register,

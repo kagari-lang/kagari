@@ -151,10 +151,23 @@ fn attach_types(
 ) -> Result<(), DeclarationError> {
     for ty in &definition.types {
         if ty.kind == TypeDefKind::Enum {
-            if !lowered.module.enums.iter().any(|item| item.name == ty.name) {
-                return Err(DeclarationError(
-                    "missing registered enum declaration".into(),
-                ));
+            let item = lowered
+                .module
+                .enums
+                .iter()
+                .find(|item| item.name == ty.name)
+                .ok_or_else(|| DeclarationError("missing registered enum declaration".into()))?;
+            for variant in &ty.variants {
+                if variant.reports_failure {
+                    let member = item
+                        .variants
+                        .iter()
+                        .find(|member| member.name == variant.name)
+                        .ok_or_else(|| {
+                            DeclarationError("missing registered enum variant".into())
+                        })?;
+                    lowered.registered_enum_failures.insert(member.id);
+                }
             }
             // Ordinary registered enums use the parsed nominal enum representation.
             continue;
@@ -172,27 +185,16 @@ fn attach_types(
                 NativeTypeConstructor::Set => NativeTypeKind::HashSet,
                 NativeTypeConstructor::Iter => NativeTypeKind::Iter,
                 NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
-                NativeTypeConstructor::Enum(kind) => NativeTypeKind::Enum(kind),
             },
             _ => return Err(DeclarationError("missing native representation".into())),
         };
-        if let NativeTypeKind::Enum(_) = kind {
-            let item = lowered
-                .module
-                .enums
-                .iter()
-                .find(|item| item.name == ty.name)
-                .ok_or_else(|| DeclarationError("missing native enum declaration".into()))?;
-            lowered.native_enums.insert(item.id, kind);
-        } else {
-            let item = lowered
-                .module
-                .opaque_types
-                .iter()
-                .find(|item| item.name == ty.name)
-                .ok_or_else(|| DeclarationError("missing native type declaration".into()))?;
-            lowered.native_types.insert(item.id, kind);
-        }
+        let item = lowered
+            .module
+            .opaque_types
+            .iter()
+            .find(|item| item.name == ty.name)
+            .ok_or_else(|| DeclarationError("missing native type declaration".into()))?;
+        lowered.native_types.insert(item.id, kind);
     }
     Ok(())
 }

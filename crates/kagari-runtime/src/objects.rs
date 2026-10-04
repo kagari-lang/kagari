@@ -21,7 +21,10 @@ use kagari_common::identity::{
     DefinitionKind, reference::DefinitionReference, table::DefinitionId,
 };
 use kagari_contract::{ids::FunctionRef, operations::IterOp, types as abi, types::PublicItem};
-use kagari_types::ty::{NominalTy, Ty, substitution::TypeSubstitution};
+use kagari_types::{
+    language::binding,
+    ty::{NominalTy, Ty, substitution::TypeSubstitution},
+};
 use std::{cell::OnceCell, rc::Rc, slice};
 mod application;
 mod calls;
@@ -532,7 +535,30 @@ impl Runtime {
                         "iterator differs from its checked item contract",
                     ));
                 }
-                self.gc.advance_iter(value, ty.ty(), op)
+                if op == IterOp::Next {
+                    let declaration = self
+                        .definition_context()
+                        .intern(&binding::option_declaration())
+                        .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+                    let applied = ty.derive(self, owner, |ty| match ty {
+                        Ty::Iter(item) => Some(Ty::Enum(NominalTy {
+                            declaration,
+                            arguments: vec![(**item).clone()],
+                            associated_types: Default::default(),
+                        })),
+                        _ => None,
+                    })?;
+                    self.gc.advance_iter_with(value, ty.ty(), |payload| {
+                        self.make_enum_member(
+                            owner,
+                            &applied,
+                            if payload.is_some() { "Some" } else { "None" },
+                            payload.into_iter().collect(),
+                        )
+                    })
+                } else {
+                    self.gc.advance_iter(value, ty.ty(), op)
+                }
             }
         }
     }

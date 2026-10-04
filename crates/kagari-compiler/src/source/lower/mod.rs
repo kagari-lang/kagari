@@ -1,4 +1,4 @@
-use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
+use crate::source::lower::instances::MirLoweringOptions;
 use instances::InstancePlanner;
 use kagari_common::{cancellation::CancellationToken, identity::mapping::DefinitionMappingError};
 use kagari_contract::{
@@ -14,6 +14,7 @@ use kagari_hir::{
     },
     imports::ImportTarget,
     typeck::FunctionImplementation,
+    types::semantic::raise_type,
 };
 use kagari_mir::{
     function::MirModule,

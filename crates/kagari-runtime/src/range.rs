@@ -8,7 +8,13 @@ use crate::{
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::operations;
-use kagari_types::{integer, range::RangeKind, scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    integer,
+    language::binding,
+    range::RangeKind,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
+};
 use std::ops::Bound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,12 +65,11 @@ impl RangeValue {
 
     pub fn bound(
         &self,
-        gc: &GcHeap,
         definitions: &DefinitionTable,
         range: &Ty<DefinitionId>,
         bound: &Ty<DefinitionId>,
         upper: bool,
-    ) -> Result<Value, RuntimeError> {
+    ) -> Result<Bound<Value>, RuntimeError> {
         if !self.matches(range)
             || !operations::range_bound_valid_in(range, bound, Some(definitions))
         {
@@ -76,19 +81,11 @@ impl RangeValue {
             self.kind.has_start().then(|| self.endpoint(self.start))
         };
 
-        let tag = match value {
-            None => EnumTag::BoundUnbounded,
-            Some(_) if upper && !self.kind.inclusive() => EnumTag::BoundExcluded,
-            Some(_) => EnumTag::BoundIncluded,
-        };
-        gc.alloc_enum(
-            tag,
-            value
-                .map(|n| integer_value(self.item, n))
-                .into_iter()
-                .collect(),
-        )
-        .map(Value::Enum)
+        Ok(match value.map(|n| integer_value(self.item, n)) {
+            None => Bound::Unbounded,
+            Some(value) if upper && !self.kind.inclusive() => Bound::Excluded(value),
+            Some(value) => Bound::Included(value),
+        })
     }
 
     pub(crate) fn matches(&self, ty: &Ty<DefinitionId>) -> bool {
@@ -139,16 +136,35 @@ pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeEr
         return Err(invalid());
     };
     let value = gc.enum_snapshot(*id).ok_or_else(invalid)?;
-    if value.tag == EnumTag::BoundUnbounded && value.fields.is_empty() {
-        return Ok(Bound::Unbounded);
-    }
-    let [Value::U64(n)] = value.fields.as_slice() else {
+    let EnumTag::Declared(layout) = value.tag;
+    if !binding::matches(
+        &layout.layout().declaration,
+        &binding::bound_declaration(),
+        Some(layout.module().definitions()),
+    ) {
         return Err(invalid());
-    };
-    let n = usize::try_from(*n).map_err(|_| invalid())?;
-    match value.tag {
-        EnumTag::BoundIncluded => Ok(Bound::Included(n)),
-        EnumTag::BoundExcluded => Ok(Bound::Excluded(n)),
+    }
+    let expected = Ty::Enum(NominalTy {
+        declaration: layout.layout().declaration,
+        arguments: vec![Ty::Builtin(BuiltinType::USize)],
+        associated_types: Default::default(),
+    });
+    if !layout.matches_type(&expected, layout.module(), None) {
+        return Err(invalid());
+    }
+    match (
+        layout
+            .module()
+            .definition_name(layout.variant().declaration),
+        value.fields.as_slice(),
+    ) {
+        (Some("Unbounded"), []) => Ok(Bound::Unbounded),
+        (Some("Included"), [Value::U64(n)]) => {
+            Ok(Bound::Included(usize::try_from(*n).map_err(|_| invalid())?))
+        }
+        (Some("Excluded"), [Value::U64(n)]) => {
+            Ok(Bound::Excluded(usize::try_from(*n).map_err(|_| invalid())?))
+        }
         _ => Err(invalid()),
     }
 }

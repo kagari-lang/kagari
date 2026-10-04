@@ -1,13 +1,13 @@
 //! Materialize native method contracts while the checked source catalog is available.
-use crate::source::{
-    lower::{MirLoweringError, instances::InstancePlanner},
-    types::raise_type,
-};
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::{
     callable::generic::GenericBody, native_import::NativeImport, types::ConcreteFunctionIdentity,
 };
-use kagari_hir::types::{TypeId, semantic::lower_type};
+use kagari_hir::types::{
+    TypeId,
+    semantic::{lower_type, raise_type},
+};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     ty::{GenericParam, substitution::TypeSubstitution},

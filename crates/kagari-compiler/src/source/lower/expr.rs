@@ -1,17 +1,12 @@
-use crate::source::{
-    lower::{
-        MirLoweringError,
-        instances::CallableInstance,
-        state::{FunctionLowerer, LoopScope},
-        support::lower_scalar,
-    },
-    types::raise_type,
+use crate::source::lower::{
+    MirLoweringError,
+    instances::CallableInstance,
+    state::{FunctionLowerer, LoopScope},
+    support::lower_scalar,
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
-    numeric::NumericConversion,
-    operations::{StandardEnumOp, UnaryOp},
-    representation::semantic_representation,
+    numeric::NumericConversion, operations::UnaryOp, representation::semantic_representation,
     standard::RuntimePrimitive,
 };
 use kagari_hir::{
@@ -19,18 +14,22 @@ use kagari_hir::{
         expr::{Condition, ExprKind, ops::BinaryOp as HirBinaryOp},
         ids::{BlockId, ExprId},
     },
-    native::NativeTypeKind,
     resolver::resolved::ResolvedName,
     typeck::table::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
     types::{
         TypeId,
-        semantic::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type, raise_type},
     },
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
 };
-use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    collection::CollectionAccess,
+    language::{Protocol, binding},
+    scalar::BuiltinType,
+    ty::Ty,
+};
 use std::ops::ControlFlow;
 
 mod aggregates;
@@ -353,7 +352,6 @@ impl FunctionLowerer<'_, '_> {
             if variant.owner != enumeration.id {
                 return Err(MirLoweringError::MissingBinding("checked variant owner"));
             }
-            let native = enumeration.native_type.clone();
             let arity = variant.payload.len();
             let variant = variant.slot;
             let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
@@ -373,28 +371,6 @@ impl FunctionLowerer<'_, '_> {
                 return Err(MirLoweringError::MissingBinding(
                     "checked enum constructor arity",
                 ));
-            }
-            if let Some(native) = native {
-                let ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .expr_type(expr_id)
-                    .ok_or(MirLoweringError::MissingExprType(expr_id))?;
-                if !matches!(&ty, TypeId::StandardEnum { kind, .. } if native == NativeTypeKind::Enum(*kind))
-                    || arity > 1
-                {
-                    return Err(MirLoweringError::MissingBinding(
-                        "checked native enum representation",
-                    ));
-                }
-                let slot = u32::try_from(variant)
-                    .map_err(|_| MirLoweringError::MissingBinding("native enum slot"))?;
-                return self.standard_enum_op(
-                    &ty,
-                    StandardEnumOp::Make(slot),
-                    fields.first().copied(),
-                );
             }
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::MakeEnum {
@@ -430,7 +406,7 @@ impl FunctionLowerer<'_, '_> {
                     .type_table
                     .expr_type(expr)
                     .ok_or(MirLoweringError::MissingExprType(expr))?;
-                let cond = self.standard_enum_op(&ty, StandardEnumOp::Test(0), Some(value))?;
+                let cond = self.test_enum_variant(&ty, value, 0)?;
                 let success = self.new_block();
                 let failure = self.new_block();
                 self.set_terminator(Terminator::Branch {
@@ -442,14 +418,9 @@ impl FunctionLowerer<'_, '_> {
                 let output = self.function.semantic.result.clone().ok_or(
                     MirLoweringError::MissingBinding("propagation return contract"),
                 )?;
-                let residual = if matches!(
-                    &ty,
-                    kagari_hir::types::TypeId::StandardEnum {
-                        kind: kagari_types::surface::StandardEnum::Result,
-                        ..
-                    }
-                ) {
-                    let error = self.standard_enum_op(&ty, StandardEnumOp::Read(1), Some(value))?;
+                let residual = if matches!(&ty, TypeId::Enum(nominal) if nominal.declaration == binding::result_declaration())
+                {
+                    let error = self.read_enum_field(&ty, value, 1, 0)?;
                     let conversion = self
                         .analyzed
                         .typed
@@ -471,20 +442,24 @@ impl FunctionLowerer<'_, '_> {
                         .ok_or(MirLoweringError::MissingBinding("propagation error type"))?;
                     let error =
                         self.lower_applied_operator(interface, target, &method, &[error])?;
+                    let constructed = self.make_enum_variant(
+                        &raise_type(&output),
+                        1,
+                        [error].into_iter().collect(),
+                    )?;
                     let dst = self.alloc_temp(ValueType::HeapObject);
-                    self.emit(Instruction::MapResultError {
+                    self.emit(Instruction::ForwardEnumOrigin {
                         dst,
                         original: value,
-                        error,
-                        ty: output,
+                        value: constructed,
                     });
                     dst
                 } else {
-                    self.standard_enum_op(&raise_type(&output), StandardEnumOp::Make(1), None)?
+                    self.make_enum_variant(&raise_type(&output), 1, ValueBuffer::new())?
                 };
                 self.set_terminator(Terminator::Return(Some(residual)));
                 self.switch_to_block(success);
-                self.standard_enum_op(&ty, StandardEnumOp::Read(0), Some(value))
+                self.read_enum_field(&ty, value, 0, 0)
             }
             ExprKind::InterpolatedString(parts) => {
                 let elements = match self.lower_values(&parts)? {
@@ -542,11 +517,7 @@ impl FunctionLowerer<'_, '_> {
                 let (TypeId::Builtin(source), TypeId::Builtin(target)) = (source, target) else {
                     return Err(MirLoweringError::MissingBinding("concrete numeric cast"));
                 };
-                let conversion = NumericConversion {
-                    source,
-                    target,
-                    checked: false,
-                };
+                let conversion = NumericConversion { source, target };
                 let (_, result) = conversion
                     .contract()
                     .ok_or(MirLoweringError::MissingBinding("numeric cast"))?;

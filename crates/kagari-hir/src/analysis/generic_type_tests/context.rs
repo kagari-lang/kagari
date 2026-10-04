@@ -109,7 +109,7 @@ fn main() { val value = choose(Sink { seed: 0 }); }
 fn explicit_enum_arguments_check_units_payloads_and_constraints() {
     for (body, valid) in [
         ("val value = Token<i32>::Empty;", true),
-        ("val value = Token<bool>::Empty();", true),
+        ("val value = Token<bool>::Empty();", false),
         ("val value = Token<i32>::Data(7);", true),
         ("val value = Token<i32>::Data(false);", false),
         ("val value = Token<>::Empty;", false),
@@ -472,7 +472,7 @@ fn assignment_context_uses_checked_target_types_without_bypassing_writeability()
             false,
         ),
         (
-            "var value: Token<i32> = Token::Empty; value = Token::Empty();",
+            "var value: Token<i32> = Token::Empty; value = Token::Empty;",
             true,
         ),
     ] {
@@ -634,7 +634,7 @@ fn concrete_call_parameters_supply_constructor_context_and_keep_errors() {
 fn enum_context_resolves_unit_variants_and_nested_payload_constructors() {
     for (body, valid) in [
         ("fn make() -> Packet<i32> { Packet::Empty }", true),
-        ("fn make() -> Packet<i32> { Packet::Empty() }", true),
+        ("fn make() -> Packet<i32> { Packet::Empty() }", false),
         (
             "fn make<T>() -> Packet<T> { Packet::Data(Marker { value: 7 }) }",
             true,

@@ -1,5 +1,5 @@
 //! Shared scalar conversion admissibility and declared error types.
-use crate::{scalar::BuiltinType, surface::StandardEnum};
+use crate::scalar::BuiltinType;
 pub fn lossless_from(source: BuiltinType, target: BuiltinType) -> bool {
     if source == target {
         return source.number_type().is_some() || source == BuiltinType::Bool;
@@ -34,17 +34,13 @@ pub fn lossless_from(source: BuiltinType, target: BuiltinType) -> bool {
     }
 }
 
-/// Error type of the portable checked scalar conversion contract.
-pub fn conversion_error(source: BuiltinType, target: BuiltinType) -> Option<StandardEnum> {
+/// Whether the supported checked scalar conversion can fail for some input.
+pub fn checked_conversion_fallible(source: BuiltinType, target: BuiltinType) -> Option<bool> {
     if lossless_from(source, target) {
-        Some(StandardEnum::Infallible)
+        Some(false)
     } else if source.integer_layout().is_some() && target.integer_layout().is_some() {
-        Some(StandardEnum::TryFromIntError)
+        Some(true)
     } else {
         None
     }
-}
-
-pub fn parsing_error(kind: BuiltinType) -> Option<StandardEnum> {
-    (kind.number_type().is_some() || kind == BuiltinType::Bool).then_some(StandardEnum::ParseError)
 }

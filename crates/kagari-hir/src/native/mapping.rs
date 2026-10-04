@@ -67,7 +67,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
             Self::HashSet => NativeTypeKind::HashSet,
             Self::Iter => NativeTypeKind::Iter,
             Self::Range(field0) => NativeTypeKind::Range(*(field0)),
-            Self::Enum(field0) => NativeTypeKind::Enum(*(field0)),
         })
     }
 
@@ -92,7 +91,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
             Self::HashSet => {}
             Self::Iter => {}
             Self::Range(_) => {}
-            Self::Enum(_) => {}
         }
         Ok(())
     }

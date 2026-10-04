@@ -85,11 +85,10 @@ fn main(value: HashMap<String, i32>) -> usize {
 fn exposes_installed_standard_declarations_and_checked_signatures() {
     use crate::{
         declarations::DeclarationId,
-        native::NativeTypeKind,
         typeck::{FunctionImplementation, table::ConstraintTarget},
     };
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
-    use kagari_types::{language::Protocol, surface as standard_surface, surface::StandardEnum};
+    use kagari_types::{language::Protocol, surface as standard_surface};
 
     assert!(standard_surface::builtin_type("String").is_some());
     assert!(standard_surface::builtin_type("usize").is_some());
@@ -109,13 +108,19 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     let facts = authoring_facts.facts();
     let declarations = snapshot.declaration_snapshot();
     for (kind, arity, variants) in [
-        (StandardEnum::Option, 1, ["Some", "None"]),
-        (StandardEnum::Result, 2, ["Ok", "Err"]),
+        ("Option", 1, ["Some", "None"]),
+        ("Result", 2, ["Ok", "Err"]),
     ] {
         let enumeration = facts
             .aggregates
             .enumerations()
-            .find(|declaration| declaration.native_type == Some(NativeTypeKind::Enum(kind)))
+            .find(|declaration| {
+                declaration
+                    .id
+                    .path
+                    .last()
+                    .is_some_and(|part| part.name == kind)
+            })
             .unwrap();
         assert_eq!(enumeration.generic_params.len(), arity);
         assert_eq!(
@@ -237,20 +242,22 @@ fn sized(value: usize) -> usize { value }
 
     assert_eq!(
         typed.functions[0].return_type,
-        TypeId::StandardEnum {
-            kind: kagari_types::surface::StandardEnum::Option,
-            args: vec![TypeId::Builtin(BuiltinType::I32)],
-        }
+        TypeId::Enum(crate::types::NominalType {
+            declaration: kagari_types::language::binding::option_declaration(),
+            arguments: vec![TypeId::Builtin(BuiltinType::I32)],
+            associated_types: Default::default()
+        })
     );
     assert_eq!(
         typed.functions[1].return_type,
-        TypeId::StandardEnum {
-            kind: kagari_types::surface::StandardEnum::Result,
-            args: vec![
+        TypeId::Enum(crate::types::NominalType {
+            declaration: kagari_types::language::binding::result_declaration(),
+            arguments: vec![
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Builtin(BuiltinType::String),
             ],
-        }
+            associated_types: Default::default()
+        })
     );
     assert_eq!(
         typed.functions[2].return_type,
@@ -381,10 +388,11 @@ fn popped(values: Vec<i32>) -> Option<i32> {
     assert_eq!(binding(keys_tail), (library::trait_id("Map"), "get".into()));
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
-        Some(TypeId::StandardEnum {
-            kind: kagari_types::surface::StandardEnum::Option,
-            args: vec![TypeId::Builtin(BuiltinType::I32)],
-        })
+        Some(TypeId::Enum(crate::types::NominalType {
+            declaration: kagari_types::language::binding::option_declaration(),
+            arguments: vec![TypeId::Builtin(BuiltinType::I32)],
+            associated_types: Default::default()
+        }))
     );
 
     let chars_tail = lowered
@@ -404,10 +412,11 @@ fn popped(values: Vec<i32>) -> Option<i32> {
         .expect("popped tail expr");
     assert_eq!(
         typed.type_table.expr_type(popped_tail),
-        Some(TypeId::StandardEnum {
-            kind: kagari_types::surface::StandardEnum::Option,
-            args: vec![TypeId::Builtin(BuiltinType::I32)],
-        })
+        Some(TypeId::Enum(crate::types::NominalType {
+            declaration: kagari_types::language::binding::option_declaration(),
+            arguments: vec![TypeId::Builtin(BuiltinType::I32)],
+            associated_types: Default::default()
+        }))
     );
 }
 

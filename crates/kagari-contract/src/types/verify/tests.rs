@@ -43,7 +43,7 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
             ConversionAdapter::Reverse { origin, .. } => {
                 *origin = module.definition(DefinitionKind::Trait, name);
             }
-            ConversionAdapter::CheckedNumeric { method, .. } => {
+            ConversionAdapter::Forward { method, .. } => {
                 method.path.last_mut().unwrap().name = "undeclared".into();
             }
         }
@@ -51,7 +51,7 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
         changed = contract.clone();
         let method = match changed.conversion_adapter.as_mut().unwrap() {
             ConversionAdapter::Reverse { method, .. }
-            | ConversionAdapter::CheckedNumeric { method, .. } => method,
+            | ConversionAdapter::Forward { method, .. } => method,
         };
         method.path.last_mut().unwrap().kind = DefinitionKind::Function;
         assert!(!valid(&changed));

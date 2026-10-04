@@ -1,6 +1,7 @@
 //! Mandatory Rust implementations of the compiler-owned language foundation.
 //! The declaration catalog is the single authority for every signature and bound.
 mod construction;
+mod enums;
 mod hash;
 mod lists;
 mod strings;
@@ -16,10 +17,10 @@ use kagari_runtime::{
         module::NativeModule,
         scalar::NativeScalar,
     },
-    value::{EnumTag, Value},
+    value::Value,
 };
 use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl};
-use std::{cell::OnceCell, collections::BTreeMap};
+use std::{cell::OnceCell, collections::BTreeMap, ops::Bound};
 
 type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
 
@@ -61,6 +62,7 @@ fn build_module(
             .name
             .as_str();
         let entry: Entry = match name {
+            "$foundation_try_from" => construction::try_from,
             "$foundation_from_str" => construction::from_str,
             "$foundation_sum" => construction::sum,
             "$foundation_product" => construction::product,
@@ -177,12 +179,13 @@ fn list_is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult<Value> {
-    let tag = if value.is_some() {
-        EnumTag::OptionSome
-    } else {
-        EnumTag::OptionNone
-    };
-    cx.enum_value(tag, value.into_iter().collect())
+    enums::allocate(
+        cx,
+        &cx.result_type_argument()?,
+        "Option",
+        if value.is_some() { "Some" } else { "None" },
+        value.into_iter().collect(),
+    )
 }
 
 fn list_get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -286,11 +289,15 @@ fn range_bound(cx: &mut CallContext<'_>, upper: bool) -> NativeResult<Value> {
     let Value::Range(range) = cx.argument(0)? else {
         return Err(invalid());
     };
-    range.bound(
-        cx.heap(),
+    let (member, fields) = match range.bound(
         cx.owner().definitions(),
         cx.argument_type(0)?,
         cx.result_type(),
         upper,
-    )
+    )? {
+        Bound::Included(value) => ("Included", vec![value]),
+        Bound::Excluded(value) => ("Excluded", vec![value]),
+        Bound::Unbounded => ("Unbounded", vec![]),
+    };
+    enums::allocate(cx, &cx.result_type_argument()?, "Bound", member, fields)
 }

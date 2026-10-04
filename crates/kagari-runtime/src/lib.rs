@@ -774,11 +774,12 @@ impl Runtime {
 
     pub fn invoke_standard_builtin(
         &self,
+        owner: &LoadedModule,
         intrinsic: RuntimePrimitive,
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {
         self.resources.ensure_execution_allowed()?;
-        let value = builtin::invoke_standard(&self.gc, intrinsic, args)?;
+        let value = builtin::invoke_standard(self, owner, intrinsic, args)?;
         Ok(value)
     }
 }

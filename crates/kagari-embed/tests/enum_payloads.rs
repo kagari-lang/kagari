@@ -73,16 +73,22 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     );
     let standard = runtime
         .runtime()
-        .alloc_enum(EnumTag::OptionSome, vec![Value::I32(42)])
-        .unwrap();
-    assert!(
-        !script_equal(
-            runtime.runtime().gc(),
-            &Value::Enum(handle),
-            &Value::Enum(standard)
+        .make_enum_member(
+            &loaded,
+            &runtime
+                .runtime()
+                .resolve_type_arguments(
+                    &loaded,
+                    &[kagari_types::language::binding::option(
+                        kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
+                    )],
+                )
+                .unwrap()[0],
+            "Some",
+            vec![Value::I32(42)],
         )
-        .unwrap()
-    );
+        .unwrap();
+    assert!(!script_equal(runtime.runtime().gc(), &Value::Enum(handle), &standard).unwrap());
 
     for fields in [vec![], vec![Value::Bool(true)]] {
         assert_eq!(
@@ -172,15 +178,13 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     drop(loaded);
     runtime.runtime().collect_garbage().unwrap();
     let snapshot = runtime.runtime().gc().enum_snapshot(handle).unwrap();
-    let EnumTag::Declared(retained) = snapshot.tag else {
-        panic!("nominal variant")
-    };
+    let EnumTag::Declared(retained) = snapshot.tag;
     assert_eq!(retained.module().key(), old_key);
     assert_eq!(snapshot.fields, [Value::I32(42)]);
     assert!(
         runtime
             .runtime()
-            .alloc_enum(EnumTag::Declared(retained), vec![Value::I32(7)])
+            .alloc_enum(EnumTag::Declared(retained.clone()), vec![Value::I32(7)])
             .is_ok()
     );
     drop(root);
@@ -189,7 +193,10 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     assert!(
         runtime
             .runtime()
-            .alloc_enum(EnumTag::OptionSome, vec![Value::Enum(handle)])
+            .alloc_enum(
+                EnumTag::Declared(retained.clone()),
+                vec![Value::Enum(handle)]
+            )
             .is_err()
     );
 }

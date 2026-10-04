@@ -7,7 +7,7 @@ use kagari_common::identity::DefinitionPath;
 use kagari_contract::{
     callable::interface::InterfaceCallContract,
     numeric::{NumericConversion, NumericOperation},
-    operations::{BinaryOp, StandardEnumOp, UnaryOp},
+    operations::{BinaryOp, UnaryOp},
     representation::semantic_representation,
     standard::RuntimePrimitive,
 };
@@ -319,11 +319,9 @@ impl FunctionLowerer<'_, '_> {
         {
             return Ok(args[0]);
         }
-        let checked = self.planner.catalog.trait_(&interface.declaration)
-            .is_some_and(|contract| matches!(&contract.conversion_adapter, Some(ConversionAdapter::CheckedNumeric { method: declared, .. }) if declared == method));
         if let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
             (&ty, interface.arguments.as_slice())
-            && (checked || Protocol::from_id(&interface.declaration) == Some(Protocol::From))
+            && Protocol::from_id(&interface.declaration) == Some(Protocol::From)
             && traits::intrinsic_applies(
                 &interface,
                 &ty,
@@ -334,7 +332,6 @@ impl FunctionLowerer<'_, '_> {
             let conversion = NumericConversion {
                 source: *source,
                 target: *target,
-                checked,
             };
             let (_, output) = conversion
                 .contract()
@@ -531,7 +528,7 @@ impl FunctionLowerer<'_, '_> {
         let value = self.lower_selected_operator(site, args)?;
         let optional = traits::ordering_type(true);
         let ordering = traits::ordering_type(false);
-        let some = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(value))?;
+        let some = self.test_enum_variant(&optional, value, 0)?;
         let body = self.new_block();
         let absent = self.new_block();
         let join = self.new_block();
@@ -542,13 +539,13 @@ impl FunctionLowerer<'_, '_> {
             else_block: absent,
         });
         self.switch_to_block(body);
-        let order = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(value))?;
+        let order = self.read_enum_field(&optional, value, 0, 0)?;
         let tag = if matches!(op, HirBinaryOp::Lt | HirBinaryOp::Ge) {
             0
         } else {
             2
         };
-        let test = self.standard_enum_op(&ordering, StandardEnumOp::Test(tag), Some(order))?;
+        let test = self.test_enum_variant(&ordering, order, tag)?;
         if matches!(op, HirBinaryOp::Le | HirBinaryOp::Ge) {
             self.emit(Instruction::Unary {
                 dst,

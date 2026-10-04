@@ -1,6 +1,6 @@
 use crate::{
     hir::{
-        ids::{EnumId, FunctionId, OpaqueTypeId, TraitId},
+        ids::{FunctionId, OpaqueTypeId, TraitId, VariantId},
         item::Module,
     },
     lower::context::Lowerer,
@@ -37,6 +37,7 @@ mod ty;
 
 #[derive(Debug, Clone)]
 pub struct LoweredModule {
+    pub(crate) registered_enum_failures: HashSet<VariantId>,
     pub source: Arc<SourceFile>,
     pub module: Module,
     pub source_map: SourceMap,
@@ -49,7 +50,6 @@ pub struct LoweredModule {
     pub(crate) registered_traits: BTreeMap<DefinitionPath, TraitDef>,
     pub(crate) registered_declarations: Vec<NativeDeclaration>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
-    pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
     pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
     pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter>,
     pub(crate) native_trait_access: HashMap<TraitId, CollectionAccess>,
@@ -58,6 +58,10 @@ pub struct LoweredModule {
 }
 
 impl LoweredModule {
+    pub fn registered_enum_failure(&self, variant: VariantId) -> bool {
+        self.registered_enum_failures.contains(&variant)
+    }
+
     /// Registered APIs may construct their declared generic enums from Rust;
     /// executable lowering must retain templates even without source constructors.
     pub fn is_registered_native_api(&self) -> bool {
@@ -153,6 +157,7 @@ pub(crate) fn lower_module_controlled(
     lowerer.lower_module(module);
     let (module, source_map) = lowerer.finish();
     LoweredModule {
+        registered_enum_failures: HashSet::new(),
         source,
         module,
         source_map,
@@ -165,7 +170,6 @@ pub(crate) fn lower_module_controlled(
         registered_traits: BTreeMap::new(),
         registered_declarations: vec![],
         native_types: HashMap::new(),
-        native_enums: HashMap::new(),
         native_functions: HashMap::new(),
         native_trait_access: HashMap::new(),
         native_trait_adapters: HashMap::new(),

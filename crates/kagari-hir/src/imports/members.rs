@@ -39,8 +39,8 @@ impl SourceImport {
 }
 
 impl SourceCatalog<'_> {
-    /// Ordering's specified variant glob follows the installed representation
-    /// hook. The members and arena identities still come from ordinary sources.
+    /// Ordinary enum variant globs use the members and arena identities of
+    /// their installed declarations.
     pub(super) fn glob_namespace(&self, source: &SourceImport) -> bool {
         match source.item {
             None => true,

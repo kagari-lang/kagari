@@ -8,7 +8,7 @@ use kagari_contract::{
     types::applications::{validate_declarations, validate_layouts, validate_slots},
 };
 use kagari_types::{
-    declaration::{TraitDef, TypeDef, applications::ApplicationValidator},
+    declaration::{TraitDef, TypeDefKind, applications::ApplicationValidator},
     ty::substitution::TypeTransformError,
 };
 
@@ -16,9 +16,9 @@ pub(super) fn validate<'a>(
     module: &MirModule,
     cancel: &CancellationToken,
     lookup: impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
-    storage: impl Fn(&DefinitionPath) -> Option<&'a TypeDef>,
+    nominal: impl Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
 ) -> Result<(), TypeTransformError> {
-    let validator = ApplicationValidator::new(cancel, lookup, storage);
+    let validator = ApplicationValidator::new(cancel, lookup, nominal);
     validate_declarations(
         &validator,
         &module.abi.public_items,
@@ -81,10 +81,9 @@ pub(super) fn validate<'a>(
                 }
                 Instruction::MakeArray { element, .. }
                 | Instruction::RepeatArray { element, .. } => validator.validate_type(element)?,
-                Instruction::MapResultError { ty, .. }
-                | Instruction::Iter { ty, .. }
-                | Instruction::StandardEnum { ty, .. }
-                | Instruction::MakeRange { ty, .. } => validator.validate_type(ty)?,
+                Instruction::Iter { ty, .. } | Instruction::MakeRange { ty, .. } => {
+                    validator.validate_type(ty)?
+                }
                 Instruction::RangeBound { range, bound, .. } => validator.types([range, bound])?,
                 Instruction::UpcastInterface { source, target, .. } => {
                     validator.trait_application(source)?;

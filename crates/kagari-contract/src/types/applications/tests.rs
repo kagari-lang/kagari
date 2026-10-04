@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::native_storage_contract;
+use crate::types::type_contract;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
 };
@@ -222,7 +222,10 @@ fn native_storage_applications_require_the_actual_owner_and_layout_arity() {
     let check = ApplicationValidator::new(
         &cancel,
         |_| None,
-        |key| native_storage_contract(&id.module, &items, key),
+        |key| {
+            type_contract(&id.module, &items, key)
+                .map(|record| (record.kind, record.generic_params.len()))
+        },
     );
     let mut instance = NominalTy {
         declaration: id.clone(),
@@ -251,6 +254,56 @@ fn native_storage_applications_require_the_actual_owner_and_layout_arity() {
     instance.declaration.path[0].occurrence = 1;
     assert_eq!(
         check.validate_type(&Ty::NativeObject(instance)),
+        Err(TypeTransformError::InvalidContract)
+    );
+}
+
+#[test]
+fn ordinary_enum_applications_require_a_declared_owner_and_exact_arity() {
+    use kagari_types::declaration::TypeDefKind;
+    let id = kagari_types::language::binding::option_declaration();
+    let cancel = CancellationToken::default();
+    let check = ApplicationValidator::new(
+        &cancel,
+        |_| None,
+        |key| (key == &id).then_some((TypeDefKind::Enum, 1)),
+    );
+    let applied = |arguments| {
+        Ty::Enum(NominalTy {
+            declaration: id.clone(),
+            arguments,
+            associated_types: Default::default(),
+        })
+    };
+    assert!(
+        check
+            .validate_type(&applied(vec![Ty::Builtin(BuiltinType::I32)]))
+            .is_ok()
+    );
+    for arguments in [
+        vec![],
+        vec![
+            Ty::Builtin(BuiltinType::I32),
+            Ty::Builtin(BuiltinType::Bool),
+        ],
+    ] {
+        assert_eq!(
+            check.validate_type(&applied(arguments)),
+            Err(TypeTransformError::InvalidContract)
+        );
+    }
+    let missing = ApplicationValidator::new(&cancel, |_| None, |_| None);
+    assert_eq!(
+        missing.validate_type(&applied(vec![Ty::Builtin(BuiltinType::I32)])),
+        Err(TypeTransformError::InvalidContract)
+    );
+    let wrong = ApplicationValidator::new(
+        &cancel,
+        |_| None,
+        |key| (key == &id).then_some((TypeDefKind::Struct, 1)),
+    );
+    assert_eq!(
+        wrong.validate_type(&applied(vec![Ty::Builtin(BuiltinType::I32)])),
         Err(TypeTransformError::InvalidContract)
     );
 }

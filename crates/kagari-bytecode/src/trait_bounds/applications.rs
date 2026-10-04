@@ -8,11 +8,12 @@ use kagari_contract::{
     callable::witness::OperationWitness,
     types::{
         applications::{validate_declarations, validate_layouts, validate_slots},
-        native_storage_contract,
+        type_contract,
     },
 };
 use kagari_types::{
-    declaration::applications::ApplicationValidator, ty::substitution::TypeTransformError,
+    declaration::{TypeDefKind, applications::ApplicationValidator},
+    ty::substitution::TypeTransformError,
 };
 
 pub(super) fn validate(
@@ -24,9 +25,24 @@ pub(super) fn validate(
         cancel,
         |id| contract(id, closure),
         |id| {
-            closure
-                .iter()
-                .find_map(|owner| native_storage_contract(&owner.identity, &owner.public_items, id))
+            closure.iter().find_map(|owner| {
+                type_contract(&owner.identity, &owner.public_items, id)
+                    .map(|record| (record.kind, record.generic_params.len()))
+                    .or_else(|| {
+                        owner
+                            .enumerations
+                            .iter()
+                            .find(|layout| &layout.declaration == id)
+                            .map(|layout| (TypeDefKind::Enum, layout.arguments.len()))
+                    })
+                    .or_else(|| {
+                        owner
+                            .structures
+                            .iter()
+                            .find(|layout| &layout.declaration == id)
+                            .map(|layout| (TypeDefKind::Struct, layout.arguments.len()))
+                    })
+            })
         },
     );
     validate_declarations(
@@ -113,9 +129,7 @@ pub(super) fn validate(
                 | BytecodeInstruction::RepeatArray { element, .. } => {
                     validator.validate_type(element)?
                 }
-                BytecodeInstruction::MapResultError { ty, .. }
-                | BytecodeInstruction::Iter { ty, .. }
-                | BytecodeInstruction::StandardEnum { ty, .. }
+                BytecodeInstruction::Iter { ty, .. }
                 | BytecodeInstruction::MakeRange { ty, .. } => validator.validate_type(ty)?,
                 BytecodeInstruction::RangeBound { range, bound, .. } => {
                     validator.types([range, bound])?

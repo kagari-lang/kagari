@@ -87,14 +87,14 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     let option = facts.declarations.imported_types().get("Maybe").unwrap();
     assert_eq!(option.declaration.name, "Option");
     assert_ne!(option.declaration.location.file, id);
-    assert!(option.native_type.is_some());
+    assert!(option.native_type.is_none());
     let enumeration = facts
         .aggregates
         .enumerations()
         .find(|item| item.declaration.id == option.declaration.id)
         .unwrap();
     assert_eq!(enumeration.declaration, option.declaration);
-    assert!(enumeration.native_type.is_some());
+    assert!(enumeration.id == kagari_types::language::binding::option_declaration());
 }
 
 #[test]

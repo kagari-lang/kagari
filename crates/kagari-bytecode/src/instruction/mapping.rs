@@ -149,16 +149,14 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 lhs: *(lhs),
                 rhs: *(rhs),
             },
-            Self::MapResultError {
+            Self::ForwardEnumOrigin {
                 dst,
                 original,
-                error,
-                ty,
-            } => BytecodeInstruction::MapResultError {
+                value,
+            } => BytecodeInstruction::ForwardEnumOrigin {
                 dst: *(dst),
                 original: *(original),
-                error: *(error),
-                ty: (ty).map_identities(mapper)?,
+                value: *(value),
             },
             Self::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
                 dst: *(dst),
@@ -166,12 +164,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 ty: (ty).map_identities(mapper)?,
                 op: *(op),
             },
-            Self::StandardEnum { dst, value, ty, op } => BytecodeInstruction::StandardEnum {
-                dst: *(dst),
-                value: *(value),
-                ty: (ty).map_identities(mapper)?,
-                op: *(op),
-            },
+
             Self::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
                 dst: *(dst),
                 constant: (constant).clone(),
@@ -470,14 +463,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 lhs: _,
                 rhs: _,
             } => {}
-            Self::MapResultError {
-                dst: _,
-                original: _,
-                error: _,
-                ty,
-            } => {
-                (ty).visit_definitions(visit, cancel)?;
-            }
+            Self::ForwardEnumOrigin { .. } => {}
             Self::Iter {
                 dst: _,
                 value: _,
@@ -486,14 +472,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             } => {
                 (ty).visit_definitions(visit, cancel)?;
             }
-            Self::StandardEnum {
-                dst: _,
-                value: _,
-                ty,
-                op: _,
-            } => {
-                (ty).visit_definitions(visit, cancel)?;
-            }
+
             Self::LoadConst {
                 dst: _,
                 constant: _,

@@ -1,10 +1,12 @@
 use crate::{module::BytecodeModule, trait_bounds::contract};
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::types::{
-    InterfaceTable, native_storage_contract,
+    InterfaceTable,
     proofs::{ProofCatalog, host_application},
+    type_contract,
 };
 use kagari_types::{
+    declaration::TypeDefKind,
     declaration::{TraitDef, applications::ApplicationValidator},
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty,
@@ -24,9 +26,24 @@ fn projection_bounds_valid(
         cancel,
         |id| contract(id, closure),
         |id| {
-            closure
-                .iter()
-                .find_map(|owner| native_storage_contract(&owner.identity, &owner.public_items, id))
+            closure.iter().find_map(|owner| {
+                type_contract(&owner.identity, &owner.public_items, id)
+                    .map(|record| (record.kind, record.generic_params.len()))
+                    .or_else(|| {
+                        owner
+                            .enumerations
+                            .iter()
+                            .find(|layout| &layout.declaration == id)
+                            .map(|layout| (TypeDefKind::Enum, layout.arguments.len()))
+                    })
+                    .or_else(|| {
+                        owner
+                            .structures
+                            .iter()
+                            .find(|layout| &layout.declaration == id)
+                            .map(|layout| (TypeDefKind::Struct, layout.arguments.len()))
+                    })
+            })
         },
     )
     .validate_type(ty)?;
@@ -85,7 +102,7 @@ fn projection_bounds_valid(
                 pending.extend(&n.arguments);
                 pending.extend(n.associated_types.values());
             }
-            Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => pending.extend(items),
+            Ty::Tuple(items) => pending.extend(items),
             Ty::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);

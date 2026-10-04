@@ -1,22 +1,27 @@
 //! Runtime implementations of language primitives; standard algorithms belong to providers.
 use crate::{
+    Runtime,
     builtin::BuiltinError,
     error::RuntimeError,
     gc::GcHeap,
+    module::LoadedModule,
     native::sequence::SequenceStorage,
-    value::{EnumTag, MapKey, Value},
+    value::{MapKey, Value},
     value_semantics,
 };
 use kagari_contract::standard::RuntimePrimitive;
+use kagari_types::language::binding;
 use std::cmp::Ordering;
 #[cfg(test)]
 mod tests;
 
 pub fn invoke(
-    gc: &GcHeap,
+    runtime: &Runtime,
+    owner: &LoadedModule,
     primitive: RuntimePrimitive,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
+    let gc = runtime.gc();
     let intrinsic = primitive;
     match primitive {
         RuntimePrimitive::ValuePartialCmp | RuntimePrimitive::ValueCmp => {
@@ -24,24 +29,43 @@ pub fn invoke(
                 return Err(BuiltinError::new("comparison requires two operands"));
             };
             let ordering = value_semantics::builtin_order(gc, a, b)?;
-            let Some(ordering) = ordering else {
-                if intrinsic == RuntimePrimitive::ValueCmp {
-                    return Err(BuiltinError::new("total comparison cannot be unordered"));
-                }
-                return option_none(gc);
-            };
-            let tag = match ordering {
-                Ordering::Less => EnumTag::OrderingLess,
-                Ordering::Equal => EnumTag::OrderingEqual,
-                Ordering::Greater => EnumTag::OrderingGreater,
-            };
-            let value = Value::Enum(gc.alloc_enum(tag, vec![])?);
+            if intrinsic == RuntimePrimitive::ValueCmp && ordering.is_none() {
+                return Err(BuiltinError::new("total comparison cannot be unordered"));
+            }
+            let applied = runtime.portable_type_argument(owner, &binding::ordering())?;
+            let value = ordering
+                .map(|ordering| {
+                    runtime.make_enum_member(
+                        owner,
+                        &applied,
+                        match ordering {
+                            Ordering::Less => "Less",
+                            Ordering::Equal => "Equal",
+                            Ordering::Greater => "Greater",
+                        },
+                        vec![],
+                    )
+                })
+                .transpose()?;
             if intrinsic == RuntimePrimitive::ValuePartialCmp {
-                option_some(gc, value)
+                let _root = value
+                    .as_ref()
+                    .and_then(|value| gc.root_value(value.clone()));
+                let option =
+                    runtime.portable_type_argument(owner, &binding::option(binding::ordering()))?;
+                runtime
+                    .make_enum_member(
+                        owner,
+                        &option,
+                        if value.is_some() { "Some" } else { "None" },
+                        value.into_iter().collect(),
+                    )
+                    .map_err(Into::into)
             } else {
-                Ok(value)
+                value.ok_or_else(|| BuiltinError::new("total comparison cannot be unordered"))
             }
         }
+
         RuntimePrimitive::ValueEq => {
             let [a, b] = args else {
                 return Err(BuiltinError::new("eq expects two operands"));
@@ -121,18 +145,4 @@ fn debug_assert(args: &[Value]) -> Result<Value, BuiltinError> {
     } else {
         Err(BuiltinError::new(format!("debug.assert failed: {message}")))
     }
-}
-
-fn option_some(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
-    enum_value(gc, EnumTag::OptionSome, vec![value])
-}
-
-fn option_none(gc: &GcHeap) -> Result<Value, BuiltinError> {
-    enum_value(gc, EnumTag::OptionNone, Vec::new())
-}
-
-fn enum_value(gc: &GcHeap, tag: EnumTag, fields: Vec<Value>) -> Result<Value, BuiltinError> {
-    gc.alloc_enum(tag, fields)
-        .map(Value::Enum)
-        .map_err(BuiltinError::from)
 }

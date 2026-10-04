@@ -1,6 +1,6 @@
 //! Composite declarations use bounded, flat preorder encoding on the wire.
 use super::HostInterfaceError;
-use crate::collection::CollectionAccess;
+use crate::{collection::CollectionAccess, language::binding};
 use bincode::Options;
 use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
 use serde::{
@@ -32,8 +32,9 @@ pub enum HostValueType<I = DefinitionPath> {
         access: CollectionAccess,
     },
     Set(Box<HostValueType<I>>, CollectionAccess),
-    Option(Box<HostValueType<I>>),
+    Option(I, Box<HostValueType<I>>),
     Result {
+        declaration: I,
         ok: Box<HostValueType<I>>,
         error: Box<HostValueType<I>>,
     },
@@ -47,11 +48,10 @@ impl<I: DefinitionReference> HostValueType<I> {
             match ty {
                 Self::Opaque(id) => declarations.push(id),
                 Self::Tuple(elements) => pending.extend(elements),
-                Self::Array(element, _) | Self::Set(element, _) | Self::Option(element) => {
-                    pending.push(element)
-                }
+                Self::Array(element, _) | Self::Set(element, _) => pending.push(element),
+                Self::Option(_, element) => pending.push(element),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-                Self::Result { ok, error } => pending.extend([ok.as_ref(), error.as_ref()]),
+                Self::Result { ok, error, .. } => pending.extend([ok.as_ref(), error.as_ref()]),
                 _ => {}
             }
         }
@@ -97,7 +97,7 @@ impl<I: DefinitionReference> HostValueType<I> {
                     pending.extend(elements.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Tuple(elements.len() as u32)
                 }
-                Self::Array(element, _) | Self::Set(element, _) | Self::Option(element) => {
+                Self::Array(element, _) | Self::Set(element, _) => {
                     if matches!(ty, Self::Set(_, _)) && !element.hash_key() {
                         return Err(HostInterfaceError::InvalidDeclaration);
                     }
@@ -105,8 +105,21 @@ impl<I: DefinitionReference> HostValueType<I> {
                     match ty {
                         Self::Array(_, access) => Node::Array(*access),
                         Self::Set(_, access) => Node::Set(*access),
-                        _ => Node::Option,
+                        _ => unreachable!(),
                     }
+                }
+                Self::Option(declaration, element) => {
+                    if declaration
+                        .authoring_path()
+                        .is_some_and(|path| path != &binding::option_declaration())
+                    {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
+                    if !declaration.within_path_limit() {
+                        return Err(HostInterfaceError::TooLarge);
+                    }
+                    pending.push((element, depth + 1));
+                    Node::Option(declaration.clone())
                 }
                 Self::Map { key, value, access } => {
                     if !key.hash_key() {
@@ -116,10 +129,23 @@ impl<I: DefinitionReference> HostValueType<I> {
                     pending.push((key, depth + 1));
                     Node::Map(*access)
                 }
-                Self::Result { ok, error } => {
+                Self::Result {
+                    declaration,
+                    ok,
+                    error,
+                } => {
+                    if declaration
+                        .authoring_path()
+                        .is_some_and(|path| path != &binding::result_declaration())
+                    {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
+                    if !declaration.within_path_limit() {
+                        return Err(HostInterfaceError::TooLarge);
+                    }
                     pending.push((error, depth + 1));
                     pending.push((ok, depth + 1));
-                    Node::Result
+                    Node::Result(declaration.clone())
                 }
             });
             if nodes.len() + pending.len() > MAX_NODES {
@@ -150,8 +176,8 @@ enum Node<I = DefinitionPath> {
     Array(CollectionAccess),
     Map(CollectionAccess),
     Set(CollectionAccess),
-    Option,
-    Result,
+    Option(I),
+    Result(I),
 }
 
 impl<I: DefinitionReference + Serialize> Serialize for HostValueType<I> {
@@ -231,13 +257,16 @@ fn build<I: DefinitionReference, E: de::Error>(
         }
         Node::Array(access) => HostValueType::Array(Box::new(build(nodes, depth + 1)?), access),
         Node::Set(access) => HostValueType::Set(Box::new(build(nodes, depth + 1)?), access),
-        Node::Option => HostValueType::Option(Box::new(build(nodes, depth + 1)?)),
+        Node::Option(declaration) => {
+            HostValueType::Option(declaration, Box::new(build(nodes, depth + 1)?))
+        }
         Node::Map(access) => HostValueType::Map {
             key: Box::new(build(nodes, depth + 1)?),
             value: Box::new(build(nodes, depth + 1)?),
             access,
         },
-        Node::Result => HostValueType::Result {
+        Node::Result(declaration) => HostValueType::Result {
+            declaration,
             ok: Box::new(build(nodes, depth + 1)?),
             error: Box::new(build(nodes, depth + 1)?),
         },
@@ -246,6 +275,20 @@ fn build<I: DefinitionReference, E: de::Error>(
 }
 
 impl HostValueType {
+    /// Host Option carriers reference the installed nominal core declaration.
+    pub fn option(element: Self) -> Self {
+        Self::Option(binding::option_declaration(), Box::new(element))
+    }
+
+    /// Host Result carriers reference the installed nominal core declaration.
+    pub fn result(ok: Self, error: Self) -> Self {
+        Self::Result {
+            declaration: binding::result_declaration(),
+            ok: Box::new(ok),
+            error: Box::new(error),
+        }
+    }
+
     pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
         let bytes = super::codec()
             .serialize(self)
@@ -309,9 +352,10 @@ mod tests {
     #[test]
     fn composite_types_round_trip_and_change_binding_fingerprints() {
         let ty = HostValueType::Result {
+            declaration: binding::result_declaration(),
             ok: Box::new(HostValueType::Tuple(vec![
                 HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
-                HostValueType::Option(Box::new(HostValueType::String)),
+                HostValueType::option(HostValueType::String),
             ])),
             error: Box::new(HostValueType::Map {
                 key: Box::new(HostValueType::String),

@@ -12,10 +12,7 @@ use {
     kagari_bytecode::instruction::BytecodeInstruction, kagari_source::diagnostic::DiagnosticKind,
 };
 
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::operations::{BinaryOp, StandardEnumOp},
-};
+use {kagari_abi::representation::ValueType, kagari_contract::operations::BinaryOp};
 
 use kagari_mir::{
     function::MirFunction,
@@ -220,19 +217,22 @@ fn main() -> i32 {
         .iter()
         .flat_map(|function| function.blocks.iter().flat_map(|block| &block.instructions))
         .collect::<Vec<_>>();
-    for expected in [
-        StandardEnumOp::Make(0),
-        StandardEnumOp::Test(0),
-        StandardEnumOp::Test(1),
-        StandardEnumOp::Read(0),
-    ] {
-        assert!(
-            instructions.iter().any(|instruction| {
-                matches!(instruction, Instruction::StandardEnum { op, .. } if *op == expected)
-            }),
-            "missing native enum operation {expected:?}"
-        );
+    let option = ir
+        .enumerations
+        .iter()
+        .find(|layout| {
+            ir.definitions()
+                .resolve(layout.declaration)
+                .unwrap()
+                .to_path()
+                == kagari_types::language::binding::option_declaration()
+        })
+        .unwrap();
+    assert!(instructions.iter().any(|instruction| matches!(instruction, Instruction::MakeEnum {enumeration, variant: 0, ..} if enumeration.declaration == option.declaration)));
+    for expected in [0, 1] {
+        assert!(instructions.iter().any(|instruction| matches!(instruction, Instruction::TestEnumVariant {enumeration, variant, ..} if enumeration.declaration == option.declaration && *variant == expected)));
     }
+    assert!(instructions.iter().any(|instruction| matches!(instruction, Instruction::ReadEnumPayload {enumeration, variant: 0, index: 0, ..} if enumeration.declaration == option.declaration)));
     let local = ir
         .enumerations
         .iter()

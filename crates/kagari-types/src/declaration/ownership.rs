@@ -58,7 +58,7 @@ impl ReceiverOwners {
             Ty::Set(..) => NativeTypeConstructor::Set,
             Ty::Iter(_) => NativeTypeConstructor::Iter,
             Ty::Range(_, kind) => NativeTypeConstructor::Range(*kind),
-            Ty::StandardEnum { kind, .. } => NativeTypeConstructor::Enum(*kind),
+
             _ => return None,
         };
         self.constructors.get(&constructor).cloned()

@@ -6,7 +6,7 @@ use {
     kagari_types::{
         language::Protocol,
         scalar::BuiltinType,
-        surface::{StandardEnum, StandardTypeConstraint},
+        surface::StandardTypeConstraint,
         ty::{Constraint, GenericBound, Ty, substitution::TypeTransformError},
     },
 };
@@ -25,11 +25,7 @@ impl ProofCatalog<'_> {
         if matches!(kind, Protocol::PartialOrd | Protocol::Ord) {
             return Ok(match receiver {
                 Ty::Builtin(BuiltinType::F32 | BuiltinType::F64) => kind == Protocol::PartialOrd,
-                Ty::Builtin(_)
-                | Ty::StandardEnum {
-                    kind: StandardEnum::Ordering,
-                    ..
-                } => true,
+                Ty::Builtin(_) => true,
                 _ => false,
             });
         }
@@ -79,7 +75,7 @@ impl ProofCatalog<'_> {
                     .get(&interface.declaration)
                     .is_some_and(|contract| contract.storage_access.is_some()));
             }
-            Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => items.iter().collect(),
+            Ty::Tuple(items) => items.iter().collect(),
             Ty::Enum(instance) => {
                 let Some(payload) = self.enumerations.get(instance) else {
                     return Ok(false);

@@ -1,4 +1,5 @@
 //! Prepare custom receiver operations once and traverse through its iterator.
+use crate::bindings::enums;
 use std::slice;
 use {
     crate::bindings::lists::invalid,
@@ -8,7 +9,7 @@ use {
             binding::NativeResult,
             context::{CallContext, LinkedCallable},
         },
-        value::{EnumTag, Value},
+        value::Value,
     },
 };
 
@@ -42,14 +43,12 @@ impl<'call> ReceiverCalls<'call> {
         let _cursor = cx.heap().root_value(cursor.clone()).ok_or_else(invalid)?;
         loop {
             cx.poll()?;
-            let Value::Enum(option) = cx.call_values(self.next, slice::from_ref(&cursor))? else {
-                return Err(invalid());
-            };
-            let option = cx.heap().enum_snapshot(option).ok_or_else(invalid)?;
-            match option.tag {
-                EnumTag::OptionNone => return Ok(id),
-                EnumTag::OptionSome => {
-                    let [value] = option.fields.as_slice() else {
+            let value = cx.call_values(self.next, slice::from_ref(&cursor))?;
+            let (member, fields) = enums::inspect(cx, &value, "Option")?;
+            match member.as_str() {
+                "None" if fields.is_empty() => return Ok(id),
+                "Some" => {
+                    let [value] = fields.as_slice() else {
                         return Err(invalid());
                     };
                     let _item = cx.heap().root_value(value.clone()).ok_or_else(invalid)?;

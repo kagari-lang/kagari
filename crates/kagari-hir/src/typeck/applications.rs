@@ -316,9 +316,7 @@ pub(super) fn validate(
                 pending.extend(&instance.arguments);
                 pending.extend(instance.associated_types.values());
             }
-            TypeId::Tuple(types) | TypeId::StandardEnum { args: types, .. } => {
-                pending.extend(types)
-            }
+            TypeId::Tuple(types) => pending.extend(types),
             TypeId::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);
@@ -641,9 +639,7 @@ pub(super) fn validate_imported_interface_type(
             TypeId::NativeObject(instance) | TypeId::Struct(instance) | TypeId::Enum(instance) => {
                 pending.extend(&instance.arguments)
             }
-            TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
-                pending.extend(items)
-            }
+            TypeId::Tuple(items) => pending.extend(items),
             TypeId::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);

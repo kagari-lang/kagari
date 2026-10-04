@@ -366,7 +366,10 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
             Box::new(HostValueType::I32),
             CollectionAccess::Mutable,
         )]),
-        HostValueType::Option(Box::new(HostValueType::opaque("game.Object"))),
+        HostValueType::Option(
+            kagari_types::language::binding::option_declaration(),
+            Box::new(HostValueType::opaque("game.Object")),
+        ),
     ] {
         let mut invalid = configuration.clone();
         invalid.return_type = result;
@@ -382,9 +385,12 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
         invalid.validate(),
         Err(HostInterfaceError::InvalidDeclaration)
     );
-    configuration.return_type = HostValueType::Option(Box::new(HostValueType::Tuple(vec![
-        HostValueType::String,
-        HostValueType::I32,
-    ])));
+    configuration.return_type = HostValueType::Option(
+        kagari_types::language::binding::option_declaration(),
+        Box::new(HostValueType::Tuple(vec![
+            HostValueType::String,
+            HostValueType::I32,
+        ])),
+    );
     configuration.validate().unwrap();
 }

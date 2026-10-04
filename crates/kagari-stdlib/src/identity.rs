@@ -24,3 +24,19 @@ pub fn applied(name: &str, arguments: Vec<Ty>) -> NominalTy {
         associated_types: Default::default(),
     }
 }
+
+/// Apply a core library enum identity. Consumers still validate its declaration.
+pub fn enum_type(name: &str, arguments: Vec<Ty>) -> Ty {
+    Ty::Enum(NominalTy {
+        declaration: DefinitionPath {
+            module: namespaces::type_owner(name),
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Enum,
+                name: name.into(),
+                occurrence: 0,
+            }],
+        },
+        arguments,
+        associated_types: Default::default(),
+    })
+}

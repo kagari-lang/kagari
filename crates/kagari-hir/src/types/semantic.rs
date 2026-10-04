@@ -1,5 +1,5 @@
 //! Encode checked HIR types into portable semantic facts.
-use crate::types::{NominalType, TypeId};
+use crate::types::{GenericParameterType, NominalType, TypeId};
 use kagari_common::identity::reference::DefinitionReference;
 use kagari_types::ty::{NominalTy, Ty};
 
@@ -48,10 +48,7 @@ pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
         TypeId::Struct(ty) => Ty::Struct(lower_nominal_type(ty)),
         TypeId::Enum(ty) => Ty::Enum(lower_nominal_type(ty)),
         TypeId::Trait(ty) => Ty::Trait(lower_nominal_type(ty)),
-        TypeId::StandardEnum { kind, args } => Ty::StandardEnum {
-            kind: *kind,
-            args: args.iter().map(lower_type).collect(),
-        },
+
         TypeId::Generic(parameter) => Ty::Parameter {
             owner: parameter.owner.clone(),
             position: parameter.position,
@@ -60,5 +57,59 @@ pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
         TypeId::Inference(_) | TypeId::Unknown | TypeId::Error => {
             unreachable!("non-concrete type reached concrete ABI encoding")
         }
+    }
+}
+
+pub fn raise_nominal_type(ty: &NominalTy) -> NominalType {
+    NominalType {
+        associated_types: ty
+            .associated_types
+            .iter()
+            .map(|(id, ty)| (id.clone(), raise_type(ty)))
+            .collect(),
+        declaration: ty.declaration.clone(),
+        arguments: ty.arguments.iter().map(raise_type).collect(),
+    }
+}
+
+pub fn raise_type(ty: &Ty) -> TypeId {
+    match ty {
+        Ty::Projection {
+            receiver,
+            interface,
+            member,
+            arguments,
+        } => TypeId::Projection {
+            arguments: arguments.iter().map(raise_type).collect(),
+            receiver: Box::new(raise_type(receiver)),
+            interface: Box::new(raise_nominal_type(interface)),
+            member: member.clone(),
+        },
+        Ty::Host(id) => TypeId::Host(id.clone()),
+        Ty::SelfType(id) => TypeId::SelfType(id.clone()),
+        Ty::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
+            owner: owner.clone(),
+            position: *position,
+            name: String::new(),
+        }),
+        Ty::Builtin(ty) => TypeId::Builtin(*ty),
+        Ty::Tuple(types) => TypeId::Tuple(types.iter().map(raise_type).collect()),
+        Ty::Function { params, result } => TypeId::Function {
+            params: params.iter().map(raise_type).collect(),
+            result: Box::new(raise_type(result)),
+        },
+        Ty::Range(ty, kind) => TypeId::Range(Box::new(raise_type(ty)), *kind),
+        Ty::Iter(ty) => TypeId::Iter(Box::new(raise_type(ty))),
+        Ty::Array(ty, access) => TypeId::Array(Box::new(raise_type(ty)), *access),
+        Ty::Map { key, value, access } => TypeId::Map {
+            key: Box::new(raise_type(key)),
+            value: Box::new(raise_type(value)),
+            access: *access,
+        },
+        Ty::Set(ty, access) => TypeId::Set(Box::new(raise_type(ty)), *access),
+        Ty::NativeObject(ty) => TypeId::NativeObject(raise_nominal_type(ty)),
+        Ty::Struct(ty) => TypeId::Struct(raise_nominal_type(ty)),
+        Ty::Enum(ty) => TypeId::Enum(raise_nominal_type(ty)),
+        Ty::Trait(ty) => TypeId::Trait(raise_nominal_type(ty)),
     }
 }

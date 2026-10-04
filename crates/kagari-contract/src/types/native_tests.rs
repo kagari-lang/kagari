@@ -3,14 +3,9 @@ use kagari_common::identity::{DefinitionPath, DefinitionPathSegment, ModuleIdent
 use kagari_types::{
     declaration::{TypeDef, native::NativeTypeConstructor},
     range::RangeKind,
-    surface::StandardEnum,
 };
 use {
-    crate::{
-        operations::StandardEnumOp,
-        types::{PublicItem, verify},
-    },
-    kagari_abi::representation::ValueType,
+    crate::types::{PublicItem, verify},
     kagari_types::{
         declaration::{FieldDef, TypeDefKind, VariantDef},
         scalar::BuiltinType,
@@ -34,22 +29,7 @@ fn declaration(kind: NativeTypeConstructor) -> (ModuleIdentity, TypeDef) {
             position,
         })
         .collect();
-    let variants = match kind {
-        NativeTypeConstructor::Enum(kind) => kind
-            .variants()
-            .iter()
-            .enumerate()
-            .map(|(index, variant)| VariantDef {
-                name: format!("variant{index}"),
-                payload: variant
-                    .payload()
-                    .into_iter()
-                    .map(|slot| generic_params[slot].as_type())
-                    .collect(),
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
+    let variants = Vec::new();
     (
         module,
         TypeDef {
@@ -77,13 +57,6 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
         NativeTypeConstructor::Range(RangeKind::To),
         NativeTypeConstructor::Range(RangeKind::ToInclusive),
         NativeTypeConstructor::Range(RangeKind::Full),
-        NativeTypeConstructor::Enum(StandardEnum::Bound),
-        NativeTypeConstructor::Enum(StandardEnum::ParseError),
-        NativeTypeConstructor::Enum(StandardEnum::TryFromIntError),
-        NativeTypeConstructor::Enum(StandardEnum::Infallible),
-        NativeTypeConstructor::Enum(StandardEnum::Option),
-        NativeTypeConstructor::Enum(StandardEnum::Result),
-        NativeTypeConstructor::Enum(StandardEnum::Ordering),
     ];
     for kind in constructors {
         let (module, ty) = declaration(kind);
@@ -103,6 +76,7 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
         );
         let mut wrong = ty.clone();
         wrong.variants.push(VariantDef {
+            reports_failure: false,
             name: "extra".into(),
             payload: Vec::new(),
         });
@@ -137,50 +111,79 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
 }
 
 #[test]
-fn enum_operations_follow_wire_tags_and_result_payload_slots() {
-    let result = Ty::StandardEnum {
-        kind: StandardEnum::Result,
-        args: vec![
-            Ty::Builtin(BuiltinType::I32),
-            Ty::Builtin(BuiltinType::String),
+fn ordinary_enum_layouts_validate_payloads_and_reporting_facts() {
+    use crate::layout::{EnumLayout, EnumVariantLayout, enum_abi_matches};
+    use kagari_types::declaration::module::ModuleDecl;
+    let module = ModuleIdentity::single_file("ordinary-enum.kgr");
+    let owner = DefinitionPath {
+        module: module.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Enum,
+            name: "Outcome".into(),
+            occurrence: 0,
+        }],
+    };
+    let parameter = GenericParam {
+        owner: owner.clone(),
+        position: 0,
+    };
+    let declaration = TypeDef {
+        name: "Outcome".into(),
+        kind: TypeDefKind::Enum,
+        generic_params: vec![parameter.clone()],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![
+            VariantDef {
+                reports_failure: true,
+                name: "Failure".into(),
+                payload: vec![parameter.as_type()],
+            },
+            VariantDef {
+                reports_failure: false,
+                name: "Success".into(),
+                payload: vec![],
+            },
         ],
     };
-    assert_eq!(
-        StandardEnumOp::Make(0).contract(&result),
-        Some((Some(ValueType::I32), ValueType::HeapObject))
+    let layout = EnumLayout {
+        declaration: owner.clone(),
+        arguments: vec![Ty::Builtin(BuiltinType::String)],
+        variants: vec![
+            EnumVariantLayout {
+                reports_failure: true,
+                declaration: ModuleDecl::variant_id(&owner, "Failure"),
+                payload: vec![Ty::Builtin(BuiltinType::String)],
+            },
+            EnumVariantLayout {
+                reports_failure: false,
+                declaration: ModuleDecl::variant_id(&owner, "Success"),
+                payload: vec![],
+            },
+        ],
+    };
+    let items = vec![PublicItem::Type(declaration)];
+    assert!(verify::validate(&items, &module, &Default::default()).is_ok());
+    assert!(
+        enum_abi_matches(
+            std::slice::from_ref(&layout),
+            &module,
+            &items,
+            &Default::default()
+        )
+        .unwrap()
     );
-    assert_eq!(
-        StandardEnumOp::Make(1).contract(&result),
-        Some((Some(ValueType::Str), ValueType::HeapObject))
-    );
-    assert_eq!(
-        StandardEnumOp::Read(1).contract(&result),
-        Some((Some(ValueType::HeapObject), ValueType::Str))
-    );
-    assert!(StandardEnumOp::Test(2).contract(&result).is_none());
-    for kind in [
-        StandardEnum::Bound,
-        StandardEnum::ParseError,
-        StandardEnum::TryFromIntError,
-        StandardEnum::Infallible,
-        StandardEnum::Option,
-        StandardEnum::Result,
-        StandardEnum::Ordering,
-    ] {
-        for (index, variant) in kind.variants().iter().enumerate() {
-            assert_eq!(variant.kind(), kind);
-            assert_eq!(variant.index(), index);
-            assert!(variant.payload().is_none_or(|slot| slot < kind.arity()));
+    for case in 0..4 {
+        let mut wrong = layout.clone();
+        match case {
+            0 => wrong.arguments.clear(),
+            1 => wrong.variants[0].payload.clear(),
+            2 => wrong.variants[0].payload[0] = Ty::Builtin(BuiltinType::Bool),
+            _ => wrong.variants[0].reports_failure = false,
         }
+        assert!(
+            !enum_abi_matches(&[wrong], &module, &items, &Default::default()).unwrap(),
+            "case {case}"
+        );
     }
-    let empty = Ty::StandardEnum {
-        kind: StandardEnum::Infallible,
-        args: vec![],
-    };
-    assert!(StandardEnumOp::Make(0).contract(&empty).is_none());
-    let wrong_arity = Ty::StandardEnum {
-        kind: StandardEnum::Result,
-        args: vec![],
-    };
-    assert!(StandardEnumOp::Make(0).contract(&wrong_arity).is_none());
 }

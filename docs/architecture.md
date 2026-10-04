@@ -764,9 +764,10 @@ definition. String methods remain ordinary library implementations. No IndexMut,
 Try or FromResidual trait is introduced.
 
 The active [nominal enum and propagation design](enum-propagation-plan.md)
-plans to replace the retained StandardEnum representation with ordinary enums
-and introduce library-authored propagation protocols. It does not change the
-current behavior described above until its EN01-EN05 track is implemented.
+has replaced the closed enum representation with ordinary library-authored
+enum declarations and generation-pinned layouts through EN03. EN04 introduces
+library-authored propagation protocols; the interim Option/Result propagation
+bindings above remain until that phase is accepted.
 
 Validate unknown/duplicate/missing roles, installed origin, declaration kind,
 binder arity and required member shapes. Application attributes or copied names

@@ -1,7 +1,6 @@
 use crate::{
     declarations::DeclarationId,
     hir::ids::PatternId,
-    native::NativeTypeKind,
     typeck::{BodyTypeEnv, body::BodyChecker},
     types::TypeId,
 };
@@ -54,11 +53,6 @@ impl BodyChecker<'_> {
             .expect("checked variant owner");
         let arguments = match expected {
             TypeId::Enum(nominal) if nominal.declaration == variant.owner => &nominal.arguments,
-            TypeId::StandardEnum { kind, args }
-                if enumeration.native_type == Some(NativeTypeKind::Enum(*kind)) =>
-            {
-                args
-            }
             _ => {
                 self.diagnostics.push(mismatch());
                 return;

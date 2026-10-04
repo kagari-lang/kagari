@@ -1,9 +1,8 @@
 //! Concrete numeric contracts retained through verification and artifact loading.
-use kagari_types::conversion::conversion_error;
 
 pub mod method;
 
-use kagari_types::{integer::IntegerOp, scalar::BuiltinType, surface::StandardEnum, ty::Ty};
+use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,29 +36,12 @@ impl NumericOperation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NumericConversion {
-    pub checked: bool,
     pub source: BuiltinType,
     pub target: BuiltinType,
 }
 
 impl NumericConversion {
     pub fn contract(self) -> Option<(Ty, Ty)> {
-        if self.checked {
-            let error = conversion_error(self.source, self.target)?;
-            return Some((
-                Ty::Builtin(self.source),
-                Ty::StandardEnum {
-                    kind: StandardEnum::Result,
-                    args: vec![
-                        Ty::Builtin(self.target),
-                        Ty::StandardEnum {
-                            kind: error,
-                            args: vec![],
-                        },
-                    ],
-                },
-            ));
-        }
         self.source
             .can_cast_to(self.target)
             .then_some((Ty::Builtin(self.source), Ty::Builtin(self.target)))

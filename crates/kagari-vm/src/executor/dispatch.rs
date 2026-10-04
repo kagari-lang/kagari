@@ -9,7 +9,7 @@ use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
 use kagari_types::ty::Ty;
-use std::iter;
+use std::{iter, ops::Bound, slice};
 
 impl<'a> Executor<'a> {
     fn dispatch_iterator(
@@ -39,13 +39,20 @@ impl<'a> Executor<'a> {
         let Value::Range(value) = value else {
             return Err(VmError::Trap("invalid range value"));
         };
-        let result = value.bound(
-            self.runtime.gc(),
-            self.current_frame()?.loaded().definitions(),
-            range,
-            bound,
-            upper,
-        )?;
+        let owner = self.current_frame()?.loaded().clone();
+        let (member, fields) = match value.bound(owner.definitions(), range, bound, upper)? {
+            Bound::Included(value) => ("Included", vec![value]),
+            Bound::Excluded(value) => ("Excluded", vec![value]),
+            Bound::Unbounded => ("Unbounded", vec![]),
+        };
+        let applied = self
+            .runtime
+            .resolve_type_arguments(&owner, slice::from_ref(bound))?
+            .pop()
+            .ok_or(VmError::TypeMismatch("range bound type scope"))?;
+        let result = self
+            .runtime
+            .make_enum_member(&owner, &applied, member, fields)?;
         if let Some(dst) = dst {
             self.current_frame_mut()?.write_register(dst, result)?;
         }
@@ -63,7 +70,7 @@ impl<'a> Executor<'a> {
                 conversion,
             } => {
                 let value = self.current_frame()?.read_register(src)?;
-                let value = numeric::convert(self.runtime.gc(), conversion, value)?;
+                let value = numeric::convert(conversion, value)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::Numeric {
@@ -82,33 +89,25 @@ impl<'a> Executor<'a> {
                 let value = numeric::fixed_integer(operation, lhs, rhs)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
-            BytecodeInstruction::MapResultError {
+            BytecodeInstruction::ForwardEnumOrigin {
                 dst,
                 original,
-                error,
-                ty,
+                value,
             } => {
                 let frame = self.current_frame()?;
-                let mapped = self.runtime.map_result_error(
+                let forwarded = self.runtime.forward_enum_origin(
                     frame.loaded(),
                     &frame.read_register(original)?,
-                    frame.read_register(error)?,
-                    &ty,
+                    &frame.read_register(value)?,
                 )?;
                 drop(frame);
-                self.current_frame_mut()?.write_register(dst, mapped)?;
+                self.current_frame_mut()?.write_register(dst, forwarded)?;
             }
-
             BytecodeInstruction::Iter { dst, value, ty, op } => {
                 let source = self
                     .current_frame()?
                     .read_register(value.ok_or(VmError::TypeMismatch("iterator source"))?)?;
                 self.dispatch_iterator(&source, &ty, op, Some(dst))?;
-            }
-            BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
-                let ty = self.current_frame()?.resolve_type(&ty)?;
-                let result = self.standard_enum_operation(value, &ty, op)?;
-                self.current_frame_mut()?.write_register(dst, result)?;
             }
 
             BytecodeInstruction::BeginIteration { collection } => {
@@ -581,7 +580,7 @@ impl<'a> Executor<'a> {
     ) -> Result<(), VmError> {
         let value = self
             .runtime
-            .invoke_standard_builtin(intrinsic, &args)
+            .invoke_standard_builtin(self.current_frame()?.loaded(), intrinsic, &args)
             .map_err(VmError::from)?;
         if let Some(dst) = dst {
             self.current_frame_mut()?.write_register(dst, value)?;

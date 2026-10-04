@@ -1,4 +1,5 @@
 //! Script equality is independent of Rust's structural Value comparisons.
+use kagari_types::language::binding;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
@@ -293,11 +294,23 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
         (Value::F64(a), Value::F64(b)) => a.partial_cmp(b),
         (Value::Str(a), Value::Str(b)) => a.partial_cmp(b),
         (Value::Enum(a), Value::Enum(b)) => {
-            let rank = |id| match gc.enum_snapshot(id)?.tag {
-                EnumTag::OrderingLess => Some(0),
-                EnumTag::OrderingEqual => Some(1),
-                EnumTag::OrderingGreater => Some(2),
-                _ => None,
+            let rank = |id| {
+                let snapshot = gc.enum_snapshot(id)?;
+                let EnumTag::Declared(layout) = snapshot.tag;
+                if !snapshot.fields.is_empty()
+                    || !binding::matches(
+                        &layout.layout().declaration,
+                        &binding::ordering_declaration(),
+                        Some(layout.module().definitions()),
+                    )
+                {
+                    return None;
+                }
+                layout
+                    .layout()
+                    .variants
+                    .iter()
+                    .position(|variant| variant.declaration == layout.variant().declaration)
             };
             Some(
                 rank(*a)
@@ -341,6 +354,7 @@ mod tests {
         let mut other_declaration = declaration.clone();
         other_declaration.path[0].name = "OtherEvent".into();
         let variant = |name: &str, payload| EnumVariantLayout {
+            reports_failure: false,
             declaration: DefinitionPath {
                 module: identity.clone(),
                 path: declaration
@@ -377,6 +391,7 @@ mod tests {
                         declaration: other_declaration.clone(),
                         arguments: Vec::new(),
                         variants: vec![EnumVariantLayout {
+                            reports_failure: false,
                             declaration: DefinitionPath {
                                 module: identity.clone(),
                                 path: other_declaration
@@ -422,10 +437,30 @@ mod tests {
         let mut runtime = crate::Runtime::default();
         let interface = crate::layout_fixtures::interface_value(&mut runtime);
         let owner = crate::layout_fixtures::allocation_owner(&mut runtime);
+        let enums = crate::layout_fixtures::enum_owner(
+            &mut runtime,
+            vec![
+                Ty::Builtin(BuiltinType::I32),
+                Ty::Array(
+                    Box::new(Ty::Builtin(BuiltinType::I32)),
+                    kagari_types::collection::CollectionAccess::Mutable,
+                ),
+                Ty::Builtin(BuiltinType::F64),
+            ],
+        );
         let gc = runtime.gc();
         let make = |value| {
+            let slot = match value {
+                Value::Array(_) => 1,
+                Value::F64(_) => 2,
+                _ => 0,
+            };
             Value::Enum(
-                gc.alloc_enum(crate::value::EnumTag::OptionSome, vec![value])
+                runtime
+                    .alloc_enum(
+                        EnumTag::Declared(enums.enum_variant(EnumId::new(slot), 0).unwrap()),
+                        vec![value],
+                    )
                     .unwrap(),
             )
         };

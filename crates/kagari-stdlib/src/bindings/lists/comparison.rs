@@ -1,4 +1,5 @@
 //! Comparators and key selectors run synchronously, with no key-cache prepass.
+use crate::bindings::enums;
 use crate::bindings::lists::{Algorithm, invalid};
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_runtime::{
@@ -9,7 +10,7 @@ use kagari_runtime::{
         scalar::NativeScalar,
         sequence_edit::SequenceEdit,
     },
-    value::{EnumTag, Value},
+    value::Value,
     value_semantics,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -106,13 +107,14 @@ impl<'call> Comparison<'call> {
 }
 
 fn decode_ordering(cx: &CallContext<'_>, value: Value) -> NativeResult<Ordering> {
-    let Value::Enum(id) = value else {
+    let (member, fields) = enums::inspect(cx, &value, "Ordering")?;
+    if !fields.is_empty() {
         return Err(invalid());
-    };
-    match cx.heap().enum_snapshot(id).ok_or_else(invalid)?.tag {
-        EnumTag::OrderingLess => Ok(Ordering::Less),
-        EnumTag::OrderingEqual => Ok(Ordering::Equal),
-        EnumTag::OrderingGreater => Ok(Ordering::Greater),
+    }
+    match member.as_str() {
+        "Less" => Ok(Ordering::Less),
+        "Equal" => Ok(Ordering::Equal),
+        "Greater" => Ok(Ordering::Greater),
         _ => Err(invalid()),
     }
 }

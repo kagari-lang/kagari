@@ -7,12 +7,8 @@ pub mod matching;
 pub mod substitution;
 mod wire;
 use crate::{
-    collection::CollectionAccess,
-    host_interface::value_type::HostValueType,
-    range::RangeKind,
-    scalar::BuiltinType,
-    surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
-    ty::substitution::TypeSubstitution,
+    collection::CollectionAccess, host_interface::value_type::HostValueType, range::RangeKind,
+    scalar::BuiltinType, surface::StandardTypeConstraint, ty::substitution::TypeSubstitution,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -84,10 +80,6 @@ pub enum Ty<I = DefinitionPath> {
     NativeObject(NominalTy<I>),
     Enum(NominalTy<I>),
     Trait(NominalTy<I>),
-    StandardEnum {
-        kind: StandardEnumKind,
-        args: Vec<Ty<I>>,
-    },
 }
 
 impl<I: DefinitionReference> Ty<I> {
@@ -100,9 +92,7 @@ impl<I: DefinitionReference> Ty<I> {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
                 }
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
+                Self::Tuple(items) => pending.extend(items),
                 Self::Array(item, _)
                 | Self::Set(item, _)
                 | Self::Iter(item)
@@ -125,9 +115,7 @@ impl<I: DefinitionReference> Ty<I> {
                 Self::Projection { .. } | Self::Parameter { .. } | Self::SelfType(_) => {
                     return false;
                 }
-                Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
-                    pending.extend(types)
-                }
+                Self::Tuple(types) => pending.extend(types),
                 Self::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);
@@ -199,14 +187,20 @@ impl<I: DefinitionReference> Ty<I> {
             HostValueType::Set(ty, access) => {
                 Self::Set(Box::new(Self::from_host_type(ty)), *access)
             }
-            HostValueType::Option(ty) => Self::StandardEnum {
-                kind: StandardEnumKind::Option,
-                args: vec![Self::from_host_type(ty)],
-            },
-            HostValueType::Result { ok, error } => Self::StandardEnum {
-                kind: StandardEnumKind::Result,
-                args: vec![Self::from_host_type(ok), Self::from_host_type(error)],
-            },
+            HostValueType::Option(declaration, ty) => Self::Enum(NominalTy {
+                declaration: declaration.clone(),
+                arguments: vec![Self::from_host_type(ty)],
+                associated_types: Default::default(),
+            }),
+            HostValueType::Result {
+                declaration,
+                ok,
+                error,
+            } => Self::Enum(NominalTy {
+                declaration: declaration.clone(),
+                arguments: vec![Self::from_host_type(ok), Self::from_host_type(error)],
+                associated_types: Default::default(),
+            }),
         }
     }
 

@@ -386,26 +386,14 @@ pub(super) fn verify_instruction(
                 _ => return Err(invalid()),
             }
         }
-        BytecodeInstruction::MapResultError {
+        BytecodeInstruction::ForwardEnumOrigin {
             dst,
             original,
-            error,
-            ty,
+            value,
         } => {
-            let payload = operations::mapped_error_payload(ty).ok_or(
-                BytecodeVerificationError::InvalidOperation {
-                    function: function.id,
-                    reason: "invalid mapped Result contract",
-                },
-            )?;
-            expect_register_ty(
-                function,
-                *original,
-                ValueType::HeapObject,
-                "original Result",
-            )?;
-            expect_register_ty(function, *error, payload, "mapped error")?;
-            expect_register_ty(function, *dst, ValueType::HeapObject, "mapped Result")?;
+            expect_register_ty(function, *original, ValueType::HeapObject, "origin carrier")?;
+            expect_register_ty(function, *value, ValueType::HeapObject, "enum value")?;
+            expect_register_ty(function, *dst, ValueType::HeapObject, "forwarded enum")?;
         }
         BytecodeInstruction::Iter { dst, value, ty, op } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {
@@ -422,31 +410,7 @@ pub(super) fn verify_instruction(
             }
             expect_register_ty(function, *dst, output, "iterator result")?;
         }
-        BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
-            let invalid = || BytecodeVerificationError::InvalidOperation {
-                function: function.id,
-                reason: "invalid standard enum contract",
-            };
-            let (input, output) = op
-                .contract_in(
-                    ty,
-                    function
-                        .metadata
-                        .semantic
-                        .generic
-                        .as_ref()
-                        .map_or(&[], |body| body.parameters.as_slice()),
-                )
-                .ok_or_else(invalid)?;
-            match (input, value) {
-                (Some(ty), Some(value)) => {
-                    expect_register_ty(function, *value, ty, "standard enum input")?
-                }
-                (None, None) => {}
-                _ => return Err(invalid()),
-            }
-            expect_register_ty(function, *dst, output, "standard enum result")?;
-        }
+
         BytecodeInstruction::MakeEnum {
             dst,
             enumeration,

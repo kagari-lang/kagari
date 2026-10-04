@@ -498,6 +498,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
         declaration: id(DefinitionKind::Enum),
         arguments: Vec::new(),
         variants: vec![EnumVariantLayout {
+            reports_failure: false,
             declaration: id(DefinitionKind::Variant),
             payload: vec![Ty::Builtin(BuiltinType::I32); MAX_ARTIFACT_NESTED_RECORDS + 1],
         }],

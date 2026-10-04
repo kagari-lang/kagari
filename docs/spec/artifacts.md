@@ -33,6 +33,17 @@ and runtime-helper ABI v6. Native bindings use module-qualified declaration IDs;
 the provider descriptor and its separate per-contract version are removed. Older
 products are rejected before execution without a migration reader.
 
+Ordinary nominal enum nodes and layouts now cover source, standard and registered
+native enums. Layouts carry full declaration/member identities, applied arguments,
+ordered payload types and the explicit variant reporting fact. Generic enum
+instructions validate those layouts; ForwardEnumOrigin carries optional diagnostic
+metadata between already-constructed enum values. Linked validation checks nominal
+kind and arity from declarations or validated private layouts. Fixed standard tags,
+standard type nodes and MapResultError are removed. This unpublished replacement
+keeps the current format/ABI identifiers; affected development fixtures are
+regenerated at the final coherent checkpoint, with no previous-schema reader.
+Historical milestones below describe earlier development snapshots.
+
 One native import table carries source identity, concrete type arguments, binding
 ID, applied signature, declaration bounds and ordered selected callable applications.
 Each application carries the required receiver/interface/member, concrete target

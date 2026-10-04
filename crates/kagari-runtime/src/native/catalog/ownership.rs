@@ -1,5 +1,5 @@
 //! Native catalog values and keys share an explicit checked identity context.
-use crate::native::types::TraitRef;
+use crate::native::types::{TraitRef, TypeRef};
 use crate::{
     error::RuntimeError,
     native::{
@@ -72,6 +72,21 @@ impl DeclarationCatalog {
         Ok(TraitRef {
             id: declaration.clone(),
             contract: Arc::new(self.paths(contract)?),
+        })
+    }
+
+    /// Resolve a checked nominal type by its portable declaration identity.
+    pub fn type_reference(&self, declaration: &DefinitionPath) -> Result<TypeRef, RuntimeError> {
+        let contract = self
+            .types
+            .get(declaration)
+            .ok_or_else(|| conflict("unknown native type declaration"))?;
+        Ok(TypeRef {
+            id: declaration.clone(),
+            declaration: Arc::new(self.paths(contract)?),
+            parameter_names: (0..contract.generic_params.len())
+                .map(|index| format!("T{index}"))
+                .collect(),
         })
     }
 

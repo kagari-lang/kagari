@@ -119,7 +119,7 @@ impl ProofCatalog<'_> {
             return Ok(false);
         }
         if kind == Some(Protocol::From)
-            || matches!(adapter, Some(ConversionAdapter::CheckedNumeric { .. }))
+            || matches!(adapter, Some(ConversionAdapter::Forward { .. }))
         {
             if iter::once(table.receiver())
                 .chain(&interface.arguments)
@@ -185,9 +185,7 @@ fn overlapping(left: &Ty, right: &Ty) -> bool {
         (Ty::Struct(left), Ty::Struct(right))
         | (Ty::NativeObject(left), Ty::NativeObject(right))
         | (Ty::Enum(left), Ty::Enum(right)) => left.declaration == right.declaration,
-        (Ty::StandardEnum { kind: left, .. }, Ty::StandardEnum { kind: right, .. }) => {
-            left == right
-        }
+
         (Ty::Tuple(left), Ty::Tuple(right)) => left.len() == right.len(),
         (Ty::Function { params: left, .. }, Ty::Function { params: right, .. }) => {
             left.len() == right.len()
@@ -209,7 +207,7 @@ fn occurs_in_constructor(parameter: &Ty, ty: &Ty) -> bool {
         }
         match ty {
             Ty::Struct(n) | Ty::NativeObject(n) | Ty::Enum(n) => pending.extend(&n.arguments),
-            Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => pending.extend(items),
+            Ty::Tuple(items) => pending.extend(items),
             Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
                 pending.push(item)
             }

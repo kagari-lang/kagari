@@ -1,41 +1,45 @@
 //! Native enum operations consume installed nominal layouts and scoped type arguments.
 use crate::{
+    Runtime,
     error::RuntimeError,
     frame::types::{TypeEnvironment, arguments::TypeArgument},
-    module::EnumVariantRef,
+    module::{EnumVariantRef, LoadedModule},
     native::{binding::NativeResult, context::CallContext, types::VariantRef},
     value::{EnumTag, EnumValueSnapshot, Value},
 };
+use kagari_common::identity::{
+    mapping::{DefinitionMapper, DefinitionRecord},
+    table::DefinitionId,
+};
 use kagari_types::ty::{GenericParam, Ty};
-use std::rc::Rc;
+use std::{rc::Rc, slice};
 
-impl CallContext<'_> {
-    fn declared_enum_variant(
+impl Runtime {
+    pub(crate) fn declared_enum_variant(
         &self,
+        fallback: &LoadedModule,
         applied: &TypeArgument,
-        variant: &VariantRef,
+        member: &str,
     ) -> NativeResult<EnumVariantRef> {
-        applied.validate(self.runtime)?;
+        self.validate_loaded_module(fallback)?;
+        applied.validate(self)?;
         let Ty::Enum(nominal) = applied.ty() else {
             return Err(RuntimeError::module_validation(
                 "native operation requires an enum type",
             ));
         };
         let view = applied
-            .view(self.owner)
+            .view(fallback)
             .normalized()
             .ok_or_else(|| RuntimeError::module_validation("native enum type scope"))?;
         let (owner, id) = view.owner.find_enum_definition(nominal).ok_or_else(|| {
             RuntimeError::module_validation("native enum layout is absent from the pinned program")
         })?;
-        let declaration = owner.definitions().lookup(variant.id()).ok_or_else(|| {
-            RuntimeError::module_validation("native enum variant is absent from the pinned program")
-        })?;
         let template = &owner.bytecode.enumerations[id.index()];
         let index = template
             .variants
             .iter()
-            .position(|member| member.declaration == declaration)
+            .position(|variant| owner.definition_name(variant.declaration) == Some(member))
             .ok_or_else(|| RuntimeError::module_validation("variant belongs to another enum"))?;
         let index = u32::try_from(index)
             .map_err(|_| RuntimeError::module_validation("enum variant index"))?;
@@ -43,7 +47,7 @@ impl CallContext<'_> {
             .applied_enum_variant(id, &nominal.arguments, index)
             .ok_or_else(|| RuntimeError::module_validation("native enum layout application"))?;
         let arguments = (0..nominal.arguments.len())
-            .map(|position| applied.parameter(self.runtime, self.owner, position))
+            .map(|position| applied.parameter(self, fallback, position))
             .collect::<NativeResult<Vec<_>>>()?;
         if arguments.iter().any(TypeArgument::has_origin) {
             if !template.arguments.iter().enumerate().all(|(position, ty)| {
@@ -58,10 +62,69 @@ impl CallContext<'_> {
                 })
                 .collect();
             layout.environment = Some(Rc::new(TypeEnvironment::new(
-                self.runtime.definition_context(),
+                self.definition_context(),
                 parameters,
                 arguments,
             )?));
+        }
+        Ok(layout)
+    }
+
+    pub(crate) fn portable_type_argument(
+        &self,
+        owner: &LoadedModule,
+        ty: &Ty,
+    ) -> NativeResult<TypeArgument> {
+        let ty: Ty<DefinitionId> = ty
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |path| self.definition_context().intern(path).map_err(Into::into),
+                &Default::default(),
+            ))
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        self.resolve_type_arguments(owner, slice::from_ref(&ty))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("nominal type scope"))
+    }
+
+    /// Construct a declared member in a validated, generation-pinned type scope.
+    /// Member lookup and payload checks precede allocation; retain a root before
+    /// another allocation or reentry. Native bindings normally use VariantRef.
+    pub fn make_enum_member(
+        &self,
+        owner: &LoadedModule,
+        applied: &TypeArgument,
+        member: &str,
+        fields: Vec<Value>,
+    ) -> NativeResult<Value> {
+        let layout = self.declared_enum_variant(owner, applied, member)?;
+        self.alloc_enum(EnumTag::Declared(layout), fields)
+            .map(Value::Enum)
+    }
+}
+
+impl CallContext<'_> {
+    fn declared_enum_variant(
+        &self,
+        applied: &TypeArgument,
+        variant: &VariantRef,
+    ) -> NativeResult<EnumVariantRef> {
+        let member = variant
+            .id()
+            .path
+            .last()
+            .ok_or_else(|| RuntimeError::module_validation("native enum member identity"))?;
+        let layout = self
+            .runtime
+            .declared_enum_variant(self.owner, applied, &member.name)?;
+        let expected = layout
+            .module()
+            .definitions()
+            .lookup(variant.id())
+            .ok_or_else(|| RuntimeError::module_validation("native enum member identity"))?;
+        if expected != layout.variant().declaration {
+            return Err(RuntimeError::module_validation(
+                "variant belongs to another enum",
+            ));
         }
         Ok(layout)
     }

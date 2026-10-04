@@ -1,19 +1,18 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
 use crate::catalog::contracts::{applied_item, method, unit};
-use crate::catalog::{key, key::RegistrationTrait};
+use crate::catalog::{enums, key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
 use kagari_types::{
     callable::CallableImplementation,
     collection::CollectionAccess,
     declaration::{
-        FnDecl, TypeDef, TypeDefKind, VariantDef,
+        FnDecl, TypeDef, TypeDefKind,
         module::{ImplDecl, ModuleDecl},
         native::NativeTypeConstructor,
         requirement::NativeCallableRequirement,
     },
     range::RangeKind,
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
 
@@ -38,30 +37,13 @@ fn define_type(
     } else {
         vec![]
     };
-    let variants = if let NativeTypeConstructor::Enum(kind) = layout {
-        kind.variants()
-            .iter()
-            .map(|variant| {
-                let name = format!("{variant:?}");
-                VariantDef {
-                    name: name.strip_prefix("Parse").unwrap_or(&name).to_owned(),
-                    payload: variant
-                        .payload()
-                        .map(|position| vec![generic_params[position].as_type()])
-                        .unwrap_or_default(),
-                }
-            })
-            .collect()
-    } else {
-        vec![]
-    };
     module.types.push(TypeDef {
         name: name.into(),
         kind: TypeDefKind::Native(layout),
         generic_params,
         bounds,
         fields: vec![],
-        variants,
+        variants: vec![],
     });
     module
         .documentation
@@ -173,32 +155,7 @@ fn declare_key_calls(module: &mut ModuleDecl, family: &str) {
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     define_type(module, "String", NativeTypeConstructor::String, &[], false);
-    for (name, kind, parameters) in [
-        ("Option", StandardEnum::Option, &["T"][..]),
-        ("Result", StandardEnum::Result, &["T", "E"][..]),
-        ("Ordering", StandardEnum::Ordering, &[][..]),
-        ("Bound", StandardEnum::Bound, &["T"][..]),
-        ("ParseError", StandardEnum::ParseError, &[][..]),
-        ("TryFromIntError", StandardEnum::TryFromIntError, &[][..]),
-        ("Infallible", StandardEnum::Infallible, &[][..]),
-    ] {
-        define_type(
-            module,
-            name,
-            NativeTypeConstructor::Enum(kind),
-            parameters,
-            false,
-        );
-        if matches!(
-            kind,
-            StandardEnum::Option
-                | StandardEnum::Result
-                | StandardEnum::Ordering
-                | StandardEnum::Bound
-        ) {
-            module.variant_exports.insert(name.into());
-        }
-    }
+    enums::declare(module);
     for kind in [
         RangeKind::Exclusive,
         RangeKind::Inclusive,

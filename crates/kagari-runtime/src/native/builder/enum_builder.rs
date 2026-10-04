@@ -93,6 +93,7 @@ impl<'module> EnumBuilder<'module> {
         }
         let id = ModuleDecl::variant_id(&self.id, &name);
         self.declaration.variants.push(VariantDef {
+            reports_failure: false,
             name,
             payload: payload.into_iter().map(|ty| ty.0).collect(),
         });

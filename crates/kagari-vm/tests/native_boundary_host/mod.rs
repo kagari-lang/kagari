@@ -4,10 +4,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_runtime::{
-    Runtime, RuntimeConfig,
-    host::HostFunction,
-    module::LoadedModule,
-    value::{EnumTag, Value},
+    Runtime, RuntimeConfig, host::HostFunction, module::LoadedModule, value::Value,
 };
 use kagari_types::{
     collection::CollectionAccess,
@@ -83,14 +80,41 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         panic!("six fixtures")
     };
     let runtime = vm.runtime_mut();
+    let enumeration = |ty, member, fields| {
+        let applied = runtime
+            .resolve_type_arguments(&loaded, &[ty])
+            .unwrap()
+            .remove(0);
+        runtime
+            .make_enum_member(&loaded, &applied, member, fields)
+            .unwrap()
+    };
     let some = |value| {
-        Value::Enum(
-            runtime
-                .alloc_enum(EnumTag::OptionSome, vec![value])
-                .unwrap(),
+        let ty = match value {
+            Value::Bool(_) => BuiltinType::Bool,
+            _ => BuiltinType::I32,
+        };
+        enumeration(
+            kagari_types::language::binding::option(Ty::Builtin(ty)),
+            "Some",
+            vec![value],
         )
     };
-    let result = |tag, value| Value::Enum(runtime.alloc_enum(tag, vec![value]).unwrap());
+    let result = |member, value| {
+        let error = if member == "Ok" || matches!(value, Value::Str(_)) {
+            BuiltinType::String
+        } else {
+            BuiltinType::I32
+        };
+        enumeration(
+            kagari_types::language::binding::result(
+                Ty::Builtin(BuiltinType::I32),
+                Ty::Builtin(error),
+            ),
+            member,
+            vec![value],
+        )
+    };
     let cases = [
         (
             Type::Tuple(vec![
@@ -120,29 +144,57 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             wrong_set.clone(),
         ),
         (
-            Type::Option(Box::new(Type::I32)),
+            Type::Option(
+                kagari_types::language::binding::option_declaration(),
+                Box::new(Type::I32),
+            ),
             some(Value::I32(7)),
             some(Value::Bool(true)),
         ),
         (
-            Type::Option(Box::new(Type::I32)),
-            Value::Enum(runtime.alloc_enum(EnumTag::OptionNone, vec![]).unwrap()),
-            result(EnumTag::ResultOk, Value::I32(7)),
+            Type::Option(
+                kagari_types::language::binding::option_declaration(),
+                Box::new(Type::I32),
+            ),
+            enumeration(
+                kagari_types::language::binding::option(Ty::Builtin(BuiltinType::I32)),
+                "None",
+                vec![],
+            ),
+            result("Ok", Value::I32(7)),
+        ),
+        (
+            Type::Option(
+                kagari_types::language::binding::option_declaration(),
+                Box::new(Type::I32),
+            ),
+            enumeration(
+                kagari_types::language::binding::option(Ty::Builtin(BuiltinType::I32)),
+                "None",
+                vec![],
+            ),
+            enumeration(
+                kagari_types::language::binding::option(Ty::Builtin(BuiltinType::Bool)),
+                "None",
+                vec![],
+            ),
         ),
         (
             Type::Result {
+                declaration: kagari_types::language::binding::result_declaration(),
                 ok: Box::new(Type::I32),
                 error: Box::new(Type::String),
             },
-            result(EnumTag::ResultOk, Value::I32(7)),
-            result(EnumTag::ResultErr, Value::I32(7)),
+            result("Ok", Value::I32(7)),
+            result("Err", Value::I32(7)),
         ),
         (
             Type::Result {
+                declaration: kagari_types::language::binding::result_declaration(),
                 ok: Box::new(Type::I32),
                 error: Box::new(Type::String),
             },
-            result(EnumTag::ResultErr, Value::Str("error".into())),
+            result("Err", Value::Str("error".into())),
             some(Value::I32(7)),
         ),
     ];

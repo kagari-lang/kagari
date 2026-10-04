@@ -47,7 +47,7 @@ impl ProofCatalog<'_> {
                         pending.extend(members.iter().map(|member| (*member, depth + 1)));
                     }
                 }
-                Ty::Tuple(members) | Ty::StandardEnum { args: members, .. } => {
+                Ty::Tuple(members) => {
                     pending.extend(members.iter().map(|member| (member, depth + 1)))
                 }
                 _ => {}

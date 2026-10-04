@@ -5,7 +5,7 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     collection::CollectionAccess, declaration::AssociatedTypeFamily, language::Protocol,
-    scalar::BuiltinType, surface::StandardEnum, ty::GenericParam,
+    scalar::BuiltinType, ty::GenericParam,
 };
 
 fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
@@ -24,6 +24,32 @@ fn nominal(id: DefinitionPath, arguments: Vec<Ty>) -> NominalTy {
         declaration: id,
         arguments,
         associated_types: BTreeMap::new(),
+    }
+}
+
+fn wrapper_layout(payload: Ty) -> EnumLayout {
+    let declaration = kagari_types::language::binding::option_declaration();
+    EnumLayout {
+        declaration: declaration.clone(),
+        arguments: vec![payload.clone()],
+        variants: vec![
+            EnumVariantLayout {
+                reports_failure: false,
+                declaration: kagari_types::declaration::module::ModuleDecl::variant_id(
+                    &declaration,
+                    "Some",
+                ),
+                payload: vec![payload],
+            },
+            EnumVariantLayout {
+                reports_failure: false,
+                declaration: kagari_types::declaration::module::ModuleDecl::variant_id(
+                    &declaration,
+                    "None",
+                ),
+                payload: vec![],
+            },
+        ],
     }
 }
 
@@ -263,6 +289,7 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
         declaration: instance.declaration,
         arguments: vec![],
         variants: vec![EnumVariantLayout {
+            reports_failure: false,
             declaration: id(DefinitionKind::Variant, "Next"),
             payload: vec![ty.clone()],
         }],
@@ -299,10 +326,13 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
     );
     assert!(!catalog.holds(&collect, &set, &[], &cancel).unwrap());
     // Storage itself remains an identity key regardless of element equality.
-    let wrapped = Ty::StandardEnum {
-        kind: StandardEnum::Option,
-        args: vec![set],
-    };
+    let wrapped = Ty::Enum(kagari_types::ty::NominalTy {
+        declaration: kagari_types::language::binding::option_declaration(),
+        arguments: vec![set.clone()],
+        associated_types: Default::default(),
+    });
+    let wrapper = wrapper_layout(set);
+    let catalog = ProofCatalog::new(vec![], vec![], [&layout, &wrapper], [], [], &cancel).unwrap();
     assert!(
         catalog
             .holds(
@@ -416,9 +446,12 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
         position: 1,
     };
     lifted.generic_params = vec![element.clone(), output.clone()];
-    let option = |ty| Ty::StandardEnum {
-        kind: StandardEnum::Option,
-        args: vec![ty],
+    let option = |ty| {
+        Ty::Enum(kagari_types::ty::NominalTy {
+            declaration: kagari_types::language::binding::option_declaration(),
+            arguments: vec![ty],
+            associated_types: Default::default(),
+        })
     };
     lifted.for_type = option(output.as_type());
     lifted.trait_type = Ty::Trait(nominal(
@@ -554,6 +587,7 @@ fn equality_composition_uses_carried_payloads_and_stops_at_identity_boundaries()
         declaration: instance.declaration,
         arguments: vec![],
         variants: vec![EnumVariantLayout {
+            reports_failure: false,
             declaration: id(DefinitionKind::Variant, "Next"),
             payload: vec![key.clone(), chain.clone()],
         }],
@@ -566,7 +600,7 @@ fn equality_composition_uses_carried_payloads_and_stops_at_identity_boundaries()
             .uses_custom_equality(&Ty::Tuple(vec![chain.clone()]), &cancel)
             .unwrap()
     );
-    for storage in [
+    let storages = [
         Ty::Array(Box::new(key.clone()), CollectionAccess::Mutable),
         Ty::Map {
             key: Box::new(key.clone()),
@@ -574,14 +608,30 @@ fn equality_composition_uses_carried_payloads_and_stops_at_identity_boundaries()
             access: CollectionAccess::ReadOnly,
         },
         Ty::Set(Box::new(key), CollectionAccess::Mutable),
-    ] {
+    ];
+    let wrappers = storages
+        .iter()
+        .cloned()
+        .map(wrapper_layout)
+        .collect::<Vec<_>>();
+    let catalog = ProofCatalog::new(
+        vec![(&partial).into()],
+        vec![],
+        std::iter::once(&layout).chain(wrappers.iter()),
+        [],
+        [],
+        &cancel,
+    )
+    .unwrap();
+    for storage in storages {
         assert!(
             !catalog
                 .uses_custom_equality(
-                    &Ty::StandardEnum {
-                        kind: StandardEnum::Option,
-                        args: vec![storage],
-                    },
+                    &Ty::Enum(kagari_types::ty::NominalTy {
+                        declaration: kagari_types::language::binding::option_declaration(),
+                        arguments: vec![storage],
+                        associated_types: Default::default()
+                    }),
                     &cancel
                 )
                 .unwrap()

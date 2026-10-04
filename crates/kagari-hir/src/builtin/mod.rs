@@ -1,5 +1,4 @@
 pub mod array_bridge;
-pub mod numeric;
 pub mod surface;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

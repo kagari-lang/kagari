@@ -9,7 +9,7 @@ use kagari_contract::standard::RuntimePrimitive;
 use kagari_hir::{
     AnalyzedModule,
     hir::{expr::ExprKind, ids::ExprId, item::function::Function},
-    language::semantics::{ProtocolSemantics, callable_signature},
+    language::semantics::{ProtocolSemantics, callable_signature, ordering_type},
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, TypedFunction},
     types::{
@@ -26,7 +26,6 @@ use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     language::{Protocol, identity},
     scalar::BuiltinType,
-    surface::StandardEnum,
 };
 use std::iter;
 
@@ -162,17 +161,8 @@ pub(crate) fn lower_protocol<'a>(
             Protocol::Iterable | Protocol::Iterator | Protocol::Fn => {
                 iteration_result.expect("protocol result")
             }
-            Protocol::PartialOrd => TypeId::StandardEnum {
-                kind: StandardEnum::Option,
-                args: vec![TypeId::StandardEnum {
-                    kind: StandardEnum::Ordering,
-                    args: vec![],
-                }],
-            },
-            Protocol::Ord => TypeId::StandardEnum {
-                kind: StandardEnum::Ordering,
-                args: vec![],
-            },
+            Protocol::PartialOrd => ordering_type(true),
+            Protocol::Ord => ordering_type(false),
             _ => TypeId::Builtin(match protocol {
                 Protocol::PartialEq => BuiltinType::Bool,
                 Protocol::Hash => BuiltinType::I64,

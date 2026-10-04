@@ -18,6 +18,7 @@ use kagari_types::host_interface::{
     type_declaration::{HostTypeDeclaration, PathAccess},
     value_type::HostValueType,
 };
+use kagari_types::ty::Ty;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -1141,19 +1142,37 @@ fn host_value_matches(
                 };
                 pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
             }
-            (Value::Enum(id), HostValueType::Option(_) | HostValueType::Result { .. }) => {
+            (Value::Enum(id), HostValueType::Option(_, _) | HostValueType::Result { .. }) => {
                 let Some(snapshot) = heap.enum_snapshot(id) else {
                     return Ok(false);
                 };
-                let expected = match (ty, snapshot.tag) {
-                    (HostValueType::Option(_), EnumTag::OptionNone)
-                        if snapshot.fields.is_empty() =>
-                    {
+                let EnumTag::Declared(layout) = snapshot.tag;
+                let expected = runtime
+                    .resolve_type_arguments(layout.module(), &[Ty::from_host_type(ty)])?
+                    .remove(0);
+                if !expected.matches(runtime, &Value::Enum(id), layout.module()) {
+                    return Ok(false);
+                }
+                let declaration = match ty {
+                    HostValueType::Option(declaration, _)
+                    | HostValueType::Result { declaration, .. } => declaration,
+                    _ => unreachable!(),
+                };
+                if layout.module().definitions().lookup(declaration)
+                    != Some(layout.layout().declaration)
+                {
+                    return Ok(false);
+                }
+                let member = layout
+                    .module()
+                    .definition_name(layout.variant().declaration);
+                let expected = match (ty, member) {
+                    (HostValueType::Option(_, _), Some("None")) if snapshot.fields.is_empty() => {
                         continue;
                     }
-                    (HostValueType::Option(element), EnumTag::OptionSome) => element,
-                    (HostValueType::Result { ok, .. }, EnumTag::ResultOk) => ok,
-                    (HostValueType::Result { error, .. }, EnumTag::ResultErr) => error,
+                    (HostValueType::Option(_, element), Some("Some")) => element,
+                    (HostValueType::Result { ok, .. }, Some("Ok")) => ok,
+                    (HostValueType::Result { error, .. }, Some("Err")) => error,
                     _ => return Ok(false),
                 };
                 if snapshot.fields.len() != 1 {

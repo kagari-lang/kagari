@@ -8,7 +8,6 @@ use crate::{
         context::{CallContext, LinkedCallable},
         sequence_edit::SequenceEdit,
     },
-    value::{EnumTag, Value},
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
@@ -32,12 +31,6 @@ impl LinkedCallable {
 }
 
 impl<'call> CallContext<'call> {
-    /// Allocate a checked tagged value. Declared layouts, fields and generations
-    /// are validated by the heap; dynamic native results are checked on return.
-    pub fn enum_value(&self, tag: EnumTag, fields: Vec<Value>) -> NativeResult<Value> {
-        self.runtime.validate_heap_payloads(&fields)?;
-        self.heap().alloc_enum(tag, fields).map(Value::Enum)
-    }
     /// Copy sequence storage while preserving its checked element contract.
     pub fn clone_sequence(&self, source: HeapObjectId) -> NativeResult<HeapObjectId> {
         self.heap().clone_array(source)

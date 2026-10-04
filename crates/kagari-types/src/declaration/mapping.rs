@@ -185,6 +185,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VariantDef<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(VariantDef {
+            reports_failure: self.reports_failure,
             name: self.name.clone(),
             payload: map_sequence(&self.payload, |value| (value).map_identities(mapper))?,
         })

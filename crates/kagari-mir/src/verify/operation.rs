@@ -488,17 +488,14 @@ pub(super) fn verify(
                 "interface receiver",
             )?;
         }
-        Instruction::MapResultError {
+        Instruction::ForwardEnumOrigin {
             dst,
             original,
-            error,
-            ty,
+            value,
         } => {
-            let payload = operations::mapped_error_payload(ty)
-                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
-            context.expect(original.ty, ValueType::HeapObject, "original Result")?;
-            context.expect(error.ty, payload, "mapped error")?;
-            context.expect(dst.ty, ValueType::HeapObject, "mapped Result")?;
+            context.expect(original.ty, ValueType::HeapObject, "origin carrier")?;
+            context.expect(value.ty, ValueType::HeapObject, "enum value")?;
+            context.expect(dst.ty, ValueType::HeapObject, "forwarded enum")?;
         }
         Instruction::Iter { dst, value, ty, op } => {
             let (input, output) = op
@@ -509,22 +506,7 @@ pub(super) fn verify(
             }
             context.expect(dst.ty, output, "iterator result")?;
         }
-        Instruction::StandardEnum { dst, value, ty, op } => {
-            let (input, output) = op
-                .contract_in(
-                    ty,
-                    function
-                        .semantic
-                        .generic
-                        .as_ref()
-                        .map_or(&[], |body| body.parameters.as_slice()),
-                )
-                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
-            if input != value.map(|v| v.ty) {
-                return Err(context.error(Error::InvalidEnumInitializer));
-            }
-            context.expect(dst.ty, output, "standard enum result")?;
-        }
+
         Instruction::MakeEnum {
             dst,
             enumeration,

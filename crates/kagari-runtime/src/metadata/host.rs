@@ -188,22 +188,21 @@ fn intern(
             intern(inner, nominal, value)?;
             TypeKind::Map
         }
-        HostValueType::Option(element) => {
-            variants.push(VariantInfo {
-                id: VariantMetadataId::new(0),
-                name: "None".into(),
-                payload: vec![],
-                abi_fingerprint: AbiFingerprint(ty.fingerprint().map_err(metadata_error)?),
-            });
-            variants.push(VariantInfo {
-                id: VariantMetadataId::new(1),
-                name: "Some".into(),
-                payload: vec![intern(inner, nominal, element)?],
-                abi_fingerprint: AbiFingerprint(ty.fingerprint().map_err(metadata_error)?),
-            });
+        HostValueType::Option(_, element) => {
+            for (slot, name, payload) in [
+                (0, "Some", vec![intern(inner, nominal, element)?]),
+                (1, "None", vec![]),
+            ] {
+                variants.push(VariantInfo {
+                    id: VariantMetadataId::new(slot),
+                    name: name.into(),
+                    payload,
+                    abi_fingerprint: AbiFingerprint(ty.fingerprint().map_err(metadata_error)?),
+                });
+            }
             TypeKind::Enum
         }
-        HostValueType::Result { ok, error } => {
+        HostValueType::Result { ok, error, .. } => {
             for (slot, name, payload) in [(0, "Ok", ok), (1, "Err", error)] {
                 variants.push(VariantInfo {
                     id: VariantMetadataId::new(slot),

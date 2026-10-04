@@ -844,22 +844,7 @@ pub(crate) fn match_implementation(
                 );
                 pending.extend(left.arguments.iter().zip(&right.arguments));
             }
-            (TypeId::Tuple(left), TypeId::Tuple(right))
-            | (TypeId::StandardEnum { args: left, .. }, TypeId::StandardEnum { args: right, .. })
-                if left.len() == right.len() =>
-            {
-                if let (
-                    TypeId::StandardEnum {
-                        kind: left_kind, ..
-                    },
-                    TypeId::StandardEnum {
-                        kind: right_kind, ..
-                    },
-                ) = (pattern, actual)
-                    && left_kind != right_kind
-                {
-                    return None;
-                }
+            (TypeId::Tuple(left), TypeId::Tuple(right)) if left.len() == right.len() => {
                 pending.extend(left.iter().zip(right));
             }
             (

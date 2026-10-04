@@ -10,15 +10,12 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
-    operations::{IterOp, StandardEnumOp},
-    standard::RuntimePrimitive as S,
-    types as abi,
-    types::PublicItem,
+    operations::IterOp, standard::RuntimePrimitive as S, types as abi, types::PublicItem,
 };
 use kagari_types::{
     collection::CollectionAccess as Access,
+    language::binding,
     scalar::BuiltinType as B,
-    surface::StandardEnum,
     ty::{NominalTy, Ty, access},
 };
 
@@ -433,36 +430,7 @@ pub(super) fn verify(
                         }
                     }
                 }
-                I::StandardEnum { dst, value, ty, op } => {
-                    if !matches!(op, StandardEnumOp::Make(_))
-                        && let Some(value) = value.and_then(get)
-                        && !flows(&value, ty)
-                    {
-                        return Err(invalid());
-                    }
-                    if let Ty::StandardEnum { args, .. } = ty {
-                        match op {
-                            StandardEnumOp::Make(index) => {
-                                let member = if args.len() == 2 { *index as usize } else { 0 };
-                                if let (Some(value), Some(expected)) =
-                                    (value.and_then(get), args.get(member))
-                                    && !flows(&value, expected)
-                                {
-                                    return Err(invalid());
-                                }
-                                produced = Some((*dst, Fact::typed(ty.clone())));
-                            }
-                            StandardEnumOp::Read(index) => {
-                                let member = if args.len() == 2 { *index as usize } else { 0 };
-                                produced =
-                                    args.get(member).cloned().map(|ty| (*dst, Fact::typed(ty)));
-                            }
-                            StandardEnumOp::Test(_) => {
-                                produced = Some((*dst, Fact::typed(Ty::Builtin(B::Bool))))
-                            }
-                        }
-                    }
-                }
+
                 I::Iter { dst, value, ty, op } => {
                     if let Some(value) = value.and_then(get)
                         && !flows(&value, ty)
@@ -491,10 +459,7 @@ pub(super) fn verify(
                             *dst,
                             Fact::typed(match op {
                                 IterOp::New | IterOp::String(_) => Ty::Iter(Box::new(item)),
-                                IterOp::Next => Ty::StandardEnum {
-                                    kind: StandardEnum::Option,
-                                    args: vec![item],
-                                },
+                                IterOp::Next => binding::option(item),
                                 _ => Ty::Builtin(B::Unit),
                             }),
                         )
@@ -666,13 +631,8 @@ pub(super) fn verify(
                     }
                     produced = Some((*dst, Fact::typed(output)));
                 }
-                I::MapResultError { dst, error, ty, .. } => {
-                    if let (Some(value), Ty::StandardEnum { args, .. }) = (get(*error), ty)
-                        && !flows(&value, &args[1])
-                    {
-                        return Err(invalid());
-                    }
-                    produced = Some((*dst, Fact::typed(ty.clone())));
+                I::ForwardEnumOrigin { dst, value, .. } => {
+                    produced = Some((*dst, get(*value).unwrap_or_default()));
                 }
                 I::SetPath { path, value, .. } => {
                     let record = &module.paths[path.index()];

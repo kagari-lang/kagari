@@ -4,8 +4,9 @@ use kagari_contract::standard::RuntimePrimitive;
 use std::borrow::Cow;
 
 use crate::{
+    Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    gc::GcHeap,
+    module::LoadedModule,
     value::Value,
 };
 
@@ -45,11 +46,12 @@ impl From<RuntimeError> for BuiltinError {
 }
 
 pub fn invoke_standard(
-    gc: &GcHeap,
+    runtime: &Runtime,
+    owner: &LoadedModule,
     intrinsic: RuntimePrimitive,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
-    standard::invoke(gc, intrinsic, args)
+    standard::invoke(runtime, owner, intrinsic, args)
         .map_err(|err| err.with_context(&standard_intrinsic_name(intrinsic)))
 }
 

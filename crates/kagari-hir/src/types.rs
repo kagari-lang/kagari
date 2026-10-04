@@ -1,9 +1,6 @@
 pub mod semantic;
 
-use crate::{
-    native::enum_display_name,
-    typeck::{GenericBounds, associated},
-};
+use crate::typeck::{GenericBounds, associated};
 use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
 use kagari_types::{
     collection::{
@@ -13,7 +10,6 @@ use kagari_types::{
     range::RangeKind,
     scalar::BuiltinType,
     surface as standard_surface,
-    surface::StandardEnum,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -137,10 +133,6 @@ pub enum TypeId<I: DefinitionReference = DefinitionPath> {
         member: I,
     },
     SelfType(I),
-    StandardEnum {
-        kind: StandardEnum,
-        args: Vec<TypeId<I>>,
-    },
 }
 
 impl TypeId {
@@ -307,10 +299,6 @@ impl TypeId {
                         }
                         pending.push(Part::Text(kind.name()));
                     }
-                    Self::StandardEnum { kind, args } => {
-                        sequence(&mut pending, args, "<", ">");
-                        pending.push(Part::Text(enum_display_name(*kind)));
-                    }
                 },
             }
         }
@@ -337,9 +325,7 @@ pub fn supports_array_repetition(
         }
         match ty {
             TypeId::Builtin(_) | TypeId::Range(_, _) => {}
-            TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
-                pending.extend(items)
-            }
+            TypeId::Tuple(items) => pending.extend(items),
             TypeId::Enum(instance) => {
                 let Some(payload) = enum_payload(&instance) else {
                     return false;
@@ -498,9 +484,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
                 }
-                Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
-                    pending.extend(types)
-                }
+                Self::Tuple(types) => pending.extend(types),
                 Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
                     pending.push(ty)
                 }
@@ -520,9 +504,7 @@ impl<I: DefinitionReference> TypeId<I> {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Host(_) => return true,
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
+                Self::Tuple(items) => pending.extend(items),
                 Self::Function { .. } => {}
                 Self::Array(item, _)
                 | Self::Set(item, _)
@@ -558,9 +540,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.extend(interface.associated_types.values());
                 }
                 Self::SelfType(_) => return true,
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
+                Self::Tuple(items) => pending.extend(items),
                 Self::Array(item, _)
                 | Self::Set(item, _)
                 | Self::Iter(item)
@@ -616,10 +596,7 @@ impl<I: DefinitionReference> TypeId<I> {
             Self::Struct(ty) => Self::Struct(ty.map_arguments(map)),
             Self::Enum(ty) => Self::Enum(ty.map_arguments(map)),
             Self::Trait(ty) => Self::Trait(ty.map_arguments(map)),
-            Self::StandardEnum { kind, args } => Self::StandardEnum {
-                kind: *kind,
-                args: args.iter().map(map).collect(),
-            },
+
             Self::Projection {
                 receiver,
                 interface,
@@ -668,10 +645,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 Self::Enum(ty) => Self::Enum(ty.map_arguments(|_| Self::Unknown)),
                 Self::Trait(ty) => Self::Trait(ty.map_arguments(|_| Self::Unknown)),
                 Self::Tuple(items) => Self::Tuple(vec![Self::Unknown; items.len()]),
-                Self::StandardEnum { kind, args } => Self::StandardEnum {
-                    kind: *kind,
-                    args: vec![Self::Unknown; args.len()],
-                },
+
                 Self::Iter(_) => Self::Iter(Box::new(Self::Unknown)),
                 Self::Range(_, kind) => Self::Range(Box::new(Self::Unknown), *kind),
                 Self::Array(_, access) => Self::Array(Box::new(Self::Unknown), *access),
@@ -752,11 +726,7 @@ impl<I: DefinitionReference> TypeId<I> {
                             .map(|(source, target)| (source, target, substitute)),
                     );
                 }
-                (Self::Tuple(source), Self::Tuple(target))
-                | (
-                    Self::StandardEnum { args: source, .. },
-                    Self::StandardEnum { args: target, .. },
-                ) => {
+                (Self::Tuple(source), Self::Tuple(target)) => {
                     pending.extend(
                         source
                             .iter()
@@ -827,7 +797,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
                 }
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                Self::Tuple(items) => {
                     pending.extend(items);
                 }
                 Self::Array(item, _)
@@ -891,7 +861,7 @@ impl<I: DefinitionReference> TypeId<I> {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
-                Self::Tuple(members) | Self::StandardEnum { args: members, .. } => {
+                Self::Tuple(members) => {
                     pending.extend(members);
                 }
                 Self::Inference(_)
@@ -928,7 +898,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
                 }
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                Self::Tuple(items) => {
                     pending.extend(items);
                 }
                 Self::Array(item, _)
@@ -971,9 +941,7 @@ impl<I: DefinitionReference> TypeId<I> {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Inference(_) | Self::Unknown => return true,
-                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
-                    pending.extend(items)
-                }
+                Self::Tuple(items) => pending.extend(items),
                 Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values())
@@ -1060,18 +1028,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     }
                     pending.extend(left.arguments.iter_mut().zip(&right.arguments).rev());
                 }
-                (
-                    Self::StandardEnum {
-                        kind: lk,
-                        args: left,
-                    },
-                    Self::StandardEnum {
-                        kind: rk,
-                        args: right,
-                    },
-                ) if lk == rk && left.len() == right.len() => {
-                    pending.extend(left.iter_mut().zip(right).rev());
-                }
+
                 _ => {}
             }
         }
@@ -1151,15 +1108,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     );
                     pending.extend(left.arguments.iter().zip(&right.arguments).rev());
                 }
-                (
-                    Self::StandardEnum { kind: lk, args: la },
-                    Self::StandardEnum { kind: rk, args: ra },
-                ) => {
-                    if lk != rk || la.len() != ra.len() {
-                        return true;
-                    }
-                    pending.extend(la.iter().zip(ra).rev());
-                }
+
                 _ if left != right => return true,
                 _ => {}
             }
@@ -1191,8 +1140,7 @@ impl<I: DefinitionReference> TypeId<I> {
             | Self::Host(_)
             | Self::Generic(_)
             | Self::SelfType(_)
-            | Self::Projection { .. }
-            | Self::StandardEnum { .. } => true,
+            | Self::Projection { .. } => true,
         }
     }
 }

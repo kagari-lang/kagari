@@ -6,7 +6,7 @@ use kagari_contract::{
     effects::{EffectSet, runtime_primitive_effects},
     native_import::NativeImport,
     numeric::{NumericConversion, NumericOperation},
-    operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
+    operations::{BinaryOp, IterOp, UnaryOp},
     standard::RuntimePrimitive,
 };
 use kagari_types::{
@@ -65,23 +65,16 @@ pub enum Instruction<I = DefinitionPath> {
         lhs: MirValue,
         rhs: Option<MirValue>,
     },
-    MapResultError {
+    ForwardEnumOrigin {
         dst: MirValue,
         original: MirValue,
-        error: MirValue,
-        ty: Ty<I>,
+        value: MirValue,
     },
     Iter {
         dst: MirValue,
         value: Option<MirValue>,
         ty: Ty<I>,
         op: IterOp,
-    },
-    StandardEnum {
-        dst: MirValue,
-        value: Option<MirValue>,
-        ty: Ty<I>,
-        op: StandardEnumOp,
     },
     LoadConst {
         dst: MirValue,
@@ -316,14 +309,11 @@ impl<I: DefinitionReference> Instruction<I> {
         match self {
             Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),
             Self::Convert { conversion, .. } => {
-                if conversion.checked {
-                    EffectSet::allocation()
-                } else {
-                    // Runtime conversion validates the source numeric domain.
-                    EffectSet {
-                        may_trap: true,
-                        ..EffectSet::default()
-                    }
+                let _ = conversion;
+                // Runtime conversion validates the source numeric domain.
+                EffectSet {
+                    may_trap: true,
+                    ..EffectSet::default()
                 }
             }
             Self::Numeric { .. } => EffectSet {
@@ -378,13 +368,10 @@ impl<I: DefinitionReference> Instruction<I> {
             | Self::UpcastInterface { .. }
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
-            Self::StandardEnum {
-                op: StandardEnumOp::Make(_),
-                ..
-            } => EffectSet::allocation(),
-            Self::MapResultError { .. } => EffectSet::allocation(),
+
+            Self::ForwardEnumOrigin { .. } => EffectSet::allocation(),
             Self::Iter { .. } => EffectSet::allocation().union(EffectSet::aggregate_write()),
-            Self::StandardEnum { .. } => EffectSet::aggregate_read(),
+
             Self::ReadAggregateField { .. }
             | Self::ReadCell { .. }
             | Self::ReadAggregateIndex { .. }

@@ -17,7 +17,6 @@ use kagari_types::{
     },
     language as traits,
     language::Protocol,
-    surface::StandardEnum,
     ty::{NominalTy, Ty, inheritance::trait_closure},
 };
 use std::collections::BTreeMap;
@@ -50,7 +49,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         );
         let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
-            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_)))
+            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum))
         }).collect();
         verify::validate(
             &native,
@@ -69,7 +68,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                     assert_eq!(ty.generic_params.len(), 2);
                     seen_map = true;
                 }
-                TypeDefKind::Native(NativeTypeConstructor::Enum(StandardEnum::Result)) => {
+                TypeDefKind::Enum if ty.name == "Result" => {
                     assert_eq!(ty.name, "Result");
                     assert_eq!(
                         ty.variants

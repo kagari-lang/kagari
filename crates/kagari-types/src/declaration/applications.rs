@@ -4,7 +4,7 @@
 
 use crate::{
     callable::CallableImplementation,
-    declaration::{FnDecl, TraitDef, TypeDef, TypeDefKind},
+    declaration::{FnDecl, TraitDef, TypeDefKind},
     ty::{
         Constraint, GenericBound, NominalTy, Ty,
         substitution::{MAX_TYPE_NODES, TypeTransformError},
@@ -14,19 +14,19 @@ use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 
 pub struct ApplicationValidator<'a, F, G> {
     lookup: F,
-    storage: G,
+    nominal: G,
     cancel: &'a CancellationToken,
 }
 
 impl<'a, 'declaration, F, G> ApplicationValidator<'a, F, G>
 where
     F: Fn(&DefinitionPath) -> Option<&'declaration TraitDef>,
-    G: Fn(&DefinitionPath) -> Option<&'declaration TypeDef>,
+    G: Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
 {
-    pub fn new(cancel: &'a CancellationToken, lookup: F, storage: G) -> Self {
+    pub fn new(cancel: &'a CancellationToken, lookup: F, nominal: G) -> Self {
         Self {
             lookup,
-            storage,
+            nominal,
             cancel,
         }
     }
@@ -89,12 +89,12 @@ where
                     pending.extend(applied.associated_types.values());
                 }
                 Ty::NativeObject(applied) => {
-                    let record = (self.storage)(&applied.declaration)
+                    let (kind, arity) = (self.nominal)(&applied.declaration)
                         .ok_or(TypeTransformError::InvalidContract)?;
-                    let TypeDefKind::NativeStorage(layout) = record.kind else {
+                    let TypeDefKind::NativeStorage(layout) = kind else {
                         return Err(TypeTransformError::InvalidContract);
                     };
-                    if record.generic_params.len() != applied.arguments.len()
+                    if arity != applied.arguments.len()
                         || !applied.associated_types.is_empty()
                         || !layout.valid_parameters(applied.arguments.len())
                     {
@@ -103,10 +103,23 @@ where
                     pending.extend(&applied.arguments);
                 }
                 Ty::Struct(applied) | Ty::Enum(applied) => {
+                    let (kind, arity) = (self.nominal)(&applied.declaration)
+                        .ok_or(TypeTransformError::InvalidContract)?;
+                    let expected = if matches!(ty, Ty::Enum(_)) {
+                        TypeDefKind::Enum
+                    } else {
+                        TypeDefKind::Struct
+                    };
+                    if kind != expected
+                        || arity != applied.arguments.len()
+                        || !applied.associated_types.is_empty()
+                    {
+                        return Err(TypeTransformError::InvalidContract);
+                    }
                     pending.extend(&applied.arguments);
                     pending.extend(applied.associated_types.values());
                 }
-                Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => pending.extend(items),
+                Ty::Tuple(items) => pending.extend(items),
                 Ty::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);

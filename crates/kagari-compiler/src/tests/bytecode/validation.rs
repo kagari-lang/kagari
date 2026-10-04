@@ -442,48 +442,42 @@ fn verifier_rejects_malformed_debug_metadata() {
 }
 
 #[test]
-fn mapped_result_error_rejects_invalid_contracts_and_registers() {
-    use kagari_types::{scalar::BuiltinType, surface::StandardEnum as StandardEnumKind, ty::Ty};
+fn forwarded_enum_origin_rejects_invalid_contracts_and_registers() {
     let module = common::bytecode_ok(
-        "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");Ok(r?)}",
+        r#"fn main()->Result<i32,String>{val r:Result<i32,String> = Err("error");Ok(r?)}"#,
     );
     verify_program(&module).unwrap();
+    let root = module.root.index();
     for mutation in 0..4 {
         let mut invalid = module.clone();
-        let instruction = invalid.modules[invalid.root.index()]
+        let instruction = invalid.modules[root]
             .functions
             .iter_mut()
             .flat_map(|f| &mut f.instructions)
-            .find(|i| matches!(i, BytecodeInstruction::MapResultError { .. }))
+            .find(|i| matches!(i, BytecodeInstruction::ForwardEnumOrigin { .. }))
             .unwrap();
-        let BytecodeInstruction::MapResultError {
+        let BytecodeInstruction::ForwardEnumOrigin {
             original,
-            error,
-            ty,
-            ..
+            value,
+            dst,
         } = instruction
         else {
             unreachable!()
         };
         match mutation {
-            0 => *ty = Ty::Builtin(BuiltinType::Bool),
-            1 => {
-                *ty = Ty::StandardEnum {
-                    kind: StandardEnumKind::Result,
-                    args: vec![],
-                }
-            }
-            2 => *original = Register::new(usize::MAX),
-            _ => *error = Register::new(usize::MAX),
+            0 => *original = Register::new(usize::MAX),
+            1 => *value = Register::new(usize::MAX),
+            2 => *dst = Register::new(usize::MAX),
+            _ => *value = Register::new(0),
         }
-        assert!(verify_program(&invalid).is_err());
+        assert!(verify_program(&invalid).is_err(), "mutation {mutation}");
     }
 }
 
 #[test]
 fn ranges_reject_forged_shapes_endpoints_and_bounds() {
     use kagari_types::range::RangeKind;
-    use kagari_types::{scalar::BuiltinType, surface::StandardEnum as StandardEnumKind, ty::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let module =
         common::bytecode_ok("fn main() { val range = 0usize..2usize; range.start_bound(); }");
     verify_program(&module).unwrap();
@@ -539,10 +533,10 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         match mutation {
             0 => contract.signature.result = Ty::Builtin(BuiltinType::Bool),
             1 => {
-                contract.signature.result = Ty::StandardEnum {
-                    kind: StandardEnumKind::Bound,
-                    args: vec![],
-                }
+                let Ty::Enum(nominal) = &mut contract.signature.result else {
+                    unreachable!()
+                };
+                nominal.arguments.clear();
             }
             2 => {
                 contract.signature.params[0] = Ty::Range(

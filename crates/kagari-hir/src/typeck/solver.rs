@@ -187,10 +187,7 @@ impl Solver {
                                 && a.associated_types.keys().eq(b.associated_types.keys())
                         }
                         (TypeId::Tuple(a), TypeId::Tuple(b)) => a.len() == b.len(),
-                        (
-                            TypeId::StandardEnum { kind: a, args: aa },
-                            TypeId::StandardEnum { kind: b, args: ba },
-                        ) => a == b && aa.len() == ba.len(),
+
                         (
                             TypeId::Function { params: a, .. },
                             TypeId::Function { params: b, .. },

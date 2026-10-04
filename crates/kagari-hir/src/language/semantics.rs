@@ -4,15 +4,14 @@ use crate::builtin::surface;
 use crate::{
     aggregates::AggregateCatalog,
     typeck::{GenericBounds, table::ConstraintTarget},
-    types::{NominalType, TypeId},
+    types::{NominalType, TypeId, semantic::raise_type},
 };
 use kagari_common::identity::{DefinitionPath, associated_type_id};
 use kagari_types::{
     conversion as scalar_numeric,
     declaration::conversion::ConversionAdapter,
-    language::{Protocol, identity, role::LangRole},
+    language::{Protocol, binding, identity, role::LangRole},
     scalar::BuiltinType,
-    surface::StandardEnum,
 };
 use std::collections::{BTreeMap, HashSet};
 
@@ -177,11 +176,6 @@ pub fn intrinsic_applies(
             || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
             || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(&required, &target, bounds, 100_000, 64, &Default::default()).is_ok_and(|found| found.is_some()));
     }
-    if let Some(error) = conversion_error(interface, receiver, catalog) {
-        return interface.associated_types.iter().all(|(member, ty)| {
-            *member == associated_type_id(&interface.declaration, "Error") && *ty == error
-        });
-    }
     let Some(kind) = Protocol::from_id(&interface.declaration) else {
         return false;
     };
@@ -214,18 +208,12 @@ pub fn intrinsic_applies(
 }
 
 pub fn ordering_type(optional: bool) -> TypeId {
-    let ordering = TypeId::StandardEnum {
-        kind: StandardEnum::Ordering,
-        args: vec![],
-    };
-    if optional {
-        TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![ordering],
-        }
+    let ordering = binding::ordering();
+    raise_type(&if optional {
+        binding::option(ordering)
     } else {
         ordering
-    }
+    })
 }
 
 /// Intrinsic implementations preserve the language's value/identity contract.
@@ -271,10 +259,7 @@ pub fn intrinsic_holds(
                 protocol == Protocol::PartialOrd
             }
             TypeId::Builtin(_) => true,
-            TypeId::StandardEnum {
-                kind: StandardEnum::Ordering,
-                ..
-            } => true,
+            TypeId::Enum(nominal) if nominal.declaration == binding::ordering_declaration() => true,
             _ => false,
         };
     }
@@ -316,9 +301,7 @@ pub fn intrinsic_holds(
             | TypeId::Map { .. }
             | TypeId::Set(_, _)
                 if protocol != Protocol::Display => {}
-            TypeId::Tuple(elements) | TypeId::StandardEnum { args: elements, .. }
-                if protocol != Protocol::Display =>
-            {
+            TypeId::Tuple(elements) if protocol != Protocol::Display => {
                 pending.extend(elements.into_iter().map(|ty| (ty, depth + 1)))
             }
             TypeId::Enum(instance) if protocol != Protocol::Display => {
@@ -520,27 +503,4 @@ pub fn conversion_requirement(
         required.associated_types.insert(target.clone(), ty.clone());
     }
     Some((required, target.clone()))
-}
-
-pub fn conversion_error(
-    interface: &NominalType,
-    receiver: &TypeId,
-    catalog: Option<&AggregateCatalog>,
-) -> Option<TypeId> {
-    let ConversionAdapter::CheckedNumeric { .. } = catalog?
-        .trait_(&interface.declaration)?
-        .conversion_adapter
-        .as_ref()?
-    else {
-        return None;
-    };
-    let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
-        (receiver, interface.arguments.as_slice())
-    else {
-        return None;
-    };
-    Some(TypeId::StandardEnum {
-        kind: scalar_numeric::conversion_error(*source, *target)?,
-        args: vec![],
-    })
 }

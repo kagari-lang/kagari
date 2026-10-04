@@ -313,10 +313,7 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
                 value: Box::new(self.visit(value, depth + 1, replace)?),
                 access: *access,
             },
-            Ty::StandardEnum { kind, args } => Ty::StandardEnum {
-                kind: *kind,
-                args: self.many(args, depth + 1, replace)?,
-            },
+
             Ty::Struct(ty) => Ty::Struct(self.nominal(ty, depth, replace)?),
             Ty::NativeObject(ty) => Ty::NativeObject(self.nominal(ty, depth, replace)?),
             Ty::Enum(ty) => Ty::Enum(self.nominal(ty, depth, replace)?),

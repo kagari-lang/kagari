@@ -2,7 +2,6 @@ use super::*;
 use crate::{
     collection::CollectionAccess,
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::{GenericParam, substitution::TypeSubstitution},
 };
 use bincode::{DefaultOptions, Options};
@@ -74,10 +73,11 @@ fn fixture() -> Vec<Ty> {
                 owner: path(DefinitionKind::Function, "run"),
                 position: 0,
             }],
-            result: Box::new(Ty::StandardEnum {
-                kind: StandardEnum::Option,
-                args: vec![Ty::Builtin(BuiltinType::Bool)],
-            }),
+            result: Box::new(Ty::Enum(crate::ty::NominalTy {
+                declaration: crate::language::binding::option_declaration(),
+                arguments: vec![Ty::Builtin(BuiltinType::Bool)],
+                associated_types: Default::default(),
+            })),
         },
     ]
 }

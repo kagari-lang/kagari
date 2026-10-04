@@ -5,7 +5,8 @@ This is the authoritative error-reporting contract. Errors remain ordinary
 
 ## Origin ownership and propagation
 
-A newly constructed built-in `Result::Err(e)` captures the current source location
+The ordinary core-library Result declaration marks its Err variant with the
+checked `reports_failure` fact. A newly constructed `Result::Err(e)` captures the current source location
 and synchronous script stack, innermost frame first. The metadata belongs to the
 Result value, not to `e`. It records the original call stack, not a history of
 later propagation. A stored error can therefore report callers that have already
@@ -28,6 +29,12 @@ this metadata. Tuple/enum composition does not turn nested failures into top-lev
 execution failures. `?` may change the payload through `From`; its preserved trace
 does not acquire conversion frames. If the conversion itself traps, that trap has
 its own execution stack, including the conversion call.
+
+The heap stores optional origin beside ordinary nominal enum values. A generic
+ForwardEnumOrigin operation copies this metadata after validating the target enum
+construction; it does not reinterpret a payload or resolve a standard type name.
+Unmarked source/native enum variants capture no origin and do not become CLI
+failures automatically. Reporting policy is checked against carried declarations.
 
 ## Runtime and host boundaries
 

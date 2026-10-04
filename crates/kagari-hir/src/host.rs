@@ -28,7 +28,6 @@ use kagari_types::{
     },
     language::Protocol,
     scalar::BuiltinType,
-    surface::StandardEnum,
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -706,14 +705,20 @@ pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
         HostValueType::Set(element, access) => {
             TypeId::Set(Box::new(signature_type(element)), *access)
         }
-        HostValueType::Option(element) => TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![signature_type(element)],
-        },
-        HostValueType::Result { ok, error } => TypeId::StandardEnum {
-            kind: StandardEnum::Result,
-            args: vec![signature_type(ok), signature_type(error)],
-        },
+        HostValueType::Option(declaration, element) => TypeId::Enum(NominalType {
+            declaration: declaration.clone(),
+            arguments: vec![signature_type(element)],
+            associated_types: Default::default(),
+        }),
+        HostValueType::Result {
+            declaration,
+            ok,
+            error,
+        } => TypeId::Enum(NominalType {
+            declaration: declaration.clone(),
+            arguments: vec![signature_type(ok), signature_type(error)],
+            associated_types: Default::default(),
+        }),
         HostValueType::Opaque(id) => TypeId::Host(id.clone()),
         scalar => TypeId::Builtin(match scalar {
             HostValueType::Unit => BuiltinType::Unit,

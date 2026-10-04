@@ -1,3 +1,5 @@
+#[path = "support/layouts.rs"]
+mod layouts;
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
@@ -24,6 +26,13 @@ fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
 fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounting() {
     let mut first = Runtime::default();
     let first_owner = allocation_owner(&mut first);
+    let enum_owner = layouts::enum_owner(
+        &mut first,
+        vec![Ty::Array(
+            Box::new(Ty::Builtin(BuiltinType::I32)),
+            CollectionAccess::Mutable,
+        )],
+    );
     let mut second = Runtime::default();
     let second_owner = allocation_owner(&mut second);
     let own = first
@@ -55,7 +64,11 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     assert!(
         first
             .alloc_enum(
-                kagari_runtime::value::EnumTag::OptionSome,
+                kagari_runtime::value::EnumTag::Declared(
+                    enum_owner
+                        .enum_variant(kagari_bytecode::instruction::EnumId::new(0), 0)
+                        .unwrap()
+                ),
                 vec![Value::Array(foreign)]
             )
             .is_err()

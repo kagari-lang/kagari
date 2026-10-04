@@ -1,8 +1,5 @@
 //! Specialize declared native trait dependencies using the checked source catalog.
-use crate::source::{
-    lower::{MirLoweringError, instances::InstancePlanner},
-    types::{raise_nominal_type, raise_type},
-};
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{
     identity::{DefinitionPath, associated_type_id},
     span::Span,
@@ -16,6 +13,7 @@ use kagari_contract::{
     },
     types::ConcreteFunctionIdentity,
 };
+use kagari_hir::types::semantic::{raise_nominal_type, raise_type};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     native::NativeBinding,

@@ -99,16 +99,7 @@ pub fn match_pattern<'a>(
             (Ty::Tuple(left), Ty::Tuple(right)) if left.len() == right.len() => {
                 pending.extend(left.iter().zip(right))
             }
-            (
-                Ty::StandardEnum {
-                    kind: a,
-                    args: left,
-                },
-                Ty::StandardEnum {
-                    kind: b,
-                    args: right,
-                },
-            ) if a == b && left.len() == right.len() => pending.extend(left.iter().zip(right)),
+
             (
                 Ty::Function {
                     params: left,

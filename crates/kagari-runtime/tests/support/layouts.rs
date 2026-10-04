@@ -95,6 +95,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Valu
     runtime.make_interface(&module, 0, data).unwrap()
 }
 
+#[allow(dead_code)] // Shared helper has consumers in other integration targets.
 pub fn layout(runtime: &mut Runtime, name: &str, fields: &[(&str, Ty, bool)]) -> StructLayoutRef {
     let declaration = DefinitionPath {
         module: ModuleIdentity::single_file("layout-fixture.kgr"),
@@ -148,6 +149,50 @@ pub fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
             BytecodeProgram {
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
+            },
+        )
+        .unwrap()
+}
+
+/// Install private ordinary enum layouts for scalar/array semantic boundary tests.
+#[allow(dead_code)]
+pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> LoadedModule {
+    use kagari_contract::layout::{EnumLayout, EnumVariantLayout};
+    use kagari_types::declaration::module::ModuleDecl;
+    let identity = ModuleIdentity::single_file("enum-fixture.kgr");
+    let enumerations = payloads
+        .into_iter()
+        .enumerate()
+        .map(|(slot, payload)| {
+            let declaration = DefinitionPath {
+                module: identity.clone(),
+                path: vec![DefinitionPathSegment {
+                    kind: DefinitionKind::Enum,
+                    name: format!("Item{slot}"),
+                    occurrence: 0,
+                }],
+            };
+            EnumLayout {
+                declaration: declaration.clone(),
+                arguments: vec![],
+                variants: vec![EnumVariantLayout {
+                    reports_failure: false,
+                    declaration: ModuleDecl::variant_id(&declaration, "Data"),
+                    payload: vec![payload],
+                }],
+            }
+        })
+        .collect();
+    runtime
+        .load_program(
+            "enum-fixture",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity,
+                    enumerations,
+                    ..Default::default()
+                }],
             },
         )
         .unwrap()

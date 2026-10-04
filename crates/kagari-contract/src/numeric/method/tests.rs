@@ -21,10 +21,7 @@ fn numeric_contracts_preserve_width_sign_and_compound_results() {
             let checked = IntegerMethodContract::new(IntegerMethod::CheckedAdd, ty).unwrap();
             assert_eq!(
                 checked.result(),
-                Ty::StandardEnum {
-                    kind: StandardEnum::Option,
-                    args: vec![Ty::Builtin(ty)]
-                }
+                kagari_types::language::binding::option(Ty::Builtin(ty))
             );
             let overflowing =
                 IntegerMethodContract::new(IntegerMethod::OverflowingMul, ty).unwrap();

@@ -6,7 +6,7 @@ use crate::{
     module::LoadedModule,
     native::{storage::NativePayload, storage_type::StorageType},
     session::SessionState,
-    value::{EnumTag, MapKey, Value},
+    value::{MapKey, Value},
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::operations::{IterOp, StringIterKind};
@@ -344,18 +344,7 @@ impl GcHeap {
             self.close_iter_tree(value)?;
             return Ok(Value::Unit);
         }
-        if op != IterOp::Next {
-            return Err(invalid());
-        }
-        self.advance_iter_with(value, ty, |payload| {
-            let tag = if payload.is_some() {
-                EnumTag::OptionSome
-            } else {
-                EnumTag::OptionNone
-            };
-            self.alloc_enum(tag, payload.into_iter().collect())
-                .map(Value::Enum)
-        })
+        Err(invalid())
     }
 
     pub(crate) fn next_iter_item(
@@ -366,7 +355,7 @@ impl GcHeap {
         self.advance_iter_with(value, ty, Ok)
     }
 
-    fn advance_iter_with<R>(
+    pub(crate) fn advance_iter_with<R>(
         &self,
         value: &Value,
         ty: &Ty<DefinitionId>,

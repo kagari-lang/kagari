@@ -1,11 +1,10 @@
 use crate::{
     hir::{expr::ExprKind, ids::ExprId},
-    native::NativeTypeKind,
     typeck::{BodyTypeEnv, body::BodyChecker, completion, table::CallTarget},
-    types::TypeId,
+    types::{NominalType, TypeId},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{language::Protocol, surface::StandardEnum};
+use kagari_types::language::{Protocol, binding};
 
 impl BodyChecker<'_> {
     /// A completed branch can supply the missing payload type of a sibling None.
@@ -65,16 +64,21 @@ impl BodyChecker<'_> {
     ) -> TypeId {
         let source_error = self.inference_variable(site, 2048);
         let context = match &self.expected_return {
-            TypeId::StandardEnum { kind, args }
-                if matches!(kind, StandardEnum::Option | StandardEnum::Result)
-                    && args.len() == NativeTypeKind::Enum(*kind).arity() =>
+            TypeId::Enum(nominal)
+                if (nominal.declaration == binding::option_declaration()
+                    && nominal.arguments.len() == 1)
+                    || (nominal.declaration == binding::result_declaration()
+                        && nominal.arguments.len() == 2) =>
             {
-                let mut args = args.clone();
+                let mut args = nominal.arguments.clone();
                 args[0] = expected.cloned().unwrap_or(TypeId::Unknown);
-                if *kind == StandardEnum::Result {
+                if nominal.declaration == binding::result_declaration() {
                     args[1] = source_error;
                 }
-                Some(TypeId::StandardEnum { kind: *kind, args })
+                Some(TypeId::Enum(NominalType {
+                    arguments: args,
+                    ..nominal.clone()
+                }))
             }
             _ => None,
         };
@@ -90,7 +94,7 @@ impl BodyChecker<'_> {
         {
             return TypeId::Unknown;
         }
-        let TypeId::StandardEnum { kind, args } = &ty else {
+        let TypeId::Enum(nominal) = &ty else {
             if !ty.is_unresolved() {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
@@ -103,8 +107,10 @@ impl BodyChecker<'_> {
             }
             return TypeId::Error;
         };
-        if args.len() != NativeTypeKind::Enum(*kind).arity()
-            || !matches!(kind, StandardEnum::Option | StandardEnum::Result)
+        let args = &nominal.arguments;
+        let is_result = nominal.declaration == binding::result_declaration();
+        if !(nominal.declaration == binding::option_declaration() && args.len() == 1
+            || is_result && args.len() == 2)
         {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
@@ -118,19 +124,20 @@ impl BodyChecker<'_> {
         }
         let mut residual_args = args.clone();
         residual_args[0] = TypeId::Unknown;
-        let residual = TypeId::StandardEnum {
-            kind: *kind,
-            args: residual_args,
-        };
+        let residual = TypeId::Enum(NominalType {
+            arguments: residual_args,
+            ..nominal.clone()
+        });
         if self.expected_return == TypeId::Unknown && !self.closure_returns.is_empty() {
             self.expected_return = residual.clone();
         }
         let compatible = match self.expected_return.clone() {
-            TypeId::StandardEnum {
-                kind: target,
-                args: target_args,
-            } if target == *kind && target_args.len() == NativeTypeKind::Enum(*kind).arity() => {
-                if *kind == StandardEnum::Result {
+            TypeId::Enum(target)
+                if target.declaration == nominal.declaration
+                    && target.arguments.len() == args.len() =>
+            {
+                let target_args = &target.arguments;
+                if nominal.declaration == binding::result_declaration() {
                     let source = args[1].clone();
                     let target = target_args[1].clone();
                     if self.solving {
@@ -192,8 +199,8 @@ impl BodyChecker<'_> {
         if let Some(returns) = self.closure_returns.last_mut() {
             // The early return carries the converted error, not the operand's error.
             let mut returned = self.expected_return.clone();
-            if let TypeId::StandardEnum { args, .. } = &mut returned {
-                args[0] = TypeId::Unknown;
+            if let TypeId::Enum(nominal) = &mut returned {
+                nominal.arguments[0] = TypeId::Unknown;
             }
             returns.push(returned);
         }

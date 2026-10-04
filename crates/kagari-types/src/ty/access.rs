@@ -77,7 +77,7 @@ pub fn supports_array_repetition(
         }
         match ty {
             Ty::Builtin(_) | Ty::Range(_, _) => {}
-            Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => pending.extend(items),
+            Ty::Tuple(items) => pending.extend(items),
             Ty::Enum(instance) => {
                 let Some(payload) = enum_payload(&instance) else {
                     return false;

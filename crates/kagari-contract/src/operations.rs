@@ -2,11 +2,11 @@ use crate::{numeric::NumericOperation, representation::semantic_representation};
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
 use kagari_types::{
-    declaration::verify::{concrete_type_valid, types_in_scope, types_in_scope_in},
+    declaration::verify::{concrete_type_valid, types_in_scope_in},
+    language::binding,
     range::RangeKind,
     scalar::BuiltinType,
-    surface::StandardEnum as StandardEnumKind,
-    ty::{GenericParam, Ty},
+    ty::Ty,
 };
 use serde::{Deserialize, Serialize};
 
@@ -34,47 +34,6 @@ pub enum BinaryOp {
     Ge,
     AndAnd,
     OrOr,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StandardEnumOp {
-    Make(u32),
-    Test(u32),
-    Read(u32),
-}
-
-impl StandardEnumOp {
-    pub fn contract(self, ty: &Ty) -> Option<(Option<ValueType>, ValueType)> {
-        self.contract_in(ty, &[])
-    }
-
-    pub fn contract_in(
-        self,
-        ty: &Ty,
-        parameters: &[GenericParam],
-    ) -> Option<(Option<ValueType>, ValueType)> {
-        if !types_in_scope([ty], parameters, &Default::default()) {
-            return None;
-        }
-        let Ty::StandardEnum { kind, args } = ty else {
-            return None;
-        };
-        if args.len() != kind.arity() {
-            return None;
-        }
-        let variant = match self {
-            Self::Make(v) | Self::Test(v) | Self::Read(v) => v,
-        };
-        let variant = kind.variants().get(variant as usize)?;
-        let payload = variant
-            .payload()
-            .map(|slot| semantic_representation(&args[slot]));
-        match self {
-            Self::Make(_) => Some((payload, ValueType::HeapObject)),
-            Self::Test(_) => Some((Some(ValueType::HeapObject), ValueType::Bool)),
-            Self::Read(_) => Some((Some(ValueType::HeapObject), payload?)),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,19 +80,6 @@ impl IterOp {
     }
 }
 
-pub fn mapped_error_payload(ty: &Ty) -> Option<ValueType> {
-    if !matches!(
-        ty,
-        Ty::StandardEnum {
-            kind: StandardEnumKind::Result,
-            ..
-        }
-    ) {
-        return None;
-    }
-    StandardEnumOp::Make(1).contract(ty)?.0
-}
-
 /// Validate endpoint presence and physical types using the range's semantic type.
 pub fn range_operands_valid(ty: &Ty, start: Option<ValueType>, end: Option<ValueType>) -> bool {
     let Ty::Range(item, kind) = ty else {
@@ -154,21 +100,16 @@ pub fn range_bound_valid_in<I: DefinitionReference>(
     bound: &Ty<I>,
     table: Option<&DefinitionTable>,
 ) -> bool {
-    let (
-        Ty::Range(item, kind),
-        Ty::StandardEnum {
-            kind: StandardEnumKind::Bound,
-            args,
-        },
-    ) = (range, bound)
-    else {
+    let (Ty::Range(item, kind), Ty::Enum(nominal)) = (range, bound) else {
         return false;
     };
     range.within_wire_limits()
         && bound.within_wire_limits()
         && types_in_scope_in([range, bound], &[], &Default::default(), table)
-        && args.len() == 1
-        && (*kind == RangeKind::Full || args[0] == **item)
+        && binding::matches(&nominal.declaration, &binding::bound_declaration(), table)
+        && nominal.arguments.len() == 1
+        && nominal.associated_types.is_empty()
+        && (*kind == RangeKind::Full || nominal.arguments[0] == **item)
 }
 
 /// Native string traversal has a typed tuple of constructor arguments.

@@ -144,7 +144,7 @@ pub(crate) fn type_parameter(ty: &Ty<DefinitionId>, index: usize) -> Option<&Ty<
         | Ty::Enum(nominal)
         | Ty::NativeObject(nominal)
         | Ty::Trait(nominal) => nominal.arguments.get(index),
-        Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => items.get(index),
+        Ty::Tuple(items) => items.get(index),
         Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _)
             if index == 0 =>
         {
@@ -164,7 +164,7 @@ fn contains_nominal_layout(ty: &Ty<DefinitionId>) -> bool {
     while let Some(ty) = pending.pop() {
         match ty {
             Ty::Struct(_) | Ty::Enum(_) => return true,
-            Ty::Tuple(types) | Ty::StandardEnum { args: types, .. } => pending.extend(types),
+            Ty::Tuple(types) => pending.extend(types),
             Ty::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);
@@ -349,23 +349,6 @@ impl GcHeap {
                     .iter()
                     .zip(types)
                     .all(|(value, ty)| self.matches_type_in(value, ty, owner, environment));
-        }
-        if let (Value::Enum(id), Ty::StandardEnum { kind, args }) = (value, ty) {
-            let Some(snapshot) = self.enum_snapshot(*id) else {
-                return false;
-            };
-            let Some(payload) = snapshot.tag.standard_payload(*kind) else {
-                return false;
-            };
-            return match payload {
-                None => snapshot.fields.is_empty(),
-                Some(index) => {
-                    snapshot.fields.len() == 1
-                        && args.get(index).is_some_and(|ty| {
-                            self.matches_type_in(&snapshot.fields[0], ty, owner, environment)
-                        })
-                }
-            };
         }
         if let (Value::Closure(id), Ty::Function { params, result }) = (value, ty) {
             return self.closure_snapshot(*id).is_some_and(|closure| {

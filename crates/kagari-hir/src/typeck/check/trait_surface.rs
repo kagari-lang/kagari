@@ -459,18 +459,7 @@ pub(super) fn validate_interface_type(
                 diagnostics,
             );
         }
-        TypeId::StandardEnum { args, .. } => {
-            for arg in args {
-                validate_interface_type(
-                    lowered,
-                    declarations,
-                    function_index,
-                    arg,
-                    span,
-                    diagnostics,
-                );
-            }
-        }
+
         _ => {}
     }
 }

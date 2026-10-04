@@ -260,11 +260,7 @@ fn matches_host_type(
             ) => {
                 pending.extend([(ak.as_ref(), bk.as_ref()), (av.as_ref(), bv.as_ref())]);
             }
-            (Ty::StandardEnum { kind: ak, args: aa }, Ty::StandardEnum { kind: bk, args: ba })
-                if ak == bk && aa.len() == ba.len() =>
-            {
-                pending.extend(aa.iter().zip(ba))
-            }
+
             _ => return Ok(false),
         }
     }
@@ -317,7 +313,7 @@ pub fn references(
             Ty::Host(id) => {
                 result.insert(id.clone());
             }
-            Ty::Tuple(types) | Ty::StandardEnum { args: types, .. } => pending.extend(types),
+            Ty::Tuple(types) => pending.extend(types),
             Ty::Function { params, result } => {
                 pending.extend(params);
                 pending.push(result);

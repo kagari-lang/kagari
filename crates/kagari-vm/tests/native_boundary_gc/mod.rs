@@ -3,7 +3,7 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::BytecodeModuleSlot;
 use kagari_runtime::{
     Runtime,
-    value::{EnumTag, MapKey, Value},
+    value::{MapKey, Value},
     value_semantics::{format_value, script_equal},
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -130,7 +130,14 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     );
     let equal = runtime
         .alloc_enum(
-            EnumTag::OptionSome,
+            runtime
+                .gc()
+                .enum_snapshot(match key {
+                    Value::Enum(id) => id,
+                    _ => panic!("enum key"),
+                })
+                .unwrap()
+                .tag,
             vec![Value::Tuple(vec![
                 Value::Array(object),
                 Value::Str("key".into()),

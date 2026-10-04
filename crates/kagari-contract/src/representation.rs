@@ -17,7 +17,7 @@ pub fn host_representation(ty: &HostValueType) -> ValueType {
         | HostValueType::Array(_, _)
         | HostValueType::Map { .. }
         | HostValueType::Set(_, _)
-        | HostValueType::Option(_)
+        | HostValueType::Option(_, _)
         | HostValueType::Result { .. } => ValueType::HeapObject,
     }
 }

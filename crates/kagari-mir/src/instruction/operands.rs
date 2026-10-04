@@ -38,12 +38,10 @@ impl<I: DefinitionReference> Instruction<I> {
             Instruction::Numeric { lhs, rhs, .. } => {
                 iter::once(*lhs).chain(rhs.iter().copied()).collect()
             }
-            Instruction::MapResultError {
-                original, error, ..
-            } => smallvec::smallvec![*original, *error],
-            Instruction::Iter { value, .. } | Instruction::StandardEnum { value, .. } => {
-                value.iter().copied().collect()
-            }
+            Instruction::ForwardEnumOrigin {
+                original, value, ..
+            } => smallvec::smallvec![*original, *value],
+            Instruction::Iter { value, .. } => value.iter().copied().collect(),
             Instruction::LoadConst { .. }
             | Instruction::LoadLocal { .. }
             | Instruction::LoadModule { .. } => smallvec::smallvec![],
@@ -151,9 +149,8 @@ impl<I: DefinitionReference> Instruction<I> {
             | Instruction::MakeStruct { dst, .. }
             | Instruction::Convert { dst, .. }
             | Instruction::Numeric { dst, .. }
-            | Instruction::MapResultError { dst, .. }
+            | Instruction::ForwardEnumOrigin { dst, .. }
             | Instruction::Iter { dst, .. }
-            | Instruction::StandardEnum { dst, .. }
             | Instruction::MakeEnum { dst, .. }
             | Instruction::MakeInterface { dst, .. }
             | Instruction::UpcastInterface { dst, .. }

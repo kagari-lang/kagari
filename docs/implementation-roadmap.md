@@ -898,7 +898,8 @@ It supersedes their exclusion of generic enum/protocol migration for this active
 track; current specifications still describe implemented behavior until replaced.
 
 Status: the user activated the continuous EN01-EN05 goal on 2026-10-04.
-EN01-EN02 are complete; EN03 is in progress. No carried build/test failure remains.
+EN01-EN03 are complete; EN04 is next. The ordinary enum baseline, focused
+behavior and structural checks pass; protocol propagation is still pending.
 Commit each accepted phase once, using `Roadmap-Step: EN01` through `EN05`.
 The execution design and its index links enter the first implementation checkpoint.
 
@@ -910,7 +911,7 @@ The execution design and its index links enter the first implementation checkpoi
   declarations, native allocation/inspection and call codecs to existing source
   enum execution. Validate layouts, multiple payload fields, generations, roots,
   optional provenance and source-free executable dependencies.
-- [ ] **EN03: Replace the seven standard enum families.** Migrate library records,
+- [x] **EN03: Replace the seven standard enum families.** Migrate library records,
   Rust bodies, iteration/comparison/conversion/reporting and all executable
   consumers. Delete dedicated standard semantic types, fixed tags and operations.
   Preserve existing Option/Result `?` temporarily through checked nominal bindings.
@@ -970,6 +971,41 @@ Rust files, zero violations/exceptions) and diff checks pass. The initial fixtur
 put a struct literal in an unsupported match-scrutinee parsing position; binding
 the payload before matching repaired it without a production semantic change.
 No failure is carried. Full feature/backend acceptance remains EN05 work.
+
+EN03 replaces all seven standard families with library-authored ordinary enums.
+Numeric TryFrom pairs are ordinary registered implementations; their associated
+Error is selected from declarations, while runtime numeric code only computes
+scalar outcomes. Forward conversion metadata retains method/error/result identities
+for inference and checked selection, without choosing concrete library errors.
+Variant failure-reporting facts are explicit declaration/layout metadata; generic
+ForwardEnumOrigin copies optional provenance after checked ordinary construction.
+Constructor syntax now applies uniformly: unit variants are values and reject
+empty parentheses, following Rust; previous source-only empty-call acceptance is
+replaced, with corresponding positive/negative context tests and syntax docs.
+Dedicated semantic types, fixed tags and standard enum bytecode operations are
+removed. Native library producers use checked declaration handles and current
+pinned layouts; cached authoring handles avoid repeated declaration validation.
+Host Option/Result schemas retain the ordinary declaration identity and validate
+the complete applied type, including empty variants. Linked application validation
+requires the actual declaration/template and exact nominal kind/arity. Native
+imports, callable signatures and concrete interface requests carry private nominal
+layouts, including caller types referenced by shared standard adapters, without
+introducing reverse dependency edges. Index-bound decoding also checks Bound<usize>
+even for Unbounded. HIR owns semantic type raising; compiler imports it directly.
+
+EN03 validation passes compiler (161), HIR (416), runtime (59), contract (32) and
+VM (107) unit suites; standard enum/iteration/trait behavior (36), conversion and
+propagation (27), native boundaries (72), collections (18), GC ownership (5),
+source-free enum/composite types (9), and the embedding language-route conformance
+suite. Instantiation's 48 unchanged cases pass; two obsolete unit-call fixtures
+were updated and individually rerun successfully. The repaired boundary suite
+includes shared dynamic iteration and wrong-type empty index bounds. Strict
+workspace/all-target Clippy, formatting, structure (766 Rust files, zero violations
+or exceptions), 100 changed-document local links and git diff --check pass.
+Initial native producers/test consumers, incomplete imported private layouts and
+obsolete Empty() fixtures were repaired in this phase; no build/test error is
+carried. Serialized development fixtures and the full feature/backend matrix are
+the scheduled EN05 checkpoint, with no old-format reader or identifier bump.
 
 ### Other proposals
 

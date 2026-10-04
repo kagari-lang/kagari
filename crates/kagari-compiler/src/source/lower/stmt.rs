@@ -6,7 +6,6 @@ use crate::source::{
     types,
 };
 use kagari_abi::representation::ValueType;
-use kagari_contract::operations::StandardEnumOp;
 use kagari_hir::{
     hir::{
         expr::Condition,
@@ -14,10 +13,13 @@ use kagari_hir::{
         stmt::StmtKind,
     },
     typeck::table::ResolvedIteration,
-    types::TypeId,
+    types::{
+        TypeId,
+        semantic::{lower_type, raise_type},
+    },
 };
 use kagari_mir::instruction::{Instruction, MirValue, Terminator};
-use kagari_types::{language::Protocol, surface::StandardEnum};
+use kagari_types::language::{Protocol, binding};
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_block(
@@ -306,18 +308,15 @@ impl FunctionLowerer<'_, '_> {
             &self.protocol_method(Protocol::Iterator, 0)?,
             &[iterator],
         )?;
-        let optional = TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![fact.item.clone()],
-        };
-        let some = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(value))?;
+        let optional = raise_type(&binding::option(lower_type(&fact.item)));
+        let some = self.test_enum_variant(&optional, value, 0)?;
         self.set_terminator(Terminator::Branch {
             cond: some,
             then_block: body_block,
             else_block: exit,
         });
         self.switch_to_block(body_block);
-        let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(value))?;
+        let item = self.read_enum_field(&optional, value, 0, 0)?;
         let mut bindings = Vec::new();
         self.lower_pattern_decision(pattern, item, &fact.item, exit, &mut bindings)?;
         for (local, value) in bindings {

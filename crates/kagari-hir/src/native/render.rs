@@ -86,18 +86,8 @@ impl DeclarationView<'_> {
             ));
         }
         for ty in &self.types {
-            let constructor = match ty.kind {
-                TypeDefKind::Native(constructor) => Some(constructor),
-                TypeDefKind::Enum | TypeDefKind::NativeStorage(_) => None,
-                _ => {
-                    return Err(DeclarationError(
-                        "native declaration requires a registered representation".into(),
-                    ));
-                }
-            };
             let id = self.definition(ty.kind.definition_kind(), &ty.name);
-            let is_enum = ty.kind == TypeDefKind::Enum
-                || matches!(constructor, Some(NativeTypeConstructor::Enum(_)));
+            let is_enum = ty.kind == TypeDefKind::Enum;
             output.doc(&id);
             let start = output.text.len();
             output
@@ -366,16 +356,7 @@ impl DeclarationView<'_> {
                 let name = self.representation_name(NativeTypeConstructor::Iter, "Iter")?;
                 format!("{name}<{}>", self.spell(item)?)
             }
-            Ty::StandardEnum { kind, args } => {
-                let fallback = format!("{kind:?}");
-                let name =
-                    self.representation_name(NativeTypeConstructor::Enum(*kind), &fallback)?;
-                if args.is_empty() {
-                    name
-                } else {
-                    format!("{name}<{}>", join(args)?)
-                }
-            }
+
             _ => {
                 return Err(DeclarationError(
                     "unsupported type in initial native API importer".into(),

@@ -556,12 +556,7 @@ fn type_valid_in<I: DefinitionReference>(
             }
             Ty::Array(ty, _) | Ty::Set(ty, _) | Ty::Iter(ty) => pending.push(ty),
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-            Ty::StandardEnum { kind, args } => {
-                if args.len() != kind.arity() {
-                    return false;
-                }
-                pending.extend(args);
-            }
+
             Ty::Struct(nominal)
             | Ty::NativeObject(nominal)
             | Ty::Enum(nominal)
@@ -615,6 +610,10 @@ pub fn type_definition_valid(
     let kind = ty.kind.definition_kind();
     let owner = owner(module, &[], kind, &ty.name);
     aggregate_shape_valid(ty, cancel)
+        && ty
+            .variants
+            .iter()
+            .all(|variant| !variant.reports_failure || variant.payload.len() == 1)
         && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
             bounds_valid(&ty.bounds, &params, cancel)
                 && ty

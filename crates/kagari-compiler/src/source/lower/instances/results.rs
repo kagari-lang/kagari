@@ -1,13 +1,11 @@
 //! Select native concrete-result interface construction while source proofs exist.
-use crate::source::{
-    lower::{MirLoweringError, instances::InstancePlanner},
-    types::{raise_nominal_type, raise_type},
-};
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::span::Span;
 use kagari_contract::{
     native_import::{NativeImport, result::NativeResultAdapter},
     types::ConcreteFunctionIdentity,
 };
+use kagari_hir::types::semantic::{raise_nominal_type, raise_type};
 use kagari_hir::{
     typeck::{GenericBounds, table::ConstraintTarget},
     types::semantic::lower_type,

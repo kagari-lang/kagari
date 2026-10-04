@@ -8,7 +8,6 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind, verify::DeclarationValidationError},
-    surface::StandardEnum as StandardEnumKind,
     ty::{Ty, substitution::TypeSubstitution},
 };
 use std::collections::{HashMap, HashSet};
@@ -33,6 +32,7 @@ pub struct EnumLayout<I = DefinitionPath> {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct EnumVariantLayout<I = DefinitionPath> {
+    pub reports_failure: bool,
     pub declaration: I,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub payload: Vec<Ty<I>>,
@@ -116,6 +116,7 @@ pub fn enum_abi_matches(
                 .last()
                 .is_some_and(|part| part.name == abi.name)
                 || variant.payload.len() != abi.payload.len()
+                || variant.reports_failure != abi.reports_failure
             {
                 return Ok(false);
             }
@@ -278,20 +279,7 @@ pub fn validate_enum_layouts(
                 pending.push(key);
                 pending.push(value);
             }
-            Ty::StandardEnum { kind, args } => {
-                let expected = match kind {
-                    StandardEnumKind::Ordering
-                    | StandardEnumKind::ParseError
-                    | StandardEnumKind::TryFromIntError
-                    | StandardEnumKind::Infallible => 0,
-                    StandardEnumKind::Bound | StandardEnumKind::Option => 1,
-                    StandardEnumKind::Result => 2,
-                };
-                if args.len() != expected {
-                    return Err(LayoutValidationError::Invalid);
-                }
-                pending.extend(args);
-            }
+
             Ty::Struct(instance)
             | Ty::NativeObject(instance)
             | Ty::Enum(instance)

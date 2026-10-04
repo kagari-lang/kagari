@@ -200,8 +200,8 @@ impl HostFunctionDeclaration {
             while let Some(ty) = pending.pop() {
                 match ty {
                     HostValueType::Tuple(elements) => pending.extend(elements),
-                    HostValueType::Option(element) => pending.push(element),
-                    HostValueType::Result { ok, error } => {
+                    HostValueType::Option(_, element) => pending.push(element),
+                    HostValueType::Result { ok, error, .. } => {
                         pending.extend([ok.as_ref(), error.as_ref()])
                     }
                     HostValueType::Opaque(_)

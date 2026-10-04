@@ -29,8 +29,12 @@ fn composite() -> Type {
             value: Box::new(Type::Bool),
         },
         Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
-        Type::Option(Box::new(Type::I32)),
+        Type::Option(
+            kagari_types::language::binding::option_declaration(),
+            Box::new(Type::I32),
+        ),
         Type::Result {
+            declaration: kagari_types::language::binding::result_declaration(),
             ok: Box::new(Type::I32),
             error: Box::new(Type::String),
         },

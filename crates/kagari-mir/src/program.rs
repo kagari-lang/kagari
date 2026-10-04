@@ -1,5 +1,6 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
 use kagari_contract::representation::semantic_representation;
+use kagari_types::declaration::TypeDefKind;
 mod applications;
 mod native;
 mod shared;
@@ -244,7 +245,22 @@ pub fn verify_program(
             },
             |id| {
                 closure.iter().find_map(|owner| {
-                    abi::native_storage_contract(&owner.identity, &owner.abi.public_items, id)
+                    abi::type_contract(&owner.identity, &owner.abi.public_items, id)
+                        .map(|record| (record.kind, record.generic_params.len()))
+                        .or_else(|| {
+                            owner
+                                .enumerations
+                                .iter()
+                                .find(|layout| &layout.declaration == id)
+                                .map(|layout| (TypeDefKind::Enum, layout.arguments.len()))
+                        })
+                        .or_else(|| {
+                            owner
+                                .structures
+                                .iter()
+                                .find(|layout| &layout.declaration == id)
+                                .map(|layout| (TypeDefKind::Struct, layout.arguments.len()))
+                        })
                 })
             },
         )

@@ -3,9 +3,7 @@ use kagari_types::{collection::CollectionAccess, language::role::LangRole};
 
 use crate::{
     hir::{
-        ids::{
-            BodyOwner, EnumId, FieldId, GenericParamId, ImplId, OpaqueTypeId, TypeRefId, VariantId,
-        },
+        ids::{BodyOwner, FieldId, GenericParamId, ImplId, OpaqueTypeId, TypeRefId, VariantId},
         item::{Item, behavior::GenericParam, function::FunctionKind, storage::ConstOwner},
     },
     host::HostDeclarations,
@@ -81,7 +79,6 @@ pub struct Declarations<I: DefinitionReference = DefinitionPath> {
     site_ranges: HashMap<DeclarationKey, Span>,
     impl_identities: HashMap<ImplId, I>,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind<I>>,
-    native_enums: HashMap<EnumId, NativeTypeKind<I>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -130,7 +127,6 @@ impl Declarations {
                 site_ranges: HashMap::new(),
                 impl_identities: HashMap::new(),
                 native_types: lowered.native_types.clone(),
-                native_enums: lowered.native_enums.clone(),
             },
             occurrences: HashMap::new(),
         };
@@ -556,10 +552,6 @@ impl<I: DefinitionReference> Declarations<I> {
 
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind<I>> {
         self.native_types.get(&id).cloned()
-    }
-
-    pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind<I>> {
-        self.native_enums.get(&id).cloned()
     }
 
     pub fn impl_identity(&self, id: ImplId) -> Option<&I> {

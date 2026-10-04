@@ -62,18 +62,7 @@ pub(crate) fn infer(
             (TypeId::Tuple(expected), TypeId::Tuple(actual)) if expected.len() == actual.len() => {
                 pending.extend(expected.iter().zip(actual).rev());
             }
-            (
-                TypeId::StandardEnum {
-                    kind: expected_kind,
-                    args: expected,
-                },
-                TypeId::StandardEnum {
-                    kind: actual_kind,
-                    args: actual,
-                },
-            ) if expected_kind == actual_kind && expected.len() == actual.len() => {
-                pending.extend(expected.iter().zip(actual).rev());
-            }
+
             (TypeId::Range(expected, a), TypeId::Range(actual, b)) if a == b => {
                 pending.push((expected, actual));
             }

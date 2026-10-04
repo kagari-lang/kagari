@@ -6,7 +6,6 @@ use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
     collection::CollectionAccess,
     declaration::{FnDecl, Param, module::ModuleDecl, requirement::NativeCallableRequirement},
-    surface::StandardEnum,
     ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -73,7 +72,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             } else if name.ends_with("_by") {
                 Some((
                     vec![item.clone(), item.clone()],
-                    contracts::enum_type(StandardEnum::Ordering, vec![]),
+                    contracts::enum_type("Ordering", vec![]),
                 ))
             } else if *name == "retain" {
                 Some((vec![item.clone()], contracts::boolean()))

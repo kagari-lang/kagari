@@ -5,7 +5,6 @@ use crate::{
         ids::{ExprId, TypeRefId},
         item::storage::ExportItem,
     },
-    native::NativeTypeKind,
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv,
@@ -124,7 +123,6 @@ impl<'a> BodyChecker<'a> {
             .find(|variant| variant.name == member)
             .cloned();
         let name = format!("{}::{}", signature.declaration.name, member);
-        let native_type = signature.native_type.clone();
         let generic_params = signature.generic_params.clone();
         let target = ResolvedEnumConstructor {
             enumeration: enumeration.clone(),
@@ -139,11 +137,6 @@ impl<'a> BodyChecker<'a> {
         let expected_arguments = match expected {
             Some(TypeId::Enum(nominal)) if nominal.declaration == enumeration => {
                 Some(&nominal.arguments)
-            }
-            Some(TypeId::StandardEnum { kind, args })
-                if native_type == Some(NativeTypeKind::Enum(*kind)) =>
-            {
-                Some(args)
             }
             _ => None,
         };
@@ -186,20 +179,15 @@ impl<'a> BodyChecker<'a> {
             callee,
             !completes,
         );
-        let result = match native_type {
-            Some(ref kind) => kind
-                .apply(&arguments)
-                .expect("checked native enum arguments"),
-            None => TypeId::Enum(NominalType {
-                associated_types: Default::default(),
-                declaration: enumeration,
-                arguments,
-            }),
-        };
+        let result = TypeId::Enum(NominalType {
+            associated_types: Default::default(),
+            declaration: enumeration,
+            arguments,
+        });
         self.type_table.insert_expr(callee, result.clone());
         env.exprs.insert(callee, result.clone());
         if let Some(variant) = variant {
-            if native_type.is_some() && variant.payload.is_empty() && expression != callee {
+            if variant.payload.is_empty() && expression != callee {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidCallTarget {
                         type_name: format!("{name} (unit variant; omit parentheses)"),

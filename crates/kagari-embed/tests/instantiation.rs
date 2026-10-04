@@ -44,7 +44,7 @@ fn generic_trait_method_bounds_reject_invalid_arguments() {
 #[test]
 fn explicit_enum_arguments_execute_with_distinct_concrete_layouts() {
     execute_contextual_source(
-        "enum Token<T> { Empty, Data(T) } fn empty<T>() -> Token<T> { Token<T>::Empty } fn main() -> i32 { val a = Token<i32>::Data(7); val b = Token<bool>::Data(true); val e: Token<i32> = empty(); if a == Token<i32>::Data(7) && b == Token<bool>::Data(true) && e == Token<i32>::Empty() { 42 } else { 0 } }",
+        "enum Token<T> { Empty, Data(T) } fn empty<T>() -> Token<T> { Token<T>::Empty } fn main() -> i32 { val a = Token<i32>::Data(7); val b = Token<bool>::Data(true); val e: Token<i32> = empty(); if a == Token<i32>::Data(7) && b == Token<bool>::Data(true) && e == Token<i32>::Empty { 42 } else { 0 } }",
         42,
     );
 }
@@ -139,7 +139,7 @@ fn terminating_assignment_places_stop_before_later_indexes() {
 #[test]
 fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
     execute_contextual_source(
-        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty(); val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",
+        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty; val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",
         84,
     );
 }
@@ -216,7 +216,7 @@ fn assignment_targets_supply_constructor_context() {
             local = Marker { value: 10 };
             object.marker = Marker { value: 12 };
             array[0] = Marker { value: 20 };
-            token = Token::Empty();
+            token = Token::Empty;
             local.value + object.marker.value + array[0].value
         }
     "#,

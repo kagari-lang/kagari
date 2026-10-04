@@ -855,10 +855,7 @@ fn instantiate(
             value: Box::new(child(value)?),
             access: *access,
         },
-        TypeId::StandardEnum { kind, args } => TypeId::StandardEnum {
-            kind: *kind,
-            args: args.iter().map(&mut child).collect::<Result<_, _>>()?,
-        },
+
         TypeId::NativeObject(nominal)
         | TypeId::Struct(nominal)
         | TypeId::Enum(nominal)

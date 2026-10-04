@@ -4,7 +4,6 @@ use kagari_common::identity::associated_type_id;
 use kagari_types::{
     declaration::TraitDef,
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::{Constraint, NominalTy, Ty},
 };
 use std::collections::BTreeMap;
@@ -97,7 +96,7 @@ pub(super) fn declarations() -> Vec<TraitDef> {
         vec![contracts::receiver(RegistrationTrait::Hash)],
         Ty::Builtin(BuiltinType::I64),
     ));
-    let ordering = contracts::enum_type(StandardEnum::Ordering, vec![]);
+    let ordering = contracts::enum_type("Ordering", vec![]);
     let mut partial_ord = contracts::contract(RegistrationTrait::PartialOrd, &[]);
     partial_ord
         .supertraits

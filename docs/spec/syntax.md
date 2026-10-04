@@ -431,7 +431,7 @@ an unrelated annotated type cannot supply constructor arguments. Function return
 annotations also supply context to tail expressions and explicit return operands.
 Context propagates through blocks, if/match branches, Tuple members and Array
 elements. Enum constructors also consume matching nominal context, including
-unit variants with or without parentheses. Known payload types propagate context
+unit variants without parentheses. Known payload types propagate context
 to nested constructors; arity, payload types and generic bounds remain checked.
 Concrete parameter types of resolved local and imported functions supply argument
 context, including through source facades. Extra arguments are still checked.
@@ -930,7 +930,7 @@ literal         ::= INTEGER
   standard protocols.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.
 - struct literals permit field shorthand such as `Point { x, y }`.
-- Enum constructors accept `Token<i32>::Empty`, `Token<i32>::Empty()` and
+- Enum constructors accept `Token<i32>::Empty` and
   `Token<i32>::Data(7)`. The explicit arguments belong to the enum declaration,
   use normal annotation resolution and bound checks, and supply payload context.
   Qualified and imported enum paths use the same declaration identity. Explicit

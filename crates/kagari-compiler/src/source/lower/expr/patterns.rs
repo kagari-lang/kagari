@@ -1,20 +1,13 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer, support::lower_scalar};
 use kagari_abi::representation::ValueType;
-use kagari_contract::{
-    operations::{BinaryOp, StandardEnumOp},
-    representation::semantic_representation,
-};
+use kagari_contract::{operations::BinaryOp, representation::semantic_representation};
 use kagari_hir::{
     hir::{
         expr::MatchArmBuffer,
         ids::{ExprId, PatternId},
         pattern::PatternKind,
     },
-    native::NativeTypeKind,
-    types::{
-        NominalType, TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::{TypeId, semantic::lower_type},
 };
 use kagari_mir::{
     ids::{BlockId, LocalId},
@@ -394,16 +387,7 @@ impl FunctionLowerer<'_, '_> {
             .enumeration(&signature.owner)
             .ok_or(MirLoweringError::MissingBinding("enum pattern layout"))?;
         let arguments = match expected {
-            TypeId::Enum(owner)
-                if owner.declaration == enumeration.id && enumeration.native_type.is_none() =>
-            {
-                &owner.arguments
-            }
-            TypeId::StandardEnum { kind, args }
-                if enumeration.native_type == Some(NativeTypeKind::Enum(*kind)) =>
-            {
-                args
-            }
+            TypeId::Enum(owner) if owner.declaration == enumeration.id => &owner.arguments,
             _ => {
                 return Err(MirLoweringError::MissingBinding(
                     "checked enum pattern type",
@@ -432,47 +416,7 @@ impl FunctionLowerer<'_, '_> {
                 "checked enum pattern arity",
             ));
         }
-        let native_slot = if enumeration.native_type.is_some() {
-            if payload.len() > 1 {
-                return Err(MirLoweringError::MissingBinding(
-                    "checked native enum payload",
-                ));
-            }
-            Some(
-                u32::try_from(slot)
-                    .map_err(|_| MirLoweringError::MissingBinding("native enum slot"))?,
-            )
-        } else {
-            None
-        };
-        let nominal = if native_slot.is_none() {
-            let concrete = NominalType {
-                associated_types: Default::default(),
-                declaration: enumeration.id.clone(),
-                arguments: self.planner.arguments(
-                    arguments,
-                    &self.instance.substitution,
-                    self.analyzed.lowered.source_map.pattern_span(pattern),
-                )?,
-            };
-            Some(lower_nominal_type(&concrete))
-        } else {
-            None
-        };
-        let cond = if let Some(slot) = native_slot {
-            self.standard_enum_op(expected, StandardEnumOp::Test(slot), Some(value))?
-        } else {
-            let cond = self.alloc_temp(ValueType::Bool);
-            self.emit(Instruction::TestEnumVariant {
-                dst: cond,
-                value,
-                enumeration: nominal.clone().ok_or(MirLoweringError::MissingBinding(
-                    "checked script enum representation",
-                ))?,
-                variant: slot,
-            });
-            cond
-        };
+        let cond = self.test_enum_variant(expected, value, slot)?;
         let next = self.new_block();
         self.set_terminator(Terminator::Branch {
             cond,
@@ -481,21 +425,7 @@ impl FunctionLowerer<'_, '_> {
         });
         self.switch_to_block(next);
         for (index, (field, ty)) in fields.into_iter().zip(payload.iter()).enumerate() {
-            let member = if let Some(slot) = native_slot {
-                self.standard_enum_op(expected, StandardEnumOp::Read(slot), Some(value))?
-            } else {
-                let member = self.alloc_temp(self.value_type(ty)?);
-                self.emit(Instruction::ReadEnumPayload {
-                    dst: member,
-                    value,
-                    enumeration: nominal.clone().ok_or(MirLoweringError::MissingBinding(
-                        "checked script enum representation",
-                    ))?,
-                    variant: slot,
-                    index,
-                });
-                member
-            };
+            let member = self.read_enum_field(expected, value, slot, index)?;
             self.lower_pattern_decision(field, member, ty, fail, bindings)?;
         }
         Ok(())

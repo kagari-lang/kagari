@@ -480,7 +480,7 @@ impl GcHeap {
                 "invalid heap target, index, or payload",
             ));
         }
-        let trace = matches!(tag, crate::value::EnumTag::ResultErr)
+        let trace = matches!(&tag, EnumTag::Declared(layout) if layout.variant().reports_failure)
             .then(|| ErrorTrace::capture(&self.resources));
         self.alloc_object(HeapObject::Enum(EnumValueSnapshot { tag, fields }, trace))
     }
@@ -492,38 +492,33 @@ impl GcHeap {
         };
         let objects = self.objects.borrow();
         match self.object_ref(&objects, *id)? {
-            HeapObject::Enum(snapshot, trace) if snapshot.tag == EnumTag::ResultErr => {
+            HeapObject::Enum(snapshot, trace) if matches!(&snapshot.tag, EnumTag::Declared(layout) if layout.variant().reports_failure) => {
                 trace.clone()
             }
             _ => None,
         }
     }
 
-    pub(crate) fn map_result_error(
+    pub(crate) fn forward_enum_origin(
         &self,
         original: &Value,
-        error: Value,
+        value: &Value,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let trace = self.result_error_trace(original).ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected Result Err to preserve its origin",
-            )
-        })?;
-        if !self.valid_payload(&error) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid error payload",
-            ));
-        }
-        self.alloc_object(HeapObject::Enum(
-            EnumValueSnapshot {
-                tag: EnumTag::ResultErr,
-                fields: vec![error],
-            },
-            Some(trace),
-        ))
+        let (Value::Enum(original), Value::Enum(value)) = (original, value) else {
+            return Err(RuntimeError::module_validation("enum origin carriers"));
+        };
+        let (snapshot, trace) = {
+            let objects = self.objects.borrow();
+            let Some(HeapObject::Enum(_, trace)) = self.object_ref(&objects, *original) else {
+                return Err(RuntimeError::module_validation("origin carrier handle"));
+            };
+            let Some(HeapObject::Enum(snapshot, _)) = self.object_ref(&objects, *value) else {
+                return Err(RuntimeError::module_validation("enum value handle"));
+            };
+            (snapshot.clone(), trace.clone())
+        };
+        self.alloc_object(HeapObject::Enum(snapshot, trace))
     }
 
     pub(crate) fn matches_abi(
@@ -588,17 +583,7 @@ impl GcHeap {
                     let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else { return false; };
                     if !matches!(object.ty, Ty::Set(..)) || !object.payload::<SetPayload>().is_ok_and(|payload| payload.element.matches(element, owner)) { return false; }
                 },
-                (Value::Enum(id), Ty::StandardEnum { kind, args }) => {
-                    let Some(snapshot) = self.enum_snapshot(id) else { return false; };
-                    let Some(payload) = snapshot.tag.standard_payload(*kind) else { return false; };
-                    let Some(index) = payload else {
-                        if !snapshot.fields.is_empty() { return false; }
-                        continue;
-                    };
-                    if snapshot.fields.len() != 1 { return false; }
-                    let Some(ty) = args.get(index) else { return false; };
-                    pending.extend(snapshot.fields.into_iter().map(|value| (value, ty)));
-                },
+
                 _ => return false,
             }
         }

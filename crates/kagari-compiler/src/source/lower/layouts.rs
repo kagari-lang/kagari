@@ -1,15 +1,14 @@
 //! Reachable concrete layouts and declaration-scoped aggregate templates share the function instantiation budget.
-
-use crate::source::{
-    lower::{MirLoweringError, instances::InstancePlanner},
-    types::raise_type,
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use kagari_contract::{
+    callable::witness::OperationWitness,
+    layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
 };
-use kagari_contract::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
 use kagari_hir::{
     AnalyzedModule,
     types::{
         NominalType, TypeId, TypeSubstitution,
-        semantic::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type, raise_type},
     },
 };
 use kagari_mir::function::MirFunction;
@@ -71,6 +70,48 @@ pub(super) fn collect(
         {
             pending.push_back((raise_type(ty), function.debug.source_span));
         }
+    }
+    // A shared native adapter can mention the caller's private nominal types
+    // only in its checked import signature or selected callable contracts.
+    // Carry their layouts here instead of requiring a reverse module dependency.
+    for import in &planner.native_targets {
+        pending.extend(
+            import
+                .instance
+                .arguments
+                .iter()
+                .chain(&import.signature.params)
+                .chain(slice::from_ref(&import.signature.result))
+                .map(|ty| (raise_type(ty), Default::default())),
+        );
+        for operation in &import.callables {
+            let required = operation.requirement();
+            pending.push_back((raise_type(&required.receiver), Default::default()));
+            pending.extend(
+                required
+                    .arguments
+                    .iter()
+                    .map(|ty| (raise_type(ty), Default::default())),
+            );
+            if let OperationWitness::Selected(call) = operation {
+                pending.extend(
+                    call.signature
+                        .params
+                        .iter()
+                        .chain(slice::from_ref(&call.signature.result))
+                        .map(|ty| (raise_type(ty), Default::default())),
+                );
+            }
+        }
+    }
+    for instance in &planner.interface_instances {
+        pending.extend(
+            instance
+                .arguments
+                .iter()
+                .filter(|ty| ty.is_concrete())
+                .map(|ty| (raise_type(ty), Default::default())),
+        );
     }
     // Expression roots are recorded only when lowering visits reachable code.
     // Preserve visit order so layout slots and artifact bytes are stable.
@@ -219,6 +260,7 @@ pub(super) fn collect(
                     }
                     let payload = types.iter().map(lower_type).collect();
                     variants.push(EnumVariantLayout {
+                        reports_failure: variant.reports_failure,
                         declaration: variant.id.clone(),
                         payload,
                     });
@@ -232,9 +274,7 @@ pub(super) fn collect(
                 });
                 pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
             }
-            TypeId::Tuple(types) | TypeId::StandardEnum { args: types, .. } => {
-                pending.extend(types.into_iter().map(|ty| (ty, span)))
-            }
+            TypeId::Tuple(types) => pending.extend(types.into_iter().map(|ty| (ty, span))),
             TypeId::Array(ty, _) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
                 pending.push_back((*ty, span))
             }

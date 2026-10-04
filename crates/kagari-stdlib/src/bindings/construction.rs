@@ -1,13 +1,14 @@
 //! Synchronous base conversions, parsing and iterable construction.
+use crate::bindings::enums;
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_contract::numeric::NumericOperation;
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
     numeric,
-    value::{EnumTag, Value},
+    value::Value,
 };
-use kagari_types::{integer::IntegerOp, scalar::BuiltinType, surface::StandardEnum, ty::Ty};
+use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
 use std::{
     num::{IntErrorKind, ParseIntError},
     slice,
@@ -18,13 +19,10 @@ fn invalid() -> RuntimeError {
 }
 
 fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
-    let Ty::StandardEnum {
-        kind: StandardEnum::Result,
-        args,
-    } = cx.result_type()
-    else {
+    let Ty::Enum(nominal) = cx.result_type() else {
         return Err(invalid());
     };
+    let args = &nominal.arguments;
     let Some(Ty::Builtin(target)) = args.first() else {
         return Err(invalid());
     };
@@ -36,15 +34,55 @@ pub(super) fn from_str(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         return Err(invalid());
     };
     let parsed = parse(result_item(cx)?, &text)?;
-    let (tag, value) = match parsed {
-        Ok(value) => (EnumTag::ResultOk, value),
-        Err(error) => (
-            EnumTag::ResultErr,
-            cx.enum_value(EnumTag::ParseError(error), vec![])?,
+    result(
+        cx,
+        parsed.map_err(|error| {
+            [
+                "Empty",
+                "InvalidDigit",
+                "OutOfRange",
+                "InvalidRadix",
+                "InvalidSyntax",
+            ][error as usize]
+        }),
+        "ParseError",
+    )
+}
+
+fn result(
+    cx: &CallContext<'_>,
+    value: Result<Value, &str>,
+    error_type: &str,
+) -> NativeResult<Value> {
+    let (member, value) = match value {
+        Ok(value) => ("Ok", value),
+        Err(member) => (
+            "Err",
+            enums::allocate(
+                cx,
+                &cx.result_type_parameter(1)?,
+                error_type,
+                member,
+                vec![],
+            )?,
         ),
     };
     let _root = cx.heap().root_value(value.clone()).ok_or_else(invalid)?;
-    cx.enum_value(tag, vec![value])
+    enums::allocate(
+        cx,
+        &cx.result_type_argument()?,
+        "Result",
+        member,
+        vec![value],
+    )
+}
+
+pub(super) fn try_from(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let Ty::Builtin(source) = cx.argument_type(0)? else {
+        return Err(invalid());
+    };
+    let converted = numeric::checked_convert(*source, result_item(cx)?, cx.argument(0)?)?;
+    result(cx, converted.ok_or("OutOfRange"), "TryFromIntError")
 }
 
 fn integer_error(error: ParseIntError) -> u8 {
@@ -163,26 +201,17 @@ fn for_each(
     loop {
         cx.poll()?;
         let value = cx.call_values(next, slice::from_ref(&cursor))?;
-        let Value::Enum(id) = value else {
-            return Err(invalid());
-        };
-        let option = cx.heap().enum_snapshot(id).ok_or_else(invalid)?;
-        match option.tag {
-            EnumTag::OptionNone => return Ok(()),
-            EnumTag::OptionSome => {
-                let [item] = option.fields.as_slice() else {
+        let (member, fields) = enums::inspect(cx, &value, "Option")?;
+        match member.as_str() {
+            "None" if fields.is_empty() => return Ok(()),
+            "Some" => {
+                let [item] = fields.as_slice() else {
                     return Err(invalid());
                 };
-                // Retain a yielded reference through allocations in the visitor.
                 let _item = cx.heap().root_value(item.clone()).ok_or_else(invalid)?;
                 visit(cx, item.clone())?;
             }
-            _ => {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ModuleValidation,
-                    "iterator returned a non-Option value",
-                ));
-            }
+            _ => return Err(invalid()),
         }
     }
 }

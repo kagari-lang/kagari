@@ -362,7 +362,7 @@ fn main()->i32 {
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_types::{scalar::BuiltinType, surface::StandardEnum, ty::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -412,10 +412,11 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 program.modules[root].native_imports[import]
                     .signature
                     .params[0] = Ty::Array(
-                    Box::new(Ty::StandardEnum {
-                        kind: StandardEnum::Option,
-                        args: vec![],
-                    }),
+                    Box::new(Ty::Enum(kagari_types::ty::NominalTy {
+                        declaration: kagari_types::language::binding::option_declaration(),
+                        arguments: vec![],
+                        associated_types: Default::default(),
+                    })),
                     CollectionAccess::Mutable,
                 )
             }

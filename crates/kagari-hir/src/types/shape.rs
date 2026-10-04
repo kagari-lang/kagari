@@ -22,9 +22,7 @@ pub(super) fn validate<I: DefinitionReference>(
         }
         let next = depth + 1;
         match ty {
-            TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
-                append(items.iter(), next, &mut pending)?
-            }
+            TypeId::Tuple(items) => append(items.iter(), next, &mut pending)?,
             TypeId::Function { params, result } => {
                 append(params.iter(), next, &mut pending)?;
                 pending.push((result, next));

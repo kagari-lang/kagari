@@ -1,15 +1,25 @@
 //! Immutable language contracts are available independently of optional modules.
 use crate::{catalog, identity};
-use kagari_runtime::native::{
-    binding::NativeResult,
-    catalog::DeclarationCatalog,
-    types::{TraitRef, Type},
+use kagari_runtime::{
+    error::RuntimeError,
+    native::{
+        binding::NativeResult,
+        catalog::DeclarationCatalog,
+        types::{TraitRef, Type, TypeRef},
+    },
 };
 use kagari_types::{
-    collection::CollectionAccess, declaration::module::ModuleDecl, language, language::Protocol,
-    surface::StandardEnum, ty::Ty,
+    collection::CollectionAccess,
+    declaration::{TypeDefKind, module::ModuleDecl},
+    language,
+    language::Protocol,
+    ty::Ty,
 };
-use std::{cell::OnceCell, sync::Arc};
+use std::{cell::OnceCell, collections::BTreeMap, sync::Arc};
+
+thread_local! {
+    static ENUM_TYPES: OnceCell<NativeResult<BTreeMap<String, TypeRef>>> = const { OnceCell::new() };
+}
 
 #[derive(Debug, Clone)]
 pub struct StandardDeclarations {
@@ -127,17 +137,45 @@ impl StandardDeclarations {
         ))
     }
 
-    pub fn option(&self, item: Type) -> Type {
-        Type::from_semantic(Ty::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![item.abi().clone()],
+    /// Retrieve a library enum's ordinary authoring handle.
+    pub fn enumeration(&self, name: &str) -> NativeResult<TypeRef> {
+        ENUM_TYPES.with(|cache| {
+            let declarations = cache
+                .get_or_init(|| {
+                    let catalog = self.catalog()?;
+                    self.declarations
+                        .iter()
+                        .flat_map(|module| {
+                            module
+                                .types
+                                .iter()
+                                .filter(|ty| ty.kind == TypeDefKind::Enum)
+                                .map(move |ty| (module, ty))
+                        })
+                        .map(|(module, ty)| {
+                            Ok((
+                                ty.name.clone(),
+                                catalog.type_reference(
+                                    &module.definition(ty.kind.definition_kind(), &ty.name),
+                                )?,
+                            ))
+                        })
+                        .collect::<NativeResult<_>>()
+                })
+                .as_ref()
+                .map_err(Clone::clone)?;
+            declarations
+                .get(name)
+                .cloned()
+                .ok_or_else(|| RuntimeError::metadata_conflict("unknown standard enum"))
         })
     }
 
+    pub fn option(&self, item: Type) -> Type {
+        Type::from_semantic(identity::enum_type("Option", vec![item.abi().clone()]))
+    }
+
     pub fn ordering(&self) -> Type {
-        Type::from_semantic(Ty::StandardEnum {
-            kind: StandardEnum::Ordering,
-            args: vec![],
-        })
+        Type::from_semantic(identity::enum_type("Ordering", vec![]))
     }
 }

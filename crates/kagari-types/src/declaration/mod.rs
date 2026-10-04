@@ -130,6 +130,8 @@ pub struct FieldDef<I = DefinitionPath> {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct VariantDef<I = DefinitionPath> {
+    /// Library-authored failure reporting captures diagnostic origin on construction.
+    pub reports_failure: bool,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub payload: Vec<Ty<I>>,

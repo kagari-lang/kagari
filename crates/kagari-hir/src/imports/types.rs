@@ -220,7 +220,6 @@ impl<'a> TypeCatalog<'a> {
         let identity = module.declarations.definition(resolved)?;
         let native_type = match item {
             ExportItem::OpaqueType(id) => Some(module.declarations.native_type(id)?),
-            ExportItem::Enum(id) => module.declarations.native_enum(id),
             _ => None,
         };
         let nominal = NominalType {

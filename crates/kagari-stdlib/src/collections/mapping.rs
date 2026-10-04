@@ -1,4 +1,5 @@
 //! A library-owned lazy iterator: retained state only between synchronous next calls.
+use crate::bindings::option;
 use std::{cell::Cell, rc::Rc};
 use {
     crate::declarations::StandardDeclarations,
@@ -15,7 +16,7 @@ use {
             types::Type,
             views::{SequenceHandle, ValueHandle},
         },
-        value::{EnumTag, Value},
+        value::Value,
     },
 };
 
@@ -111,10 +112,5 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
         Some(item) => Some(mapper.call_values(cx, &[item])?),
         None => None,
     };
-    let tag = if output.is_some() {
-        EnumTag::OptionSome
-    } else {
-        EnumTag::OptionNone
-    };
-    cx.enum_value(tag, output.into_iter().collect())
+    option(cx, output)
 }

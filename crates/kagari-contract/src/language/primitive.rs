@@ -50,16 +50,6 @@ pub fn requirements(
     {
         return Ok(Some(vec![]));
     }
-    if let Some((error, output)) = contract
-        .and_then(|contract| contract.conversion_adapter.as_ref())
-        .and_then(|adapter| adapter.numeric_error(interface, receiver))
-    {
-        return Ok(interface
-            .associated_types
-            .iter()
-            .all(|(member, ty)| *member == error && *ty == output)
-            .then(Vec::new));
-    }
     if let Some(output) = operator_output(interface, receiver) {
         return Ok(interface
             .associated_types

@@ -428,9 +428,7 @@ pub(super) fn known_type_violates_constraint(
     while let Some(ty) = pending.pop() {
         match ty {
             TypeId::Unknown | TypeId::Error => {}
-            TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. }
-                if constraint == StandardTypeConstraint::Comparable =>
-            {
+            TypeId::Tuple(members) if constraint == StandardTypeConstraint::Comparable => {
                 pending.extend(members)
             }
             _ if !type_satisfies_standard_constraint(ty, constraint, bounds, None) => return true,

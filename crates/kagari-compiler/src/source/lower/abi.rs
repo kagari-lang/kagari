@@ -1,4 +1,4 @@
-use crate::source::types::{lower_native_kind, raise_type};
+use crate::source::types::lower_native_kind;
 use kagari_common::identity;
 use kagari_contract::types::{InterfaceTable, ModuleContract, PublicItem, TraitContract};
 use kagari_hir::{
@@ -16,7 +16,7 @@ use kagari_hir::{
     typeck::{FunctionImplementation, GenericBounds, scalar::ScalarValue, table::ConstraintTarget},
     types::{
         GenericParameterType, TypeId,
-        semantic::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type, raise_type},
     },
 };
 use kagari_types::{
@@ -148,11 +148,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                 };
                 public_items.push(PublicItem::Type(TypeDef {
                     name: enum_item.name.clone(),
-                    kind: module
-                        .declarations
-                        .native_enum(id)
-                        .map(lower_native_kind)
-                        .unwrap_or(TypeDefKind::Enum),
+                    kind: TypeDefKind::Enum,
                     generic_params: generic_param_abi(module, &enum_item.generic_params),
                     bounds: parameter_bounds(module, &enum_item.generic_params),
                     fields: Vec::new(),
@@ -160,6 +156,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                         .variants
                         .iter()
                         .map(|variant| VariantDef {
+                            reports_failure: module.lowered.registered_enum_failure(variant.id),
                             name: variant.name.clone(),
                             payload: variant
                                 .payload

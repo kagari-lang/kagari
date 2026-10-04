@@ -1,12 +1,11 @@
 use crate::{error::VmError, executor::Executor};
 use kagari_bytecode::instruction::{EnumId, FieldRef, Register, StructId};
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{operations::StandardEnumOp, representation::semantic_representation};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     value::{EnumTag, Value},
 };
-use kagari_types::{surface::StandardEnum as StandardEnumKind, ty::Ty};
+use kagari_types::ty::Ty;
 
 impl Executor<'_> {
     pub(crate) fn test_enum_variant(
@@ -255,96 +254,5 @@ impl Executor<'_> {
                 "write_index expects array or tuple value",
             )),
         }
-    }
-}
-
-impl Executor<'_> {
-    pub(crate) fn standard_enum_operation(
-        &self,
-        value: Option<Register>,
-        ty: &Ty<DefinitionId>,
-        op: StandardEnumOp,
-    ) -> Result<Value, VmError> {
-        let Ty::StandardEnum { kind, args } = ty else {
-            return Err(VmError::TypeMismatch("standard enum type"));
-        };
-        let variant = match op {
-            StandardEnumOp::Make(v) | StandardEnumOp::Test(v) | StandardEnumOp::Read(v) => v,
-        };
-        let tag = match (*kind, variant) {
-            (StandardEnumKind::Bound, 0) => EnumTag::BoundIncluded,
-            (StandardEnumKind::Bound, 1) => EnumTag::BoundExcluded,
-            (StandardEnumKind::Bound, 2) => EnumTag::BoundUnbounded,
-            (StandardEnumKind::ParseError, index) if index < 5 => EnumTag::ParseError(index as u8),
-            (StandardEnumKind::TryFromIntError, 0) => EnumTag::TryFromIntError,
-            (StandardEnumKind::Ordering, 0) => EnumTag::OrderingLess,
-            (StandardEnumKind::Ordering, 1) => EnumTag::OrderingEqual,
-            (StandardEnumKind::Ordering, 2) => EnumTag::OrderingGreater,
-            (StandardEnumKind::Option, 0) => EnumTag::OptionSome,
-            (StandardEnumKind::Option, 1) => EnumTag::OptionNone,
-            (StandardEnumKind::Result, 0) => EnumTag::ResultOk,
-            (StandardEnumKind::Result, 1) => EnumTag::ResultErr,
-            _ => return Err(VmError::TypeMismatch("standard enum variant")),
-        };
-        let value = value
-            .map(|v| Ok::<_, VmError>(self.current_frame()?.read_register(v)?))
-            .transpose()?;
-        let result = if matches!(op, StandardEnumOp::Make(_)) {
-            Value::Enum(self.runtime.alloc_enum(tag, value.into_iter().collect())?)
-        } else {
-            let Some(Value::Enum(id)) = value else {
-                return Err(VmError::TypeMismatch("standard enum value"));
-            };
-            let snapshot = self
-                .runtime
-                .gc()
-                .enum_snapshot(id)
-                .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
-            let payload_count = match (kind, &snapshot.tag) {
-                (
-                    StandardEnumKind::Ordering,
-                    EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater,
-                ) => 0,
-                (StandardEnumKind::Bound, EnumTag::BoundIncluded | EnumTag::BoundExcluded) => 1,
-                (StandardEnumKind::Bound, EnumTag::BoundUnbounded) => 0,
-                (StandardEnumKind::ParseError, EnumTag::ParseError(index)) if *index < 5 => 0,
-                (StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => 0,
-                (StandardEnumKind::Option, EnumTag::OptionNone) => 0,
-                (StandardEnumKind::Option, EnumTag::OptionSome)
-                | (StandardEnumKind::Result, EnumTag::ResultOk | EnumTag::ResultErr) => 1,
-                _ => return Err(VmError::TypeMismatch("standard enum family")),
-            };
-            if snapshot.fields.len() != payload_count {
-                return Err(VmError::TypeMismatch("standard enum payload arity"));
-            }
-            if matches!(op, StandardEnumOp::Test(_)) {
-                Value::Bool(snapshot.tag == tag)
-            } else {
-                if snapshot.tag != tag {
-                    return Err(VmError::TypeMismatch("standard enum payload variant"));
-                }
-                let value = snapshot
-                    .fields
-                    .first()
-                    .cloned()
-                    .ok_or(VmError::TypeMismatch("standard enum payload"))?;
-                let slot = kind
-                    .variants()
-                    .get(variant as usize)
-                    .and_then(|variant| variant.payload())
-                    .ok_or(VmError::TypeMismatch("standard enum payload type"))?;
-                let output = semantic_representation(
-                    args.get(slot)
-                        .ok_or(VmError::TypeMismatch("standard enum payload type"))?,
-                );
-                if !value.has_representation(output) {
-                    return Err(VmError::TypeMismatch(
-                        "standard enum payload representation",
-                    ));
-                }
-                value
-            }
-        };
-        Ok(result)
     }
 }

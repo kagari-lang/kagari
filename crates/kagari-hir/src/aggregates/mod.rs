@@ -72,6 +72,7 @@ pub struct NativeTypeSignature<I: DefinitionReference = DefinitionPath> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantSignature<I: DefinitionReference = DefinitionPath> {
+    pub reports_failure: bool,
     pub id: I,
     pub owner: I,
     pub slot: usize,
@@ -83,7 +84,6 @@ pub struct VariantSignature<I: DefinitionReference = DefinitionPath> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumSignature<I: DefinitionReference = DefinitionPath> {
     pub id: I,
-    pub native_type: Option<NativeTypeKind<I>>,
     pub generic_params: Vec<GenericParameterType<I>>,
     pub bounds: GenericBounds<I>,
     pub declaration: Declaration<I>,
@@ -244,6 +244,7 @@ impl AggregateCatalog {
                 self.variants
                     .insert(variant_id.clone(), (id.clone(), variants.len()));
                 variants.push(VariantSignature {
+                    reports_failure: lowered.registered_enum_failures.contains(&variant.id),
                     id: variant_id.clone(),
                     owner: id.clone(),
                     slot: variant.id.slot(),
@@ -256,7 +257,6 @@ impl AggregateCatalog {
                 id.clone(),
                 Arc::new(EnumSignature {
                     id: id.clone(),
-                    native_type: declarations.native_enum(enumeration.id),
                     generic_params: declarations.parameters_of(id),
                     bounds: signatures
                         .type_bounds(id)
@@ -468,8 +468,7 @@ impl AggregateCatalog {
             && self.enumerations.len() == other.enumerations.len()
             && self.enumerations.iter().all(|(id, a)| {
                 other.enumeration(id).is_some_and(|b| {
-                    a.native_type == b.native_type
-                        && a.generic_params == b.generic_params
+                    a.generic_params == b.generic_params
                         && a.bounds == b.bounds
                         && a.variants.len() == b.variants.len()
                         && a.variants.iter().zip(&b.variants).all(|(a, b)| {

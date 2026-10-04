@@ -136,6 +136,7 @@ fn declarations() -> (HostTypeDeclaration, HostTypeDeclaration) {
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::Result {
+            declaration: kagari_types::language::binding::result_declaration(),
             ok: Box::new(HostValueType::I32),
             error: Box::new(HostValueType::String),
         },

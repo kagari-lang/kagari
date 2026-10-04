@@ -89,9 +89,10 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     };
     let mut runtime = runtime();
     let declaration = function(
-        HostValueType::Tuple(vec![HostValueType::Option(Box::new(
-            HostValueType::opaque("game.Player"),
-        ))]),
+        HostValueType::Tuple(vec![HostValueType::Option(
+            kagari_types::language::binding::option_declaration(),
+            Box::new(HostValueType::opaque("game.Player")),
+        )]),
         HostPassingStyle::Owned,
     );
     runtime

@@ -799,16 +799,14 @@ fn lower_instruction(
             lhs: lower_value(*lhs),
             rhs: rhs.map(lower_value),
         },
-        Instruction::MapResultError {
+        Instruction::ForwardEnumOrigin {
             dst,
             original,
-            error,
-            ty,
-        } => BytecodeInstruction::MapResultError {
+            value,
+        } => BytecodeInstruction::ForwardEnumOrigin {
             dst: lower_value(*dst),
             original: lower_value(*original),
-            error: lower_value(*error),
-            ty: ty.clone(),
+            value: lower_value(*value),
         },
         Instruction::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
             dst: lower_value(*dst),
@@ -816,12 +814,7 @@ fn lower_instruction(
             ty: ty.clone(),
             op: *op,
         },
-        Instruction::StandardEnum { dst, value, ty, op } => BytecodeInstruction::StandardEnum {
-            dst: lower_value(*dst),
-            value: value.map(lower_value),
-            ty: ty.clone(),
-            op: *op,
-        },
+
         Instruction::MakeEnum {
             dst,
             enumeration,

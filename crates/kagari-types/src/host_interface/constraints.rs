@@ -40,8 +40,8 @@ pub fn satisfies_standard_constraint(
                 }
                 pending.extend(items.iter().map(|ty| (ty, depth + 1)));
             }
-            HostValueType::Option(ty) => pending.push((ty, depth + 1)),
-            HostValueType::Result { ok, error } => {
+            HostValueType::Option(_, ty) => pending.push((ty, depth + 1)),
+            HostValueType::Result { ok, error, .. } => {
                 pending.extend([(ok.as_ref(), depth + 1), (error.as_ref(), depth + 1)])
             }
             HostValueType::Unit
@@ -76,7 +76,7 @@ mod tests {
             StandardTypeConstraint::HashKey
         ));
         assert!(!satisfies_standard_constraint(
-            &HostValueType::Option(Box::new(float.clone())),
+            &HostValueType::option(float.clone()),
             StandardTypeConstraint::HashKey
         ));
         let array = HostValueType::Array(Box::new(float), CollectionAccess::ReadOnly);

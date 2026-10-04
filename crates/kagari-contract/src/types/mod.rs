@@ -11,7 +11,7 @@ use kagari_common::{
 use kagari_types::{
     declaration::{
         AssociatedTypeFamily, ConstDef, FnDecl, NativeDeclaration, Param, TraitDef, TypeDef,
-        TypeDefKind, verify::types_in_scope_in,
+        verify::types_in_scope_in,
     },
     ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
@@ -291,12 +291,12 @@ pub fn trait_contract<'a>(
     trait_contract_in(None, owner, items, private, id)
 }
 
-pub fn native_storage_contract<'a>(
+pub fn type_contract<'a>(
     owner: &ModuleIdentity,
     items: &'a [PublicItem],
     id: &DefinitionPath,
 ) -> Option<&'a TypeDef> {
-    native_storage_contract_in(None, owner, items, id)
+    type_contract_in(None, owner, items, id)
 }
 
 pub fn trait_contract_in<'a, I: DefinitionReference>(
@@ -327,8 +327,8 @@ pub fn trait_contract_in<'a, I: DefinitionReference>(
         })
 }
 
-/// Find a declared native storage type by its exact owning identity.
-pub fn native_storage_contract_in<'a, I: DefinitionReference>(
+/// Find a declared nominal type by its exact owning identity.
+pub fn type_contract_in<'a, I: DefinitionReference>(
     table: Option<&DefinitionTable>,
     owner: &ModuleIdentity,
     items: &'a [PublicItem<I>],
@@ -336,16 +336,12 @@ pub fn native_storage_contract_in<'a, I: DefinitionReference>(
 ) -> Option<&'a TypeDef<I>> {
     let view = id.describe(table).ok()?;
     let part = view.last()?;
-    if view.module() != owner
-        || view.segments().count() != 1
-        || part.kind != DefinitionKind::AssociatedType
-        || part.occurrence != 0
-    {
+    if view.module() != owner || view.segments().count() != 1 || part.occurrence != 0 {
         return None;
     }
     items.iter().find_map(|item| match item {
         PublicItem::Type(record)
-            if record.name == part.name && matches!(record.kind, TypeDefKind::NativeStorage(_)) =>
+            if record.name == part.name && record.kind.definition_kind() == part.kind =>
         {
             Some(record)
         }

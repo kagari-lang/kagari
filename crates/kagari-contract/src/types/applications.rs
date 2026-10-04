@@ -6,7 +6,7 @@ use crate::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use kagari_types::{
-    declaration::{TraitDef, TypeDef, applications::ApplicationValidator},
+    declaration::{TraitDef, TypeDefKind, applications::ApplicationValidator},
     ty::substitution::TypeTransformError,
 };
 
@@ -18,7 +18,7 @@ pub fn validate_declarations<'declaration, F, G>(
 ) -> Result<(), TypeTransformError>
 where
     F: Fn(&DefinitionPath) -> Option<&'declaration TraitDef>,
-    G: Fn(&DefinitionPath) -> Option<&'declaration TypeDef>,
+    G: Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
 {
     for item in items {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -60,7 +60,7 @@ pub fn validate_layouts<'declaration, F, G>(
 ) -> Result<(), TypeTransformError>
 where
     F: Fn(&DefinitionPath) -> Option<&'declaration TraitDef>,
-    G: Fn(&DefinitionPath) -> Option<&'declaration TypeDef>,
+    G: Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
 {
     for layout in structures {
         validator.types(&layout.arguments)?;
@@ -80,7 +80,7 @@ pub fn validate_slots<'declaration, F, G>(
 ) -> Result<(), TypeTransformError>
 where
     F: Fn(&DefinitionPath) -> Option<&'declaration TraitDef>,
-    G: Fn(&DefinitionPath) -> Option<&'declaration TypeDef>,
+    G: Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
 {
     if let Some(body) = &slots.generic {
         validator.bounds(&body.bounds)?;

@@ -19,7 +19,6 @@ use kagari_common::identity;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     declaration::conversion::ConversionAdapter, language as standard_traits, language::Protocol,
-    surface::StandardEnum,
 };
 
 impl<'a> BodyChecker<'a> {
@@ -426,7 +425,7 @@ impl<'a> BodyChecker<'a> {
                     (Protocol::from_id(&contract.id) == Some(Protocol::From)
                         || matches!(
                             contract.conversion_adapter,
-                            Some(ConversionAdapter::CheckedNumeric { .. })
+                            Some(ConversionAdapter::Forward { .. })
                         ))
                         && contract.methods.iter().any(|method| method.name == *name)
                 })
@@ -439,6 +438,7 @@ impl<'a> BodyChecker<'a> {
                     associated_types: Default::default(),
                 };
                 if let Some((applied, _)) = self.select_operator(&receiver_ty, requested, env) {
+                    trait_types.retain(|available| available.declaration != applied.declaration);
                     trait_types.push(applied);
                 }
             }
@@ -450,7 +450,7 @@ impl<'a> BodyChecker<'a> {
                 .aggregates
                 .traits()
                 .filter_map(|contract| {
-                    let ConversionAdapter::Reverse { error, .. } =
+                    let ConversionAdapter::Reverse { result, .. } =
                         contract.conversion_adapter.as_ref()?
                     else {
                         return None;
@@ -459,16 +459,15 @@ impl<'a> BodyChecker<'a> {
                         .methods
                         .iter()
                         .any(|method| method.name == *name)
-                        .then(|| (contract.id.clone(), error.is_some()))
+                        .then(|| (contract.id.clone(), result.clone()))
                 })
                 .collect::<Vec<_>>();
-            for (declaration, fallible) in candidates {
-                let target = if fallible {
+            for (declaration, result) in candidates {
+                let target = if let Some(result) = result {
                     match expected {
-                        TypeId::StandardEnum {
-                            kind: StandardEnum::Result,
-                            args,
-                        } => args.first(),
+                        TypeId::Enum(nominal) if nominal.declaration == result => {
+                            nominal.arguments.first()
+                        }
                         _ => None,
                     }
                 } else {

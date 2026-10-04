@@ -125,7 +125,7 @@ impl AggregateCatalog {
             return Some("identity From<T> for T is supplied by the language");
         }
         if protocol == Some(Protocol::From)
-            || matches!(adapter, Some(ConversionAdapter::CheckedNumeric { .. }))
+            || matches!(adapter, Some(ConversionAdapter::Forward { .. }))
         {
             if matches!(implementation.for_type, TypeId::Host(_))
                 || implementation
@@ -310,9 +310,7 @@ impl AggregateCatalog {
                 ));
             }
             let members = match ty {
-                TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. } => {
-                    Some(members.clone())
-                }
+                TypeId::Tuple(members) => Some(members.clone()),
                 TypeId::Enum(n) => {
                     if let Some(declaration) = self.enumeration(&n.declaration) {
                         let substitution = declaration
@@ -363,13 +361,6 @@ impl AggregateCatalog {
 
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
-            if arguments.is_empty()
-                && *member == identity::associated_type_id(&interface.declaration, "Error")
-                && let Some(error) = traits::conversion_error(interface, receiver, Some(self))
-            {
-                return Some(error);
-            }
-
             if arguments.is_empty()
                 && !matches!(receiver, TypeId::SelfType(_))
                 && *member == identity::associated_type_id(&interface.declaration, "Error")
@@ -855,9 +846,7 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
             TypeId::NativeObject(n) | TypeId::Struct(n) | TypeId::Enum(n) => {
                 pending.extend(&n.arguments)
             }
-            TypeId::Tuple(items) | TypeId::StandardEnum { args: items, .. } => {
-                pending.extend(items)
-            }
+            TypeId::Tuple(items) => pending.extend(items),
             TypeId::Array(item, _)
             | TypeId::Set(item, _)
             | TypeId::Iter(item)

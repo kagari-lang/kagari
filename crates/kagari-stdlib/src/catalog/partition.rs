@@ -8,7 +8,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::{FnDecl, TypeDefKind, module::ModuleDecl},
+    declaration::{FnDecl, module::ModuleDecl},
     ty::GenericBound,
 };
 use std::collections::BTreeMap;
@@ -46,7 +46,7 @@ fn function_owner(name: &str) -> ModuleIdentity {
     }
     if matches!(
         name,
-        "$foundation_from_str" | "$foundation_sum" | "$foundation_product"
+        "$foundation_from_str" | "$foundation_try_from" | "$foundation_sum" | "$foundation_product"
     ) {
         return namespaces::module("core", "num");
     }
@@ -165,10 +165,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
             );
         }
         for ty in &owner.types {
-            let kind = match ty.kind {
-                TypeDefKind::Native(constructor) => constructor.declaration_kind(),
-                _ => unreachable!("foundation native type"),
-            };
+            let kind = ty.kind.definition_kind();
             facade
                 .exports
                 .insert(ty.name.clone(), owner.definition(kind, &ty.name));

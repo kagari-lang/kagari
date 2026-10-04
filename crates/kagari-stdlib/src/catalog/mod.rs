@@ -1,4 +1,4 @@
-//! Immutable portable declarations for the compiler-owned language foundation.
+//! Library-authored portable declarations for the language foundation.
 //! Registration and tooling consume the same records; no Rust bodies live here.
 mod collections;
 mod construction;
@@ -6,6 +6,7 @@ mod construction_defaults;
 mod contracts;
 mod defaults;
 mod documentation;
+mod enums;
 mod key;
 mod list_methods;
 mod partition;

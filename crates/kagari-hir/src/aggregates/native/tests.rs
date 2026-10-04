@@ -2,7 +2,7 @@ use crate::{
     aggregates::AggregateCatalog,
     analysis::AnalysisSnapshot,
     language::{semantics as traits, semantics::ProtocolSemantics},
-    native::{NativeBinding, NativeTypeKind},
+    native::NativeBinding,
     tests::test_analysis,
     typeck::FunctionImplementation,
     types::{NominalType, TypeId, TypeSubstitution},
@@ -12,9 +12,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::identity as library;
-use kagari_types::{
-    collection::CollectionAccess, language::Protocol, scalar::BuiltinType, surface::StandardEnum,
-};
+use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType};
 
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
@@ -318,17 +316,17 @@ fn checked_native_enum_signatures_preserve_slots_and_payloads() {
         .unwrap();
     let catalog = &authoring_catalog.facts().aggregates;
     for (kind, arity, expected) in [
-        (StandardEnum::Option, 1, vec![("Some", 1), ("None", 0)]),
-        (StandardEnum::Result, 2, vec![("Ok", 1), ("Err", 1)]),
+        ("Option", 1, vec![("Some", 1), ("None", 0)]),
+        ("Result", 2, vec![("Ok", 1), ("Err", 1)]),
         (
-            StandardEnum::Ordering,
+            "Ordering",
             0,
             vec![("Less", 0), ("Equal", 0), ("Greater", 0)],
         ),
     ] {
         let enumeration = catalog
             .enumerations()
-            .find(|item| item.native_type == Some(NativeTypeKind::Enum(kind)))
+            .find(|item| item.id.path.last().is_some_and(|part| part.name == kind))
             .unwrap();
         assert_eq!(enumeration.generic_params.len(), arity);
         assert_eq!(

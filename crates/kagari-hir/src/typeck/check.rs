@@ -707,9 +707,7 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
     match (left, right) {
         (TypeId::Struct(left), TypeId::Struct(right))
         | (TypeId::Enum(left), TypeId::Enum(right)) => left.declaration == right.declaration,
-        (TypeId::StandardEnum { kind: left, .. }, TypeId::StandardEnum { kind: right, .. }) => {
-            left == right
-        }
+
         (TypeId::Tuple(left), TypeId::Tuple(right)) => left.len() == right.len(),
         (TypeId::Function { params: left, .. }, TypeId::Function { params: right, .. }) => {
             left.len() == right.len()
@@ -768,8 +766,7 @@ pub(super) fn validate_standard_type_constraints(
             TypeId::Array(element, _) | TypeId::Iter(element) | TypeId::Range(element, _) => {
                 pending.push(element)
             }
-            TypeId::StandardEnum { args, .. }
-            | TypeId::Struct(NominalType {
+            TypeId::Struct(NominalType {
                 arguments: args, ..
             })
             | TypeId::Enum(NominalType {

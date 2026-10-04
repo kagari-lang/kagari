@@ -263,11 +263,26 @@ permits later mutation while a retained cursor may resume if its source remains
 valid. Reentrant next on the same adapter is rejected. The generic execution loop
 does not identify an adapter by its library name.
 
-Installed conversion adapter records identify the forward trait/method and the
-source/target error members for reverse conversion, or the checked numeric method
-and error output. Portable proofs validate their declaration shapes, while runtime
-loading requires an exact installed contract even without a native invocation.
-The shared numeric implementation remains the authority for numeric behavior.
+Installed conversion adapter records identify the forward trait/method, result
+constructor and associated error members used by checked selection and reverse
+conversion. Numeric TryFrom pairs are ordinary registered implementations with
+declared Error outputs. Scalar numeric code computes conversion outcomes; it does
+not choose a library enum or error declaration. Portable proofs validate the
+installed contracts without source analysis.
+
+Option, Result, Ordering, Bound, ParseError, TryFromIntError and Infallible are
+ordinary enum records owned by their core-library modules. Standard Rust bodies
+construct and inspect them through checked declaration handles and pinned nominal
+layouts. No semantic type, fixed runtime tag or dedicated instruction inventories
+these families. Iterator and comparison contracts retain only the checked symbolic
+member bindings they consume. Library authoring handles are cached; layouts and
+type arguments remain scoped to the executing generation.
+
+A variant's `reports_failure` fact is explicit checked declaration/layout metadata.
+The library sets it on Result::Err, which has exactly one payload field. Construction
+captures optional diagnostic origin; generic `ForwardEnumOrigin` copies that
+sidecar after checked enum construction. Source enums and ordinary native enum
+builders leave the fact false. Equality, hashing and payload access ignore it.
 
 ## Tooling
 

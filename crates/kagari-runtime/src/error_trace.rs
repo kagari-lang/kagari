@@ -1,19 +1,11 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
 use crate::{
-    Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
-    frame::ExecutionFrame,
-    module::LoadedModule,
-    resource::ResourceState,
-    session::SessionState,
-    value::Value,
-    value_semantics,
+    Runtime, error::RuntimeError, frame::ExecutionFrame, module::LoadedModule,
+    resource::ResourceState, session::SessionState, value::Value, value_semantics,
 };
 use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
-use kagari_types::{surface::StandardEnum as StandardEnumKind, ty::Ty};
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -227,26 +219,15 @@ impl Runtime {
         Some(ResultFailure { message, trace })
     }
 
-    pub fn map_result_error(
+    pub fn forward_enum_origin(
         &self,
         owner: &LoadedModule,
         original: &Value,
-        error: Value,
-        ty: &Ty<DefinitionId>,
+        value: &Value,
     ) -> Result<Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
-        if let Ty::StandardEnum {
-            kind: StandardEnumKind::Result,
-            args,
-        } = ty
-            && args.len() == 2
-            && self.gc.matches_abi(&error, &args[1], owner)
-        {
-            return self.gc.map_result_error(original, error).map(Value::Enum);
-        }
-        Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid mapped Result error type",
-        ))
+        self.gc
+            .forward_enum_origin(original, value)
+            .map(Value::Enum)
     }
 }

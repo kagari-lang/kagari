@@ -1,14 +1,14 @@
 //! Apply registered default templates using the already checked trait selection.
-use crate::source::{
-    lower::{MirLoweringError, instances::InstancePlanner},
-    types::raise_type,
-};
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::native_import::NativeImport;
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     native::NativeBinding,
-    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution, semantic::lower_type},
+    types::{
+        GenericParameterType, NominalType, TypeId, TypeSubstitution,
+        semantic::{lower_type, raise_type},
+    },
 };
 
 impl InstancePlanner<'_> {

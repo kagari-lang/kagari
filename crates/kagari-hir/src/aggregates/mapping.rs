@@ -196,6 +196,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VariantSignature<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(VariantSignature {
+            reports_failure: self.reports_failure,
             id: mapper.reference(&self.id)?,
             owner: mapper.reference(&self.owner)?,
             slot: self.slot,
@@ -233,11 +234,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumSignature<I> {
         mapper.check()?;
         Ok(EnumSignature {
             id: mapper.reference(&self.id)?,
-            native_type: self
-                .native_type
-                .as_ref()
-                .map(|value| (value).map_identities(mapper))
-                .transpose()?,
             generic_params: map_sequence(&self.generic_params, |value| {
                 (value).map_identities(mapper)
             })?,
@@ -263,9 +259,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumSignature<I> {
         check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.id)?;
-        if let Some(value0) = self.native_type.as_ref() {
-            (value0).visit_definitions(visit, cancel)?;
-        }
+
         for value0 in &self.generic_params {
             (value0).visit_definitions(visit, cancel)?;
         }

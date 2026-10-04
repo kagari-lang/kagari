@@ -1,8 +1,8 @@
 //! Portable native constructor families and declared storage capabilities.
 //! Physical slot representation and installed Rust storage belong to execution.
 
+use crate::declaration::TypeDef;
 use crate::range::RangeKind;
-use crate::{declaration::TypeDef, surface::StandardEnum};
 use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +36,6 @@ pub enum NativeTypeConstructor {
     Set,
     Iter,
     Range(RangeKind),
-    Enum(StandardEnum),
 }
 
 impl NativeTypeConstructor {
@@ -45,34 +44,16 @@ impl NativeTypeConstructor {
             Self::String | Self::Range(RangeKind::Full) => 0,
             Self::Map => 2,
             Self::Array | Self::Set | Self::Iter | Self::Range(_) => 1,
-            Self::Enum(kind) => kind.arity(),
         }
     }
 
     pub fn declaration_kind(self) -> DefinitionKind {
-        match self {
-            Self::Enum(_) => DefinitionKind::Enum,
-            _ => DefinitionKind::AssociatedType,
-        }
+        DefinitionKind::AssociatedType
     }
 
     pub fn shape_valid(self, declaration: &TypeDef) -> bool {
-        if !declaration.fields.is_empty() || declaration.generic_params.len() != self.arity() {
-            return false;
-        }
-        let Self::Enum(kind) = self else {
-            return declaration.variants.is_empty();
-        };
-        kind.variants().len() == declaration.variants.len()
-            && kind
-                .variants()
-                .iter()
-                .zip(&declaration.variants)
-                .all(|(expected, actual)| match expected.payload() {
-                    None => actual.payload.is_empty(),
-                    Some(slot) => {
-                        actual.payload.as_slice() == [declaration.generic_params[slot].as_type()]
-                    }
-                })
+        declaration.fields.is_empty()
+            && declaration.variants.is_empty()
+            && declaration.generic_params.len() == self.arity()
     }
 }

@@ -255,10 +255,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeId<I> {
                 member: mapper.reference(member)?,
             },
             Self::SelfType(field0) => TypeId::SelfType(mapper.reference(field0)?),
-            Self::StandardEnum { kind, args } => TypeId::StandardEnum {
-                kind: *(kind),
-                args: map_sequence(args, |value| (value).map_identities(mapper))?,
-            },
         })
     }
 
@@ -341,11 +337,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeId<I> {
             Self::SelfType(field0) => {
                 check_cancel(cancel)?;
                 visit(field0)?;
-            }
-            Self::StandardEnum { kind: _, args } => {
-                for value0 in args {
-                    (value0).visit_definitions(visit, cancel)?;
-                }
             }
         }
         Ok(())

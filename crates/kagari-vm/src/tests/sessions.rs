@@ -506,7 +506,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
 
 #[test]
 fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
-    use kagari_runtime::{host::HostError, value::EnumTag};
+    use kagari_runtime::host::HostError;
     use std::{cell::RefCell, rc::Rc};
     for encoded in [false, true] {
         let module =
@@ -522,12 +522,25 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let mut runtime = runtime();
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |context, _| {
-                let value = Value::Enum(
-                    context
-                        .runtime()
-                        .alloc_enum(EnumTag::ResultErr, vec![Value::Str("host failure".into())])
-                        .unwrap(),
+                let owner = context.runtime().execution_root().unwrap();
+                let ty = kagari_types::language::binding::result(
+                    Ty::Builtin(BuiltinType::I32),
+                    Ty::Builtin(BuiltinType::String),
                 );
+                let applied = context
+                    .runtime()
+                    .resolve_type_arguments(&owner, &[ty])
+                    .unwrap()
+                    .remove(0);
+                let value = context
+                    .runtime()
+                    .make_enum_member(
+                        &owner,
+                        &applied,
+                        "Err",
+                        vec![Value::Str("host failure".into())],
+                    )
+                    .unwrap();
                 *saved.borrow_mut() = context.runtime().result_failure(&value);
                 let root = context.runtime().execution_root().unwrap();
                 let error = reenter(context, &root, fail, &[]).unwrap_err();

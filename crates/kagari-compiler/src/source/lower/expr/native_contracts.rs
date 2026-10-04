@@ -1,8 +1,5 @@
 //! Encode a selected callable application without reconstructing its declaration.
-use crate::source::{
-    lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer},
-    types::raise_type,
-};
+use crate::source::lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer};
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::{native_import::NativeImport, types::ConcreteFunctionIdentity};
 use kagari_hir::{
@@ -12,7 +9,10 @@ use kagari_hir::{
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, table::CallTarget},
-    types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, semantic::lower_type},
+    types::{
+        NominalType, TypeId, TypeSubstitution as HirSubstitution,
+        semantic::{lower_type, raise_type},
+    },
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
 use kagari_types::{callable::Signature, ty::substitution::TypeSubstitution};

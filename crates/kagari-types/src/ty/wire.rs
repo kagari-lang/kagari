@@ -2,7 +2,6 @@
 
 use crate::{
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::{
         NominalTy, Ty,
         substitution::{MAX_TYPE_DEPTH as MAX_DEPTH, MAX_TYPE_NODES as MAX_NODES},
@@ -50,7 +49,6 @@ enum Node<I = DefinitionPath> {
         #[serde(deserialize_with = "crate::decode_limits::nested")]
         bindings: Vec<I>,
     },
-    StandardEnum(StandardEnum, u32),
 }
 
 impl<I: DefinitionReference> Ty<I> {
@@ -214,13 +212,6 @@ impl<I: DefinitionReference> Ty<I> {
                         bindings: interface.associated_types.keys().cloned().collect(),
                     }
                 }
-                Self::StandardEnum { kind, args } => {
-                    if args.len() > MAX_NODES {
-                        return Err("ABI type node limit exceeded");
-                    }
-                    pending.extend(args.iter().rev().map(|ty| (ty, depth + 1)));
-                    Node::StandardEnum(*kind, args.len() as u32)
-                }
             };
             nodes.push(node);
             if nodes.len() + pending.len() > MAX_NODES {
@@ -376,10 +367,6 @@ fn build<I: DefinitionReference, E: de::Error>(
                 member,
             }
         }
-        Node::StandardEnum(kind, count) => Ty::StandardEnum {
-            kind,
-            args: children(count, nodes)?,
-        },
     })
 }
 
@@ -438,10 +425,11 @@ mod tests {
             Ty::Struct(nominal.clone()),
             Ty::Enum(nominal.clone()),
             Ty::Trait(nominal),
-            Ty::StandardEnum {
-                kind: StandardEnum::Option,
-                args: vec![Ty::Builtin(BuiltinType::Bool)],
-            },
+            Ty::Enum(crate::ty::NominalTy {
+                declaration: crate::language::binding::option_declaration(),
+                arguments: vec![Ty::Builtin(BuiltinType::Bool)],
+                associated_types: Default::default(),
+            }),
         ];
         for ty in types {
             let bytes = codec().serialize(&ty).unwrap();

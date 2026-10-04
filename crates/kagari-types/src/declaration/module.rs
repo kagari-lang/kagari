@@ -3,7 +3,6 @@ use crate::{
     callable::CallableImplementation,
     declaration::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
-        native::NativeTypeConstructor,
         requirement::NativeCallableRequirement,
         verify::{
             Parameters, function_valid, native_bounds_valid, trait_valid, type_definition_valid,
@@ -456,10 +455,7 @@ impl ModuleDecl {
             let Some(ty) = self.types.iter().find(|ty| ty.name == *owner) else {
                 return Err(fail());
             };
-            if !matches!(
-                ty.kind,
-                TypeDefKind::Enum | TypeDefKind::Native(NativeTypeConstructor::Enum(_))
-            ) {
+            if !matches!(ty.kind, TypeDefKind::Enum) {
                 return Err(fail());
             }
             for variant in &ty.variants {
@@ -795,7 +791,7 @@ fn supported_type(ty: &Ty) -> Result<(), DeclarationError> {
                 pending.push(item)
             }
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-            Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => {
+            Ty::Tuple(items) => {
                 pending.extend(items);
             }
             Ty::Function { params, result } => {

@@ -2,11 +2,11 @@
 //! supplied by ordinary implementations, independently of declaration ownership.
 use crate::catalog::contracts;
 use crate::catalog::{key, key::RegistrationTrait};
+use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::associated_type_id;
 use kagari_types::{
     declaration::{conversion::ConversionAdapter, module::ModuleDecl},
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::{Constraint, GenericBound, GenericParam, Ty},
 };
 
@@ -46,7 +46,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
                 .associated_types
                 .push(contracts::associated(&owner, name, vec![]));
             contracts::enum_type(
-                StandardEnum::Result,
+                "Result",
                 vec![
                     result,
                     Ty::Projection {
@@ -99,11 +99,14 @@ pub(super) fn declare(module: &mut ModuleDecl) {
                         )
                     }),
                     origin: forward,
+                    result: (kind == RegistrationTrait::TryInto)
+                        .then(|| module.definition(DefinitionKind::Enum, "Result")),
                 })
             }
-            RegistrationTrait::TryFrom => Some(ConversionAdapter::CheckedNumeric {
+            RegistrationTrait::TryFrom => Some(ConversionAdapter::Forward {
                 method: ModuleDecl::method_id(&owner, "try_from"),
                 error: associated_type_id(&owner, "Error"),
+                result: module.definition(DefinitionKind::Enum, "Result"),
             }),
             _ => None,
         };

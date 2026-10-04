@@ -2,9 +2,8 @@
 use crate::{
     callable::Signature,
     declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
-    language::Protocol,
+    language::{Protocol, binding},
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::Ty,
 };
 use kagari_common::identity::{DefinitionKind, associated_type_id};
@@ -50,41 +49,21 @@ pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protoco
         ),
         Protocol::Iterator if matches!(required.receiver, Ty::Trait(_)) => (
             "next",
-            Ty::StandardEnum {
-                kind: StandardEnum::Option,
-                args: vec![
-                    required
-                        .interface
-                        .associated_types
-                        .get(&associated_type_id(&required.interface.declaration, "Item"))?
-                        .clone(),
-                ],
-            },
+            binding::option(
+                required
+                    .interface
+                    .associated_types
+                    .get(&associated_type_id(&required.interface.declaration, "Item"))?
+                    .clone(),
+            ),
             1,
         ),
         Protocol::PartialEq => ("eq", Ty::Builtin(BuiltinType::Bool), 2),
         Protocol::Hash => ("hash", Ty::Builtin(BuiltinType::I64), 1),
         Protocol::Debug => ("debug", Ty::Builtin(BuiltinType::String), 1),
         Protocol::Display => ("display", Ty::Builtin(BuiltinType::String), 1),
-        Protocol::Ord => (
-            "cmp",
-            Ty::StandardEnum {
-                kind: StandardEnum::Ordering,
-                args: vec![],
-            },
-            2,
-        ),
-        Protocol::PartialOrd => (
-            "partial_cmp",
-            Ty::StandardEnum {
-                kind: StandardEnum::Option,
-                args: vec![Ty::StandardEnum {
-                    kind: StandardEnum::Ordering,
-                    args: vec![],
-                }],
-            },
-            2,
-        ),
+        Protocol::Ord => ("cmp", binding::ordering(), 2),
+        Protocol::PartialOrd => ("partial_cmp", binding::option(binding::ordering()), 2),
         _ => return None,
     };
     let mut owner = required.member.clone();

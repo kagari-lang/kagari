@@ -1,15 +1,14 @@
 //! Complete syntax/value contracts, explicitly expressed in Kagari's type model.
-use crate::catalog::roles;
+use crate::catalog::{assembly_identity, roles};
 use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{
-    DefinitionPath, associated_type_id,
+    DefinitionKind, DefinitionPath, associated_type_id,
     mapping::{DefinitionMapper, DefinitionRecord},
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{AssociatedTypeDef, FnDecl, Param, TraitDef, module::ModuleDecl},
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::{Constraint, GenericParam, NominalTy, Ty},
 };
 
@@ -76,12 +75,16 @@ pub(super) fn method(name: &str, params: Vec<Ty>, result: Ty) -> FnDecl {
     }
 }
 
-pub(super) fn enum_type(kind: StandardEnum, args: Vec<Ty>) -> Ty {
-    Ty::StandardEnum { kind, args }
+pub(super) fn enum_type(name: &str, arguments: Vec<Ty>) -> Ty {
+    Ty::Enum(NominalTy {
+        declaration: ModuleDecl::new(assembly_identity()).definition(DefinitionKind::Enum, name),
+        arguments,
+        associated_types: Default::default(),
+    })
 }
 
 pub(super) fn option(item: Ty) -> Ty {
-    enum_type(StandardEnum::Option, vec![item])
+    enum_type("Option", vec![item])
 }
 
 pub(super) fn unit() -> Ty {
@@ -118,10 +121,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             .expect("foundation assembly identities"),
     );
     let mut bounds = contract(RegistrationTrait::RangeBounds, &["T"]);
-    let bound = enum_type(
-        StandardEnum::Bound,
-        vec![bounds.generic_params[0].as_type()],
-    );
+    let bound = enum_type("Bound", vec![bounds.generic_params[0].as_type()]);
     bounds.methods.extend([
         method(
             "start_bound",

@@ -1,7 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::GcHeap,
-    value::{EnumTag, Value},
+    value::Value,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
@@ -12,7 +11,7 @@ use kagari_contract::{
 use kagari_types::{
     arithmetic,
     arithmetic::{ArithmeticError, IntegerBinaryOp},
-    integer,
+    conversion, integer,
     integer::IntegerMethod,
     numeric,
     numeric::Number,
@@ -133,11 +132,10 @@ pub fn fixed_integer(
 }
 
 pub fn integer_method(
-    gc: &GcHeap,
     operation: IntegerMethod,
     ty: BuiltinType,
     args: &[Value],
-) -> Result<Value, RuntimeError> {
+) -> Result<Option<Value>, RuntimeError> {
     let [lhs, rhs] = args else {
         return Err(RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
@@ -167,25 +165,47 @@ pub fn integer_method(
         BuiltinType::U64 | BuiltinType::USize => Value::U64(value as u64),
         _ => Value::I64(value as i64),
     };
-    if operation.checked() {
-        let (tag, payload) = if overflow {
-            (EnumTag::OptionNone, vec![])
-        } else {
-            (EnumTag::OptionSome, vec![value])
-        };
-        return Ok(Value::Enum(gc.alloc_enum(tag, payload)?));
+    if operation.checked() && overflow {
+        return Ok(None);
     }
-    if operation.overflowing() {
-        return Ok(Value::Tuple(vec![value, Value::Bool(overflow)]));
-    }
-    Ok(value)
+    Ok(Some(if operation.overflowing() {
+        Value::Tuple(vec![value, Value::Bool(overflow)])
+    } else {
+        value
+    }))
 }
 
-pub fn convert(
-    gc: &GcHeap,
-    conversion: NumericConversion,
+/// Checked scalar conversion returns a Rust outcome; the installed library owns
+/// its script carrier, error declaration and diagnostic construction.
+pub fn checked_convert(
+    source: BuiltinType,
+    target: BuiltinType,
     value: Value,
-) -> Result<Value, RuntimeError> {
+) -> Result<Option<Value>, RuntimeError> {
+    let fallible = conversion::checked_conversion_fallible(source, target)
+        .ok_or_else(|| RuntimeError::module_validation("checked scalar conversion"))?;
+    if source.integer_layout().is_some() {
+        read_integer(source, &value)?;
+    } else if !value.has_representation(builtin_representation(source)) {
+        return Err(RuntimeError::module_validation("checked scalar source"));
+    }
+    if fallible {
+        let input = read_integer(source, &value)?;
+        let (bits, signed) = target
+            .integer_layout()
+            .ok_or_else(|| RuntimeError::module_validation("checked scalar target"))?;
+        let (minimum, maximum) = integer::bounds(bits, signed);
+        if input < minimum || input > maximum {
+            return Ok(None);
+        }
+    }
+    if source == target {
+        return Ok(Some(value));
+    }
+    convert(NumericConversion { source, target }, value).map(Some)
+}
+
+pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, RuntimeError> {
     let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
     conversion.contract().ok_or_else(fail)?;
     if !value.has_representation(builtin_representation(conversion.source)) {
@@ -194,8 +214,8 @@ pub fn convert(
     if conversion.source.integer_layout().is_some() {
         read_integer(conversion.source, &value)?;
     }
-    if conversion.checked && conversion.source == conversion.target {
-        return Ok(Value::Enum(gc.alloc_enum(EnumTag::ResultOk, vec![value])?));
+    if conversion.source == conversion.target {
+        return Ok(value);
     }
     let value = match value {
         Value::Bool(v) => Number::Integer(i128::from(v)),
@@ -206,17 +226,6 @@ pub fn convert(
         Value::F64(v) => Number::F64(v),
         _ => return Err(fail()),
     };
-    if conversion.checked
-        && let (Number::Integer(input), Some((bits, signed))) =
-            (value, conversion.target.integer_layout())
-    {
-        let (min, max) = integer::bounds(bits, signed);
-        if input < min || input > max {
-            let error = Value::Enum(gc.alloc_enum(EnumTag::TryFromIntError, vec![])?);
-            let _root = gc.root_value(error.clone()).ok_or_else(fail)?;
-            return Ok(Value::Enum(gc.alloc_enum(EnumTag::ResultErr, vec![error])?));
-        }
-    }
     let value = match numeric::cast(value, conversion.target.number_type().ok_or_else(fail)?) {
         Number::F32(v) => Value::F32(v),
         Number::F64(v) => Value::F64(v),
@@ -226,11 +235,7 @@ pub fn convert(
             _ => Value::I64(v as i64),
         },
     };
-    if conversion.checked {
-        Ok(Value::Enum(gc.alloc_enum(EnumTag::ResultOk, vec![value])?))
-    } else {
-        Ok(value)
-    }
+    Ok(value)
 }
 
 pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, RuntimeError> {
@@ -267,52 +272,46 @@ mod boundary_tests {
         let gc = runtime.gc();
         assert_eq!(
             integer_method(
-                gc,
                 IntegerMethod::WrappingAddSigned,
                 BuiltinType::USize,
                 &[Value::U64(0), Value::I64(-1)]
             )
             .unwrap(),
-            Value::U64(u64::MAX)
+            Some(Value::U64(u64::MAX))
         );
         assert_eq!(
             integer_method(
-                gc,
                 IntegerMethod::RotateLeft,
                 BuiltinType::U8,
                 &[Value::I64(128), Value::I64(1)]
             )
             .unwrap(),
-            Value::I64(1)
+            Some(Value::I64(1))
         );
         assert_eq!(
             integer_method(
-                gc,
                 IntegerMethod::OverflowingAdd,
                 BuiltinType::U8,
                 &[Value::I64(255), Value::I64(1)]
             )
             .unwrap(),
-            Value::Tuple(vec![Value::I64(0), Value::Bool(true)])
+            Some(Value::Tuple(vec![Value::I64(0), Value::Bool(true)]))
         );
-        let Value::Enum(result) = integer_method(
-            gc,
-            IntegerMethod::CheckedAdd,
-            BuiltinType::U8,
-            &[Value::I64(255), Value::I64(1)],
-        )
-        .unwrap() else {
-            panic!("checked result")
-        };
-        let result = gc.enum_snapshot(result).unwrap();
-        assert_eq!(result.tag, EnumTag::OptionNone);
-        assert!(result.fields.is_empty());
+        assert_eq!(
+            integer_method(
+                IntegerMethod::CheckedAdd,
+                BuiltinType::U8,
+                &[Value::I64(255), Value::I64(1)]
+            )
+            .unwrap(),
+            None
+        );
         for (method, receiver) in [
             (IntegerMethod::WrappingAdd, BuiltinType::I8),
             (IntegerMethod::RotateRight, BuiltinType::U32),
             (IntegerMethod::WrappingAddSigned, BuiltinType::USize),
         ] {
-            let error = integer_method(gc, method, receiver, &[]).unwrap_err();
+            let error = integer_method(method, receiver, &[]).unwrap_err();
             assert_eq!(error.message(), "integer method requires two arguments");
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
         }
@@ -334,7 +333,7 @@ mod boundary_tests {
             (M::WrappingAdd, B::U8, [Value::I64(256), Value::I64(0)]),
             (M::WrappingAddSigned, B::I8, [Value::I32(1), Value::I32(1)]),
         ] {
-            assert!(integer_method(runtime.gc(), method, ty, &args).is_err());
+            assert!(integer_method(method, ty, &args).is_err());
         }
         assert_eq!(runtime.gc().active_roots(), 0);
     }

@@ -52,6 +52,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumVariantLayout<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(EnumVariantLayout {
+            reports_failure: self.reports_failure,
             declaration: mapper.reference(&self.declaration)?,
             payload: map_sequence(&self.payload, |value| (value).map_identities(mapper))?,
         })

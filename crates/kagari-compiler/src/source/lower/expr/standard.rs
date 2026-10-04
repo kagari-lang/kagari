@@ -1,34 +1,95 @@
+//! Declaration-driven enum operations used by protocol lowering.
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
-use kagari_contract::operations::StandardEnumOp;
-use kagari_hir::types::{TypeId, semantic::lower_type};
-use kagari_mir::instruction::{Instruction, MirValue};
-use std::slice;
+use kagari_abi::representation::ValueType;
+use kagari_hir::types::TypeId;
+use kagari_mir::instruction::{Instruction, MirValue, ValueBuffer};
 
 impl FunctionLowerer<'_, '_> {
-    pub(crate) fn standard_enum_op(
+    pub(crate) fn test_enum_variant(
         &mut self,
         ty: &TypeId,
-        op: StandardEnumOp,
-        value: Option<MirValue>,
+        value: MirValue,
+        variant: usize,
     ) -> Result<MirValue, MirLoweringError> {
-        let concrete = self.planner.arguments(
-            slice::from_ref(ty),
+        let enumeration = self.nominal_instance(ty)?;
+        self.planner.record_layout_root(
+            ty,
             &self.instance.substitution,
             self.function.debug.source_span,
         )?;
-        let ty = lower_type(&concrete[0]);
-        let (_, output) = op
-            .contract_in(
-                &ty,
-                self.function
-                    .semantic
-                    .generic
-                    .as_ref()
-                    .map_or(&[], |body| body.parameters.as_slice()),
-            )
-            .ok_or(MirLoweringError::MissingBinding("standard enum contract"))?;
-        let dst = self.alloc_temp(output);
-        self.emit(Instruction::StandardEnum { dst, value, ty, op });
+        let dst = self.alloc_temp(ValueType::Bool);
+        self.emit(Instruction::TestEnumVariant {
+            dst,
+            value,
+            enumeration,
+            variant,
+        });
+        Ok(dst)
+    }
+
+    pub(crate) fn read_enum_field(
+        &mut self,
+        ty: &TypeId,
+        value: MirValue,
+        variant: usize,
+        index: usize,
+    ) -> Result<MirValue, MirLoweringError> {
+        let TypeId::Enum(nominal) = ty else {
+            return Err(MirLoweringError::MissingBinding("enum field owner"));
+        };
+        let template = self
+            .planner
+            .aggregate_catalog(&nominal.declaration)
+            .enumeration(&nominal.declaration)
+            .ok_or(MirLoweringError::MissingBinding("enum declaration"))?;
+        let substitution = template
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(nominal.arguments.iter().cloned())
+            .collect();
+        let member = template
+            .variants
+            .get(variant)
+            .and_then(|member| member.payload.get(index))
+            .ok_or(MirLoweringError::MissingBinding("enum payload field"))?
+            .instantiate(&substitution);
+        let enumeration = self.nominal_instance(ty)?;
+        self.planner.record_layout_root(
+            ty,
+            &self.instance.substitution,
+            self.function.debug.source_span,
+        )?;
+        let dst = self.alloc_temp(self.value_type(&member)?);
+        self.emit(Instruction::ReadEnumPayload {
+            dst,
+            value,
+            enumeration,
+            variant,
+            index,
+        });
+        Ok(dst)
+    }
+
+    pub(crate) fn make_enum_variant(
+        &mut self,
+        ty: &TypeId,
+        variant: usize,
+        fields: ValueBuffer,
+    ) -> Result<MirValue, MirLoweringError> {
+        let enumeration = self.nominal_instance(ty)?;
+        self.planner.record_layout_root(
+            ty,
+            &self.instance.substitution,
+            self.function.debug.source_span,
+        )?;
+        let dst = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::MakeEnum {
+            dst,
+            enumeration,
+            variant,
+            fields,
+        });
         Ok(dst)
     }
 }

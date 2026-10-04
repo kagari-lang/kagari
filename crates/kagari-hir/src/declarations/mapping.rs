@@ -125,12 +125,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
                     .iter()
                     .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
             )?,
-            native_enums: map_hash_entries(
-                self.native_enums.len(),
-                self.native_enums
-                    .iter()
-                    .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
-            )?,
         })
     }
 
@@ -162,9 +156,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
         for value0 in self.native_types.values() {
             (value0).visit_definitions(visit, cancel)?;
         }
-        for value0 in self.native_enums.values() {
-            (value0).visit_definitions(visit, cancel)?;
-        }
+
         Ok(())
     }
 }

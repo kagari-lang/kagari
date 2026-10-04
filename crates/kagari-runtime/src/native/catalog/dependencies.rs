@@ -96,7 +96,7 @@ impl References {
                     pending.push(key);
                     pending.push(value);
                 }
-                Ty::Tuple(items) | Ty::StandardEnum { args: items, .. } => pending.extend(items),
+                Ty::Tuple(items) => pending.extend(items),
                 Ty::Function { params, result } => {
                     pending.extend(params);
                     pending.push(result);

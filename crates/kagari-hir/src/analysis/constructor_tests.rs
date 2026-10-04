@@ -51,13 +51,16 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
             .aggregates
             .enumeration(&constructor.enumeration)
             .unwrap();
-        assert_eq!(owner.native_type.is_some(), name == "Some");
-        let actual = facts.typed.type_table.expr_type(id).unwrap();
         assert_eq!(
-            matches!(actual, TypeId::StandardEnum { .. }),
+            owner.id == kagari_types::language::binding::option_declaration(),
             name == "Some"
         );
-        assert_eq!(matches!(actual, TypeId::Enum(_)), name == "LocalSome");
+        let actual = facts.typed.type_table.expr_type(id).unwrap();
+        assert_eq!(
+            matches!(&actual, TypeId::Enum(nominal) if nominal.declaration == kagari_types::language::binding::option_declaration()),
+            name == "Some"
+        );
+        assert!(matches!(actual, TypeId::Enum(_)));
         checked += 1;
     }
     assert_eq!(checked, 2);
@@ -126,7 +129,11 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
         let path = analysis.definitions().resolve(*id).unwrap().to_path();
         let variant = facts.aggregates.variant(&path).unwrap();
         let enumeration = facts.aggregates.enumeration(&variant.owner).unwrap();
-        assert_eq!(enumeration.native_type.is_some(), native, "{needle}");
+        assert_eq!(
+            enumeration.id == kagari_types::language::binding::option_declaration(),
+            native,
+            "{needle}"
+        );
     }
     let mut matches = 0;
     for (_, expression) in facts.lowered.module.body.expressions() {

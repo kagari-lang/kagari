@@ -1,4 +1,4 @@
-use crate::{source::types::raise_type, tests::common::bytecode_ok};
+use crate::tests::common::bytecode_ok;
 use bincode::Options;
 use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
 use kagari_common::identity::{
@@ -6,9 +6,9 @@ use kagari_common::identity::{
 };
 use kagari_contract::types::PublicItem;
 use kagari_hir::types::semantic::lower_type;
+use kagari_hir::types::semantic::raise_type;
 use kagari_types::{
     scalar::BuiltinType,
-    surface::StandardEnum as StandardEnumKind,
     ty::{GenericParam, NominalTy, Ty},
 };
 
@@ -170,10 +170,11 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
                     Ty::SelfType(owner(&identity, &[], DefinitionKind::Trait, "Identity"))
             }
             3 => {
-                function.return_type = Ty::StandardEnum {
-                    kind: StandardEnumKind::Result,
-                    args: vec![Ty::Builtin(BuiltinType::I32)],
-                }
+                function.return_type = Ty::Enum(kagari_types::ty::NominalTy {
+                    declaration: kagari_types::language::binding::result_declaration(),
+                    arguments: vec![Ty::Builtin(BuiltinType::I32)],
+                    associated_types: Default::default(),
+                })
             }
             4 => {
                 function.return_type = Ty::Struct(NominalTy {
@@ -194,13 +195,25 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
                     .insert(0, constraint);
             }
         }
-        assert!(
-            matches!(
-                verify_program(&module),
-                Err(BytecodeVerificationError::InvalidPublicAbi)
-            ),
-            "corruption {corruption}"
-        );
+        let error = verify_program(&module).unwrap_err();
+        if corruption == 3 {
+            assert!(
+                matches!(
+                    error,
+                    BytecodeVerificationError::InvalidOperation {
+                        reason: "invalid collection access flow",
+                        ..
+                    }
+                ),
+                "{error:?}"
+            );
+        } else {
+            assert_eq!(
+                error,
+                BytecodeVerificationError::InvalidPublicAbi,
+                "corruption {corruption}"
+            );
+        }
     }
     let mut module = original;
     let identity = module.modules[module.root.index()].identity.clone();

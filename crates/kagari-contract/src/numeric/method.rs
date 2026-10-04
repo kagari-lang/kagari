@@ -1,7 +1,7 @@
 //! Closed integer-method contracts shared by verification and native execution.
 
 use kagari_types::integer::IntegerMethod;
-use kagari_types::{scalar::BuiltinType, surface::StandardEnum, ty::Ty};
+use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
 
 #[cfg(test)]
 mod tests;
@@ -59,10 +59,7 @@ impl IntegerMethodContract {
     pub fn result(self) -> Ty {
         let value = Ty::Builtin(self.receiver);
         if self.method.checked() {
-            Ty::StandardEnum {
-                kind: StandardEnum::Option,
-                args: vec![value],
-            }
+            binding::option(value)
         } else if self.method.overflowing() {
             Ty::Tuple(vec![value, Ty::Builtin(BuiltinType::Bool)])
         } else {

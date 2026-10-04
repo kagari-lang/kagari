@@ -83,7 +83,10 @@ Reuse the existing `TypeDef`, `VariantDef`, `NominalTy`, generic owner identitie
 and ordinary enum representation. Do not introduce a parallel native enum type
 system. Variant identity is owned by the enum declaration; a discriminant is only
 an index in a validated, generation-pinned layout. Names and matching payload
-shapes cannot substitute for nominal identity.
+shapes cannot substitute for nominal identity. Unit variants uniformly use
+value syntax (`Token::Empty`, `None`); empty calls (`Token::Empty()`, `None()`)
+are rejected, following the requested Rust alignment. This directly replaces
+the former source-only acceptance of empty parentheses.
 
 The public authoring surface follows ModuleBuilder's existing style. EN01-EN02
 implement these APIs:

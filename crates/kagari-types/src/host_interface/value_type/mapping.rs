@@ -45,10 +45,16 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostValueType<I> {
                 Box::new(((field0).as_ref()).map_identities(mapper)?),
                 *(field1),
             ),
-            Self::Option(field0) => {
-                HostValueType::Option(Box::new(((field0).as_ref()).map_identities(mapper)?))
-            }
-            Self::Result { ok, error } => HostValueType::Result {
+            Self::Option(declaration, field0) => HostValueType::Option(
+                mapper.reference(declaration)?,
+                Box::new(((field0).as_ref()).map_identities(mapper)?),
+            ),
+            Self::Result {
+                declaration,
+                ok,
+                error,
+            } => HostValueType::Result {
+                declaration: mapper.reference(declaration)?,
                 ok: Box::new(((ok).as_ref()).map_identities(mapper)?),
                 error: Box::new(((error).as_ref()).map_identities(mapper)?),
             },
@@ -98,10 +104,16 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostValueType<I> {
             Self::Set(field0, _) => {
                 ((field0).as_ref()).visit_definitions(visit, cancel)?;
             }
-            Self::Option(field0) => {
+            Self::Option(declaration, field0) => {
+                visit(declaration)?;
                 ((field0).as_ref()).visit_definitions(visit, cancel)?;
             }
-            Self::Result { ok, error } => {
+            Self::Result {
+                declaration,
+                ok,
+                error,
+            } => {
+                visit(declaration)?;
                 ((ok).as_ref()).visit_definitions(visit, cancel)?;
                 ((error).as_ref()).visit_definitions(visit, cancel)?;
             }

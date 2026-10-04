@@ -1,8 +1,6 @@
 //! Installed conversion adapters retain exact forward method and error identities.
 use crate::{
-    conversion as numeric,
     declaration::TraitDef,
-    surface::StandardEnum,
     ty::{NominalTy, Ty},
 };
 use kagari_common::{
@@ -26,10 +24,11 @@ pub enum ConversionAdapter<I = DefinitionPath> {
         origin: I,
         method: I,
         error: Option<(I, I)>,
+        result: Option<I>,
     },
-    /// Checked scalar conversion uses the shared numeric contract, while the
-    /// callable and associated error remain declared installation identities.
-    CheckedNumeric { method: I, error: I },
+    /// A checked forward method/result contract; ordinary implementations own
+    /// associated error selection and numeric evaluation.
+    Forward { method: I, error: I, result: I },
 }
 
 impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
@@ -45,6 +44,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
                 origin,
                 method,
                 error,
+                result,
             } => ConversionAdapter::Reverse {
                 origin: mapper.reference(origin)?,
                 method: mapper.reference(method)?,
@@ -57,10 +57,16 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
                         ))
                     })
                     .transpose()?,
+                result: result.as_ref().map(|id| mapper.reference(id)).transpose()?,
             },
-            Self::CheckedNumeric { method, error } => ConversionAdapter::CheckedNumeric {
+            Self::Forward {
+                method,
+                error,
+                result,
+            } => ConversionAdapter::Forward {
                 method: mapper.reference(method)?,
                 error: mapper.reference(error)?,
+                result: mapper.reference(result)?,
             },
         })
     }
@@ -76,6 +82,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
                 origin,
                 method,
                 error,
+                result,
             } => {
                 visit(origin)?;
                 visit(method)?;
@@ -83,10 +90,18 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
                     visit(source)?;
                     visit(target)?;
                 }
+                if let Some(result) = result {
+                    visit(result)?;
+                }
             }
-            Self::CheckedNumeric { method, error } => {
+            Self::Forward {
+                method,
+                error,
+                result,
+            } => {
                 visit(method)?;
                 visit(error)?;
+                visit(result)?;
             }
         }
         Ok(())
@@ -117,8 +132,10 @@ impl ConversionAdapter {
                 origin,
                 method,
                 error,
+                result,
             } => {
-                if origin == owner
+                if result.is_some() != error.is_some()
+                    || origin == owner
                     || origin.path.len() != 1
                     || origin.path[0].kind != DefinitionKind::Trait
                     || origin.path[0].occurrence != 0
@@ -136,7 +153,7 @@ impl ConversionAdapter {
                     error.as_ref().map(|(source, _)| source),
                 )
             }
-            Self::CheckedNumeric { method, error } => {
+            Self::Forward { method, error, .. } => {
                 if !member_of(method, owner, DefinitionKind::Method)
                     || method.path.last().map(|part| &part.name) != Some(&contract.methods[0].name)
                 {
@@ -152,9 +169,18 @@ impl ConversionAdapter {
             {
                 return false;
             }
-            Ty::StandardEnum {
-                kind: StandardEnum::Result,
-                args: vec![
+            let declaration = match self {
+                Self::Reverse {
+                    result: Some(result),
+                    ..
+                }
+                | Self::Forward { result, .. } => result.clone(),
+                _ => return false,
+            };
+            Ty::Enum(NominalTy {
+                declaration,
+                associated_types: Default::default(),
+                arguments: vec![
                     output,
                     Ty::Projection {
                         receiver: Box::new(this),
@@ -167,7 +193,7 @@ impl ConversionAdapter {
                         arguments: vec![],
                     },
                 ],
-            }
+            })
         } else {
             if !contract.associated_types.is_empty() {
                 return false;
@@ -207,37 +233,12 @@ impl ConversionAdapter {
         Some((required, target.clone()))
     }
 
-    pub fn numeric_error(
-        &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-    ) -> Option<(DefinitionPath, Ty)> {
-        let Self::CheckedNumeric { error, .. } = self else {
-            return None;
-        };
-        let (Ty::Builtin(target), [Ty::Builtin(source)]) =
-            (receiver, interface.arguments.as_slice())
-        else {
-            return None;
-        };
-        Some((
-            error.clone(),
-            Ty::StandardEnum {
-                kind: numeric::conversion_error(*source, *target)?,
-                args: vec![],
-            },
-        ))
-    }
-
     pub fn associated_output(
         &self,
         interface: &NominalTy,
         receiver: &Ty,
         member: &DefinitionPath,
     ) -> Option<Ty> {
-        if let Some((error, output)) = self.numeric_error(interface, receiver) {
-            return (member == &error).then_some(output);
-        }
         let Self::Reverse {
             origin,
             error: Some((source, target)),

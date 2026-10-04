@@ -7,7 +7,6 @@ use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
 use kagari_types::{
     callable::NativeDefaultApplication, collection::CollectionAccess,
     declaration::native::NativeStorageLayout, range::RangeKind, scalar::BuiltinType,
-    surface::StandardEnum,
 };
 
 pub(crate) mod api;
@@ -37,28 +36,12 @@ pub enum NativeTypeKind<I: DefinitionReference = DefinitionPath> {
     HashSet,
     Iter,
     Range(RangeKind),
-    Enum(StandardEnum),
-}
-
-/// Canonical diagnostic labels for native representation tags. This does not
-/// resolve source names; declarations and aliases are resolved through HIR.
-pub(crate) fn enum_display_name(kind: StandardEnum) -> &'static str {
-    match kind {
-        StandardEnum::Bound => "Bound",
-        StandardEnum::ParseError => "ParseError",
-        StandardEnum::TryFromIntError => "TryFromIntError",
-        StandardEnum::Infallible => "Infallible",
-        StandardEnum::Option => "Option",
-        StandardEnum::Result => "Result",
-        StandardEnum::Ordering => "Ordering",
-    }
 }
 
 impl NativeTypeKind {
     pub fn arity(&self) -> usize {
         match self {
             Self::Storage { arity, .. } => *arity,
-            Self::Enum(kind) => kind.arity(),
             Self::String | Self::Range(RangeKind::Full) => 0,
             Self::HashMap => 2,
             _ => 1,
@@ -76,10 +59,6 @@ impl NativeTypeKind {
                 arguments: arguments.to_vec(),
                 associated_types: Default::default(),
             }),
-            Self::Enum(kind) => TypeId::StandardEnum {
-                kind: *kind,
-                args: arguments.to_vec(),
-            },
             Self::String => TypeId::Builtin(BuiltinType::String),
             Self::Vec => TypeId::Array(first(), CollectionAccess::Mutable),
             Self::HashMap => TypeId::Map {

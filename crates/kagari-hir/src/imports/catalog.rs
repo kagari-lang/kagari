@@ -10,14 +10,13 @@ use crate::{
     },
     imports::{ImportTarget, ModuleImports, SourceImport},
     lower::LoweredModule,
-    native::NativeTypeKind,
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{DefinitionPath, ModuleIdentity},
 };
 use kagari_source::source::SourceFile;
-use kagari_types::{collection::CollectionAccess, surface::StandardEnum};
+use kagari_types::collection::CollectionAccess;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -234,16 +233,7 @@ impl<'a> SourceCatalog<'a> {
                     source: &module.source,
                     installed: module.registered_native_api,
                     prelude: module.native_prelude,
-                    glob_enums: module
-                        .module
-                        .enums
-                        .iter()
-                        .filter_map(|item| {
-                            (module.native_enums.get(&item.id).cloned()
-                                == Some(NativeTypeKind::Enum(StandardEnum::Ordering)))
-                            .then_some(item.id)
-                        })
-                        .collect(),
+                    glob_enums: module.module.enums.iter().map(|item| item.id).collect(),
                     members: Arc::new(members),
                     reexports: resolved_imports.map_or_else(BTreeMap::new, |imports| {
                         imports

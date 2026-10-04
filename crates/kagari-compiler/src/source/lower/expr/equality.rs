@@ -1,10 +1,7 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use bincode::{DefaultOptions, Options};
 use kagari_abi::representation::ValueType;
-use kagari_contract::{
-    operations::{BinaryOp, StandardEnumOp},
-    standard::RuntimePrimitive,
-};
+use kagari_contract::{operations::BinaryOp, standard::RuntimePrimitive};
 use kagari_hir::{
     aggregates::implementations::ImplementationSearchError,
     language::semantics::ProtocolSemantics,
@@ -16,7 +13,7 @@ use kagari_hir::{
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
 };
-use kagari_types::{language::Protocol, surface::StandardEnum};
+use kagari_types::language::Protocol;
 use std::{collections::HashSet, fmt::Write};
 
 impl FunctionLowerer<'_, '_> {
@@ -77,9 +74,7 @@ impl FunctionLowerer<'_, '_> {
                         );
                     }
                 }
-                TypeId::Tuple(members) | TypeId::StandardEnum { args: members, .. } => {
-                    pending.extend(members.iter().cloned())
-                }
+                TypeId::Tuple(members) => pending.extend(members.iter().cloned()),
                 _ => {}
             }
         }
@@ -108,10 +103,8 @@ impl FunctionLowerer<'_, '_> {
         args: &[MirValue],
         depth: usize,
     ) -> Result<MirValue, MirLoweringError> {
-        if matches!(
-            ty,
-            TypeId::Tuple(_) | TypeId::Enum(_) | TypeId::StandardEnum { .. }
-        ) && self.has_custom_protocol(ty)?
+        if matches!(ty, TypeId::Tuple(_) | TypeId::Enum(_))
+            && self.has_custom_protocol(ty)?
             && self
                 .planner
                 .catalog
@@ -245,35 +238,6 @@ impl FunctionLowerer<'_, '_> {
                         )
                     })
                     .collect::<Vec<_>>();
-                self.enum_protocol(protocol, ty, args, &variants, depth)
-            }
-            TypeId::StandardEnum {
-                kind,
-                args: members,
-            } => {
-                let variants = match kind {
-                    StandardEnum::Bound => {
-                        vec![
-                            (0, vec![members[0].clone()]),
-                            (1, vec![members[0].clone()]),
-                            (2, vec![]),
-                        ]
-                    }
-                    StandardEnum::ParseError => (0..5).map(|i| (i, vec![])).collect(),
-                    StandardEnum::TryFromIntError => {
-                        vec![(0, vec![])]
-                    }
-                    StandardEnum::Infallible => vec![],
-                    StandardEnum::Ordering => {
-                        vec![(0, vec![]), (1, vec![]), (2, vec![])]
-                    }
-                    StandardEnum::Option => {
-                        vec![(0, vec![members[0].clone()]), (1, vec![])]
-                    }
-                    StandardEnum::Result => {
-                        vec![(0, vec![members[0].clone()]), (1, vec![members[1].clone()])]
-                    }
-                };
                 self.enum_protocol(protocol, ty, args, &variants, depth)
             }
             _ => {
@@ -439,18 +403,7 @@ impl FunctionLowerer<'_, '_> {
         value: MirValue,
         variant: usize,
     ) -> Result<MirValue, MirLoweringError> {
-        if let TypeId::Enum(nominal) = ty {
-            let dst = self.alloc_temp(ValueType::Bool);
-            self.emit(Instruction::TestEnumVariant {
-                dst,
-                value,
-                enumeration: lower_nominal_type(nominal),
-                variant,
-            });
-            Ok(dst)
-        } else {
-            self.standard_enum_op(ty, StandardEnumOp::Test(variant as u32), Some(value))
-        }
+        self.test_enum_variant(ty, value, variant)
     }
 
     fn enum_member(
@@ -461,18 +414,7 @@ impl FunctionLowerer<'_, '_> {
         index: usize,
         member: &TypeId,
     ) -> Result<MirValue, MirLoweringError> {
-        if let TypeId::Enum(nominal) = ty {
-            let dst = self.alloc_temp(self.value_type(member)?);
-            self.emit(Instruction::ReadEnumPayload {
-                dst,
-                value,
-                enumeration: lower_nominal_type(nominal),
-                variant,
-                index,
-            });
-            Ok(dst)
-        } else {
-            self.standard_enum_op(ty, StandardEnumOp::Read(variant as u32), Some(value))
-        }
+        let _ = member; // The declaration owns the payload type.
+        self.read_enum_field(ty, value, variant, index)
     }
 }

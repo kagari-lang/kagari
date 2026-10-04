@@ -157,9 +157,7 @@ impl<I: DefinitionReference> Ty<I> {
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());
                 }
-                Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
-                    pending.extend(types)
-                }
+                Self::Tuple(types) => pending.extend(types),
                 Self::Array(ty, _) | Self::Set(ty, _) | Self::Range(ty, _) | Self::Iter(ty) => {
                     pending.push(ty)
                 }
@@ -223,10 +221,7 @@ impl<F> Mapper<'_, F> {
             Ty::NativeObject(ty) => Ty::NativeObject(self.nominal(ty, depth)?),
             Ty::Enum(ty) => Ty::Enum(self.nominal(ty, depth)?),
             Ty::Trait(ty) => Ty::Trait(self.nominal(ty, depth)?),
-            Ty::StandardEnum { kind, args } => Ty::StandardEnum {
-                kind: *kind,
-                args: self.many(args, depth + 1)?,
-            },
+
             Ty::Projection {
                 arguments,
                 receiver,

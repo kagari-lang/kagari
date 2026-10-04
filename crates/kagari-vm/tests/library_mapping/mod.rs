@@ -1,9 +1,6 @@
 use super::{Probe, program, run};
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
-use kagari_runtime::{
-    Runtime, RuntimeConfig,
-    value::{EnumTag, Value},
-};
+use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, language, language::Protocol};
 use kagari_vm::vm::Vm;
@@ -127,7 +124,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         panic!("Option");
     };
     let result = vm.runtime().gc().enum_snapshot(id).unwrap();
-    assert_eq!(result.tag, EnumTag::OptionSome);
+    assert_eq!(result.tag.variant_name(), "Some");
     assert_eq!(result.fields, vec![Value::I32(21)]);
     assert_eq!(probe.calls.get(), 2);
     drop(root);

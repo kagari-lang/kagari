@@ -4,9 +4,9 @@ use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, associated_type_id};
 use kagari_types::{
     collection::CollectionAccess,
+    conversion::checked_conversion_fallible,
     declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
     scalar::BuiltinType,
-    surface::StandardEnum,
     ty::{GenericParam, NominalTy, Ty},
 };
 
@@ -27,11 +27,12 @@ const SCALARS: [BuiltinType; 13] = [
 ];
 
 pub(super) fn declare(module: &mut ModuleDecl) {
+    checked_conversions(module);
     for target in SCALARS {
         let mut interface = key::applied(RegistrationTrait::FromStr, vec![]);
         interface.associated_types.insert(
             associated_type_id(&interface.declaration, "Err"),
-            contracts::enum_type(StandardEnum::ParseError, vec![]),
+            contracts::enum_type("ParseError", vec![]),
         );
         implement(
             module,
@@ -70,6 +71,35 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         "$foundation_list_from_iter",
     );
     iteration_calls(module, item);
+}
+
+fn checked_conversions(module: &mut ModuleDecl) {
+    for source in SCALARS {
+        for target in SCALARS {
+            let Some(fallible) = checked_conversion_fallible(source, target) else {
+                continue;
+            };
+            let mut interface = key::applied(RegistrationTrait::TryFrom, vec![Ty::Builtin(source)]);
+            interface.associated_types.insert(
+                associated_type_id(&interface.declaration, "Error"),
+                contracts::enum_type(
+                    if fallible {
+                        "TryFromIntError"
+                    } else {
+                        "Infallible"
+                    },
+                    vec![],
+                ),
+            );
+            implement(
+                module,
+                interface,
+                Ty::Builtin(target),
+                vec![],
+                "$foundation_try_from",
+            );
+        }
+    }
 }
 
 fn implement(

@@ -7,6 +7,7 @@ use kagari_common::identity::{
 };
 
 pub mod adapter;
+pub mod binding;
 pub mod role;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

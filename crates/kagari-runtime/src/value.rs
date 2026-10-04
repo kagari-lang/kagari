@@ -8,7 +8,7 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::representation::semantic_representation;
-use kagari_types::{surface::StandardEnum as StandardEnumKind, ty::Ty};
+use kagari_types::ty::Ty;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -29,30 +29,12 @@ pub struct EnumValueSnapshot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnumTag {
-    BoundIncluded,
-    BoundExcluded,
-    BoundUnbounded,
-    ParseError(u8),
-    TryFromIntError,
-    OrderingLess,
-    OrderingEqual,
-    OrderingGreater,
-    OptionSome,
-    OptionNone,
-    ResultOk,
-    ResultErr,
     Declared(EnumVariantRef),
 }
 
 impl EnumTag {
     pub fn type_name(&self) -> &str {
         match self {
-            Self::BoundIncluded | Self::BoundExcluded | Self::BoundUnbounded => "Bound",
-            Self::ParseError(_) => "ParseError",
-            Self::TryFromIntError => "TryFromIntError",
-            Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => "Ordering",
-            Self::OptionSome | Self::OptionNone => "Option",
-            Self::ResultOk | Self::ResultErr => "Result",
             Self::Declared(layout) => layout
                 .module()
                 .definition_name(layout.layout().declaration)
@@ -62,27 +44,6 @@ impl EnumTag {
 
     pub fn variant_name(&self) -> &str {
         match self {
-            Self::BoundIncluded => "Included",
-            Self::BoundExcluded => "Excluded",
-            Self::BoundUnbounded => "Unbounded",
-            Self::ParseError(index) => [
-                "Empty",
-                "InvalidDigit",
-                "OutOfRange",
-                "InvalidRadix",
-                "InvalidSyntax",
-            ]
-            .get(*index as usize)
-            .copied()
-            .unwrap_or("Invalid"),
-            Self::TryFromIntError => "OutOfRange",
-            Self::OrderingLess => "Less",
-            Self::OrderingEqual => "Equal",
-            Self::OrderingGreater => "Greater",
-            Self::OptionSome => "Some",
-            Self::OptionNone => "None",
-            Self::ResultOk => "Ok",
-            Self::ResultErr => "Err",
             Self::Declared(layout) => layout
                 .module()
                 .definition_name(layout.variant().declaration)
@@ -90,40 +51,8 @@ impl EnumTag {
         }
     }
 
-    /// Select the declared generic payload slot, distinguishing empty variants
-    /// from a tag belonging to another enum family.
-    pub(crate) fn standard_payload(&self, kind: StandardEnumKind) -> Option<Option<usize>> {
-        match (kind, self) {
-            (StandardEnumKind::Bound, Self::BoundUnbounded)
-            | (StandardEnumKind::TryFromIntError, Self::TryFromIntError)
-            | (
-                StandardEnumKind::Ordering,
-                Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater,
-            )
-            | (StandardEnumKind::Option, Self::OptionNone) => Some(None),
-            (StandardEnumKind::ParseError, Self::ParseError(index)) if *index < 5 => Some(None),
-            (StandardEnumKind::Bound, Self::BoundIncluded | Self::BoundExcluded)
-            | (StandardEnumKind::Option, Self::OptionSome)
-            | (StandardEnumKind::Result, Self::ResultOk) => Some(Some(0)),
-            (StandardEnumKind::Result, Self::ResultErr) => Some(Some(1)),
-            _ => None,
-        }
-    }
-
     pub(crate) fn accepts_representations(&self, fields: &[Value]) -> bool {
         match self {
-            Self::ParseError(index) => *index < 5 && fields.is_empty(),
-            Self::BoundUnbounded
-            | Self::TryFromIntError
-            | Self::OptionNone
-            | Self::OrderingLess
-            | Self::OrderingEqual
-            | Self::OrderingGreater => fields.is_empty(),
-            Self::BoundIncluded
-            | Self::BoundExcluded
-            | Self::OptionSome
-            | Self::ResultOk
-            | Self::ResultErr => fields.len() == 1,
             Self::Declared(layout) => {
                 fields.len() == layout.variant().payload.len()
                     && fields
@@ -193,7 +122,6 @@ enum KeyPart {
     U64(u64),
     Str(String),
     Tuple(usize),
-    StandardEnum(u8),
     DeclaredEnum(
         HostRegistryId,
         DefinitionId,
@@ -282,18 +210,6 @@ impl MapKey {
                 Value::Enum(id) => {
                     let snapshot = gc.enum_snapshot(id)?;
                     parts.push(match snapshot.tag {
-                        EnumTag::BoundIncluded => KeyPart::StandardEnum(8),
-                        EnumTag::BoundExcluded => KeyPart::StandardEnum(9),
-                        EnumTag::BoundUnbounded => KeyPart::StandardEnum(10),
-                        EnumTag::ParseError(index) => KeyPart::StandardEnum(32 + index),
-                        EnumTag::TryFromIntError => KeyPart::StandardEnum(7),
-                        EnumTag::OrderingLess => KeyPart::StandardEnum(4),
-                        EnumTag::OrderingEqual => KeyPart::StandardEnum(5),
-                        EnumTag::OrderingGreater => KeyPart::StandardEnum(6),
-                        EnumTag::OptionNone => KeyPart::StandardEnum(0),
-                        EnumTag::OptionSome => KeyPart::StandardEnum(1),
-                        EnumTag::ResultOk => KeyPart::StandardEnum(2),
-                        EnumTag::ResultErr => KeyPart::StandardEnum(3),
                         EnumTag::Declared(ref r) => KeyPart::DeclaredEnum(
                             r.registry_owner(),
                             r.layout().declaration,
