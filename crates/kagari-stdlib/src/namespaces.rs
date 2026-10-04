@@ -34,7 +34,9 @@ pub fn trait_owner(name: &str) -> ModuleIdentity {
         "From" | "Into" | "TryFrom" | "TryInto" => module("core", "convert"),
         "FromStr" => module("core", "str"),
         "Add" | "Sub" | "Mul" | "Div" | "Rem" | "BitAnd" | "BitOr" | "BitXor" | "Shl" | "Shr"
-        | "Neg" | "Not" | "Index" | "Fn" | "RangeBounds" => module("core", "ops"),
+        | "Neg" | "Not" | "Index" | "Fn" | "RangeBounds" | "Try" | "FromResidual" => {
+            module("core", "ops")
+        }
         "List" | "MutableList" | "Map" | "MutableMap" | "Set" | "MutableSet" => {
             module("std", "collections")
         }
@@ -51,8 +53,8 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
         "Ordering" => module("core", "cmp"),
         "Infallible" => module("core", "convert"),
         "ParseError" | "TryFromIntError" => module("core", "num"),
-        "Bound" | "Range" | "RangeInclusive" | "RangeFrom" | "RangeTo" | "RangeToInclusive"
-        | "RangeFull" => module("core", "ops"),
+        "ControlFlow" | "Bound" | "Range" | "RangeInclusive" | "RangeFrom" | "RangeTo"
+        | "RangeToInclusive" | "RangeFull" => module("core", "ops"),
         "CollectionCursor" => module("core", "iter"),
         "HashMap" | "HashSet" => module("std", "collections"),
         _ => panic!("unknown bundled type {name}"),

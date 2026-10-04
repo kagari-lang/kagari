@@ -7,7 +7,7 @@ use kagari_types::{
 pub fn adapter_arguments(required: &NativeCallableRequirement) -> Vec<Ty> {
     let mut arguments = vec![required.receiver.clone()];
     if Protocol::from_id(&required.interface.declaration)
-        .is_some_and(|kind| kind.iteration() || kind == Protocol::Fn)
+        .is_some_and(|kind| kind.iteration() || matches!(kind, Protocol::Fn | Protocol::From))
     {
         arguments.push(Ty::Trait(required.interface.clone()));
     }

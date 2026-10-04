@@ -1,6 +1,7 @@
 //! Closed implicit protocol signature checks; executable adapter selection is external.
 use crate::{
     callable::Signature,
+    conversion::lossless_from,
     declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
     language::{Protocol, binding},
     scalar::BuiltinType,
@@ -9,6 +10,27 @@ use crate::{
 use kagari_common::identity::{DefinitionKind, associated_type_id};
 pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protocol, Signature)> {
     let kind = Protocol::from_id(&required.interface.declaration)?;
+    if kind == Protocol::From {
+        let [input] = required.interface.arguments.as_slice() else {
+            return None;
+        };
+        let eligible = input == &required.receiver
+            || matches!((input, &required.receiver), (Ty::Builtin(source), Ty::Builtin(target))
+                if lossless_from(*source, *target));
+        return (eligible
+            && required.member == ModuleDecl::method_id(&required.interface.declaration, "from")
+            && required.arguments.is_empty()
+            && required.interface.associated_types.is_empty())
+        .then(|| {
+            (
+                kind,
+                Signature {
+                    params: vec![input.clone()],
+                    result: required.receiver.clone(),
+                },
+            )
+        });
+    }
     if kind == Protocol::Fn {
         let Ty::Function { params, result } = &required.receiver else {
             return None;

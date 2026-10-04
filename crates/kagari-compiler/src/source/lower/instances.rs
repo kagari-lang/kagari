@@ -263,7 +263,8 @@ impl<'a> InstancePlanner<'a> {
             protocol,
             ty,
             span,
-            (protocol.iteration() || protocol == Protocol::Fn).then_some(interface),
+            (protocol.iteration() || matches!(protocol, Protocol::Fn | Protocol::From))
+                .then_some(interface),
         )
     }
 

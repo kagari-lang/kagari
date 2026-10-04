@@ -113,6 +113,14 @@ fn trait_docs(name: &str) -> (&'static str, &'static str) {
             "Constructs a target value from a source. The conversion is infallible in its declared signature. Result propagation can use `From` to convert an error type.",
             "fn widen(value: i32) -> i64 { i64::from(value) }",
         ),
+        "Try" => (
+            "Defines the successful Output and distinct Residual of a carrier. Question-mark evaluates the value and branch once: Continue produces Output, while Break passes Residual to the enclosing return type's FromResidual implementation. Traps are not converted to residuals.",
+            "fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }",
+        ),
+        "FromResidual" => (
+            "Constructs the enclosing return value on early propagation. Residual types distinguish Option, Result and ControlFlow. Result converts only the error through one infallible From implementation, preserving its original failure trace.",
+            "fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }",
+        ),
         "Into" => (
             "Converts the receiver into a target. A matching `From` implementation supplies the reverse adapter without another body.",
             "fn widen(value: i32) -> i64 { value.into() }",
@@ -192,6 +200,9 @@ fn member_docs(trait_name: &str, name: &str, overview: &str) -> String {
         "clear" => "Remove all entries after validating structural mutation guards.",
         "start_bound" => "Return the lower bound with its inclusion policy.",
         "end_bound" => "Return the upper bound with its inclusion policy.",
+        "branch" => "Consume the carrier once and return Continue(Output) or Break(Residual).",
+        "from_output" => "Construct a successful carrier from Output.",
+        "from_residual" => "Construct the enclosing early-return value from a compatible Residual.",
         _ => overview,
     };
     format!("{behavior}\n\nSee `{trait_name}` for the behavioral contract and examples.")
@@ -328,6 +339,9 @@ pub(super) fn complete(module: &mut ModuleDecl) {
                 "Iter" => "The iterator produced by iter; its Item equals this iterable's Item.",
                 "Output" => "The result type of the declared operation.",
                 "Error" | "Err" => "The error returned when this conversion or parse fails.",
+                "Residual" => {
+                    "The distinct early-return type passed to FromResidual; successful Output values are not residuals."
+                }
                 _ => unreachable!("standard associated type documentation: {name}"),
             };
             module
@@ -365,6 +379,10 @@ pub(super) fn complete(module: &mut ModuleDecl) {
             "Option" => (
                 "An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.",
                 "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",
+            ),
+            "ControlFlow" => (
+                "Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.",
+                "fn success() -> core::ops::ControlFlow<String, i32> { core::ops::ControlFlow::Continue(42) }",
             ),
             "Result" => (
                 "A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.",

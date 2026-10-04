@@ -65,7 +65,8 @@ report. Embedded hosts decide when and where to present reports.
 `ResultFailure` is a detached diagnostic preview. String payloads are shown as
 text; other payloads use the runtime's bounded structural/identity preview, never
 arbitrary user Debug/Display code. The original typed payload remains in Result.
-A custom Error trait, message/cause protocol and generalized propagation are
+Try/FromResidual permit custom carriers without automatically assigning failure
+reporting policy. A custom Error trait and message/cause protocol are
 separate future features.
 
 ## Bounds, versions and source positions

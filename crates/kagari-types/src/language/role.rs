@@ -28,10 +28,12 @@ pub enum LangRole {
     Debug,
     Display,
     From,
+    Try,
+    FromResidual,
 }
 
 impl LangRole {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 26] = [
         Self::Iterator,
         Self::Iterable,
         Self::PartialEq,
@@ -56,6 +58,8 @@ impl LangRole {
         Self::Debug,
         Self::Display,
         Self::From,
+        Self::Try,
+        Self::FromResidual,
     ];
 
     pub fn name(self) -> &'static str {
@@ -84,6 +88,8 @@ impl LangRole {
             Self::Debug => "debug",
             Self::Display => "display",
             Self::From => "from",
+            Self::Try => "try",
+            Self::FromResidual => "from_residual",
         }
     }
 
@@ -122,6 +128,8 @@ impl LangRole {
             Self::Debug => Protocol::Debug,
             Self::Display => Protocol::Display,
             Self::From => Protocol::From,
+            Self::Try => Protocol::Try,
+            Self::FromResidual => Protocol::FromResidual,
         }
     }
 

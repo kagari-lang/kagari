@@ -119,7 +119,7 @@ decoded or changed inputs are bounded, validated and sealed again. See
 
 ## Language contracts and native implementations
 
-The installed `core`/`alloc`/`std` foundation defines all 38 foundation
+The installed `core`/`alloc`/`std` foundation defines all 40 foundation
 traits, primitive/value declarations, standard enums, range forms, String and the
 canonical Vec/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
 These declarations remain available independently of optional libraries.
@@ -137,14 +137,14 @@ dependencies and publishes atomically. Runtime construction starts empty. Engine
 construction explicitly installs standard modules through the same builder path
 as application modules, retaining independent heaps, host state and generations.
 
-All 38 standard traits are explicit registrations owned by `kagari-stdlib`.
+All 40 standard traits are explicit registrations owned by `kagari-stdlib`.
 Complete generated modules pass through the declaration parser and ordinary HIR
 lowering. The renderer records identity/range mappings while producing source;
 parsed attribute nodes identify language roles on their owning declarations.
 There is no handwritten-core extraction, source splice or declaration binary.
 Header collection binds LangRole to declaration IDs;
 signature completion validates installed origin, uniqueness, required roles,
-binders, parents and member types before body selection. The 24 core signatures
+binders, parents and member types before body selection. The 26 core signatures
 belong to explicit standard registrations, checked against the installed records
 and the compiler requirements.
 Rust library records under `kagari-stdlib::catalog` generate declaration views
@@ -429,7 +429,7 @@ inventory. HIR consumes semantic records through explicit provider inputs.
 
 ### Core traits and registration authority
 
-The 24 core trait signatures are ordinary explicit standard-library registrations,
+The 26 core trait signatures are ordinary explicit standard-library registrations,
 alongside the other 14 traits. Their KGR analysis views use the same renderer as
 application modules, retaining complete documentation and navigation. There are
 no independent handwritten core trait declarations, embedded declaration binary,
@@ -702,9 +702,9 @@ Ordinary library traits require no global protocol enum.
 
 #### Core trait inventory
 
-The installed foundation retains 24 of its 38 traits as language items:
-21 have direct syntax consumers and three support existing implicit value
-implementations. Their declarations are ordinary foundation source, analyzed
+The installed foundation retains 26 of its 40 traits as language items:
+Try/FromResidual supply propagation; From supplies checked implicit identity and
+lossless conversion adapters. Other roles select syntax or implicit value implementations. Their declarations are ordinary foundation source, analyzed
 through parser/HIR. Language roles select those declarations; builtin or native
 implementations remain separate. Core source and role collection are implemented in AC02. AC03 implements native
 view analysis and library capability/adapter records.
@@ -719,7 +719,8 @@ view analysis and library capability/adapter records.
 | Fn | 1 | Existing callable/closure trait semantics |
 | Iterator, Iterable | 2 | Iteration and `for` lowering |
 | Debug, Display | 2 | Debug and ordinary interpolated-string formatting |
-| From | 1 | Direct error conversion in Result `?` propagation |
+| Try, FromResidual | 2 | Checked branch/residual calls for `?` |
+| From | 1 | Implicit identity and lossless numeric conversion adapters |
 | Eq, Hash, Ord | 3 | Existing implicit eligibility, identity/composite equality and hashing, and builtin total ordering |
 
 Eq/Hash/Ord are retained because the current compiler supplies implicit value
@@ -735,11 +736,11 @@ The other 14 traits use ordinary native-library declaration/implementation recor
 | --- | --- | --- |
 | List, MutableList, Map, MutableMap, Set, MutableSet | 6 | Container interfaces, inheritance and algorithms are library policy |
 | RangeBounds | 1 | Range syntax constructs a value; its bounds interface is a registered implementation |
-| Into, TryFrom, TryInto | 3 | Ordinary conversion APIs; `?` only selects From |
+| Into, TryFrom, TryInto | 3 | Ordinary conversion APIs; Result FromResidual selects From |
 | FromStr | 1 | Parsing API |
 | FromIterator, Sum, Product | 3 | Construction and aggregation APIs |
 
-All 38 traits remain mandatory and available without optional modules. Compiler
+All 40 traits remain mandatory and available without optional modules. Compiler
 recognition and library availability are separate decisions. Preserve current
 Into/From and TryInto/TryFrom derivation and checked numeric conversions through
 checked implementation/adaptation records. Relocating their declarations alone
@@ -755,19 +756,21 @@ Hash and Ord participate in implicit eligibility. Use this behavior, rather than
 module placement, to classify ownership.
 
 Type/member bindings are a separate list: String literal representation,
-Option/Result variants for `?`, Ordering results, range construction, `[T]`'s
+ControlFlow variants for `?`, Option iterator results, Ordering results, range construction, `[T]`'s
 List declaration, default Vec construction and writable indexed access.
 These bindings select checked declarations/members or intrinsic representations;
 they do not justify adding all library traits to a language-role enum. In particular,
 the bracket bridge may refer to native-authored List without duplicating its
-definition. String methods remain ordinary library implementations. No IndexMut,
-Try or FromResidual trait is introduced.
+definition. String methods remain ordinary library implementations. IndexMut is not introduced.
 
 The active [nominal enum and propagation design](enum-propagation-plan.md)
-has replaced the closed enum representation with ordinary library-authored
-enum declarations and generation-pinned layouts through EN03. EN04 introduces
-library-authored propagation protocols; the interim Option/Result propagation
-bindings above remain until that phase is accepted.
+has replaced closed enum representation with ordinary library declarations and
+pinned layouts. `?` checks Try::Output/Residual and the enclosing FromResidual
+obligation in HIR; lowering consumes its checked calls and ControlFlow members.
+Standard Option/Result/ControlFlow policy belongs to registered library bodies.
+Custom source/native carriers use the same selected execution path. Native Result
+conversion carries a checked From callback; implicit adapters include the applied
+source interface in their identity and forwarding preserves supplying generations.
 
 Validate unknown/duplicate/missing roles, installed origin, declaration kind,
 binder arity and required member shapes. Application attributes or copied names
@@ -833,7 +836,7 @@ format identifiers, without routine unpublished-version bumps.
 
 Generic HIR, contract and execution consumers read installed storage-access facts,
 nominal implementation headers, declared parents and checked members. The language
-Protocol inventory contains only 24 core roles. A private RegistrationTrait enum
+Protocol inventory contains only 26 core roles. A private RegistrationTrait enum
 belongs solely to the Rust library catalog. Storage joins/inference, readonly
 matching, identity/equality and interface dispatch do not recognize collection
 names. NativeTypeKind/NativeTypeConstructor retain representation descriptors;
@@ -905,7 +908,7 @@ sites. Analysis snapshots own parsed text and locations; optional SDK cache file
 use those same physical paths and ranges. There is no separate authored-core
 provenance path. Loading and reload compare every reserved core trait and installed storage/conversion capability against the exact
 runtime registration, including private records and products with no native calls.
-The installed core modules collectively expose all 24 required declarations;
+The installed core modules collectively expose all 26 required declarations;
 each owning module must expose its assigned roles exactly once.
 
 The eight RuntimePrimitive entries remain checked execution helpers: value

@@ -358,6 +358,23 @@ impl<'call> CallContext<'call> {
         }
     }
 
+    /// Derive a nested type parameter while retaining its supplying scope.
+    pub fn type_parameter(
+        &self,
+        applied: &TypeArgument,
+        index: usize,
+    ) -> NativeResult<TypeArgument> {
+        applied.validate(self.runtime)?;
+        applied.parameter(self.runtime, self.owner, index)
+    }
+
+    /// Forward optional enum failure provenance after checked construction.
+    /// Both values must remain rooted across this allocation.
+    pub fn forward_enum_origin(&self, original: &Value, value: &Value) -> NativeResult<Value> {
+        self.runtime
+            .forward_enum_origin(self.owner, original, value)
+    }
+
     pub fn allocate_sequence(
         &self,
         element: TypeArgument,

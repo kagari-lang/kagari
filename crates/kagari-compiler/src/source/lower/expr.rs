@@ -15,26 +15,22 @@ use kagari_hir::{
         ids::{BlockId, ExprId},
     },
     resolver::resolved::ResolvedName,
-    typeck::table::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
+    typeck::table::ResolvedInterfaceImplementation,
     types::{
         TypeId,
-        semantic::{lower_nominal_type, lower_type, raise_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
 };
-use kagari_types::{
-    collection::CollectionAccess,
-    language::{Protocol, binding},
-    scalar::BuiltinType,
-    ty::Ty,
-};
+use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType, ty::Ty};
 use std::ops::ControlFlow;
 
 mod aggregates;
 mod calls;
 mod patterns;
+mod propagation;
 mod shared;
 
 mod equality;
@@ -395,72 +391,7 @@ impl FunctionLowerer<'_, '_> {
             ExprKind::Missing => Err(MirLoweringError::UnresolvedExpr(expr_id)),
             ExprKind::Name { .. } => self.lower_name_expr(expr_id),
             ExprKind::Literal(_) => Err(MirLoweringError::MissingBinding("checked literal")),
-            ExprKind::Propagate { expr } => {
-                let value = self.lower_expr(expr)?;
-                if self.current_block_terminated() {
-                    return Ok(value);
-                }
-                let ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .expr_type(expr)
-                    .ok_or(MirLoweringError::MissingExprType(expr))?;
-                let cond = self.test_enum_variant(&ty, value, 0)?;
-                let success = self.new_block();
-                let failure = self.new_block();
-                self.set_terminator(Terminator::Branch {
-                    cond,
-                    then_block: success,
-                    else_block: failure,
-                });
-                self.switch_to_block(failure);
-                let output = self.function.semantic.result.clone().ok_or(
-                    MirLoweringError::MissingBinding("propagation return contract"),
-                )?;
-                let residual = if matches!(&ty, TypeId::Enum(nominal) if nominal.declaration == binding::result_declaration())
-                {
-                    let error = self.read_enum_field(&ty, value, 1, 0)?;
-                    let conversion = self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .call_resolution(expr_id)
-                        .ok_or(MirLoweringError::MissingBinding("propagation conversion"))?;
-                    let TypeckCallTarget::TraitMethod { method, interface } = conversion.target
-                    else {
-                        return Err(MirLoweringError::MissingBinding(
-                            "propagation From contract",
-                        ));
-                    };
-                    let target = self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .protocol_receiver(expr_id)
-                        .cloned()
-                        .ok_or(MirLoweringError::MissingBinding("propagation error type"))?;
-                    let error =
-                        self.lower_applied_operator(interface, target, &method, &[error])?;
-                    let constructed = self.make_enum_variant(
-                        &raise_type(&output),
-                        1,
-                        [error].into_iter().collect(),
-                    )?;
-                    let dst = self.alloc_temp(ValueType::HeapObject);
-                    self.emit(Instruction::ForwardEnumOrigin {
-                        dst,
-                        original: value,
-                        value: constructed,
-                    });
-                    dst
-                } else {
-                    self.make_enum_variant(&raise_type(&output), 1, ValueBuffer::new())?
-                };
-                self.set_terminator(Terminator::Return(Some(residual)));
-                self.switch_to_block(success);
-                self.read_enum_field(&ty, value, 0, 0)
-            }
+            ExprKind::Propagate { expr } => self.lower_propagation(expr_id, expr),
             ExprKind::InterpolatedString(parts) => {
                 let elements = match self.lower_values(&parts)? {
                     ControlFlow::Continue(values) => values,

@@ -230,7 +230,10 @@ pub fn intrinsic_holds(
     if protocol.iteration() {
         return iteration_outputs(protocol, ty, catalog, bounds).is_some();
     }
-    if protocol == Protocol::From {
+    if matches!(
+        protocol,
+        Protocol::From | Protocol::Try | Protocol::FromResidual
+    ) {
         return false;
     }
     if protocol.operator() {

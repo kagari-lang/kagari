@@ -9,7 +9,7 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{FnDecl, module::ModuleDecl},
-    ty::GenericBound,
+    ty::{GenericBound, Ty},
 };
 use std::collections::BTreeMap;
 
@@ -29,6 +29,10 @@ fn entry<'a>(
 }
 
 fn function_owner(name: &str) -> ModuleIdentity {
+    if let Some(name) = name.strip_prefix("$foundation_propagation_") {
+        let carrier = name.split('_').next().expect("propagation carrier binding");
+        return namespaces::type_owner(carrier);
+    }
     if name.starts_with("__default_") {
         return namespaces::module("std", "collections");
     }
@@ -72,8 +76,12 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
     let mut implementations = BTreeMap::new();
     let mut counts = BTreeMap::<ModuleIdentity, u32>::new();
     for (index, implementation) in assembly.implementations.iter().enumerate() {
-        let owner = namespaces::receiver_owner(&implementation.for_type)
-            .expect("foundation receiver owner");
+        let owner = match &implementation.for_type {
+            Ty::Enum(nominal) if nominal.declaration.module == assembly.identity => {
+                namespaces::type_owner(&nominal.declaration.path[0].name)
+            }
+            receiver => namespaces::receiver_owner(receiver).expect("foundation receiver owner"),
+        };
         let occurrence = counts.entry(owner.clone()).or_default();
         implementations.insert(index as u32, (owner, *occurrence));
         *occurrence += 1;

@@ -109,7 +109,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
 
 #[test]
 fn every_core_role_is_collected_from_source_and_has_a_checked_shape() {
-    assert_eq!(LangRole::ALL.len(), 24);
+    assert_eq!(LangRole::ALL.len(), 26);
     assert!(check_core(|_| {}).is_empty());
 }
 
@@ -157,6 +157,13 @@ fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
             "hash",
         ),
         ("type Output;", "type Output; type Extra;", "add"),
+        ("pub trait Try:", "trait Try:", "try"),
+        ("type Residual;", "type Residual; type Extra;", "try"),
+        (
+            "pub trait FromResidual<T0>",
+            "pub trait FromResidual<T0, Extra>",
+            "from_residual",
+        ),
     ] {
         let diagnostics = check_core(|source| *source = source.replace(from, to));
         assert!(diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { role: actual, .. } if actual == role)), "{diagnostics:?}");

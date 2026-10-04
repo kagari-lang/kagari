@@ -180,13 +180,8 @@ pub fn required_operations<'a>(
                     lookup(&interface.declaration).ok_or(TypeTransformError::InvalidContract)?;
                 for method in &contract.methods {
                     cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-                    if method
-                        .params
-                        .first()
-                        .is_none_or(|param| param.ty != Ty::SelfType(interface.declaration.clone()))
-                    {
-                        continue;
-                    }
+                    // Static members are also promised by a bound (for example
+                    // From<E>::from used by a native FromResidual implementation).
                     let operation = NativeCallableRequirement {
                         receiver: bound.ty.clone(),
                         interface: interface.clone(),

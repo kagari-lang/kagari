@@ -711,17 +711,21 @@ impl ModuleDecl {
             if expected.implementations[index].methods != implementation.methods {
                 return Err(invalid());
             }
-            let substitution =
+            let mut substitution =
                 TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
+            substitution.bind_receiver(&trait_type.declaration, &implementation.for_type);
             for parent in &contract.supertraits {
                 if parent.declaration.module != self.identity {
                     continue;
                 }
+                let cancel = CancellationToken::default();
+                let parent =
+                    resolve_associated_outputs(&Ty::Trait(parent.clone()), trait_type, &cancel)
+                        .map_err(|_| invalid())?;
                 let parent = substitution
-                    .apply_nominal(parent, &CancellationToken::default())
+                    .apply(&parent, &cancel)
                     .map_err(|_| invalid())?;
-                let required =
-                    self.normalized(&Ty::Trait(parent), &implementation.generic_params)?;
+                let required = self.normalized(&parent, &implementation.generic_params)?;
                 let target =
                     self.normalized(&implementation.for_type, &implementation.generic_params)?;
                 let mut found = false;

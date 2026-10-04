@@ -252,15 +252,15 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
     for (source, code) in [
         (
             "fn f()->i32 { val x: Option<i32> = None; x? }",
-            "KG_TYPE_RETURN_TYPE_MISMATCH",
+            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
         (
             "fn f()->Result<i32, String> { val x: Option<i32> = None; Ok(x?) }",
-            "KG_TYPE_RETURN_TYPE_MISMATCH",
+            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
         (
             "fn f()->Option<i32> { val x: Result<i32, String> = Err(\"x\"); Some(x?) }",
-            "KG_TYPE_RETURN_TYPE_MISMATCH",
+            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
         (
             "fn f()->Result<i32, String> { val x: Result<i32, i32> = Err(1); Ok(x?) }",
@@ -268,7 +268,7 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
         ),
         (
             "fn f()->Option<i32> { Some(42?) }",
-            "KG_TYPE_RETURN_TYPE_MISMATCH",
+            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
         (
             "fn f()->Option<i32> { Some(\"bad\") }",
@@ -288,7 +288,7 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
         ),
         (
             "fn f()->Option<i32> { val cb = || { val x: Option<i32> = None; x?; 42 }; Some(cb()) }",
-            "KG_TYPE_RETURN_TYPE_MISMATCH",
+            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
     ] {
         let error = KagariEngine::default()

@@ -898,8 +898,8 @@ It supersedes their exclusion of generic enum/protocol migration for this active
 track; current specifications still describe implemented behavior until replaced.
 
 Status: the user activated the continuous EN01-EN05 goal on 2026-10-04.
-EN01-EN03 are complete; EN04 is next. The ordinary enum baseline, focused
-behavior and structural checks pass; protocol propagation is still pending.
+EN01-EN04 are complete; EN05 is in progress. Ordinary enums and checked protocol
+propagation pass focused behavior and structural checks. Final integration is pending.
 Commit each accepted phase once, using `Roadmap-Step: EN01` through `EN05`.
 The execution design and its index links enter the first implementation checkpoint.
 
@@ -916,7 +916,7 @@ The execution design and its index links enter the first implementation checkpoi
   consumers. Delete dedicated standard semantic types, fixed tags and operations.
   Preserve existing Option/Result `?` temporarily through checked nominal bindings.
   Resolve any EN01-EN02 carried build failures at this checkpoint.
-- [ ] **EN04: Implement Try/FromResidual propagation.** Register protocols and
+- [x] **EN04: Implement Try/FromResidual propagation.** Register protocols and
   ControlFlow, migrate standard carriers and compile propagation through selected
   calls/associated outputs. Support checked local source/native custom carriers
   and generic bounds; preserve inference, effect ordering and Err provenance.
@@ -1006,6 +1006,37 @@ Initial native producers/test consumers, incomplete imported private layouts and
 obsolete Empty() fixtures were repaired in this phase; no build/test error is
 carried. Serialized development fixtures and the full feature/backend matrix are
 the scheduled EN05 checkpoint, with no old-format reader or identifier bump.
+
+EN04 registers Try/FromResidual/ControlFlow and replaces compiler Option/Result
+propagation with checked branch/residual calls and ordinary ControlFlow members.
+Source enum/struct and registered native carriers execute from serialized artifacts
+under collection threshold 1, including a fresh artifact-loading Engine. Generic
+A: Try and R: FromResidual<A::Residual> functions retain checked projections;
+argument contexts and applied trait bounds normalize after substitution. Closure
+return inference, different success types, effect order and original Err traces
+remain intact. Incorrect protocol signatures, missing parents/bounds, overlapping
+implementations, forged roles and altered implicit From adapters fail validation.
+The final signatures and implementation rules are published in the existing specs
+and executable try-protocols example; no prelude names were added.
+
+From remains a language role for intrinsic identity and lossless numeric conversion.
+Result FromResidual requests its F: From<E> callback through ordinary checked
+native requirements. Implicit adapter identities include the applied source
+interface; bound forwarding now includes static members with unchanged scope and
+signature proof checks. Native supertrait validation resolves associated outputs
+before receiver/parameter substitution, supporting Try's parent contract without
+another parser or library-specific executable route.
+
+EN04 validation: Result/Option 12, protocol propagation/invalid witnesses 8,
+reporting 13, role collection/schema 6, stdlib documentation/examples 1, portable
+types 36 and contract units 32 pass. The initial HIR suite passed 415 cases; its
+one inventory assertion was updated for ControlFlow (eight core enums) and rerun
+successfully. Strict workspace/all-target Clippy, format, structure (772 Rust
+files, zero violations/exceptions), 102 local documentation links and diff checks
+pass. Initial callback selection, unresolved ABI encoding, owner partitioning,
+projection normalization and fixture diagnostics were repaired here. No EN04
+build/test failure is carried. EN05 owns the complete workspace/feature/backend
+matrix and coherent disposable fixture regeneration.
 
 ### Other proposals
 

@@ -40,8 +40,10 @@ pub(super) enum RegistrationTrait {
     RangeBounds,
     Debug,
     Display,
-    /// Error conversion used by Result propagation.
+    /// Infallible conversion with identity and lossless scalar implementations.
     From,
+    Try,
+    FromResidual,
     Into,
     TryFrom,
     TryInto,
@@ -63,7 +65,7 @@ pub(super) fn identity(protocol: RegistrationTrait) -> DefinitionPath {
 }
 
 impl RegistrationTrait {
-    const ALL: [Self; 38] = [
+    const ALL: [Self; 40] = [
         Self::List,
         Self::MutableList,
         Self::Map,
@@ -95,6 +97,8 @@ impl RegistrationTrait {
         Self::Debug,
         Self::Display,
         Self::From,
+        Self::Try,
+        Self::FromResidual,
         Self::Into,
         Self::TryFrom,
         Self::TryInto,
@@ -137,6 +141,8 @@ impl RegistrationTrait {
             Self::Debug => "Debug",
             Self::Display => "Display",
             Self::From => "From",
+            Self::Try => "Try",
+            Self::FromResidual => "FromResidual",
             Self::Into => "Into",
             Self::TryFrom => "TryFrom",
             Self::TryInto => "TryInto",

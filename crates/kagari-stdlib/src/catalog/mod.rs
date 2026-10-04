@@ -10,6 +10,7 @@ mod enums;
 mod key;
 mod list_methods;
 mod partition;
+mod propagation;
 mod roles;
 mod strings;
 use crate::namespaces;
@@ -31,6 +32,7 @@ pub fn declarations() -> Vec<ModuleDecl> {
     list_methods::declare(&mut module);
     defaults::declare(&mut module);
     construction_defaults::declare(&mut module);
+    propagation::implementations(&mut module);
     list_methods::configure_overrides(&mut module);
     strings::declare(&mut module);
     let mut modules = partition::finish(module);

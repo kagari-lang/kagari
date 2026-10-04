@@ -391,7 +391,14 @@ impl<'a> BodyChecker<'a> {
                         self.check_standard_constraint(actual, constraint, env, callee)
                     }
                     ConstraintTarget::Trait(trait_type) => {
-                        let trait_type = trait_type.instantiate(substitution);
+                        let mut trait_type = trait_type.instantiate(substitution);
+                        for ty in trait_type
+                            .arguments
+                            .iter_mut()
+                            .chain(trait_type.associated_types.values_mut())
+                        {
+                            *ty = self.aggregates.normalize_type(ty);
+                        }
                         self.constrain_declared_bound(actual, &trait_type, env);
                         let satisfied = self.aggregates.intrinsic_implementation(
                             &trait_type,
@@ -696,10 +703,10 @@ impl<'a> BodyChecker<'a> {
                         _ => None,
                     })
                 });
-            let expected = callable
-                .as_ref()
-                .or(parameter.as_ref())
-                .map(|ty| ty.argument_context(substitution, generics));
+            let expected = callable.as_ref().or(parameter.as_ref()).map(|ty| {
+                self.aggregates
+                    .normalize_type(&ty.argument_context(substitution, generics))
+            });
             let ty = if callable.is_some() {
                 self.infer_expr_type_expected(*argument, env, expected.as_ref())
             } else {

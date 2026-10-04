@@ -10,7 +10,7 @@ use crate::{
     host::{HostFunctionId, HostTypeId},
     language::semantics as traits,
     source_map::SourceMap,
-    typeck::{constraints, scalar::ScalarValue},
+    typeck::{constraints, scalar::ScalarValue, table::propagation::ResolvedPropagation},
     types::{
         AssociatedTypeFamily, AssociatedTypeParameters, GenericParameterType, NominalType, TypeId,
         TypeSubstitution,
@@ -114,6 +114,7 @@ pub struct TypeTable<I: DefinitionReference = DefinitionPath> {
     /// Temporary body-local placeholders; removed before publishing facts.
     pub(super) inference_holes: HashMap<TypeRefId, TypeId<I>>,
     iterations: HashMap<ExprId, ResolvedIteration<I>>,
+    propagations: HashMap<ExprId, ResolvedPropagation<I>>,
     protocol_receivers: HashMap<ExprId, TypeId<I>>,
     associated_consts: HashMap<ExprId, ResolvedAssociatedConst<I>>,
     pub(super) resolving_types: HashSet<TypeRefId>,
@@ -238,7 +239,7 @@ impl TypeTable {
                 )+};
             }
 
-            keys!(iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
+            keys!(propagations: ExprId, iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_variants: PatternId,
                 callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
@@ -641,6 +642,9 @@ impl TypeTable {
             }
         }
         for (a, b) in exprs {
+            if let Some(fact) = old.propagations.get(&old_map.expr_id(a)) {
+                self.propagations.insert(new_map.expr_id(b), fact.clone());
+            }
             if let Some(fact) = old.iterations.get(&old_map.expr_id(a)) {
                 self.iterations.insert(new_map.expr_id(b), fact.clone());
             }
@@ -902,6 +906,7 @@ impl<I: DefinitionReference> Default for TypeTable<I> {
         Self {
             inference_holes: Default::default(),
             iterations: Default::default(),
+            propagations: Default::default(),
             protocol_receivers: Default::default(),
             associated_consts: Default::default(),
             resolving_types: Default::default(),
@@ -935,6 +940,7 @@ impl<I: DefinitionReference> Default for TypeTable<I> {
 }
 
 mod mapping;
+pub mod propagation;
 
 impl<I: DefinitionReference> TypeTable<I> {
     pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration<I>> {

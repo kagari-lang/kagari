@@ -35,8 +35,10 @@ pub enum Protocol {
     Fn,
     Debug,
     Display,
-    /// Error conversion used by Result propagation.
+    /// Infallible conversion with identity and lossless scalar implementations.
     From,
+    Try,
+    FromResidual,
 }
 
 pub fn identity(protocol: Protocol) -> DefinitionPath {
@@ -66,7 +68,7 @@ pub fn identity(protocol: Protocol) -> DefinitionPath {
 }
 
 impl Protocol {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 26] = [
         Self::Iterator,
         Self::Iterable,
         Self::PartialEq,
@@ -91,6 +93,8 @@ impl Protocol {
         Self::Debug,
         Self::Display,
         Self::From,
+        Self::Try,
+        Self::FromResidual,
     ];
 
     pub fn name(self) -> &'static str {
@@ -119,6 +123,8 @@ impl Protocol {
             Self::Debug => "Debug",
             Self::Display => "Display",
             Self::From => "From",
+            Self::Try => "Try",
+            Self::FromResidual => "FromResidual",
         }
     }
 

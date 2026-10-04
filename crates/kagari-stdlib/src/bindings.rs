@@ -4,6 +4,7 @@ mod construction;
 mod enums;
 mod hash;
 mod lists;
+mod propagation;
 mod strings;
 use crate::{catalog, collections, declarations::StandardDeclarations, namespaces};
 use kagari_contract::operations::IterOp;
@@ -62,6 +63,19 @@ fn build_module(
             .name
             .as_str();
         let entry: Entry = match name {
+            "$foundation_propagation_Option_branch" => propagation::option_branch,
+            "$foundation_propagation_Result_branch" => propagation::result_branch,
+            "$foundation_propagation_ControlFlow_branch" => propagation::control_flow_branch,
+            "$foundation_propagation_Option_from_output" => propagation::option_from_output,
+            "$foundation_propagation_Result_from_output" => propagation::result_from_output,
+            "$foundation_propagation_ControlFlow_from_output" => {
+                propagation::control_flow_from_output
+            }
+            "$foundation_propagation_Option_from_residual" => propagation::option_from_residual,
+            "$foundation_propagation_Result_from_residual" => propagation::result_from_residual,
+            "$foundation_propagation_ControlFlow_from_residual" => {
+                propagation::control_flow_from_residual
+            }
             "$foundation_try_from" => construction::try_from,
             "$foundation_from_str" => construction::from_str,
             "$foundation_sum" => construction::sum,

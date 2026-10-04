@@ -387,6 +387,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
                     .iter()
                     .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
             )?,
+            propagations: map_hash_entries(
+                self.propagations.len(),
+                self.propagations
+                    .iter()
+                    .map(|(key, value)| Ok((*key, value.map_identities(mapper)?))),
+            )?,
             protocol_receivers: map_hash_entries(
                 self.protocol_receivers.len(),
                 self.protocol_receivers
@@ -570,6 +576,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
         check_cancel(cancel)?;
         for value0 in self.inference_holes.values() {
             (value0).visit_definitions(visit, cancel)?;
+        }
+        for value in self.propagations.values() {
+            value.visit_definitions(visit, cancel)?;
         }
         for value0 in self.iterations.values() {
             (value0).visit_definitions(visit, cancel)?;

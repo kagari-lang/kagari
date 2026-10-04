@@ -1,8 +1,9 @@
 # Language Foundation and Native Libraries
 
 The installed `core`/`alloc`/`std` foundation defines complete language types and
-protocols. Its 24 core traits are handwritten source with validated language roles;
-ordinary library declarations are Rust-authored. Runtime supplies their basic checked native implementations. Optional
+protocols. Its 26 language traits and 14 other foundation traits are explicit
+standard-library registrations. Their generated source is parsed and checked
+against the installed declarations and validated language roles. Runtime supplies their basic checked native implementations. Optional
 library modules and application modules use the same explicit registration API;
 see [native declarations](standard-declarations.md). Generated `.kgr` serves tooling
 and is not an executable standard library.
@@ -22,7 +23,7 @@ constructors and tooling navigation.
 
 | Canonical module | Declarations |
 | --- | --- |
-| `core::ops` | Operator traits, Index, Fn, RangeBounds, range types and Bound |
+| `core::ops` | Operator traits, Index, Fn, Try, FromResidual, ControlFlow, RangeBounds, range types and Bound |
 | `core::cmp` | PartialEq, Eq, PartialOrd, Ord and Ordering |
 | `core::hash` | Hash |
 | `core::fmt` | Debug and Display |
@@ -52,7 +53,7 @@ New public library declarations do not automatically enter the prelude.
 
 ## Foundation trait inventory
 
-The installed foundation contains these 38 traits. All remain
+The installed foundation contains these 40 traits. All remain
 available without optional libraries. This is the implemented inventory, not a
 decision that every trait needs a compiler language role.
 
@@ -69,16 +70,17 @@ decision that every trait needs a compiler language role.
 | Ranges | RangeBounds |
 | Formatting | Debug, Display |
 | Conversion | From, Into, TryFrom, TryInto |
+| Propagation | Try, FromResidual |
 | Parsing | FromStr |
 | Construction and aggregation | FromIterator, Sum, Product |
 
-The [ownership partition](../architecture.md#core-trait-inventory) has 24
-source-authored language items and 14 Rust-authored native-library traits,
-retaining mandatory availability of all 38. Parser/HIR analyzes both ordinary
-handwritten and generated declarations; checked role identities select syntax
-semantics, and library policy follows installed declaration/implementation records.
-Algorithms and additional containers remain separate from trait declarations.
-Try and FromResidual are not added; Option/Result `?` keeps its current semantics.
+The [ownership partition](../architecture.md#core-trait-inventory) has 26
+language items and 14 ordinary native-library traits, retaining mandatory
+availability of all 40. Parser/HIR analyzes their generated declarations; checked
+role identities select syntax semantics, and library policy follows installed
+declaration/implementation records. Algorithms and additional containers remain
+separate from trait declarations. Try, FromResidual and ControlFlow require
+explicit imports; they are not prelude additions.
 
 ## Core Builtin Types
 
@@ -172,12 +174,57 @@ An independently constrained error is never changed to make a conversion fit.
 Conversion runs in an ordinary script frame, sharing root cancellation and call-depth limits.
 Its effects are not rolled back if it traps; traps are not converted into Err.
 The outer failure retains the original Err metadata after its payload changes.
-There is no general `Try`/`FromResidual` protocol,
-`throw`/`try`/`catch` or built-in Error value in this version. New Err captures
+Propagation uses the ordinary protocols described below. There is no
+`throw`/`try`/`catch` or built-in Error value. New Err captures
 its source and stack; propagation preserves it. See
 [error reporting](error-reporting.md).
 See [failure semantics](failure-semantics.md) for traps and termination, which
 `?` cannot intercept, and the [executable example](../../examples/syntax/result-option.kgr).
+
+### Propagation protocols
+
+`core::ops` owns the following ordinary registered declarations, also re-exported
+by `std::ops`:
+
+```kagari
+pub enum ControlFlow<B, C> { Break(B), Continue(C) }
+pub trait FromResidual<R> {
+    fn from_residual(residual: R) -> Self;
+}
+pub trait Try: FromResidual<Self::Residual> {
+    type Output;
+    type Residual;
+    fn from_output(output: Self::Output) -> Self;
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output>;
+}
+```
+
+For an operand of type A and an enclosing return type R, `?` requires `A: Try`
+and `R: FromResidual<A::Residual>`. Its expression type is `A::Output`.
+The operand and selected `branch` execute once. Continue yields its payload;
+Break calls the selected `from_residual` once and returns from the nearest function
+or closure. Traps, cancellation and completed effects follow ordinary call rules.
+The compiler records checked method/signature/variant identities; executable
+loading validates these selections without source parsing or trait inference.
+
+| Carrier | Output | Residual | Accepted return carrier |
+| --- | --- | --- | --- |
+| Option<T> | T | Option<Infallible> | Option<U> |
+| Result<T, E> | T | Result<Infallible, E> | Result<U, F> where F: From<E> |
+| ControlFlow<B, C> | C | ControlFlow<B, Infallible> | ControlFlow<B, D> |
+
+Local source structs/enums and registered native nominal types can implement the
+same traits under the existing ownership, coherence and associated-output rules.
+Distinct residual types prevent automatic cross-carrier conversion. Explicit custom
+FromResidual implementations may accept another residual. Generic functions use
+bounds such as `A: Try` and `R: FromResidual<A::Residual>`; an Output constraint
+or return annotation is required when inference otherwise has no unique type.
+Dynamic interface propagation, generic defaults, try blocks and conversion-chain
+search are outside the implemented contract. Missing bounds and incompatible
+carriers produce bound diagnostics before execution.
+
+See [try-protocols.kgr](../../examples/syntax/try-protocols.kgr) for a custom
+carrier, generic propagation and ControlFlow.
 
 They support:
 

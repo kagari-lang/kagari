@@ -161,6 +161,7 @@ pub(crate) fn lower_protocol<'a>(
             Protocol::Iterable | Protocol::Iterator | Protocol::Fn => {
                 iteration_result.expect("protocol result")
             }
+            Protocol::From => receiver.clone(),
             Protocol::PartialOrd => ordering_type(true),
             Protocol::Ord => ordering_type(false),
             _ => TypeId::Builtin(match protocol {
@@ -183,6 +184,7 @@ pub(crate) fn lower_protocol<'a>(
             Protocol::Ord => "cmp",
             Protocol::PartialOrd => "partial_cmp",
             Protocol::Fn => "call",
+            Protocol::From => "from",
             Protocol::Hash => "hash",
             Protocol::Debug => "debug",
             Protocol::Display => "display",
@@ -220,7 +222,7 @@ pub(crate) fn lower_protocol<'a>(
     );
     let mut args = Vec::new();
     for index in 0..if binary { 2 } else { 1 } {
-        let parameter = if protocol == Protocol::Fn && index == 1 {
+        let parameter = if protocol == Protocol::From || (protocol == Protocol::Fn && index == 1) {
             interface
                 .arguments
                 .first()
@@ -259,7 +261,7 @@ pub(crate) fn lower_protocol<'a>(
         args.push(value);
     }
     let value = match protocol {
-        Protocol::Iterable | Protocol::Iterator | Protocol::Fn => {
+        Protocol::Iterable | Protocol::Iterator | Protocol::Fn | Protocol::From => {
             if protocol == Protocol::Iterable && typed.return_type == receiver {
                 args[0]
             } else {

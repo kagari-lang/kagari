@@ -1,5 +1,5 @@
 //! Explicit registrations of reserved language traits; no compiled metadata input.
-use crate::catalog::{contracts, key, key::RegistrationTrait};
+use crate::catalog::{contracts, key, key::RegistrationTrait, propagation};
 use kagari_common::identity::associated_type_id;
 use kagari_types::{
     declaration::TraitDef,
@@ -164,4 +164,7 @@ pub(super) fn declarations() -> Vec<TraitDef> {
         display,
         from,
     ]
+    .into_iter()
+    .chain(propagation::traits())
+    .collect()
 }

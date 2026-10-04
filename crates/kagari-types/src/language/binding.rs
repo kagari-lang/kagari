@@ -64,7 +64,7 @@ pub fn option(item: Ty) -> Ty {
     applied("option", "Option", vec![item])
 }
 
-/// The interim propagation and checked conversion result constructor.
+/// Checked conversion result constructor.
 pub fn result(value: Ty, error: Ty) -> Ty {
     applied("result", "Result", vec![value, error])
 }
@@ -77,4 +77,13 @@ pub fn ordering() -> Ty {
 /// RangeBounds' declared endpoint constructor.
 pub fn bound(item: Ty) -> Ty {
     applied("ops", "Bound", vec![item])
+}
+
+/// Try.branch's ordinary result constructor.
+pub fn control_flow(residual: Ty, output: Ty) -> Ty {
+    applied("ops", "ControlFlow", vec![residual, output])
+}
+
+pub fn control_flow_declaration() -> DefinitionPath {
+    declaration("ops", "ControlFlow")
 }

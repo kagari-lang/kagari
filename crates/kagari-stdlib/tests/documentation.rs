@@ -41,7 +41,7 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
             }
         }
     }
-    assert_eq!(traits, 38);
+    assert_eq!(traits, 40);
     let mut failures = Vec::new();
     for (index, example) in examples.iter().enumerate() {
         let source = SourceFile::new(format!("standard-example-{index}.kgr"), example);

@@ -3,8 +3,8 @@
 Kagari declarations describe Kagari types, functions, traits and implementations.
 Rust entries implement those declarations. Registration is explicit: a Rust
 function's signature does not define a Kagari API, and no declaration attribute
-macro is involved. `kagari-stdlib` owns all 38 standard trait registrations,
-including the 24 reserved language traits. Source-free runtime installation uses
+macro is involved. `kagari-stdlib` owns all 40 standard trait registrations,
+including the 26 reserved language traits. Source-free runtime installation uses
 these same declarations and local Rust bindings without a binary declaration product.
 
 This page describes current implemented behavior. CR01-CR02 established shared
@@ -270,7 +270,8 @@ declared Error outputs. Scalar numeric code computes conversion outcomes; it doe
 not choose a library enum or error declaration. Portable proofs validate the
 installed contracts without source analysis.
 
-Option, Result, Ordering, Bound, ParseError, TryFromIntError and Infallible are
+Option, Result, Ordering, Bound, ParseError, TryFromIntError, Infallible and
+ControlFlow are
 ordinary enum records owned by their core-library modules. Standard Rust bodies
 construct and inspect them through checked declaration handles and pinned nominal
 layouts. No semantic type, fixed runtime tag or dedicated instruction inventories
@@ -283,6 +284,21 @@ The library sets it on Result::Err, which has exactly one payload field. Constru
 captures optional diagnostic origin; generic `ForwardEnumOrigin` copies that
 sidecar after checked enum construction. Source enums and ordinary native enum
 builders leave the fact false. Equality, hashing and payload access ignore it.
+
+Try and FromResidual are ordinary registered traits; their standard bodies live
+in the library alongside the carrier declarations. A native carrier uses
+`ModuleBuilder::implement`, `trait_impl`, `associated_type` and `bind_with`, just
+like other trait implementations. `CallContext::type_parameter` retains the
+selected result's executable scope when constructing its nested residual.
+Result FromResidual declares a checked F: From<E> callable requirement. Static
+bound methods can be selected or forwarded through the same validated witness
+path as receiver methods; no execution-time trait search is added.
+
+Result branch copies origin into its residual, and FromResidual copies it into
+the returned failure after conversion. `CallContext::forward_enum_origin` uses
+checked live enum values and a validated installed owner; both values must stay
+rooted across allocation. The compiler's generic `?` path emits ordinary selected
+calls and ControlFlow variant operations, without a Result-specific origin opcode.
 
 ## Tooling
 

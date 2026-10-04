@@ -2,7 +2,7 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
 use kagari_hir::types::TypeId;
-use kagari_mir::instruction::{Instruction, MirValue, ValueBuffer};
+use kagari_mir::instruction::{Instruction, MirValue};
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn test_enum_variant(
@@ -67,28 +67,6 @@ impl FunctionLowerer<'_, '_> {
             enumeration,
             variant,
             index,
-        });
-        Ok(dst)
-    }
-
-    pub(crate) fn make_enum_variant(
-        &mut self,
-        ty: &TypeId,
-        variant: usize,
-        fields: ValueBuffer,
-    ) -> Result<MirValue, MirLoweringError> {
-        let enumeration = self.nominal_instance(ty)?;
-        self.planner.record_layout_root(
-            ty,
-            &self.instance.substitution,
-            self.function.debug.source_span,
-        )?;
-        let dst = self.alloc_temp(ValueType::HeapObject);
-        self.emit(Instruction::MakeEnum {
-            dst,
-            enumeration,
-            variant,
-            fields,
         });
         Ok(dst)
     }

@@ -53,6 +53,12 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             &[("OutOfRange", None)][..],
             false,
         ),
+        (
+            "ControlFlow",
+            &["B", "C"][..],
+            &[("Break", Some(0)), ("Continue", Some(1))][..],
+            false,
+        ),
         ("Infallible", &[][..], &[][..], false),
     ] {
         let owner = module.definition(DefinitionKind::Enum, name);
