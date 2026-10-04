@@ -9,7 +9,7 @@ use crate::{
     native::api as native_api,
     resolver::resolved::DeclarationNames,
 };
-use kagari_contract::library;
+use kagari_contract::library::catalog;
 
 use kagari_syntax::{
     ast::{
@@ -162,8 +162,17 @@ impl AnalysisDatabase {
         let native_files = match self.native_files.get() {
             Some(files) => files,
             None => {
-                let mut modules = vec![library::catalog::shared()];
-                modules.extend(self.native_modules.iter().cloned());
+                let mut modules = catalog::shared();
+                for module in &self.native_modules {
+                    if let Some(existing) = modules
+                        .iter_mut()
+                        .find(|existing| existing.identity == module.identity)
+                    {
+                        *existing = module.clone();
+                    } else {
+                        modules.push(module.clone());
+                    }
+                }
                 let prepared = modules
                     .iter()
                     .map(|module| native_api::import(module, &modules, self.parse_limits, cancel))

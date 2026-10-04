@@ -1,3 +1,4 @@
+use std::hash::{Hash};
 // Run: cargo run -p kagari-cli -- run examples/syntax/associated-types.kgr
 // Result: main returns 42.
 trait Reader {

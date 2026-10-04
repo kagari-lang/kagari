@@ -227,9 +227,15 @@ mod tests {
                 .source(metadata.declaration.location.file)
                 .unwrap()
                 .name(),
-            declaration_source(&kagari_contract::library::catalog::shared())
-                .unwrap()
-                .uri
+            declaration_source(
+                &kagari_contract::library::catalog::shared()
+                    .into_iter()
+                    .find(|module| module.identity
+                        == kagari_contract::library::namespaces::module("std", "collections"))
+                    .unwrap()
+            )
+            .unwrap()
+            .uri
         );
         assert!(metadata.written_signature.contains("fn "));
         assert_eq!(
@@ -240,7 +246,7 @@ mod tests {
 
     #[test]
     fn native_calls_types_and_variants_navigate_to_source() {
-        let text = "use core::language::ArrayList::new as create; fn main() { val value: Result<i32,String> = Ok(7); val values: ArrayList<i32> = create(); values.len(); }";
+        let text = "use alloc::vec::Vec::new as create; fn main() { val value: Result<i32,String> = Ok(7); val values: Vec<i32> = create(); values.len(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("main.kgr", text.into(), SourceLayer::Base)
@@ -437,7 +443,7 @@ mod trait_tests {
                 .source(declaration.location.file)
                 .unwrap()
                 .name()
-                .ends_with("library/core/language.kgr")
+                .ends_with("library/core/iter.kgr")
         );
     }
 }
@@ -511,7 +517,9 @@ mod interpolation_queries {
             ("val xs: List<String> = [\"one\"]; xs.", false),
             ("val xs: MutableList<String> = [\"one\"]; xs.", false),
         ] {
-            let text = format!("use demo::text_items::TextItems; fn main() {{ {body} }}");
+            let text = format!(
+                "use std::collections::{{List, MutableList}}; use demo::text_items::TextItems; fn main() {{ {body} }}"
+            );
             let mut sources = SourceDatabase::default();
             let file = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
@@ -667,7 +675,7 @@ mod collection_access_tests {
 
     #[test]
     fn constructors_navigate_to_distinct_documented_members() {
-        let text = "fn main() { val a: ArrayList<i32> = ArrayList::new(); val b: ArrayList<i32> = ArrayList::new(); val c: Map<i32,i32> = HashMap::new(); val d: HashMap<i32,i32> = HashMap::new(); val e: HashSet<i32> = HashSet::new(); val f: HashSet<i32> = HashSet::new(); }";
+        let text = "use std::collections::{HashMap, HashSet, Map};\nfn main() { val a: Vec<i32> = Vec::new(); val b: Vec<i32> = Vec::new(); val c: Map<i32,i32> = HashMap::new(); val d: HashMap<i32,i32> = HashMap::new(); val e: HashSet<i32> = HashSet::new(); val f: HashSet<i32> = HashSet::new(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("constructors.kgr", text.into(), SourceLayer::Base)
@@ -682,7 +690,7 @@ mod collection_access_tests {
             file.result().diagnostics()
         );
         let mut identities = std::collections::HashSet::new();
-        for spelling in ["ArrayList::new", "HashMap::new", "HashSet::new"] {
+        for spelling in ["Vec::new", "HashMap::new", "HashSet::new"] {
             let offset = text.find(spelling).unwrap() + spelling.find("::").unwrap() + 2;
             let definition = file.definition_at(offset).unwrap();
             assert!(identities.insert(definition.id.clone()));
@@ -702,13 +710,15 @@ mod collection_access_tests {
     fn readonly_member_completion_excludes_mutators() {
         for (annotation, constructor, mutable, write) in [
             ("List<i32>", "[1]", false, "push"),
-            ("ArrayList<i32>", "[1]", true, "push"),
+            ("Vec<i32>", "[1]", true, "push"),
             ("Map<i32,i32>", "HashMap::new()", false, "insert"),
             ("HashMap<i32,i32>", "HashMap::new()", true, "insert"),
             ("Set<i32>", "HashSet::new()", false, "insert"),
             ("HashSet<i32>", "HashSet::new()", true, "insert"),
         ] {
-            let text = format!("fn main() {{ val values: {annotation} = {constructor}; values. }}");
+            let text = format!(
+                "use std::collections::{{List, Map, Set, HashMap, HashSet}}; fn main() {{ val values: {annotation} = {constructor}; values. }}"
+            );
             let mut sources = SourceDatabase::default();
             let id = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
@@ -764,7 +774,7 @@ mod collection_access_tests {
     fn extension_completion_filters_total_order_requirement() {
         for (element, value, ordered) in [("i32", "1", true), ("f64", "1.0", false)] {
             let text = format!(
-                "impl<T: Ord> List<T> {{ fn ordered(self) -> usize {{ self.len() }} }} impl<T: PartialEq> List<T> {{ fn comparable(self) -> usize {{ self.len() }} }} fn main() {{ val values: List<{element}> = [{value}]; values. }}"
+                "use std::collections::{{List}};\nimpl<T: Ord> List<T> {{ fn ordered(self) -> usize {{ self.len() }} }} impl<T: PartialEq> List<T> {{ fn comparable(self) -> usize {{ self.len() }} }} fn main() {{ val values: List<{element}> = [{value}]; values. }}"
             );
             let mut sources = SourceDatabase::default();
             let id = sources

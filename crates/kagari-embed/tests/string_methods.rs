@@ -81,7 +81,8 @@ fn main() -> bool {
 #[test]
 fn split_is_eager_preserves_empty_fields_and_constructs_a_rooted_list() {
     run(
-        r#"
+        r#"use std::collections::{List};
+
 struct Text { val text: String }
 fn fields<T: Fn() -> String>(source: T) -> List<String> { source().split("|") }
 fn main() -> bool {

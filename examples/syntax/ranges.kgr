@@ -16,7 +16,7 @@ fn main() -> i32 {
     val values = next()..=next();
     var subtotal = 0;
     for value in values { subtotal += value; }
-    val prefix: ArrayList<u8> = [];
+    val prefix: Vec<u8> = [];
     for value in 254u8.. {prefix.push(value);if prefix.len()==2usize{break;}}
     if prefix[1]!=255u8{return 0;}
     if sum == 6 && saw_max && calls == 2 && subtotal == 3 { 42 } else { 0 }

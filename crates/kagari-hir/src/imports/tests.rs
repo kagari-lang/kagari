@@ -28,7 +28,11 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
 
 fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
     let mut expected = names.iter().map(|name| identity(name)).collect::<Vec<_>>();
-    expected.push(kagari_contract::language::module_identity());
+    expected.extend(
+        kagari_contract::library::catalog::shared()
+            .into_iter()
+            .map(|module| module.identity.clone()),
+    );
     expected.sort();
     expected
 }
@@ -610,7 +614,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
             .reachable_order(&identity("m0"), &Default::default())
             .unwrap()
             .len(),
-        1025
+        1024 + kagari_contract::library::catalog::shared().len()
     );
     let cancel = CancellationToken::default();
     cancel.cancel();

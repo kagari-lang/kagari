@@ -1,5 +1,8 @@
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Display};
+use std::hash::{Hash};
 // Standard protocols use declaration identities, including aliased imports.
-use core::language::Display as Show;
+use core::fmt::Display as Show;
 
 struct Label { val value: i32 }
 impl Debug for Label {

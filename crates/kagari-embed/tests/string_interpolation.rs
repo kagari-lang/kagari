@@ -63,7 +63,8 @@ fn execute(source: &str) {
 #[test]
 fn interpolation_executes_across_source_artifacts_and_jit() {
     execute(
-        r##"
+        r##"use std::fmt::{Display};
+
 fn generic<T: Display>(value: T) -> String { f"value={value}" }
 fn main() -> i32 {
     val name = "world";
@@ -85,8 +86,9 @@ fn main() -> i32 {
 #[test]
 fn canonical_protocols_format_each_expression_once_in_order() {
     execute(
-        r##"
-struct Item { val log: ArrayList<i32>, val id: i32 }
+        r##"use std::fmt::{Debug, Display};
+
+struct Item { val log: Vec<i32>, val id: i32 }
 impl Item { fn display(self) -> String { "wrong inherent method" } }
 impl Display for Item {
     fn display(self) -> String { self.log.push(self.id); f"{self.id}" }
@@ -94,9 +96,9 @@ impl Display for Item {
 impl Debug for Item {
     fn debug(self) -> String { self.log.push(9); "debug" }
 }
-fn make(log: ArrayList<i32>, id: i32) -> Item { log.push(0); Item { log, id } }
+fn make(log: Vec<i32>, id: i32) -> Item { log.push(0); Item { log, id } }
 fn main() -> i32 {
-    val log: ArrayList<i32> = [];
+    val log: Vec<i32> = [];
     val result = { val std = 7; val Display = 8; f"{make(log, 1)}:{make(log, 2):?}" };
     { val passed = result == "1:debug"; if !passed {val zero=0;1/zero;} };
     { val passed = log.len() == [0, 0, 0, 0].len(); if !passed {val zero=0;1/zero;} };
@@ -114,12 +116,12 @@ fn main() -> i32 {
 fn propagation_and_return_skip_later_parts() {
     execute(
         r##"
-fn render(value: Option<i32>, log: ArrayList<i32>) -> Option<String> {
+fn render(value: Option<i32>, log: Vec<i32>) -> Option<String> {
     Some(f"{value?} { { log.push(1); 7 } }")
 }
 fn early() -> String { f"{ { return "early"; } } {{val zero=0;1/zero}}" }
 fn main() -> i32 {
-    val log: ArrayList<i32> = [];
+    val log: Vec<i32> = [];
     { val passed = render(None, log) == None; if !passed {val zero=0;1/zero;} };
     { val passed = log.is_empty(); if !passed {val zero=0;1/zero;} };
     { val passed = render(Some(1), log) == Some("1 7"); if !passed {val zero=0;1/zero;} };
@@ -146,10 +148,11 @@ fn interpolation_rejects_missing_protocols_and_invalid_formats() {
 #[test]
 fn formatter_traps_keep_the_origin_and_release_execution_roots() {
     let engine = KagariEngine::default();
-    let source = r#"
-struct Item { val log: ArrayList<i32> }
+    let source = r#"use std::fmt::{Display};
+
+struct Item { val log: Vec<i32> }
 impl Display for Item { fn display(self)->String { self.log.push(7); val zero=0;1/zero; "" } }
-fn main()->String { val log: ArrayList<i32> =[]; f"{Item { log }} {{val too_large=2147483647;too_large+1}}" }
+fn main()->String { val log: Vec<i32> =[]; f"{Item { log }} {{val too_large=2147483647;too_large+1}}" }
 fn healthy()->i32 {42}
 "#;
     let artifact = engine
@@ -183,7 +186,8 @@ fn healthy()->i32 {42}
 #[test]
 fn formatting_generic_values_uses_their_implementation() {
     execute(
-        r#"
+        r#"use std::fmt::{Display};
+
 struct Item { val value: i32 }
 impl Display for Item { fn display(self)->String { f"item={self.value}" } }
 fn render<T: Display>(value: T)->String { f"{value}" }

@@ -1,5 +1,5 @@
 fn run(n: i32) -> i32 {
-    val values: ArrayList<i32> = [];
+    val values: Vec<i32> = [];
     var i = 0;
     while i < n {
         values.push(i % 97);

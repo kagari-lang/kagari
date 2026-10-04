@@ -77,7 +77,7 @@ its integer overflow semantics differ. Every benchmark intermediate fits i32,
 and the fixtures avoid floating point, division, overflow and invalid accesses.
 See the [Lua 5.4 manual](https://www.lua.org/manual/5.4/manual.html#3.4.1).
 
-Kagari arrays use `ArrayList<i32>`; Lua uses a table's dense 1-based sequence.
+Kagari arrays use `Vec<i32>`; Lua uses a table's dense 1-based sequence.
 Lua adds one to the logical index where Kagari uses zero-based indexing. Sparse
 integer keys prevent the map workload from merely reusing Lua's dense sequence
 case. Kagari map lookup returns `Option`, while Lua returns a value or nil; both

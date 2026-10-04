@@ -5,13 +5,14 @@ use kagari_contract::library::catalog;
 #[test]
 fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility() {
     let module = module();
-    let providers = [catalog::shared(), module.clone()];
+    let mut providers = catalog::shared();
+    providers.push(module.clone());
     let original = declaration_source(&module).unwrap();
     for (from, to) in [
         ("-> i32", "-> i64"),
         ("pub trait NativeRead", "trait NativeRead"),
         ("fn fixed", "fn different"),
-        ("core::language::Hash", "core::language::Eq"),
+        ("core::hash::Hash", "core::cmp::Eq"),
         ("value0: T0", "value0: i32"),
     ] {
         let mut source = original.clone();
@@ -39,7 +40,10 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
     source.text = format!("// Tooling overlay.\n{}", source.text);
     let (_, lowered) = import_source(
         &module,
-        &[catalog::shared(), module.clone()],
+        &catalog::shared()
+            .into_iter()
+            .chain([module.clone()])
+            .collect::<Vec<_>>(),
         &source,
         Default::default(),
         &Default::default(),

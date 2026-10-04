@@ -9,7 +9,7 @@ artifact-only, `source`, `native`, and `source,native`.
 `main` remains the two-step scalar function used by both the trusted static ABI
 fixture and real Cranelift compilation. `library_and_object` exercises trait sorting,
 an external native object retaining a callback, and lazy map.
-`required_methods` exercises checked MutableList methods, ArrayList FromIterator,
+`required_methods` exercises checked MutableList methods, Vec FromIterator,
 numeric Sum, FromStr, derived TryInto and primitive From. It also checks all twelve
 String methods and String-key sorting through a List result. Source-free execution
 forces GC and checks root/object/depth cleanup.

@@ -14,6 +14,7 @@ use kagari_contract::{
     host,
     language::Protocol,
     layout,
+    library::namespaces,
     types::{PublicItem, Ty, TypeDefKind, verify},
 };
 use serde::{Deserialize, Serialize};
@@ -198,6 +199,8 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             if let Some(kind) = Protocol::from_id(&instance.declaration)
                 && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
                     || instance.declaration.module != table.declaration.module
+                        && namespaces::receiver_owner(&table.for_type).as_ref()
+                            != Some(&table.declaration.module)
                         && kind != Protocol::From
                         && !matches!(
                             table.for_type,

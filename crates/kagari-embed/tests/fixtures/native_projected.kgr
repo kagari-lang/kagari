@@ -13,9 +13,9 @@ impl Echo for Outer {
     fn offset(self, by: i32) -> Inner { self.value }
 }
 impl Echo for i32 {
-    type Output = ArrayList<i32>;
-    fn echo(self) -> ArrayList<i32> { [self] }
-    fn offset(self, by: i32) -> ArrayList<i32> { [self + by] }
+    type Output = Vec<i32>;
+    fn echo(self) -> Vec<i32> { [self] }
+    fn offset(self, by: i32) -> Vec<i32> { [self + by] }
 }
 fn generic<T: Echo<Output = U>, U: Echo<Output = i32>>(value: T) -> i32 { echo_twice(value) }
 fn native_main() -> i32 { echo_twice([[42]]) }

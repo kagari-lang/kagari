@@ -24,12 +24,23 @@ fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshot
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let first = query(&mut db, &sources);
-    let module = db.native_files.get().unwrap()[0].1.clone();
+    let module = db
+        .native_files
+        .get()
+        .unwrap()
+        .iter()
+        .find(|(_, module)| {
+            module.source.module_identity()
+                == &kagari_contract::library::namespaces::module("alloc", "vec")
+        })
+        .unwrap()
+        .1
+        .clone();
     let file = first.file(module.source.id()).unwrap();
     assert!(
         file.declarations()
             .iter()
-            .any(|declaration| declaration.name == "ArrayList")
+            .any(|declaration| declaration.name == "Vec")
     );
     sources
         .set(
@@ -39,7 +50,16 @@ fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshot
         )
         .unwrap();
     let second = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(&module, &db.native_files.get().unwrap()[0].1));
+    assert!(Arc::ptr_eq(
+        &module,
+        &db.native_files
+            .get()
+            .unwrap()
+            .iter()
+            .find(|(_, item)| item.source.id() == module.source.id())
+            .unwrap()
+            .1
+    ));
     assert!(Arc::ptr_eq(file, second.file(module.source.id()).unwrap()));
     drop(db);
     assert_eq!(

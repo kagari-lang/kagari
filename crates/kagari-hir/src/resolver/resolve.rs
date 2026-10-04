@@ -427,9 +427,11 @@ impl<'a> BodyResolver<'a> {
         if let Some(binding) = self.binding(name) {
             return binding.target();
         }
-        if let Some((alias, member)) = name.split_once("::")
-            && let Some(binding) = self.binding(alias)
-        {
+        for (split, _) in name.match_indices("::") {
+            let (alias, member) = (&name[..split], &name[split + 2..]);
+            let Some(binding) = self.binding(alias) else {
+                continue;
+            };
             return match binding.target()? {
                 ResolvedName::SourceImport(index) => {
                     self.resolved

@@ -129,7 +129,7 @@ fn terminating_assignment_places_stop_before_later_indexes() {
     ] {
         execute_contextual_source(
             &format!(
-                "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> ArrayList<ArrayList<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} += grow(2); 9 }}"
+                "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> Vec<Vec<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} += grow(2); 9 }}"
             ),
             42,
         );
@@ -211,7 +211,7 @@ fn assignment_targets_supply_constructor_context() {
         fn main() -> i32 {
             var local: Marker<i32> = Marker { value: 0 };
             val object = Box { marker: Marker { value: 0 } };
-            val array: ArrayList<Marker<bool>> = [Marker { value: 0 }];
+            val array: Vec<Marker<bool>> = [Marker { value: 0 }];
             var token: Token<i32> = Token::Empty;
             local = Marker { value: 10 };
             object.marker = Marker { value: 12 };
@@ -227,12 +227,13 @@ fn assignment_targets_supply_constructor_context() {
 #[test]
 fn empty_container_context_reaches_returns_fields_and_arguments() {
     execute_contextual_source(
-        r#"
-        struct Values { val array: ArrayList<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> }
-        fn array() -> ArrayList<i32> { [] }
+        r#"use std::collections::{HashMap, HashSet};
+
+        struct Values { val array: Vec<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> }
+        fn array() -> Vec<i32> { [] }
         fn map() -> HashMap<i32, bool> { HashMap::new() }
         fn set() -> HashSet<i32> { HashSet::new() }
-        fn empty(a: ArrayList<i32>, m: HashMap<i32, bool>, s: HashSet<i32>) -> bool {
+        fn empty(a: Vec<i32>, m: HashMap<i32, bool>, s: HashSet<i32>) -> bool {
             a.is_empty() && m.is_empty() && s.is_empty()
         }
         fn main() -> i32 {
@@ -399,7 +400,7 @@ fn unresolved_container_inference_is_a_diagnostic_before_codegen() {
     let engine = KagariEngine::default();
     let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_source(SourceFile::new(
         "inference.kgr",
-        "fn main() { HashMap::new(); }",
+        "use std::collections::{HashMap};\nfn main() { HashMap::new(); }",
     )) else {
         panic!("unresolved type must not enter checked HIR");
     };
@@ -425,7 +426,7 @@ fn partial_constructor_member_context_executes_for_structs_and_enums() {
 #[test]
 fn reflective_write_targets_supply_generic_constructor_context() {
     execute_contextual_source_with_writes(
-        "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: ArrayList<Marker<i32>> = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
+        "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: Vec<Marker<i32>> = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
         42,
         true,
     );
@@ -434,7 +435,7 @@ fn reflective_write_targets_supply_generic_constructor_context() {
 #[test]
 fn container_context_executes_through_native_methods() {
     execute_contextual_source(
-        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: ArrayList<Marker<i32>> = []; values.push(Marker { value: 10 }); values.push(Marker { value: 10 }); val map: HashMap<i32, Marker<i32>> = HashMap::new(); map.insert(1, Marker { value: 22 }); values[0].value + values[1].value + (match map.get(1) {Some(v)=>v.value,None=>0}) }",
+        "use std::collections::{HashMap};\nstruct Marker<T> { val value: i32 } fn main() -> i32 { val values: Vec<Marker<i32>> = []; values.push(Marker { value: 10 }); values.push(Marker { value: 10 }); val map: HashMap<i32, Marker<i32>> = HashMap::new(); map.insert(1, Marker { value: 22 }); values[0].value + values[1].value + (match map.get(1) {Some(v)=>v.value,None=>0}) }",
         42,
     );
 }
@@ -636,7 +637,7 @@ fn terminating_reflection_values_preserve_effects_without_committing_writes() {
         let body = call.replace("VALUE", "if tick(count) { return 30; } else { return 0; }");
         execute_contextual_source_with_writes(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count, array: ArrayList<i32>) -> i32 {{ {body}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count, array: Vec<i32>) -> i32 {{ {body}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
             ),
             42,
             true,
@@ -658,7 +659,7 @@ fn terminating_indexes_skip_reads_rhs_effects_and_writes() {
             statement.replace("INDEX", "if tick(count) { return 30; } else { return 0; }");
         execute_contextual_source_with_writes(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 99 }} fn run(count: Count, array: ArrayList<i32>) -> i32 {{ var tuple = (1, true); {statement} 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 99 }} fn run(count: Count, array: Vec<i32>) -> i32 {{ var tuple = (1, true); {statement} 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
             ),
             42,
             true,
@@ -771,7 +772,7 @@ fn annotated_const_dependencies_execute_independently_of_declaration_order() {
 #[test]
 fn concrete_nested_struct_fields_execute_on_all_existing_routes() {
     execute_contextual_source(
-        "struct Item { val value: i32 } struct Box<T> { var items: ArrayList<T> } fn main() -> i32 { val box = Box<Item> { items: [Item { value: 1 }] }; box.items = [Item { value: 42 }]; box.items[0].value }",
+        "struct Item { val value: i32 } struct Box<T> { var items: Vec<T> } fn main() -> i32 { val box = Box<Item> { items: [Item { value: 1 }] }; box.items = [Item { value: 42 }]; box.items[0].value }",
         42,
     );
 }

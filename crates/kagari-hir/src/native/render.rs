@@ -1,7 +1,10 @@
 //! Native declaration views combined with authoritative handwritten core traits.
 use kagari_contract::library::catalog;
 mod core;
-use crate::native::render::core::{core_text, record_sites};
+use crate::{
+    language::source::module_source,
+    native::render::core::{core_text, record_sites},
+};
 use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
@@ -9,7 +12,8 @@ use kagari_common::{
 };
 use kagari_contract::{
     declaration::{DeclarationError, ModuleDecl},
-    language::{self, Protocol, role::LangRole},
+    language::{Protocol, role::LangRole},
+    library::namespaces,
     scalar::BuiltinType,
     types::{
         Constraint, FnDecl, GenericBound, GenericParam, NominalTy, Ty, TypeDefKind,
@@ -41,7 +45,7 @@ pub struct DeclarationSource {
 }
 
 pub fn declaration_source(module: &ModuleDecl) -> Result<DeclarationSource, DeclarationError> {
-    declaration_source_with_providers(module, &[catalog::shared()])
+    declaration_source_with_providers(module, &catalog::shared())
 }
 
 pub(crate) fn declaration_source_with_providers(
@@ -70,6 +74,27 @@ impl DeclarationView<'_> {
             text: "// Generated from native registration definitions. Do not edit.\n\n".into(),
             sites: BTreeMap::new(),
         };
+        for (name, target) in &self.exports {
+            let path = target
+                .path
+                .iter()
+                .map(|part| part.name.as_str())
+                .collect::<Vec<_>>()
+                .join("::");
+            output.text.push_str(&format!(
+                "pub use {}::{} as {};\n",
+                namespaces::source_module(&target.module),
+                path,
+                name
+            ));
+        }
+        if namespaces::is_language_module(&self.identity) {
+            let (_, source) = module_source(&self.identity.path[0]);
+            for line in source.lines().filter(|line| line.starts_with("use ")) {
+                output.text.push_str(line);
+                output.text.push('\n');
+            }
+        }
         for ty in &self.types {
             let constructor = match ty.kind {
                 TypeDefKind::Native(constructor) => Some(constructor),
@@ -149,7 +174,7 @@ impl DeclarationView<'_> {
         }
         for item in &self.traits {
             let id = self.definition(DefinitionKind::Trait, &item.name);
-            if self.identity == language::module_identity()
+            if namespaces::is_language_module(&self.identity)
                 && let Some(role) = Protocol::from_id(&id).and_then(LangRole::from_protocol)
             {
                 output.text.push_str(&core_text(role));
@@ -262,7 +287,7 @@ impl DeclarationView<'_> {
             text: output.text,
             sites: output.sites,
         };
-        if self.identity == language::module_identity() {
+        if namespaces::is_language_module(&self.identity) {
             record_sites(&mut source, self);
         }
         Ok(source)
@@ -300,14 +325,16 @@ impl DeclarationView<'_> {
                 BuiltinType::USize => "usize",
                 BuiltinType::F32 => "f32",
                 BuiltinType::F64 => "f64",
-                BuiltinType::String => "String",
+                BuiltinType::String => {
+                    return self.representation_name(NativeTypeConstructor::String, "String");
+                }
             }
             .into(),
             Ty::Parameter { owner, position } => parameter_spelling(owner, *position),
             Ty::SelfType(_) => "Self".into(),
             Ty::Array(item, CollectionAccess::ReadOnly) => format!("[{}]", self.spell(item)?),
             Ty::Array(item, CollectionAccess::Mutable) => {
-                let name = self.representation_name(NativeTypeConstructor::Array, "ArrayList")?;
+                let name = self.representation_name(NativeTypeConstructor::Array, "Vec")?;
                 format!("{name}<{}>", self.spell(item)?)
             }
             Ty::Map {
@@ -418,11 +445,11 @@ impl DeclarationView<'_> {
                 "missing or ambiguous native representation declaration".into(),
             ));
         };
-        Ok(if provider.identity == language::module_identity() {
-            format!("{}::language::{}", language::SOURCE_PACKAGE, ty.name)
-        } else {
-            format!("{}::{}", provider.identity, ty.name)
-        })
+        Ok(format!(
+            "{}::{}",
+            namespaces::source_module(&provider.identity),
+            ty.name
+        ))
     }
 
     fn nominal_spelling(&self, ty: &NominalTy) -> Result<String, DeclarationError> {
@@ -433,11 +460,12 @@ impl DeclarationView<'_> {
             .ok_or_else(|| DeclarationError("missing declaration name".into()))?;
         let mut text = if ty.declaration.module == self.identity {
             name.name.clone()
-        } else if ty.declaration.module == language::module_identity() {
-            format!("{}::language::{}", language::SOURCE_PACKAGE, name.name)
         } else {
-            let module = &ty.declaration.module;
-            format!("{}::{}", module, name.name)
+            format!(
+                "{}::{}",
+                namespaces::source_module(&ty.declaration.module),
+                name.name
+            )
         };
         let mut args = ty
             .arguments

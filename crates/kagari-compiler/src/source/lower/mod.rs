@@ -211,6 +211,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
                 .imports
                 .entries
                 .iter()
+                .filter(|import| !import.internal_namespace)
                 .filter_map(|import| {
                     if let Some(ImportTarget::Source(target)) = &import.target {
                         Some(target.module.clone())

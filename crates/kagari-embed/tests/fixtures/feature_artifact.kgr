@@ -1,3 +1,5 @@
+use std::collections::{MutableList};
+use std::num::{TryFromIntError};
 fn main() -> i32 { 42 }
 
 fn required_methods() -> i32 {
@@ -10,7 +12,7 @@ fn required_methods() -> i32 {
         || text.trim_end() != "  β,a" || "β".replace("", "-") != "-β-" { return 0; }
     val values = [20, 22];
     change(values);
-    val copied=ArrayList<i32>::from_iter(values);
+    val copied=Vec<i32>::from_iter(values);
     val total=i32::sum(copied);
     val parsed=i32::from_str("42");
     val narrow:Result<i8,TryFromIntError> = total.try_into();

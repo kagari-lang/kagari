@@ -1,0 +1,7 @@
+// Core hash traits. This source owns their declarations and language roles.
+
+/// Produces a hash consistent with equality.
+#[lang = "hash"]
+pub trait Hash {
+    fn hash(self) -> i64;
+}

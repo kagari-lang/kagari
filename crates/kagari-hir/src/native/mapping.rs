@@ -62,7 +62,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
                 layout: *(layout),
             },
             Self::String => NativeTypeKind::String,
-            Self::ArrayList => NativeTypeKind::ArrayList,
+            Self::Vec => NativeTypeKind::Vec,
             Self::HashMap => NativeTypeKind::HashMap,
             Self::HashSet => NativeTypeKind::HashSet,
             Self::Iter => NativeTypeKind::Iter,
@@ -87,7 +87,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
                 visit(declaration)?;
             }
             Self::String => {}
-            Self::ArrayList => {}
+            Self::Vec => {}
             Self::HashMap => {}
             Self::HashSet => {}
             Self::Iter => {}

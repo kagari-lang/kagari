@@ -24,6 +24,52 @@ are implemented. Remaining measured costs and reproduction commands live in
 remains after AC05 final integration. Performance changes from this cleanup
 have not been measured.
 
+## Rust-style library namespaces (NS01, complete)
+
+Authorized scope: replace `core::language` with responsibility-based `core`,
+`alloc`, and `std` modules; rename ArrayList to Vec; retain Iterable and existing
+Kagari execution/GC semantics. Define each declaration once, preserve its identity
+through public re-exports, and use an explicit Rust-style prelude. Keep the
+Kagari collection interfaces in `std::collections`, outside the implicit prelude.
+This does not introduce Rust borrowing, no_std, new traits, or a package manager.
+
+- [x] Split handwritten traits and installed declarations by module ownership.
+- [x] Connect validated installed re-exports, explicit prelude, multi-module role
+  collection, native registration, source navigation and source-free products.
+- [x] Migrate consumers, examples and specifications, remove obsolete paths, and
+  regenerate affected products at the integration checkpoint.
+- [x] Verify identity-preserving core/std imports, prelude exclusions/shadowing,
+  reserved-role validation, native installation and source-free execution; run
+  structure, formatting, strict workspace Clippy/tests, feature/backend consumers
+  and diff checks.
+
+NS01 is one coherent implementation checkpoint with `Roadmap-Step: NS01`.
+During migration, carry compilation/product mismatches here with reproduction
+commands and resolve them before acceptance. Do not add old-path readers or bump
+unpublished ABI/format versions for this migration.
+
+Ledger: implementation started from a clean working tree. The single-module
+catalog, role origin/completeness checks, native registration and source mapping
+now use canonical module ownership. Installed module records carry checked public
+alias targets; all six source-authored role modules match the checked trait product.
+Consumers, examples and specifications use Vec and explicit imports where names
+are outside the prelude. Portable proof and bytecode validation use canonical
+receiver ownership without weakening native dependency checks. Test producers
+analyze the complete installed native declarations, including bundled MapIterator.
+
+Final validation passes: `cargo test --workspace` (1640 passed, one ignored),
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo fmt --all -- --check`, `uv run --locked scripts/check_structure.py`,
+`uv run python scripts/check_features.py`, `cargo test -p kagari-cli --features jit`,
+`cargo run -p kagari-compiler --example regenerate_language_traits -- --check`,
+and `git diff --check`. The structure checker reports zero violations and zero
+exceptions. All four standalone SDK feature consumers and the production
+crate/ABI dependency boundaries pass. Namespace tests cover identity-preserving
+core/std imports and constructors through serialized artifacts, prelude exclusions,
+local shadowing and rejected obsolete names. All migration failures are resolved;
+no carried build/test errors or structural debt remain. GC/shared-object semantics
+and Iterable are retained. No performance claim is made for this migration.
+
 ## Contract and common responsibility cleanup
 
 Scope: narrow `kagari-abi` plus source-independent `kagari-contract`.
@@ -237,7 +283,7 @@ installation access; HIR language contracts; structure, formatting and diff chec
 No carried build/test error remains. Temporary output lives in `target/ac-cleanup`.
 
 AC02 replaces Rust constructors for the 24 core trait declarations with handwritten
-`library/core/language.kgr` and its source-compiled `language/traits.bin` product.
+core trait modules and their source-compiled `language/traits.bin` product.
 Only source tooling includes the text; contract decodes and validates the bounded
 product without a frontend. `regenerate_language_traits --check` checks source/
 product correspondence through checked HIR and compiler declaration projection.

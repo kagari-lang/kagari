@@ -11,7 +11,7 @@ Generated .kgr files are tooling views, not the source of these declarations.
 
 | Read-only interface | Writable interface | Canonical default implementation |
 | --- | --- | --- |
-| `List<T>`, abbreviated `[T]` | `MutableList<T>: List<T>` | `ArrayList<T>` |
+| `List<T>`, abbreviated `[T]` | `MutableList<T>: List<T>` | `Vec<T>` |
 | `Map<K, V>` | `MutableMap<K, V>: Map<K, V>` | `HashMap<K, V>` |
 | `Set<T>` | `MutableSet<T>: Set<T>` | `HashSet<T>` |
 
@@ -21,14 +21,14 @@ trait checking. The contracts, parent relationships, associated outputs and
 read-only/writable conversions exist without optional native libraries.
 
 `[T]` means read-only `List<T>`, not fixed-size storage, a slice or a borrow.
-Existing `[1, 2]` and `[value; count]` literals create the canonical `ArrayList<T>`.
-ArrayList, HashMap and HashSet have compiler-owned nominal declarations and
+Existing `[1, 2]` and `[value; count]` literals create the canonical `Vec<T>`.
+Vec, HashMap and HashSet have compiler-owned nominal declarations and
 minimal Rust construction, access, mutation and iteration implementations in the
 runtime foundation. These use ordinary checked native bindings/storage registration
 and remain available when optional modules are off. Optional providers do not
 redeclare or replace the default types. Selecting defaults adds no map/set literal
 syntax and does not make Map/Set interface constructors choose concrete storage.
-ArrayList::from_fn and other callback conveniences remain library algorithms.
+Vec::from_fn and other callback conveniences remain library algorithms.
 
 Concrete additional classes register native storage independently of their trait
 impls. An interface does not select an allocator or implementation. Additional
@@ -110,7 +110,7 @@ require a particular optional `Iter<T>` class. Checked interface metadata retain
 actual associated outputs and targets for static and dynamic dispatch.
 
 List interface indices use `usize`; unsuffixed literals receive that context.
-Native ArrayList indexing additionally accepts the existing integer index types.
+Native Vec indexing additionally accepts the existing integer index types.
 Out-of-bounds `get`/`remove` return None; invalid indexing, `set` and `insert` trap.
 List insert permits an index equal to the length. `pop` returns None when empty.
 Map remove returns the previous value or None; Set remove returns a boolean.
@@ -128,7 +128,7 @@ provide native defaults which custom implementations may reuse or override.
 Sorting is stable. Key selectors run during comparisons without an implicit
 cached-key prepass. In-place algorithms preserve container identity and do not
 promise rollback on callback failure, receiver failure or cancellation. Built-in
-ArrayList sorting preserves the original element multiset; its order may change
+Vec sorting preserves the original element multiset; its order may change
 on failure. Length-changing operations and writes through custom containers may
 leave partial progress. Completed callback effects remain visible. New-result
 methods copy the collection structure without cloning referenced elements.
@@ -140,7 +140,7 @@ referenced element objects remain usable. Storage is restored on every exit path
 including errors and unwinds, with completed edits preserved.
 
 The former sort/sort_by free functions are replaced by these trait methods.
-ArrayList operates on its actual compact buffer. Custom defaults traverse the
+Vec operates on its actual compact buffer. Custom defaults traverse the
 selected iterator into typed working storage; sorting and reversal write through
 set, while retain and dedup remove rejected elements as they proceed. No atomic
 bulk commit or rollback-only storage buffer is required.
@@ -157,7 +157,7 @@ There are no temporary implementations or aliases for predecessor names.
 
 ## Construction
 
-Use ArrayList::new, HashMap::new and HashSet::new for empty storage. Context or
+Use Vec::new, HashMap::new and HashSet::new for empty storage. Context or
 explicit type arguments supply otherwise unknown element types. Interfaces do not
 have constructors that silently choose a concrete implementation.
 
@@ -168,7 +168,7 @@ val map: HashMap<String, i32> = HashMap::new();
 val set: HashSet<i32> = HashSet::new();
 ```
 
-Array literals and `[value; count]` construct the canonical ArrayList. Repetition
+Array literals and `[value; count]` construct the canonical Vec. Repetition
 retains its value-only rule, including empty results. Distinct reference objects
 require separate construction; the application-provider factory in the reset
 proof demonstrates how an optional native function supplies that algorithm.

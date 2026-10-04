@@ -159,8 +159,9 @@ fn composite_annotations_retain_structure_without_authorizing_codegen() {
             format!("fn bad() {{ val value: {annotation} = (); }}"),
             format!("const bad: {annotation} = ();"),
         ] {
-            let text =
-                format!("struct Cell<T> {{ val value: T }} {declaration} fn good() -> i32 {{ 7 }}");
+            let text = format!(
+                "use std::collections::HashMap; struct Cell<T> {{ val value: T }} {declaration} fn good() -> i32 {{ 7 }}"
+            );
             let mut sources = SourceDatabase::default();
             let root = sources
                 .set("annotations.kgr", text.clone(), SourceLayer::Base)
@@ -363,10 +364,10 @@ fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
 #[test]
 fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_parameters() {
     for text in [
-        "struct Key<T: Eq + Hash> { val value: T } fn bad(x: Key<f32>) {}",
-        "struct Key<T: Eq + Hash> { val value: T } fn bad() { Key { value: 1.5 }; }",
-        "enum Key<T: Eq + Hash> { Value(T) } fn bad() { Key::Value(1.5); }",
-        "struct Key<T: Eq + Hash> { val value: T } fn bad<T>(value: T) { Key { value: value }; }",
+        "use std::hash::{Hash};\nstruct Key<T: Eq + Hash> { val value: T } fn bad(x: Key<f32>) {}",
+        "use std::hash::{Hash};\nstruct Key<T: Eq + Hash> { val value: T } fn bad() { Key { value: 1.5 }; }",
+        "use std::hash::{Hash};\nenum Key<T: Eq + Hash> { Value(T) } fn bad() { Key::Value(1.5); }",
+        "use std::hash::{Hash};\nstruct Key<T: Eq + Hash> { val value: T } fn bad<T>(value: T) { Key { value: value }; }",
     ] {
         let source = SourceFile::new("bounds.kgr", text);
         let analysis = crate::analyze_source(&source);
@@ -382,7 +383,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
     }
     let source = SourceFile::new(
         "bounds.kgr",
-        "struct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(HashSet<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
+        "use std::collections::{HashSet};\nuse std::hash::{Hash};\nstruct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(HashSet<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
     );
     let analysis = crate::analyze_source(&source);
     assert!(
@@ -577,7 +578,7 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
         let source = SourceFile::new(
             "inference-recovery.kgr",
             format!(
-                "{declaration} fn broken() {{ val item = {initializer}; item; }} fn good() -> i32 {{ 42 }}"
+                "use std::collections::HashMap; {declaration} fn broken() {{ val item = {initializer}; item; }} fn good() -> i32 {{ 42 }}"
             ),
         );
         let analysis = crate::analyze_source(&source);
@@ -635,7 +636,9 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
     ] {
         let source = SourceFile::new(
             "finalized-constructor.kgr",
-            format!("{declaration} fn bad() {{ val pair = {initializer}; }}"),
+            format!(
+                "use std::collections::HashMap; {declaration} fn bad() {{ val pair = {initializer}; }}"
+            ),
         );
         let analysis = crate::analyze_source(&source);
         let mismatch = analysis

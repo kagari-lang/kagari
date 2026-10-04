@@ -1,24 +1,13 @@
 //! Portable identities of language protocols. Complete declarations live in the shared catalog.
 //! Recognition uses nominal identity; an application trait with the same name
 //! never acquires syntax or implicit-value semantics.
-use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
-};
+use crate::library::namespaces;
+use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 
 use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
 pub mod primitive;
 pub(crate) mod product;
 pub mod role;
-
-/// Public source spelling; the portable package identity is independent.
-pub const SOURCE_PACKAGE: &str = "core";
-
-pub fn module_identity() -> ModuleIdentity {
-    ModuleIdentity {
-        package: PackageId("kagari-core".into()),
-        path: vec!["language".into()],
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Protocol {
@@ -51,7 +40,7 @@ pub enum Protocol {
 
 pub fn identity(protocol: Protocol) -> DefinitionPath {
     DefinitionPath {
-        module: module_identity(),
+        module: namespaces::trait_owner(protocol.name()),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
             name: protocol.name().into(),
@@ -126,14 +115,16 @@ impl Protocol {
         table: Option<&DefinitionTable>,
     ) -> Option<Self> {
         let view = id.describe(table).ok()?;
-        if view.module() != &module_identity() || view.segments().count() != 1 {
+        if view.segments().count() != 1 {
             return None;
         }
         let part = view.last()?;
         if part.kind != DefinitionKind::Trait || part.occurrence != 0 {
             return None;
         }
-        Self::ALL.into_iter().find(|kind| kind.name() == part.name)
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.name() == part.name && view.module() == &identity(*kind).module)
     }
 
     pub fn iteration(self) -> bool {

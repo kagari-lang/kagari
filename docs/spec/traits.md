@@ -6,7 +6,8 @@ The main goal is to preserve useful abstraction mechanisms from Rust-like langua
 
 Reflection rules are defined separately in [reflection.md](reflection.md).
 The 24 language traits are declared in
-[`library/core/language.kgr`](../../library/core/language.kgr) and analyzed as
+the responsibility-based [core modules](../../library/core/ops.kgr)
+(ops, cmp, hash, fmt, iter and convert) and analyzed as
 ordinary traits. Their reserved `#[lang = "role"]` attributes identify declarations
 for syntax and implicit value rules; an application trait with the same name does
 not acquire that role. Installed source-free products contain their checked trait
@@ -837,7 +838,7 @@ extensions over this shared identity and bound infrastructure.
 
 ## Unified callable protocol
 
-`core::language::Fn<Args>` is a prelude trait with an associated `Output` and
+`core::ops::Fn<Args>` is a prelude trait with an associated `Output` and
 `fn call(self, args: Args) -> Self::Output`. Values of type `fn(...) -> R`, including closures, automatically
 implement it for their parameter tuple and result. User types may implement it
 with the ordinary `impl Fn<(T,)> for Receiver` syntax.

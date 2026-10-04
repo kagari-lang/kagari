@@ -54,8 +54,8 @@ fn where_targets_must_resolve_to_a_generic_parameter() {
 #[test]
 fn impl_where_constraints_are_inherited_without_leaking_through_shadowing() {
     for source in [
-        "struct P { val n: i32 } impl<T: Eq + Hash> P { fn count(self, items: HashSet<T>) -> usize { items.len() } }",
-        "struct P { val n: i32 } impl<T> P where T: Eq + Hash { fn count(self, items: HashSet<T>) -> usize { items.len() } }",
+        "use std::collections::{HashSet};\nuse std::hash::{Hash};\nstruct P { val n: i32 } impl<T: Eq + Hash> P { fn count(self, items: HashSet<T>) -> usize { items.len() } }",
+        "use std::collections::{HashSet};\nuse std::hash::{Hash};\nstruct P { val n: i32 } impl<T> P where T: Eq + Hash { fn count(self, items: HashSet<T>) -> usize { items.len() } }",
     ] {
         let analysis = analyze_source(&SourceFile::new("bounds.kgr", source));
         assert!(
@@ -98,8 +98,7 @@ fn shadowed_generic_parameters_cannot_exchange_values_by_spelling() {
 
 #[test]
 fn implicit_receiver_constraints_survive_method_parameter_shadowing() {
-    let source =
-        "impl<T: Eq + Hash> HashSet<T> { fn size<T>(self, value: T) -> usize { self.len() } }";
+    let source = "use std::collections::{HashSet};\nuse std::hash::{Hash};\nimpl<T: Eq + Hash> HashSet<T> { fn size<T>(self, value: T) -> usize { self.len() } }";
     let analysis = analyze_source(&SourceFile::new("receiver-bounds.kgr", source));
     assert!(
         analysis.diagnostics().is_empty(),
@@ -110,7 +109,7 @@ fn implicit_receiver_constraints_survive_method_parameter_shadowing() {
 
 #[test]
 fn method_where_constraints_do_not_leak_to_sibling_methods() {
-    let source = "struct P { val n: i32 } impl<T> P { fn allowed(self, values: HashSet<T>) -> usize where T: Eq + Hash { values.len() } fn rejected(self, values: HashSet<T>) -> usize { values.len() } }";
+    let source = "use std::collections::{HashSet};\nuse std::hash::{Hash};\nstruct P { val n: i32 } impl<T> P { fn allowed(self, values: HashSet<T>) -> usize where T: Eq + Hash { values.len() } fn rejected(self, values: HashSet<T>) -> usize { values.len() } }";
     let analysis = analyze_source(&SourceFile::new("siblings.kgr", source));
     let errors = analysis
         .diagnostics()

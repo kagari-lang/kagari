@@ -11,7 +11,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 #[cfg(feature = "source")]
 use kagari_hir::native::render::{DeclarationSource, declaration_source};
 #[cfg(feature = "source")]
-use kagari_runtime::library::collections;
+use kagari_runtime::native::foundation;
 use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::module::NativeModule};
 #[cfg(feature = "source")]
 use kagari_source::source_database::SourceDatabase;
@@ -28,7 +28,7 @@ pub struct KagariEngine {
     config: EngineConfig,
     native_modules: Vec<NativeModule>,
     #[cfg(feature = "source")]
-    foundation: NativeModule,
+    foundation: Vec<NativeModule>,
     #[cfg(feature = "source")]
     sources: RefCell<SourceDatabase>,
     #[cfg(feature = "source")]
@@ -54,15 +54,15 @@ impl KagariEngine {
     ) -> Result<Self, RuntimeError> {
         let mut validation = Runtime::new(config.default_runtime.clone());
         #[cfg(feature = "source")]
-        let foundation = collections::module()?;
+        let foundation = foundation::modules()?;
         for module in &native_modules {
             module.install(&mut validation)?;
         }
         #[cfg(feature = "source")]
         let analysis = {
             let mut analysis = AnalysisDatabase::default();
-            let modules = [&foundation]
-                .into_iter()
+            let modules = foundation
+                .iter()
                 .chain(&native_modules)
                 .map(|module| module.to_declaration().map(Arc::new))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -83,8 +83,8 @@ impl KagariEngine {
 
     #[cfg(feature = "source")]
     pub fn native_declaration_sources(&self) -> Vec<DeclarationSource> {
-        [&self.foundation]
-            .into_iter()
+        self.foundation
+            .iter()
             .chain(&self.native_modules)
             .map(|module| {
                 declaration_source(&module.to_declaration().expect("checked module identities"))

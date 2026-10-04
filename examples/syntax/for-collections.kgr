@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 // Run: cargo run -p kagari-cli -- run examples/syntax/for-collections.kgr
 // Result: main returns 42.
 fn main() -> i32 {

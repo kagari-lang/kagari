@@ -696,7 +696,7 @@ fn ir_and_bytecode_share_numeric_operation_contracts() {
 
 #[test]
 fn native_contracts_apply_before_bytecode_emission() {
-    let mut module = raw("fn main(value: ArrayList<i32>) { value.push(1); }");
+    let mut module = raw("fn main(value: Vec<i32>) { value.push(1); }");
     for instruction in &mut module.functions[0].blocks[0].instructions {
         if let Instruction::Call { args, .. } = instruction {
             args.clear();

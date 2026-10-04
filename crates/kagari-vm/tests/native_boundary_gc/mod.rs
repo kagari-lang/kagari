@@ -15,9 +15,10 @@ use {
 #[test]
 fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachable_graphs() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         struct Node { val edges: HashMap<i32, Node> }
-        fn main() -> Option<(ArrayList<Node>,)> {
+        fn main() -> Option<(Vec<Node>,)> {
             val edges: HashMap<i32, Node> = HashMap::new();
             val node = Node { edges: edges };
             edges.insert(1, node);
@@ -74,13 +75,14 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 #[test]
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let (mut vm, loaded) = compile(
-        r#"
-        fn main() -> (HashMap<Option<(ArrayList<i32>, String)>, i32>, HashSet<Option<(ArrayList<i32>, String)>>, bool) {
+        r#"use std::collections::{HashMap, HashSet};
+
+        fn main() -> (HashMap<Option<(Vec<i32>, String)>, i32>, HashSet<Option<(Vec<i32>, String)>>, bool) {
             val object = [42];
             val key = Some((object, "key"));
-            val map: HashMap<Option<(ArrayList<i32>, String)>, i32> = HashMap::new();
+            val map: HashMap<Option<(Vec<i32>, String)>, i32> = HashMap::new();
             map.insert(key, 20);
-            val set: HashSet<Option<(ArrayList<i32>, String)>> = HashSet::new();
+            val set: HashSet<Option<(Vec<i32>, String)>> = HashSet::new();
             set.insert(key);
             object.push(99);
             val equal = Some((object, "key"));
@@ -151,7 +153,8 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
 #[test]
 fn invalid_identity_keys_are_rejected_without_container_modification() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         fn main() -> (HashMap<i32, i32>, HashSet<i32>) {
             val map: HashMap<i32, i32> = HashMap::new(); map.insert(1, 42);
             val set: HashSet<i32> = HashSet::new(); set.insert(1); (map, set)
@@ -198,9 +201,9 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
 fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     let (mut vm, loaded) = compile(
         r#"
-        struct Node { val items: ArrayList<Node> }
-        fn main() -> ArrayList<Node> {
-            val items: ArrayList<Node> = [];
+        struct Node { val items: Vec<Node> }
+        fn main() -> Vec<Node> {
+            val items: Vec<Node> = [];
             items.push(Node { items: items });
             items
         }
@@ -229,7 +232,7 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
 #[test]
 fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     let mut module = compile_program(
-        "fn init() -> ArrayList<i32> { [7] } fn main() -> i32 { 42 }",
+        "fn init() -> Vec<i32> { [7] } fn main() -> i32 { 42 }",
         None,
     );
     module.modules[module.root.index()]
@@ -273,7 +276,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
 #[test]
 fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     let (mut vm, old) = compile(
-        "struct Item { val value: i32 } fn main() -> ArrayList<Item> { [Item { value: 42 }] }",
+        "struct Item { val value: i32 } fn main() -> Vec<Item> { [Item { value: 42 }] }",
         None,
     );
     let value = vm.execute(&old, "main").unwrap().return_value;
@@ -315,7 +318,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
     let source = r#"
         struct Inner { val value: i32 }
         struct Node { var next: Option<Node>, val value: Inner }
-        fn main() -> ArrayList<Node> {
+        fn main() -> Vec<Node> {
             val node = Node { next: None, value: Inner { value: 42 } };
             node.next = Some(node);
             [node]

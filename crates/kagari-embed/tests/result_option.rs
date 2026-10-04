@@ -235,8 +235,8 @@ fn main() -> i32 {
 fn variant_imports_aliases_and_or_patterns_resolve_semantically() {
     execute(
         r#"
-use core::language::Option::{Some as Present, None as Absent};
-use core::language::Result::{Ok, Err};
+use core::option::Option::{Some as Present, None as Absent};
+use core::result::Result::{Ok, Err};
 fn main() -> i32 {
     val value: Option<i32> = Present(42);
     val absent: Option<i32> = Absent;
@@ -310,7 +310,7 @@ fn generic_propagation_nested_question_marks_and_loop_cleanup() {
     execute(
         r#"
 fn identity<T, E>(value: Result<T, E>) -> Result<T, E> { Ok(value?) }
-fn leave(values: ArrayList<i32>) -> Option<i32> {
+fn leave(values: Vec<i32>) -> Option<i32> {
     for value in values { val absent: Option<i32> = None; absent?; }
     Some(0)
 }

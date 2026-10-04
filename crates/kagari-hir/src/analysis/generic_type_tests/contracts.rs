@@ -3,13 +3,15 @@
 use crate::{AnalysisResult, AnalyzedModule, analyze_source};
 use kagari_source::source::SourceFile;
 
-const CONTRACTS: &str = r#"
+const CONTRACTS: &str = r#"use std::collections::{HashMap, List, Map, Set};
+use std::hash::{Hash};
+
 fn take_bool(value: bool, message: String) {}
 fn ordered_pair<T: OrderedNumber>(left: T, right: T) -> T { left }
 fn ordered_three<T: OrderedNumber>(value: T, min: T, max: T) -> T { value }
 fn signed_value<T: SignedNumber>(value: T) -> T { value }
 fn check_equal<T: PartialEq>(left: T, right: T, message: String) -> bool { left == right }
-fn put<T>(values: ArrayList<T>, value: T) { values.push(value); }
+fn put<T>(values: Vec<T>, value: T) { values.push(value); }
 fn list_count<T>(values: List<T>) -> usize { values.len() }
 fn map_count<K: Eq + Hash, V>(values: Map<K,V>) -> usize { values.len() }
 fn set_count<T: Eq + Hash>(values: Set<T>) -> usize { values.len() }

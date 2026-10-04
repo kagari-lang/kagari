@@ -20,7 +20,9 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
         package: PackageId("demo".into()),
         path: vec!["native".into()],
     });
-    module.dependencies.insert(language::module_identity());
+    module
+        .dependencies
+        .insert(language::identity(kagari_contract::language::Protocol::Add).module);
     for (name, arity) in [("choose", 3), ("echo", 1)] {
         let id = module.definition(DefinitionKind::Function, name);
         let parameter = GenericParam {
@@ -152,7 +154,9 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
         package: PackageId("demo".into()),
         path: vec!["text_items".into()],
     });
-    module.dependencies.insert(language::module_identity());
+    module
+        .dependencies
+        .insert(language::identity(kagari_contract::language::Protocol::Add).module);
     let owner = module.definition(DefinitionKind::Trait, "TextItems");
     let interface = NominalTy {
         declaration: owner.clone(),

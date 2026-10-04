@@ -448,7 +448,7 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
 #[test]
 fn applied_signatures_preserve_parameter_contracts_through_coercion_and_divergence() {
     let text = r#"
-use core::language::List;
+use std::collections::List;
 fn read(values: List<i32>) -> i32 { 42 }
 fn consume(value: i32) -> i32 { value }
 fn stop() -> ! { loop {} }
@@ -525,7 +525,7 @@ fn run(callback: fn(i32) -> bool) {
 #[test]
 fn lexical_values_shadow_associated_native_and_script_owners() {
     for (owner, call) in [
-        ("ArrayList", "ArrayList::new()"),
+        ("Vec", "Vec::new()"),
         ("String", "String::from(\"value\")"),
         ("Item", "Item::make()"),
     ] {

@@ -34,7 +34,7 @@ pub enum NativeTypeKind<I: DefinitionReference = DefinitionPath> {
         layout: NativeStorageLayout,
     },
     String,
-    ArrayList,
+    Vec,
     HashMap,
     HashSet,
     Iter,
@@ -83,7 +83,7 @@ impl NativeTypeKind {
                 args: arguments.to_vec(),
             },
             Self::String => TypeId::Builtin(BuiltinType::String),
-            Self::ArrayList => TypeId::Array(first(), CollectionAccess::Mutable),
+            Self::Vec => TypeId::Array(first(), CollectionAccess::Mutable),
             Self::HashMap => TypeId::Map {
                 key: first(),
                 value: Box::new(arguments[1].clone()),

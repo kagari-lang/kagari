@@ -44,7 +44,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     };
     let engine = KagariEngine::default();
     let mut runtime = engine.runtime(Default::default());
-    let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, ArrayList<i32>) } fn main() -> Option { Option::Some(42) }";
+    let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, Vec<i32>) } fn main() -> Option { Option::Some(42) }";
     let original = compile(&engine, source);
     let loaded = runtime
         .load_program(

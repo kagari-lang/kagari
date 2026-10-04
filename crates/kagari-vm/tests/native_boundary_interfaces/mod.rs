@@ -203,7 +203,8 @@ fn registered_default_calls_the_selected_receiver_operation() {
 #[test]
 fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{List};
+
         fn sum(values: List<i32>) -> i32 {
             var result = 0;
             for value in values { result += value; }
@@ -222,7 +223,7 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
 #[test]
 fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     let program = compile_program(
-        "fn sum(values: List<i32>) -> i32 { var n = 0; for x in values { n += x; } n } fn main() -> i32 { sum([20, 22]) }",
+        "use std::collections::{List};\nfn sum(values: List<i32>) -> i32 { var n = 0; for x in values { n += x; } n } fn main() -> i32 { sum([20, 22]) }",
         None,
     );
     let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
@@ -287,7 +288,8 @@ fn dynamic_iteration_preserves_gc_roots_and_mutation_guards() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{List, MutableList};
+
         use example::collection_gc::collect;
         struct Node { val value: i32 }
         fn sum(values: MutableList<Node>) -> i32 {
@@ -354,7 +356,8 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
 #[test]
 fn default_map_and_set_iterate_through_readonly_parent_views() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet, Set};
+
         fn map_sum(values: MutableMap<i32, i32>) -> i32 {
             val view: Map<i32, i32> = values;
             var result = 0;
@@ -420,7 +423,8 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
     let program = compile_program(
-        r#"
+        r#"use std::cmp::{Ordering};
+
         use example::comparison::Compare;
         struct Source {}
         impl Compare for Source {}
@@ -514,7 +518,7 @@ fn generic_identity_module() -> NativeModule {
         .function(&singleton, |function| {
             let item = function.type_parameter("T")?.ty();
             function.parameter("value", item.clone());
-            function.returns(language.array_list(item));
+            function.returns(language.vec(item));
             Ok(())
         })
         .unwrap();

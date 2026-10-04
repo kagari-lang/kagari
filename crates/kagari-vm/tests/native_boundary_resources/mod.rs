@@ -122,7 +122,8 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
 #[test]
 fn duplicate_native_insertions_preserve_final_container_contents() {
     let mut fixture = MutationFixture::new(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         fn main() -> (HashMap<i32,i32>, HashSet<i32>) {
             val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, 2); map.insert(1, 3);
             val set: HashSet<i32> = HashSet::new(); set.insert(1); set.insert(1); (map, set)
@@ -159,9 +160,11 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
 fn custom_map_removal_prepares_the_result_without_repeating_hash_callbacks() {
     {
         let mut fixture = MutationFixture::new(
-            r#"
+            r#"use std::collections::{HashMap};
+use std::hash::{Hash};
+
             use test::roots::retain;
-            struct Key { val calls: ArrayList<i32>, val number: i32 }
+            struct Key { val calls: Vec<i32>, val number: i32 }
             impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.number == other.number } }
             impl Eq for Key {}
             impl Hash for Key { fn hash(self) -> i64 { self.calls[0] = self.calls[0] + 1; 7 } }

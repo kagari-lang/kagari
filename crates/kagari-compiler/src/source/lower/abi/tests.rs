@@ -31,7 +31,10 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
     let mut seen_map = false;
     let mut seen_result = false;
     for declared in snapshot.declaration_snapshot().files() {
-        if declared.source().module_identity().package.0 != "kagari-core" {
+        if !matches!(
+            declared.source().module_identity().package.0.as_str(),
+            "kagari-core" | "kagari-alloc" | "std"
+        ) {
             continue;
         }
         let analyzed = snapshot.file(declared.source().id()).unwrap();

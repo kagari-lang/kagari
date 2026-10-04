@@ -1,4 +1,4 @@
-//! Native list defaults share algorithms; ArrayList operates on its actual buffer.
+//! Native list defaults share algorithms; Vec operates on its actual buffer.
 mod comparison;
 mod receivers;
 use crate::{

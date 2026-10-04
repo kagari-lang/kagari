@@ -144,7 +144,7 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
 #[test]
 fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() {
     for (path, declaration) in [
-        ("core::language::Add", None),
+        ("core::ops::Add", None),
         ("pkg::library::Build", Some("pub trait Build<T> {}")),
     ] {
         let mut sources = SourceDatabase::default();
@@ -214,7 +214,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
     sources
         .set(
             "library",
-            "use core::language::Iterator as Base; pub trait Stream: Base {}".into(),
+            "use core::iter::Iterator as Base; pub trait Stream: Base {}".into(),
             SourceLayer::Base,
         )
         .unwrap();
@@ -259,7 +259,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
         .unwrap();
     assert_eq!(
         snapshot.source(declaration.location.file).unwrap().name(),
-        crate::language::source::CORE_URI
+        crate::language::source::module_source("iter").0
     );
 }
 
@@ -420,7 +420,7 @@ fn imported_trait_parameter_bounds_reject_invalid_implementations() {
     for (name, text) in [
         (
             "api",
-            "pub trait Echo<T: Eq + Hash> { fn get(self) -> i32; }",
+            "use std::hash::Hash; pub trait Echo<T: Eq + Hash> { fn get(self) -> i32; }",
         ),
         (
             "root",

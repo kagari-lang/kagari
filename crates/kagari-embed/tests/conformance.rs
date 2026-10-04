@@ -160,7 +160,8 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
         .compile_to_artifact(
             SourceFile::new(
                 "builtins.kgr",
-                r#"
+                r#"use std::collections::{HashMap, HashSet};
+
 fn main() -> (usize, usize, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);

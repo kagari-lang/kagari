@@ -202,7 +202,7 @@ fn checked_enum_constructors_lower_to_nominal_layout_operands() {
 fn native_and_script_enum_aliases_keep_distinct_layouts_and_refutable_unit_patterns() {
     let checked = common::program_ok(
         r#"
-use core::language::Option::{Some as Present, None as Absent};
+use core::option::Option::{Some as Present, None as Absent};
 enum Local<T> { Some(T), None }
 use self::Local::{Some, None};
 fn make<T>(value: T) -> Option<T> { Present(value) }
@@ -426,7 +426,7 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
         "matrix(if true { return 42; } else { return 7; })[grow(1)][0]",
     ] {
         let analyzed = common::program_ok(&format!(
-            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> ArrayList<ArrayList<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
+            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> Vec<Vec<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
         ));
         let ir = lower_to_mir(
             analyzed.root(),

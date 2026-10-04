@@ -95,7 +95,7 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
 
 #[test]
 fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
-    let text = "enum Local<T> { Some(T), None } use self::Local::{Some, None}; use core::language::Option::{Some as Present, None as Absent}; fn native(value:i32)->Option<i32> { Present(value) } fn local(value:i32)->Local<i32> { Some(value) } fn read(value:Local<i32>)->i32 { match value { None=>0, Some(payload)=>payload } } fn read_native(value:Option<i32>)->i32 { match value { Absent=>0, Present(payload)=>payload } }";
+    let text = "enum Local<T> { Some(T), None } use self::Local::{Some, None}; use core::option::Option::{Some as Present, None as Absent}; fn native(value:i32)->Option<i32> { Present(value) } fn local(value:i32)->Local<i32> { Some(value) } fn read(value:Local<i32>)->i32 { match value { None=>0, Some(payload)=>payload } } fn read_native(value:Option<i32>)->i32 { match value { Absent=>0, Present(payload)=>payload } }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("shadowed-variants.kgr", text.into(), SourceLayer::Base)

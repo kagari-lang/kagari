@@ -5,33 +5,50 @@ mod hash;
 mod lists;
 mod strings;
 use crate::gc::HeapObjectId;
+use crate::library::collections;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
-        catalog::DeclarationCatalog,
+        builder::ModuleBuilder,
         context::CallContext,
+        language::LanguageContracts,
         module::NativeModule,
         scalar::NativeScalar,
     },
     value::{EnumTag, Value},
 };
-use kagari_contract::{callable::CallableImplementation, library::catalog, operations::IterOp};
+use kagari_contract::{
+    callable::CallableImplementation,
+    declaration::ModuleDecl,
+    library::{catalog, namespaces},
+    operations::IterOp,
+};
 use std::{cell::OnceCell, collections::BTreeMap};
 
 type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
 
 thread_local! {
     // Bindings contain Rc handlers; share only within the owning host thread.
-    static MODULE: OnceCell<NativeResult<NativeModule>> = const { OnceCell::new() };
+    static MODULE: OnceCell<NativeResult<Vec<NativeModule>>> = const { OnceCell::new() };
 }
 
-pub fn module() -> NativeResult<NativeModule> {
+pub fn modules() -> NativeResult<Vec<NativeModule>> {
     MODULE.with(|module| module.get_or_init(build).clone())
 }
 
-fn build() -> NativeResult<NativeModule> {
-    let declaration = catalog::declarations();
+fn build() -> NativeResult<Vec<NativeModule>> {
+    let language = LanguageContracts::default();
+    catalog::declarations()
+        .into_iter()
+        .map(|declaration| build_module(declaration, &language))
+        .collect()
+}
+
+fn build_module(
+    declaration: ModuleDecl,
+    language: &LanguageContracts,
+) -> NativeResult<NativeModule> {
     let mut bindings = BTreeMap::new();
     for function in declaration.native_declarations() {
         let CallableImplementation::Native(id) = &function.function.implementation else {
@@ -123,12 +140,18 @@ fn build() -> NativeResult<NativeModule> {
             ),
         );
     }
-    NativeModule::checked(
-        declaration,
-        bindings.into_iter().collect(),
-        BTreeMap::new(),
-        &DeclarationCatalog::default(),
-    )
+    if declaration.identity == namespaces::module("std", "collections") {
+        let mut builder = ModuleBuilder::foundation(declaration, language, bindings);
+        collections::register(&mut builder, language)?;
+        builder.finish()
+    } else {
+        NativeModule::checked(
+            declaration,
+            bindings.into_iter().collect(),
+            BTreeMap::new(),
+            &language.catalog()?,
+        )
+    }
 }
 
 fn invalid() -> RuntimeError {

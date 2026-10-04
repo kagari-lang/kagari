@@ -1,16 +1,14 @@
 //! Rust-authoritative mandatory library declarations and registration identities.
 pub mod catalog;
-use crate::{
-    language,
-    types::{NominalTy, Ty},
-};
+pub mod namespaces;
+use crate::types::{NominalTy, Ty};
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 
 /// Build an explicit foundation registration identity. This creates no declaration
 /// and grants no language semantics; consumers must resolve its checked record.
 pub fn trait_id(name: &str) -> DefinitionPath {
     DefinitionPath {
-        module: language::module_identity(),
+        module: namespaces::trait_owner(name),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
             name: name.into(),

@@ -116,7 +116,7 @@ fn invalid_constant_contracts_fail_before_execution() {
         "trait Limit { const VALUE: i32 = 1; } struct N {} impl Limit for N { const EXTRA: i32 = 1; }",
         "trait Limit { const VALUE: i32; } struct N {} impl Limit for N { const VALUE: i32; }",
         "trait Limit { const VALUE: i32 = 1; const VALUE: i32 = 2; }",
-        "trait Limit { const VALUE: List<i32> = [1]; }",
+        "use std::collections::List; trait Limit { const VALUE: List<i32> = [1]; }",
         "trait Limit { const VALUE: i32 = 2147483647 + 1; }",
         "fn f() -> i32 { 1 } trait Limit { const VALUE: i32 = f(); }",
         "trait Limit { const VALUE: i32 = 1; } fn dynamic(x: Limit) {}",

@@ -7,7 +7,7 @@ use crate::{
         item::{function::FunctionKind, module::Import, storage::Visibility},
         ty::TypeKind,
     },
-    language::source::{CORE_SOURCE, CORE_URI, trait_source},
+    language::source::{module_source, trait_source},
     lower::{LoweredModule, lower_module_controlled},
     native::{
         NativeBinding, NativeTypeKind,
@@ -17,7 +17,8 @@ use crate::{
 use kagari_contract::{
     callable::CallableImplementation,
     declaration::{DeclarationError, ModuleDecl},
-    language::{self, Protocol, role::LangRole},
+    language::{Protocol, role::LangRole},
+    library::namespaces,
     types::{FnDecl, TypeDefKind, native::NativeTypeConstructor},
 };
 use kagari_syntax::{
@@ -67,13 +68,19 @@ pub(crate) fn import_source(
         .file(id)
         .expect("native declaration source")
         .clone();
-    if definition.identity == language::module_identity() {
-        let original = Arc::new(SourceFile::new(CORE_URI, CORE_SOURCE));
+    if namespaces::is_language_module(&definition.identity) {
+        let (uri, authored_source) = module_source(&definition.identity.path[0]);
+        let original = Arc::new(SourceFile::new(uri, authored_source));
         let view = Arc::make_mut(&mut source);
-        for role in LangRole::ALL {
+        for role in LangRole::ALL
+            .into_iter()
+            .filter(|role| namespaces::trait_owner(role.protocol().name()) == definition.identity)
+        {
             let text = trait_source(role);
             if let Some(start) = view.text().find(text) {
-                let authored = CORE_SOURCE.find(text).expect("handwritten trait fragment");
+                let authored = authored_source
+                    .find(text)
+                    .expect("handwritten trait fragment");
                 view.add_copy(
                     Span::new(start, start + text.len()),
                     original.clone(),
@@ -94,7 +101,7 @@ pub(crate) fn import_source(
     validate_view(definition, providers, &parsed, limits, cancel)?;
     let mut lowered = lower_module_controlled(source, &parsed.syntax(), cancel);
     lowered.registered_native_api = true;
-    lowered.language_foundation = definition.identity == language::module_identity();
+    lowered.language_foundation = namespaces::is_language_module(&definition.identity);
     lowered.native_package_alias = definition.package_alias.clone();
     lowered.registered_declarations = definition.native_declarations();
     attach_types(definition, &mut lowered)?;
@@ -125,7 +132,7 @@ fn validate_view(
             .syntax()
             .items()
             .filter(|item| {
-                if definition.identity != language::module_identity() {
+                if !namespaces::is_language_module(&definition.identity) {
                     return true;
                 }
                 let Item::TraitDef(item) = item else {
@@ -167,7 +174,7 @@ fn attach_types(
                 layout,
             },
             TypeDefKind::Native(constructor) => match constructor {
-                NativeTypeConstructor::Array => NativeTypeKind::ArrayList,
+                NativeTypeConstructor::Array => NativeTypeKind::Vec,
                 NativeTypeConstructor::String => NativeTypeKind::String,
                 NativeTypeConstructor::Map => NativeTypeKind::HashMap,
                 NativeTypeConstructor::Set => NativeTypeKind::HashSet,
@@ -300,11 +307,11 @@ fn attach_dependencies(
         .filter(|provider| provider.identity != definition.identity)
     {
         for ty in &provider.types {
-            let alias = if provider.identity == language::module_identity() {
-                format!("{}::language::{}", language::SOURCE_PACKAGE, ty.name)
-            } else {
-                format!("{}::{}", provider.identity, ty.name)
-            };
+            let alias = format!(
+                "{}::{}",
+                namespaces::source_module(&provider.identity),
+                ty.name
+            );
             if !referenced.contains(alias.as_str()) {
                 continue;
             }
@@ -337,15 +344,11 @@ fn attach_dependencies(
         .map_err(|error| DeclarationError(error.to_string()))?;
     for id in imports {
         let path = format!("{}::{}", id.module, id.path[0].name);
-        let alias = if id.module == language::module_identity() {
-            format!(
-                "{}::language::{}",
-                language::SOURCE_PACKAGE,
-                id.path[0].name
-            )
-        } else {
-            path.clone()
-        };
+        let alias = format!(
+            "{}::{}",
+            namespaces::source_module(&id.module),
+            id.path[0].name
+        );
         lowered.module.imports.push(Import {
             visibility: Visibility::Private,
             alias,

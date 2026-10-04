@@ -12,74 +12,89 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let installed = catalog::shared();
-    let generated = declaration_source(&installed).unwrap();
+    let installed_modules = catalog::shared();
     let independent = AnalysisDatabase::default()
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     drop(database);
-    assert_eq!(snapshot.files().count(), 1);
+    assert_eq!(snapshot.files().count(), installed_modules.len());
     let mut identities = HashSet::new();
     let mut count = 0;
-    let file = snapshot
-        .files()
-        .find(|file| file.source().name() == generated.uri)
-        .unwrap();
-    for (id, site) in &generated.sites {
-        let range = site.name_span;
-        // Impl header spans name a receiver type, not a named declaration.
-        if range.start == range.end
-            || id
-                .path
-                .last()
-                .is_some_and(|part| part.kind == kagari_common::identity::DefinitionKind::Impl)
-        {
-            continue;
-        }
-        let declaration = snapshot
-            .declaration(&DeclarationId::Definition(id.clone()))
-            .unwrap_or_else(|| panic!("missing generated declaration: {id:?}"));
-        assert_eq!(file.source().local_range(declaration.location), Some(range));
-        assert_eq!(&generated.text[range.start..range.end], declaration.name);
-        assert!(identities.insert(declaration.id.clone()));
-        let metadata = snapshot.documentation(&declaration.id).unwrap();
-        assert_eq!(metadata.declaration, *declaration);
-        if declaration.location.file == file.source().id() {
-            assert_eq!(
-                metadata.documentation,
-                installed.documentation.get(id).cloned().unwrap_or_default()
-            );
-        } else {
-            let authored = snapshot.source(declaration.location.file).unwrap();
-            assert!(authored.name().ends_with("library/core/language.kgr"));
-            assert_eq!(authored.text(), crate::language::source::CORE_SOURCE);
-            assert_eq!(
-                authored.span(declaration.location.range),
-                Some(declaration.location)
-            );
-            assert_eq!(
-                &authored.text()[declaration.location.range.start..declaration.location.range.end],
-                declaration.name
-            );
-        }
-        assert!(metadata.written_signature.contains(&declaration.name));
-        assert!(independent.documentation(&declaration.id).is_none());
-        let other = independent
-            .documentation(&DeclarationId::Definition(id.clone()))
+    for installed in &installed_modules {
+        let generated = declaration_source(installed).unwrap();
+        let file = snapshot
+            .files()
+            .find(|file| file.source().name() == generated.uri)
             .unwrap();
-        assert_ne!(other.declaration.id, declaration.id);
-        assert_eq!(other.declaration.name, declaration.name);
-        assert_eq!(other.declaration.location.range, declaration.location.range);
-        assert_eq!(other.documentation, metadata.documentation);
-        assert_eq!(other.written_signature, metadata.written_signature);
-        assert_eq!(file.source().span(range), Some(declaration.location));
-        count += 1;
+        for (id, site) in &generated.sites {
+            let range = site.name_span;
+            // Impl header spans name a receiver type, not a named declaration.
+            if range.start == range.end
+                || id
+                    .path
+                    .last()
+                    .is_some_and(|part| part.kind == kagari_common::identity::DefinitionKind::Impl)
+            {
+                continue;
+            }
+            let declaration = snapshot
+                .declaration(&DeclarationId::Definition(id.clone()))
+                .unwrap_or_else(|| panic!("missing generated declaration: {id:?}"));
+            assert_eq!(file.source().local_range(declaration.location), Some(range));
+            assert_eq!(&generated.text[range.start..range.end], declaration.name);
+            assert!(identities.insert(declaration.id.clone()));
+            let metadata = snapshot.documentation(&declaration.id).unwrap();
+            assert_eq!(metadata.declaration, *declaration);
+            if declaration.location.file == file.source().id() {
+                assert_eq!(
+                    metadata.documentation,
+                    installed.documentation.get(id).cloned().unwrap_or_default()
+                );
+            } else {
+                let authored = snapshot.source(declaration.location.file).unwrap();
+                assert!(
+                    authored
+                        .name()
+                        .ends_with(&format!("library/core/{}.kgr", id.module.path[0]))
+                );
+                assert_eq!(
+                    authored.text(),
+                    crate::language::source::module_source(&id.module.path[0]).1
+                );
+                assert_eq!(
+                    authored.span(declaration.location.range),
+                    Some(declaration.location)
+                );
+                assert_eq!(
+                    &authored.text()
+                        [declaration.location.range.start..declaration.location.range.end],
+                    declaration.name
+                );
+            }
+            assert!(metadata.written_signature.contains(&declaration.name));
+            assert!(independent.documentation(&declaration.id).is_none());
+            let other = independent
+                .documentation(&DeclarationId::Definition(id.clone()))
+                .unwrap();
+            assert_ne!(other.declaration.id, declaration.id);
+            assert_eq!(other.declaration.name, declaration.name);
+            assert_eq!(other.declaration.location.range, declaration.location.range);
+            assert_eq!(other.documentation, metadata.documentation);
+            assert_eq!(other.written_signature, metadata.written_signature);
+            assert_eq!(file.source().span(range), Some(declaration.location));
+            count += 1;
+        }
     }
     assert!(count > 0);
     for kind in Protocol::ALL {
         assert!(
             identities.contains(&DeclarationId::Definition(
-                file.declarations()
+                snapshot
+                    .files()
+                    .find(|file| *file.source().module_identity()
+                        == standard_traits::identity(kind).module)
+                    .unwrap()
+                    .declarations()
                     .definitions()
                     .lookup(&standard_traits::identity(kind))
                     .unwrap()
@@ -231,13 +246,19 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let uri = declaration_source(&catalog::shared()).unwrap().uri;
     drop(database);
-    let file = snapshot
-        .files()
-        .find(|file| file.source().name() == uri)
-        .unwrap();
-    for name in ["ArrayList", "Option", "Iterator"] {
+    for name in ["Vec", "Option", "Iterator"] {
+        let file = snapshot
+            .files()
+            .find(|file| {
+                file.source().module_identity()
+                    == &if name == "Iterator" {
+                        standard_traits::identity(Protocol::Iterator).module
+                    } else {
+                        kagari_contract::library::namespaces::type_owner(name)
+                    }
+            })
+            .unwrap();
         let declaration = file
             .declarations()
             .iter()

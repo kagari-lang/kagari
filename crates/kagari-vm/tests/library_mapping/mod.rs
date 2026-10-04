@@ -7,7 +7,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_hir::native::render::declaration_source;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    library::collections,
+    native::foundation,
     value::{EnumTag, Value},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -60,7 +60,14 @@ fn break_releases_wrapped_sources_and_dynamic_views_preserve_shared_progress() {
 
 #[test]
 fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let probe = Probe::new();
     let source = r#"
         use std::collections::map; use test::probe::keep;
@@ -85,7 +92,14 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
 
 #[test]
 fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let probe = Probe::new();
     let source = r#"
         use std::collections::map; use test::probe::tick;
@@ -119,7 +133,14 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
 
 #[test]
 fn native_map_next_does_not_allocate_an_intermediate_option() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = None;
     let mut runtime = Runtime::new(config);
@@ -145,7 +166,14 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
 
 #[test]
 fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let source = r#"
         use std::collections::{map, MapIterator};
         struct Holder { var cursor: Option<MapIterator<i32,i32>> }
@@ -171,7 +199,14 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
 
 #[test]
 fn retained_map_uses_its_original_callback_after_reload() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let source = "use std::collections::map; fn make() -> Iterator<Item = i32> { val offset = [1]; map([10,20], |item| item + offset[0]) }";
     let mut runtime = Runtime::default();
     let old = runtime
@@ -226,7 +261,14 @@ fn retained_map_uses_its_original_callback_after_reload() {
 
 #[test]
 fn native_iterator_completion_navigates_to_the_generated_impl() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let generated = declaration_source(&library.to_declaration().unwrap()).unwrap();
     let text = "use std::collections::map; fn main() { val cursor = map([1], |x| x); cursor. }";
     let mut sources = SourceDatabase::default();

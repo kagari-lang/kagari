@@ -58,13 +58,12 @@ use crate::{
         HostRegistry, HostTypeRegistration,
     },
     host_scope::HostResourceScope,
-    library::collections,
     metadata::{TypeId, TypeRegistry},
     module::{
         LoadedModule, ModuleEpochRetention, ModuleInstance, ModuleKey, ModuleStore, VerifiedProgram,
     },
     native::callable::PreparedClosure,
-    native::{foundation, registry::NativeRegistry},
+    native::{foundation, module::NativeModule, registry::NativeRegistry},
     reload::ModuleEpochAllocator,
     resource::{ResourceState, RuntimeLimits},
     session::{
@@ -156,14 +155,11 @@ impl Runtime {
             epochs: ModuleEpochAllocator::default(),
             interpreter_caches: InterpreterCacheRegistry::default(),
         };
-        foundation::module()
-            .expect("checked language foundation")
-            .install(&mut runtime)
-            .expect("mandatory language implementation installation");
-        collections::module()
-            .expect("checked foundation algorithms")
-            .install(&mut runtime)
-            .expect("mandatory foundation algorithm installation");
+        NativeModule::install_all(
+            &foundation::modules().expect("checked language foundation"),
+            &mut runtime,
+        )
+        .expect("mandatory foundation installation");
         runtime
     }
 

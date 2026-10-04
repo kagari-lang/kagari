@@ -138,7 +138,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
 #[test]
 fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() {
     let original = bytecode_ok(
-        "pub fn plain() -> i32 { 1 } pub trait Identity { fn same<T: Eq + Hash + PartialEq>(self, value: T) -> T; }",
+        "use std::hash::{Hash};\npub fn plain() -> i32 { 1 } pub trait Identity { fn same<T: Eq + Hash + PartialEq>(self, value: T) -> T; }",
     );
     for corruption in 0..8 {
         let mut module = original.clone();

@@ -1,3 +1,4 @@
+use std::collections::{HashMap};
 fn run(n: i32) -> i32 {
     val values: HashMap<i32, i32> = HashMap::new();
     var i = 0;

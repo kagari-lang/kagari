@@ -40,7 +40,8 @@ fn executes_source_lowered_declared_host_log() {
 #[test]
 fn executes_bytecode_foundation_collection_bindings() {
     let program = compile_test_bytecode(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
 fn main()->(usize,bool,usize,bool){
  val map:HashMap<String,i32> =HashMap::new();map.insert("k",7);
  val set:HashSet<String> =HashSet::new();set.insert("k");

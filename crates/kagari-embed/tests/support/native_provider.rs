@@ -55,7 +55,7 @@ pub fn module(drops: Rc<Cell<usize>>) -> NativeModule {
             let item = function.type_parameter("T")?;
             function.parameter("count", Type::usize());
             function.parameter("callback", Type::function([Type::usize()], item.ty()));
-            function.returns(language.array_list(item.ty()));
+            function.returns(language.vec(item.ty()));
             Ok(())
         })
         .unwrap();

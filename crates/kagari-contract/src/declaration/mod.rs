@@ -1,7 +1,7 @@
 //! Authoritative native API declarations shared by compilation, installation and tooling.
 use crate::{
     callable::CallableImplementation,
-    language,
+    library::namespaces,
     native_import::callables::NativeCallableRequirement,
     types::{
         Constraint, FnDecl, GenericBound, GenericParam, NativeDeclaration, NominalTy, PublicItem,
@@ -60,6 +60,8 @@ pub struct ModuleDecl<I = DefinitionPath> {
     pub types: Vec<TypeDef<I>>,
     /// Enum owners whose variants are also explicitly exported at module scope.
     pub variant_exports: BTreeSet<String>,
+    /// Public type/trait/variant aliases retain the identity of their owner.
+    pub exports: BTreeMap<String, I>,
     pub traits: Vec<TraitDef<I>>,
     pub implementations: Vec<ImplDecl<I>>,
     pub functions: Vec<FnDecl<I>>,
@@ -80,6 +82,7 @@ impl ModuleDecl {
             dependencies: BTreeSet::new(),
             types: vec![],
             variant_exports: BTreeSet::new(),
+            exports: BTreeMap::new(),
             traits: vec![],
             implementations: vec![],
             functions: vec![],
@@ -119,21 +122,9 @@ impl ModuleDecl {
     }
 
     /// Inherent declarations are owned by the receiver's defining module.
-    /// Built-in value families have the language module as their declaration owner.
+    /// Built-in value families use their canonical core/alloc/std declaration owner.
     pub fn owns_inherent_receiver(&self, receiver: &Ty) -> bool {
-        match receiver {
-            Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
-                nominal.declaration.module == self.identity
-            }
-            Ty::Builtin(_)
-            | Ty::Array(..)
-            | Ty::Map { .. }
-            | Ty::Set(..)
-            | Ty::Iter(_)
-            | Ty::Range(..)
-            | Ty::StandardEnum { .. } => self.identity == language::module_identity(),
-            _ => false,
-        }
+        namespaces::receiver_owner(receiver).is_some_and(|owner| owner == self.identity)
     }
 
     /// Bind implementations to an existing trait contract without repeating signatures.
@@ -430,6 +421,30 @@ impl ModuleDecl {
                 }
             }
         }
+        if self.exports.len() > 4096 {
+            return Err(fail());
+        }
+        for (name, target) in &self.exports {
+            if !identifier(name)
+                || !names.insert(name)
+                || !target.within_path_limit()
+                || target.module == self.identity
+                || !(1..=2).contains(&target.path.len())
+                || !matches!(
+                    target.path[0].kind,
+                    DefinitionKind::Trait | DefinitionKind::Enum | DefinitionKind::AssociatedType
+                )
+                || target
+                    .path
+                    .iter()
+                    .any(|part| !identifier(&part.name) || part.occurrence != 0)
+                || (target.path.len() == 2
+                    && (target.path[0].kind != DefinitionKind::Enum
+                        || target.path[1].kind != DefinitionKind::Variant))
+            {
+                return Err(fail());
+            }
+        }
         if self.private_functions.len() > self.functions.len()
             || self.private_functions.iter().any(|id| {
                 !self.functions.iter().any(|function| {
@@ -534,8 +549,10 @@ impl ModuleDecl {
             return Err(fail());
         }
         let cancel = CancellationToken::default();
-        validate(&items, &self.identity, &cancel).map_err(|_| fail())?;
-        validate_native_declarations(&declarations, &self.identity, &cancel).map_err(|_| fail())?;
+        validate(&items, &self.identity, &cancel)
+            .map_err(|error| DeclarationError(format!("invalid public declarations: {error:?}")))?;
+        validate_native_declarations(&declarations, &self.identity, &cancel)
+            .map_err(|error| DeclarationError(format!("invalid native declarations: {error:?}")))?;
         self.validate_implementations()?;
         self.validate_supported_types()?;
         Ok(())

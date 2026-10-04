@@ -30,25 +30,27 @@ fn assert_path_catalog_eq(
 
 #[test]
 fn reused_closures_preserve_exact_foundation_binding_requirements() {
-    let module = foundation::module().unwrap();
-    for registration in module.bindings.iter() {
-        let declarations = registration
-            .required_catalog
-            .paths(&registration.declarations)
-            .unwrap();
-        let module_declaration = module.to_declaration().unwrap();
-        let fresh = module
-            .catalog
-            .dependency_closure(
-                module.owned.traits.keys(),
-                &declarations,
-                [&module_declaration],
-            )
-            .unwrap();
-        assert_path_catalog_eq(
-            &registration.required_catalog.to_paths().unwrap(),
-            &fresh.catalog,
-        );
+    let modules = foundation::modules().unwrap();
+    for module in &modules {
+        for registration in module.bindings.iter() {
+            let declarations = registration
+                .required_catalog
+                .paths(&registration.declarations)
+                .unwrap();
+            let module_declaration = module.to_declaration().unwrap();
+            let fresh = module
+                .catalog
+                .dependency_closure(
+                    module.owned.traits.keys(),
+                    &declarations,
+                    [&module_declaration],
+                )
+                .unwrap();
+            assert_path_catalog_eq(
+                &registration.required_catalog.to_paths().unwrap(),
+                &fresh.catalog,
+            );
+        }
     }
 }
 
@@ -241,4 +243,70 @@ fn registration_scope_survives_catalog_growth_and_module_drop() {
             .resolve(registration.declarations[0].declaration)
             .is_ok()
     );
+}
+
+#[test]
+fn installed_reexports_require_declared_and_installed_canonical_targets() {
+    use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+    use kagari_contract::{
+        declaration::ModuleDecl,
+        language::{self, Protocol},
+        library::namespaces,
+    };
+    use std::collections::BTreeMap;
+
+    let language = LanguageContracts::default();
+    let providers = language.catalog().unwrap();
+    let mut declaration = ModuleDecl::new(namespaces::module("test", "exports"));
+    declaration
+        .exports
+        .insert("Hash".into(), language::identity(Protocol::Hash));
+    declaration.exports.insert(
+        "Vec".into(),
+        ModuleDecl::new(namespaces::type_owner("Vec"))
+            .definition(DefinitionKind::AssociatedType, "Vec"),
+    );
+    let mut some = ModuleDecl::new(namespaces::type_owner("Option"))
+        .definition(DefinitionKind::Enum, "Option");
+    some.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Variant,
+        name: "Some".into(),
+        occurrence: 0,
+    });
+    declaration.exports.insert("Some".into(), some);
+    assert!(
+        NativeModule::checked(
+            declaration.clone(),
+            vec![],
+            BTreeMap::new(),
+            &Default::default()
+        )
+        .is_err()
+    );
+    let module =
+        NativeModule::checked(declaration.clone(), vec![], BTreeMap::new(), &providers).unwrap();
+    assert_eq!(
+        module.to_declaration().unwrap().exports,
+        declaration.exports
+    );
+    let mut empty = Default::default();
+    assert!(module.install_into(&mut empty).is_err());
+    assert!(empty.catalog.traits.is_empty() && empty.catalog.types.is_empty());
+    module.install(&mut Runtime::default()).unwrap();
+
+    for name in ["Hash", "Vec", "Some"] {
+        let mut forged = declaration.clone();
+        forged
+            .exports
+            .get_mut(name)
+            .unwrap()
+            .path
+            .last_mut()
+            .unwrap()
+            .name = "Missing".into();
+        assert!(
+            NativeModule::checked(forged, vec![], BTreeMap::new(), &providers).is_err(),
+            "{name}"
+        );
+    }
 }

@@ -8,7 +8,7 @@ use kagari_hir::{analysis::AnalysisDatabase, declarations::DeclarationId};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     gc::RootedValue,
-    library::collections,
+    native::foundation,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
         declarations::FunctionDecl, language::LanguageContracts, module::NativeModule, types::Type,
@@ -30,8 +30,15 @@ fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        modules
+        foundation::modules()
+            .unwrap()
             .iter()
+            .filter(|installed| {
+                modules
+                    .iter()
+                    .all(|module| module.declaration().identity != installed.declaration().identity)
+            })
+            .chain(modules.iter().copied())
             .map(|module| Arc::new(module.to_declaration().unwrap()))
             .collect(),
     );
@@ -44,7 +51,14 @@ fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
 }
 
 fn run(text: &str) -> Value {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
@@ -62,7 +76,7 @@ fn primitive_sort_and_supplied_comparator_preserve_shared_identity() {
     assert_eq!(
         run(r#"
         fn main() -> bool {
-            val empty: ArrayList<i32> = []; empty.sort();
+            val empty: Vec<i32> = []; empty.sort();
             val values = [3, 1, 2, 1]; val alias = values;
             values.sort();
             if alias[0] != 1 || alias[1] != 1 || alias[2] != 2 || alias[3] != 3 { return false; }
@@ -77,7 +91,8 @@ fn primitive_sort_and_supplied_comparator_preserve_shared_identity() {
 #[test]
 fn script_ord_is_selected_and_equal_elements_remain_stable() {
     assert_eq!(
-        run(r#"
+        run(r#"use std::cmp::{Ordering};
+
         struct Rank { val key: i32, val tag: i32, var visits: i32 }
         impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.key == other.key } }
         impl Eq for Rank {}
@@ -151,7 +166,14 @@ impl Probe {
 #[test]
 fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let probe = Probe::new();
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let source = r#"
         use test::probe::{keep, tick};
         struct Item { val key: i32, var visits: i32 }
@@ -218,7 +240,14 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
 fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() {
     for mutation in ["values[0] = 9;", "values.push(9);", "values.sort();"] {
         let probe = Probe::new();
-        let library = collections::module().unwrap();
+        let library = foundation::modules()
+            .unwrap()
+            .into_iter()
+            .find(|module| {
+                module.declaration().identity
+                    == kagari_contract::library::namespaces::module("std", "collections")
+            })
+            .unwrap();
         let source = format!(
             r#"
             use test::probe::keep;
@@ -255,7 +284,7 @@ fn primitive_selection_covers_unsigned_bounds_and_string_ordering() {
     assert_eq!(
         run(r#"
         fn main() -> bool {
-            val values: ArrayList<u64> = [18446744073709551615u64, 0u64, 9223372036854775808u64];
+            val values: Vec<u64> = [18446744073709551615u64, 0u64, 9223372036854775808u64];
             values.sort();
             if values[0] != 0u64 || values[2] != 18446744073709551615u64 { return false; }
             values.sort_by(|a,b| b.cmp(a));
@@ -269,12 +298,20 @@ fn primitive_selection_covers_unsigned_bounds_and_string_ordering() {
 
 #[test]
 fn scalar_ord_overrides_are_rejected_before_native_selection() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let mut sources = SourceDatabase::default();
     let file = sources
         .set(
             "invalid.kgr",
-            r#"
+            r#"use std::cmp::{Ordering};
+
         impl Ord for i32 { fn cmp(self, other: Self) -> Ordering { Ordering::Equal } }
         fn main() { [1,3,2].sort(); }
     "#
@@ -295,7 +332,14 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
 
 #[test]
 fn generated_library_declarations_supply_navigation_docs_and_exported_signatures() {
-    let library = collections::module().unwrap();
+    let library = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     let generated = declaration_source(&library.to_declaration().unwrap()).unwrap();
     let text = "use std::collections::map; fn main() { val values = map([2,1], |value| value); }";
     let mut sources = SourceDatabase::default();
@@ -318,7 +362,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
     let documentation = snapshot.documentation_at(file, offset).unwrap();
     assert!(documentation.documentation.contains("Lazily transform"));
     assert!(documentation.written_signature.contains("MapIterator"));
-    assert!(documentation.written_signature.contains("ArrayList"));
+    assert!(documentation.written_signature.contains("Vec"));
     // visible_bindings is a lexical-local query. Module functions are exposed
     // through the declaration inventory.
     for name in ["map", "MapIterator"] {

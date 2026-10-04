@@ -247,7 +247,7 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
     use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
     use kagari_contract::{scalar::BuiltinType, types::Ty};
     let owner = common::bytecode_ok(
-        "pub struct Box<T> { var values: ArrayList<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
+        "pub struct Box<T> { var values: Vec<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
     );
     let mut importer = BytecodeModule {
         identity: ModuleIdentity::single_file("importer.kgr"),

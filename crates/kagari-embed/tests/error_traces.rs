@@ -213,7 +213,8 @@ fn main()->Result<i32,String>{
 #[test]
 fn trace_metadata_does_not_participate_in_equality_or_hashing() {
     run_failure(
-        r#"fn origin()->Result<i32,String>{Err("same")}
+        r#"use std::collections::{HashSet};
+fn origin()->Result<i32,String>{Err("same")}
 fn main()->Result<i32,String>{
     val a=origin();val b:Result<i32,String> = Err("same");
     if a!=b {val zero=0;1/zero;}
@@ -224,7 +225,7 @@ fn main()->Result<i32,String>{
 }
 "#,
         "origin",
-        1,
+        2,
         "same",
     );
 }
@@ -446,12 +447,13 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
 #[test]
 fn diagnostic_previews_do_not_call_user_debug_and_cannot_turn_err_into_a_trap() {
     run_failure(
-        r#"struct Problem { val code:i32 }
+        r#"use std::fmt::{Debug};
+struct Problem { val code:i32 }
 impl Debug for Problem {fn debug(self)->String {val zero=0;1/zero;"bad"}}
 fn main()->Result<i32,Problem>{Err(Problem {code:7})}
 "#,
         "main",
-        3,
+        4,
         "Struct@0:0",
     );
 }

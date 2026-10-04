@@ -293,7 +293,7 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
     let fold = builder
         .define_function(
             FunctionDecl::new("fold")
-                .parameter("values", language.array_list(Type::i32()))
+                .parameter("values", language.vec(Type::i32()))
                 .parameter("map", Type::function([Type::i32()], Type::i32()))
                 .returns(Type::i32()),
         )

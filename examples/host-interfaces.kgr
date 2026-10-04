@@ -1,3 +1,4 @@
+use std::hash::{Hash};
 // Requires the offline declarations and runtime bindings in the host_interfaces
 // embedding example. Importing declarations does not invoke host callbacks.
 use demo::{Counter, make};

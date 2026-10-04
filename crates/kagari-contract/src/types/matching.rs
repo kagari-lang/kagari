@@ -243,7 +243,12 @@ mod tests {
 
     #[test]
     fn native_templates_weaken_only_declared_readonly_outer_access() {
-        let catalog = crate::library::catalog::shared();
+        let catalog = crate::library::catalog::shared()
+            .into_iter()
+            .find(|module| {
+                module.identity == crate::library::namespaces::module("std", "collections")
+            })
+            .unwrap();
         let mut contract = catalog
             .traits
             .iter()

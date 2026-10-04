@@ -17,8 +17,8 @@ shallow. There is no generic deep-copy or deep-freeze operation in v1.
 
 [Collection access](collection-access.md) distinguishes read-only `List<T>`
 (`[T]`), `Map<K, V>` and `Set<T>` from writable `MutableList<T>`,
-`MutableMap<K, V>` and `MutableSet<T>`. Concrete storage is `ArrayList`,
-`HashMap` and `HashSet`. Literals infer `ArrayList<T>`. Access
+`MutableMap<K, V>` and `MutableSet<T>`. Concrete storage is `Vec`,
+`HashMap` and `HashSet`. Literals infer `Vec<T>`. Access
 conversion preserves the underlying object. Copy/factory algorithms are not
 part of the current foundational collection interface.
 Read-only views do not freeze referenced objects or other writable aliases.
@@ -420,7 +420,7 @@ See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).
 
 ## Repeat arrays and bulk replacement
 
-`[value; count]` constructs a fresh `ArrayList<T>`, not a fixed-length array.
+`[value; count]` constructs a fresh `Vec<T>`, not a fixed-length array.
 Evaluate `value`, then the `usize` count, exactly once. The value is evaluated even
 for zero length. Repetition requires a type proven to contain no shared mutable
 object identity: scalars, String and integer ranges qualify; Tuple and enum payloads

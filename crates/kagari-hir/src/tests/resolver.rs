@@ -10,12 +10,12 @@ use crate::{
 fn standard_item_spellings_require_installed_declarations() {
     for name in [
         "core",
-        "core::language",
+        "std::collections",
         "Eq",
         "Some",
         "None",
         "Option::Some",
-        "ArrayList::new",
+        "Vec::new",
         "demo::native::choose",
     ] {
         let lowered = common::lower_ok(&format!("fn main() {{ {name}; }}"));

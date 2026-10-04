@@ -570,9 +570,11 @@ impl<I: DefinitionReference> Declarations<I> {
     pub(crate) fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
         if let Some(binding) = self.names.lookup(name) {
             binding.target()
-        } else if let Some((alias, member)) = name.split_once("::")
-            && let Some(binding) = self.names.lookup(alias)
-        {
+        } else if let Some((binding, member)) = name.match_indices("::").find_map(|(split, _)| {
+            self.names
+                .lookup(&name[..split])
+                .map(|binding| (binding, &name[split + 2..]))
+        }) {
             match binding.target()? {
                 ResolvedName::HostModule(module) => self.hosts.resolve_name_in(module, member),
                 ResolvedName::SourceImport(index) => {

@@ -63,7 +63,8 @@ fn execute(source: &str) {
 #[test]
 fn native_collection_views() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap, HashSet, List, Map, MutableList, MutableMap, MutableSet, Set};
+
 fn size(xs: List<i32>) -> usize { xs.len() }
 fn change(xs: MutableList<i32>) { xs.push(42); xs[0] += 6; }
 fn main() -> i32 {
@@ -96,8 +97,11 @@ fn main() -> i32 {
 #[test]
 fn user_containers_implement_the_same_storage_independent_contracts() {
     execute(
-        r#"
-struct Sequence { val items: ArrayList<i32> }
+        r#"use std::collections::{List, MutableList, Set};
+use std::iter::{CollectionCursor};
+use std::ops::{Index};
+
+struct Sequence { val items: Vec<i32> }
 impl Index<usize> for Sequence {
     type Output = i32;
     fn index(self, index: usize) -> i32 { self.items[index] }
@@ -155,7 +159,9 @@ fn main() -> i32 {
 #[test]
 fn hash_collection_interfaces_use_custom_key_protocols() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet};
+use std::hash::{Hash};
+
 struct Key { val value: i32 }
 impl PartialEq for Key { fn eq(self, other: Self) -> bool { self.value == other.value } }
 impl Eq for Key {}
@@ -184,11 +190,11 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
     let engine = KagariEngine::default();
     for source in [
         "fn main() { val xs: [i32] = [1]; xs[0] = 2; }",
-        "fn main() { val xs: MutableList<i32> = [1]; xs[true] = 2; }",
-        "fn main() { val xs: MutableList<i32> = [1]; xs[0i32] = 2; }",
-        "fn main() { val xs: List<i32> = [1]; val ys: MutableList<i32> = xs; }",
-        "fn main() { val xs: Map<i32,i32> = Map::new(); }",
-        "fn main() { val xs: Set<f64> = HashSet::new(); }",
+        "use std::collections::{MutableList};\nfn main() { val xs: MutableList<i32> = [1]; xs[true] = 2; }",
+        "use std::collections::{MutableList};\nfn main() { val xs: MutableList<i32> = [1]; xs[0i32] = 2; }",
+        "use std::collections::{List, MutableList};\nfn main() { val xs: List<i32> = [1]; val ys: MutableList<i32> = xs; }",
+        "use std::collections::{Map};\nfn main() { val xs: Map<i32,i32> = Map::new(); }",
+        "use std::collections::{HashSet, Set};\nfn main() { val xs: Set<f64> = HashSet::new(); }",
     ] {
         assert!(
             engine
@@ -202,7 +208,8 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
 #[test]
 fn view_identity_survives_upcasts_branches_and_hash_storage() {
     execute(
-        r#"
+        r#"use std::collections::{HashSet, List, MutableList};
+
 struct Cell { var value: i32 }
 fn readonly(xs: MutableList<Cell>) -> List<Cell> { xs }
 fn main() -> i32 {

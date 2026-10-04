@@ -60,7 +60,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         .set_host_interface(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
         .unwrap();
 
-    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (ArrayList<i32>, HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> (ArrayList<i32>, HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use std::collections::{HashMap, HashSet};\nuse demo as api; fn main() -> (Vec<i32>, HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> (Vec<i32>, HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
     let payload = artifact.program.modules[artifact.program.root.index()]
         .functions
         .iter()

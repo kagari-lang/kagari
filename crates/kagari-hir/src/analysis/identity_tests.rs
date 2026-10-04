@@ -65,7 +65,7 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     sources
         .set("source.kgr", "fn previous() {}".into(), SourceLayer::Base)
         .unwrap();
-    sources.set("source.kgr", "use core::language::Option as Maybe; fn identity(value: Maybe<i32>) -> Maybe<i32> { value }".into(), SourceLayer::Overlay).unwrap();
+    sources.set("source.kgr", "use core::option::Option as Maybe; fn identity(value: Maybe<i32>) -> Maybe<i32> { value }".into(), SourceLayer::Overlay).unwrap();
     let files = sources.snapshot();
     let source = files.file(id).unwrap();
     let result = crate::analyze_source(source);

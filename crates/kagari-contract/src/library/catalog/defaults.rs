@@ -218,13 +218,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         );
         range_implementations(module, kind);
     }
-    define_type(
-        module,
-        "ArrayList",
-        NativeTypeConstructor::Array,
-        &["T"],
-        false,
-    );
+    define_type(module, "Vec", NativeTypeConstructor::Array, &["T"], false);
     define_type(
         module,
         "HashMap",

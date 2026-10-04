@@ -80,7 +80,9 @@ fn main()->i32 {val a=Range{start:0,end:7};val b=Counter{value:0,end:7};sum(a)+s
 #[test]
 fn native_iterators_support_generic_bounds_and_default_collections() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+use std::iter::{CollectionCursor};
+
 fn sum<C:Iterable<Item=i32>>(values:C)->i32 {var total=0;for value in values {total+=value;}total}
 fn first<I:Iterator<Item=i32>>(values:I)->i32 {match values.next(){Some(x)=>x,None=>0}}
 fn main()->i32 {
@@ -121,7 +123,7 @@ fn main()->i32 {
 fn returning_from_native_loop_releases_its_guard_before_caller_resumes() {
     execute(
         r#"
-fn head(values:ArrayList<i32>)->i32 {for x in values {return x;}0}
+fn head(values:Vec<i32>)->i32 {for x in values {return x;}0}
 fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 "#,
     );
@@ -272,8 +274,9 @@ fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
 #[test]
 fn native_iter_type_and_iterable_associated_type_resolve_independently() {
     execute(
-        r#"
-        struct Values { val items: ArrayList<i32> }
+        r#"use std::iter::{CollectionCursor};
+
+        struct Values { val items: Vec<i32> }
         impl Iterable for Values {
             type Item = i32;
             type Iter = CollectionCursor<i32>;

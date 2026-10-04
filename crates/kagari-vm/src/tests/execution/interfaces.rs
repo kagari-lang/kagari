@@ -817,7 +817,8 @@ fn shared_aggregate_fields_retain_the_callers_nominal_generation() {
 #[test]
 fn shared_native_lists_retain_the_callers_nominal_generation() {
     check_type_provenance_reload(
-        r#"
+        r#"use std::collections::{List};
+
         struct Item { val value: i32 }
         fn keep<T>(value: T) -> T { value }
         trait Capture {
@@ -927,7 +928,8 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
 #[test]
 fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
     check_type_provenance_reload(
-        r#"
+        r#"use std::collections::{List, MutableList};
+
         struct Item { val value: i32 }
         struct Box<T> { val item: T }
         enum Wrapped<T> { Some(T), None }
@@ -960,7 +962,8 @@ fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
 #[test]
 fn shared_repeat_arrays_keep_scalar_contracts_in_generic_frames() {
     check_type_provenance_reload(
-        r#"
+        r#"use std::collections::{List};
+
         struct Item { val value: i32 }
         fn keep<T>(value: T) -> T { value }
         trait Capture {

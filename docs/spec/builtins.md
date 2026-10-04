@@ -1,6 +1,6 @@
 # Language Foundation and Native Libraries
 
-The installed `core::language` foundation defines complete language types and
+The installed `core`/`alloc`/`std` foundation defines complete language types and
 protocols. Its 24 core traits are handwritten source with validated language roles;
 ordinary library declarations are Rust-authored. Runtime supplies their basic checked native implementations. Optional
 library modules and application modules use the same explicit registration API;
@@ -13,6 +13,42 @@ String owns its inherent methods, and `std::collections` provides lazy map. The
 Predecessor APIs outside that inventory, including
 numeric convenience methods, enum combinators, extended iterator algorithms,
 collection snapshots and additional container classes, remain withdrawn.
+
+## Namespaces and prelude
+
+Declarations have one canonical owner. Public `std` re-exports preserve that
+identity, including trait implementations, generic bounds, associated members,
+constructors and tooling navigation.
+
+| Canonical module | Declarations |
+| --- | --- |
+| `core::ops` | Operator traits, Index, Fn, RangeBounds, range types and Bound |
+| `core::cmp` | PartialEq, Eq, PartialOrd, Ord and Ordering |
+| `core::hash` | Hash |
+| `core::fmt` | Debug and Display |
+| `core::convert` | From, Into, TryFrom, TryInto and Infallible |
+| `core::iter` | Iterator, Iterable, FromIterator, Sum, Product and CollectionCursor |
+| `core::str` | FromStr |
+| `core::num` | ParseError, TryFromIntError and numeric native implementations |
+| `core::option`, `core::result` | Option and Result |
+| `alloc::string`, `alloc::vec` | String and Vec |
+| `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap, HashSet and map |
+
+Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
+`std::iter`, `std::str`, `std::num`, `std::option`, `std::result`, `std::string`
+and `std::vec` expose the canonical declarations through checked re-exports.
+The package/module spelling does not change Kagari's GC or shared-object semantics.
+There is no installed `core::language` module or ArrayList declaration.
+
+`std::prelude` explicitly exports Iterator, Iterable, FromIterator, PartialEq,
+Eq, PartialOrd, Ord, From, Into, TryFrom, TryInto, Fn, Option, Result, Some, None,
+Ok, Err, String and Vec. Iterable is a retained Kagari extension. Local declarations
+and explicit imports take precedence over these implicit imports.
+Operators use their checked language roles independently of name imports; writing
+an explicit operator trait bound or implementation requires that name in scope.
+Hash, Debug, Display, operator traits other than Fn, collection interfaces,
+HashMap/HashSet, Ordering, ranges and error types require explicit imports.
+New public library declarations do not automatically enter the prelude.
 
 ## Foundation trait inventory
 
@@ -54,7 +90,7 @@ The core type set includes:
 - unsigned integers: `u8`, `u16`, `u32`, `u64`, `usize`
 - floating-point numbers: `f32`, `f64`
 - `String`
-- `ArrayList<T>` storage and read-only `List<T>` (abbreviated `[T]`)
+- `Vec<T>` storage and read-only `List<T>` (abbreviated `[T]`)
 - map interfaces as `Map<K, V>`
 - set interfaces as `Set<T>`
 - tuples
@@ -70,8 +106,8 @@ The semantics do not import Rust ownership or borrowing.
 
 The complete [collection contracts](collection-access.md) define List/MutableList,
 Map/MutableMap and Set/MutableSet. They are generic bounds and interface types.
-ArrayList/HashMap/HashSet are the canonical defaults and remain available with
-optional modules disabled. Array literals create ArrayList; default hash containers
+Vec/HashMap/HashSet are the canonical defaults and remain available with
+optional modules disabled. Array literals create Vec; default hash containers
 use Rust std::collections and promise no insertion or sorted traversal order.
 Additional container types register storage and ordinary trait impls without
 adding concrete-type dispatch to the compiler or VM.
@@ -104,8 +140,9 @@ the user's responsibility.
 
 Their constructors `Some(value)`, `None`, `Ok(value)` and `Err(error)` are
 available through the prelude, `Option::Some` / `Option::None`,
-`Result::Ok` / `Result::Err`, and the `core::language` namespace.
-Language-module imports support aliases and wildcard imports for these variants.
+`Result::Ok` / `Result::Err`, and the `core::option` / `core::result` namespaces
+(or their `std` re-exports).
+Standard-module imports support aliases and wildcard imports for these variants.
 User bindings take precedence over implicit prelude names. `None` has no payload
 and is written without parentheses. Patterns use the same resolved identities,
 including nested, alternative and binding-condition patterns.
@@ -182,9 +219,9 @@ and metadata; it is not how native libraries dispatch their methods.
 
 ## Ordering protocols
 
-`Ordering` (also `core::language::Ordering`) has unit variants `Less`, `Equal`, `Greater`.
-Type aliases (`use core::language::Ordering as Order`) and variant imports
-(`use core::language::Ordering::*`) work in constructors and patterns.
+`Ordering` (also `core::cmp::Ordering`) has unit variants `Less`, `Equal`, `Greater`.
+Type aliases (`use core::cmp::Ordering as Order`) and variant imports
+(`use core::cmp::Ordering::*`) work in constructors and patterns.
 `PartialOrd: PartialEq` declares `partial_cmp(self, other: Self) -> Option<Ordering>`.
 `Ord: Eq + PartialOrd` declares `cmp(self, other: Self) -> Ordering`.
 Comparison operators select PartialOrd; None makes each of `<`, `<=`, `>` and `>=`
@@ -197,7 +234,7 @@ See [ordering.kgr](../../examples/syntax/ordering.kgr).
 
 ## Arithmetic operator protocols
 
-`core::language::{Add, Sub, Mul, Div, Rem}` are prelude traits with one explicit RHS
+`core::ops::{Add, Sub, Mul, Div, Rem}` are explicitly imported traits with one explicit RHS
 parameter and an associated `Output`. Each declares `fn add(self, rhs: Rhs) ->
 Self::Output` (respectively sub/mul/div/rem). Operator expressions and method calls
 select the same applied implementation. Multiple applications of the same protocol
@@ -209,7 +246,7 @@ Struct/enum implementations run ordinary methods; their effects are not rolled
 back on failure. These traits do not enable compound-assignment overloads.
 See [operators.kgr](../../examples/syntax/operators.kgr).
 
-`core::language::{Neg, Not}` declare `type Output` and `fn neg(self) -> Self::Output`
+`core::ops::{Neg, Not}` declare `type Output` and `fn neg(self) -> Self::Output`
 (respectively `not`). They control unary `-` and `!`; signed builtin numeric
 negation and bool negation keep direct instructions. Integer Not complements
 all bits of the declared width. Custom outputs may differ
@@ -218,7 +255,7 @@ from the receiver. `&&`/`||` remain bool-only short-circuit operators.
 
 ## Read-only indexing protocol
 
-`core::language::Index<I>` declares `type Output` and `fn index(self, rhs: I) ->
+`core::ops::Index<I>` declares `type Output` and `fn index(self, rhs: I) ->
 Self::Output`. `container[i]` and `container.index(i)` use the selected method.
 Arrays supply builtin integer indexing; existing Tuple and host-path syntax
 retain their specialized rules. No Map/String indexing is added by this checkpoint.
@@ -239,7 +276,7 @@ static-only; this does not change ordinary user-defined dynamic interfaces.
 
 ## Conversion protocols
 
-The compiler owns `core::language::From<S>` with
+The compiler owns `core::convert::From<S>` with
 `fn from(value: S) -> Self`. It supports explicit user-defined infallible conversions
 and Result error propagation. Identity conversion preserves the same value or object
 identity. Distinct error conversion runs once on Err, never on Ok, and cannot search
@@ -262,12 +299,12 @@ for narrowing integer cases. Optional helper methods are not required. Numeric
 
 FromIterator<T>, Sum<T> and Product<T> are core contracts. Their static methods
 `from_iter`, `sum` and `product` each take `I: Iterable<Item = T>` and return Self.
-The foundation supplies ArrayList construction and same-scalar numeric aggregation.
+The foundation supplies Vec construction and same-scalar numeric aggregation.
 Empty sums return zero and empty products return one; integer overflow traps at
 the declared scalar width. Other destinations and convenience pipeline methods
 remain optional library implementations.
 
-`core::language::{Iterator, Iterable}` are prelude traits:
+`core::iter::{Iterator, Iterable}` are prelude traits:
 
 ```kagari
 trait Iterator {

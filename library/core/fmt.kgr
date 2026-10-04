@@ -1,0 +1,15 @@
+// Core fmt traits. This source owns their declarations and language roles.
+
+use alloc::string::String;
+
+/// Formats a value for debugging.
+#[lang = "debug"]
+pub trait Debug {
+    fn debug(self) -> String;
+}
+
+/// Formats a value for user-facing text.
+#[lang = "display"]
+pub trait Display {
+    fn display(self) -> String;
+}

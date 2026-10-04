@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 // Default containers and algorithms are always available as ordinary native bindings.
 use std::collections;
 fn main()->i32 {

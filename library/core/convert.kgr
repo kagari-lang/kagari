@@ -1,0 +1,7 @@
+// Core convert traits. This source owns their declarations and language roles.
+
+/// Constructs a value through an infallible conversion.
+#[lang = "from"]
+pub trait From<T0> {
+    fn from(value: T0) -> Self;
+}

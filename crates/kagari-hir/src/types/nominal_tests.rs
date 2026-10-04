@@ -156,10 +156,10 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         .collect();
         let once = template.instantiate(&substitution);
         assert!(!once.is_concrete());
-        assert_eq!(once.display_name(), "Item<ArrayList<Item<T, i32>>>");
+        assert_eq!(once.display_name(), "Item<Vec<Item<T, i32>>>");
         let twice = once.instantiate(&substitution);
         assert!(twice.is_concrete());
-        assert_eq!(twice.display_name(), "Item<ArrayList<Item<i32, i32>>>");
+        assert_eq!(twice.display_name(), "Item<Vec<Item<i32, i32>>>");
         let substituted_error =
             template.instantiate(&[(parameter.clone(), TypeId::Error)].into_iter().collect());
         assert!(substituted_error.is_unresolved());
@@ -273,8 +273,8 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
     assert!(comparable.supports_equality());
     assert!(!incomparable.supports_equality());
     let resolved_name = resolved.display_name();
-    assert_eq!(resolved_name.len(), 110_003);
-    assert!(resolved_name.starts_with("ArrayList<ArrayList<"));
+    assert_eq!(resolved_name.len(), 50_003);
+    assert!(resolved_name.starts_with("Vec<Vec<"));
     assert!(resolved_name.ends_with(">>"));
     let comparable_name = comparable.display_name();
     assert_eq!(comparable_name.len(), 20_003);

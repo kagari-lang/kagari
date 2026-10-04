@@ -34,7 +34,7 @@ fn execute(source: &str) {
 }
 
 #[test]
-fn array_list_algorithms_preserve_copies_aliases_and_order() {
+fn vec_algorithms_preserve_copies_aliases_and_order() {
     execute(
         r#"
 fn main() -> bool {
@@ -58,7 +58,8 @@ fn main() -> bool {
 #[test]
 fn interface_methods_accept_comparators_and_keys() {
     execute(
-        r#"
+        r#"use std::collections::{List, MutableList};
+
 fn main() -> bool {
     val source = [3, 1, 2];
     val list: List<i32> = source;
@@ -75,7 +76,8 @@ fn main() -> bool {
 #[test]
 fn unordered_elements_keep_unbounded_list_operations() {
     execute(
-        r#"
+        r#"use std::collections::{List};
+
 struct Item { val key: i32 }
 fn main() -> bool {
     val values = [Item { key: 2 }, Item { key: 1 }];
@@ -90,8 +92,11 @@ fn main() -> bool {
 #[test]
 fn custom_container_reuses_native_defaults_with_linear_read_traversal() {
     execute(
-        r#"
-struct Sequence { val items: ArrayList<i32> }
+        r#"use std::collections::{List, MutableList};
+use std::iter::{CollectionCursor};
+use std::ops::{Index};
+
+struct Sequence { val items: Vec<i32> }
 impl Index<usize> for Sequence {
     type Output = i32;
     fn index(self, index: usize) -> i32 { 1 / 0 }
@@ -133,7 +138,9 @@ fn main() -> bool {
 #[test]
 fn shared_calls_keep_key_types_and_stable_object_order_under_gc() {
     execute(
-        r#"
+        r#"use std::cmp::{Ordering};
+use std::collections::{List};
+
 struct Item { val key: i32, val label: String, val ordinal: i32 }
 struct Counter { var calls: i32 }
 struct Rank { val value: i32 }
@@ -170,8 +177,8 @@ fn main() -> bool {
 fn ordering_and_equality_bounds_are_required_at_the_method_call() {
     let engine = KagariEngine::default();
     for source in [
-        "struct Item { val key: i32 } fn main() { val list: List<Item> = [Item { key: 1 }]; list.sorted(); }",
-        "fn main() { val list: List<f32> = [1.0f32]; list.distinct(); }",
+        "use std::collections::{List};\nstruct Item { val key: i32 } fn main() { val list: List<Item> = [Item { key: 1 }]; list.sorted(); }",
+        "use std::collections::{List};\nfn main() { val list: List<f32> = [1.0f32]; list.distinct(); }",
     ] {
         assert!(
             engine
@@ -292,9 +299,11 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
 #[test]
 fn generic_custom_receiver_uses_its_associated_iterator_in_default_calls() {
     execute(
-        r#"
-struct Sequence<T> { val items: ArrayList<T> }
-struct Cursor<T> { val items: ArrayList<T>, var position: usize }
+        r#"use std::collections::{List};
+use std::ops::{Index};
+
+struct Sequence<T> { val items: Vec<T> }
+struct Cursor<T> { val items: Vec<T>, var position: usize }
 impl<T> Iterator for Cursor<T> {
     type Item = T;
     fn next(self) -> Option<T> {

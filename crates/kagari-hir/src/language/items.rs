@@ -58,7 +58,7 @@ pub(crate) fn collect(
             continue;
         };
         if !lowered.language_foundation
-            || lowered.source.module_identity() != &language::module_identity()
+            || lowered.source.module_identity() != &language::identity(role.protocol()).module
         {
             report(
                 &name,
@@ -96,7 +96,9 @@ pub(crate) fn collect(
         }
     }
     if lowered.language_foundation {
-        for role in LangRole::ALL {
+        for role in LangRole::ALL.into_iter().filter(|role| {
+            language::identity(role.protocol()).module == *lowered.source.module_identity()
+        }) {
             if !items.contains_key(&role) {
                 report(role.name(), "missing required role", Span::default());
             }
@@ -112,11 +114,12 @@ pub(crate) fn validate_shapes(
     aggregates: &AggregateCatalog,
     diagnostics: &mut DiagnosticBuffer,
 ) {
-    let product = catalog::shared();
+    let products = catalog::shared();
     for (role, id) in &declarations.language_items {
-        let expected = product
-            .traits
+        let expected = products
             .iter()
+            .filter(|module| module.identity == id.module)
+            .flat_map(|module| &module.traits)
             .find(|item| item.name == role.protocol().name())
             .expect("required checked language product");
         let owner_generic_count = expected.generic_params.len();

@@ -83,8 +83,8 @@ fn generic_implementations_normalize_nested_associated_types() {
         r#"
         trait Reader { type Item; fn read(self) -> Self::Item; }
         struct Number { val value: i32 }
-        impl Reader for Number { type Item = ArrayList<i32>; fn read(self) -> Self::Item { [self.value] } }
-        fn read(r: Reader<Item = ArrayList<i32>>) -> ArrayList<i32> { r.read() }
+        impl Reader for Number { type Item = Vec<i32>; fn read(self) -> Self::Item { [self.value] } }
+        fn read(r: Reader<Item = Vec<i32>>) -> Vec<i32> { r.read() }
         fn main() -> i32 { read(Number { value: 42 })[0] }
     "#,
     );
@@ -242,7 +242,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
         types::{Constraint, PublicItem, Ty},
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "use std::hash::{Hash};\npub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
     for mutation in 0..3 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -321,7 +321,8 @@ fn generic_implementation_interface_tables_specialize_and_deduplicate() {
 #[test]
 fn generic_interface_conversion_checks_implementation_bounds() {
     execute(
-        r#"
+        r#"use std::hash::{Hash};
+
         trait Reader { type Item; fn read(self) -> Self::Item; }
         struct Holder<T> { val value: T }
         impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } }
@@ -343,8 +344,8 @@ fn generic_interface_conversion_checks_implementation_bounds() {
     );
     let engine = KagariEngine::default();
     for source in [
-        "trait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn main() { val reader: Read = Holder { value: 1.5 }; }",
-        "trait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn boxed<T>(value: Holder<T>) -> Read { value } fn main() {}",
+        "use std::hash::{Hash};\ntrait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn main() { val reader: Read = Holder { value: 1.5 }; }",
+        "use std::hash::{Hash};\ntrait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn boxed<T>(value: Holder<T>) -> Read { value } fn main() {}",
     ] {
         assert!(
             engine
@@ -362,7 +363,7 @@ fn generic_interface_conversion_checks_implementation_bounds() {
 fn interface_instance_bounds_are_checked_without_method_slots() {
     use kagari_contract::{scalar::BuiltinType, types::Ty};
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"),  Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "use std::hash::{Hash};\ntrait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"),  Default::default()).unwrap();
     let mut program = artifact.program.clone();
     let table = program.modules[program.root.index()]
         .interface_tables
@@ -430,7 +431,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
     use kagari_contract::{scalar::BuiltinType, types::Ty};
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "use std::hash::{Hash};\ntrait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
         let tables = &mut program.modules[program.root.index()].interface_tables;

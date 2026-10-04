@@ -13,7 +13,7 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 
 #[test]
 fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
-    let text = "use core::language as library; use core::language; use core::language::String as Text; use core::language::Option as Maybe; fn inspect(a: String, b: Text, c: library::String, d: language::Option<i32>, e: Maybe<i32>, f: library::RangeFull, g: RangeFull) {}";
+    let text = "use std::ops::{RangeFull};\nuse alloc::string as library; use core::option as language; use alloc::string::String as Text; use core::option::Option as Maybe; fn inspect(a: String, b: Text, c: library::String, d: language::Option<i32>, e: Maybe<i32>, f: core::ops::RangeFull, g: RangeFull) {}";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("native-types.kgr", text.into(), SourceLayer::Base)
@@ -51,7 +51,7 @@ fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
 
 #[test]
 fn native_collection_constructors_infer_items_through_source_aliases() {
-    let text = "use core::language::ArrayList as Sequence; use core::language::HashMap as Dictionary; fn collect() -> ArrayList<i32> { Sequence::new() } fn pairs() -> HashMap<i32, bool> { Dictionary::new() }";
+    let text = "use std::collections::{HashMap};\nuse alloc::vec::Vec as Sequence; use std::collections::HashMap as Dictionary; fn collect() -> Vec<i32> { Sequence::new() } fn pairs() -> HashMap<i32, bool> { Dictionary::new() }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("conversion-aliases.kgr", text.into(), SourceLayer::Base)
@@ -122,10 +122,12 @@ fn source_bindings_shadow_native_types_and_the_standard_namespace() {
     }
     for binding in [
         "struct language {}",
-        "use core::language::ArrayList as language;",
+        "use alloc::vec::Vec as language;",
         "use absent::language;",
     ] {
-        let text = format!("{binding} fn bad(value: language::RangeFull) {{}}");
+        let text = format!(
+            "use std::ops::{{RangeFull}};\n{binding} fn bad(value: language::RangeFull) {{}}"
+        );
         let mut sources = SourceDatabase::default();
         let id = sources
             .set("namespace-shadow.kgr", text.clone(), SourceLayer::Base)
@@ -205,10 +207,10 @@ fn explicit_empty_applications_are_not_erased_to_bare_types() {
         "String",
         "RangeFull",
         "Option",
-        "ArrayList",
+        "Vec",
     ] {
         let text = format!(
-            "struct Point {{}} enum Mode {{ Ready }} trait View {{}} fn bad<T>(value: {name}<>) {{}} fn good(x: i32) -> i32 {{ x }}"
+            "use core::ops::RangeFull; struct Point {{}} enum Mode {{ Ready }} trait View {{}} fn bad<T>(value: {name}<>) {{}} fn good(x: i32) -> i32 {{ x }}"
         );
         let mut sources = SourceDatabase::default();
         let file = sources

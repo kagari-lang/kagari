@@ -476,7 +476,8 @@ fn main() -> i32 { val source: Capture = Number {}; val get = source.capture(42)
 #[test]
 fn shared_generic_method_constructs_a_typed_list_result() {
     execute(
-        r#"
+        r#"use std::collections::{List};
+
 trait Wrap { fn wrap<T>(self, value: T) -> List<T> { [value] } }
 struct Source {}
 impl Wrap for Source {}
@@ -504,7 +505,8 @@ fn shared_list_table_mappings_are_checked_without_source() {
         .compile_to_artifact(
             SourceFile::new(
                 "shared-list.kgr",
-                r#"
+                r#"use std::collections::{List};
+
 trait Wrap { fn wrap<T>(self, value: T) -> List<T> { [value] } }
 struct Source {}
 impl Wrap for Source {}
@@ -756,7 +758,8 @@ fn main() -> i32 {
 #[test]
 fn shared_methods_upcast_generic_interfaces() {
     execute(
-        r#"
+        r#"use std::collections::{List, MutableList};
+
 trait Wrap {
     fn wrap<T>(self, value: T) -> List<T> {
         val mutable: MutableList<T> = [value];
@@ -783,7 +786,8 @@ fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
         .compile_to_artifact(
             SourceFile::new(
                 "shared-upcast.kgr",
-                r#"
+                r#"use std::collections::{List, MutableList};
+
 trait Wrap {
     fn wrap<T>(self, value: T) -> List<T> {
         val mutable: MutableList<T> = [value];
@@ -834,7 +838,8 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
 #[test]
 fn shared_interface_tables_supply_receiver_bound_operations() {
     execute(
-        r#"
+        r#"use std::cmp::{Ordering};
+
 trait Reader<T: Ord> {
     fn lesser(self, left: T, right: T) -> T { if left < right { left } else { right } }
 }
@@ -912,7 +917,8 @@ fn main() -> i32 { val chooser: Choose = Source {}; chooser.choose(42, 43) }
 #[test]
 fn shared_nominal_layouts_preserve_nested_fields_and_enum_patterns() {
     execute(
-        r#"
+        r#"use std::collections::{List};
+
 struct Box<T> { var value: T }
 enum Wrapped<T> { Some(T), None }
 trait Wrap {
@@ -1130,7 +1136,8 @@ fn main() -> i32 { val relay: Relay = 0; relay.relay(0) }
 #[test]
 fn generic_constraint_members_receive_their_local_bound_operations() {
     execute(
-        r#"
+        r#"use std::cmp::{Ordering};
+
 trait Compare<R> { fn choose<K: Ord>(self, left: K, right: K) -> K; }
 struct Source<R> { val value: R }
 impl<R> Compare<R> for Source<R> {

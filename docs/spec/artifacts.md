@@ -715,12 +715,12 @@ payloads and read-only destinations before execution. Earlier products are rejec
 
 Version 83/runtime ABI v83 restrict repeat-array instructions to element types
 without shared mutable identities. Source analysis and portable verification share
-the structural type predicate. ArrayList::from_fn lowers to ordinary control
+the structural type predicate. Vec::from_fn lowers to ordinary control
 flow and closure calls; an unlowered factory intrinsic is rejected. Older products
 are rejected rather than interpreted with changed repetition rules.
 
 Version 84/runtime ABI v84 replace native public access types with source-declared
-List/MutableList, Map/MutableMap and Set/MutableSet interfaces. ArrayList,
+List/MutableList, Map/MutableMap and Set/MutableSet interfaces. Vec,
 LinkedHashMap and LinkedHashSet are the concrete native classes. Interface tables
 encode a validated native-bridge flag, and ArrayCopyFromStorage is the normalized
 snapshot-copy intrinsic. Standard interface ancestry is linked without requiring

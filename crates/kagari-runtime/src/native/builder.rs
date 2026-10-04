@@ -36,6 +36,19 @@ pub struct ModuleBuilder {
 }
 
 impl ModuleBuilder {
+    pub(crate) fn foundation(
+        declaration: ModuleDecl,
+        language: &LanguageContracts,
+        bindings: BTreeMap<DefinitionPath, NativeBinding>,
+    ) -> Self {
+        Self {
+            declaration,
+            providers: language.catalog().expect("foundation providers"),
+            bindings,
+            storage: BTreeMap::new(),
+            function_parameters: BTreeMap::new(),
+        }
+    }
     pub fn new(identity: &str, language: &LanguageContracts) -> Self {
         let mut path = identity.split("::");
         let package = PackageId(path.next().unwrap_or_default().into());

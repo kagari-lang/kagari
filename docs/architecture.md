@@ -96,11 +96,11 @@ decoded or changed inputs are bounded, validated and sealed again. See
 
 ## Language contracts and native implementations
 
-The installed `core::language` foundation defines all 38 foundation
+The installed `core`/`alloc`/`std` foundation defines all 38 foundation
 traits, primitive/value declarations, standard enums, range forms, String and the
-canonical ArrayList/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
+canonical Vec/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
 These declarations remain available independently of optional libraries.
-`[T]` means List<T>; list literals create ArrayList. There is no separate
+`[T]` means List<T>; list literals create Vec. There is no separate
 fixed-length array type or Rust slice promise. Readonly views are shallow.
 HashMap/HashSet require checked Eq + Hash keys and use Rust standard hash storage
 without a traversal-order guarantee. Collection and String behavior lives in
@@ -110,11 +110,11 @@ Application and library modules use explicit ModuleBuilder declarations and
 scoped implementation blocks. `bind` checks Rust codecs against Kagari signatures;
 `bind_with` supplies explicit codecs. Rust signatures do not infer Kagari traits.
 `finish` checks the declaration/binding/storage closure; installation validates
-dependencies and publishes atomically. Runtime construction always installs the
-foundation and bundled algorithms, reusing immutable registrations at host-thread
+dependencies and publishes atomically. Runtime construction atomically installs the
+foundation modules and bundled algorithms, reusing immutable registrations at host-thread
 lifetime while retaining independent heaps, host state and generations.
 
-HIR analyzes the 24 handwritten traits in `library/core/language.kgr` through
+HIR analyzes the 24 handwritten traits in `library/core/{ops,cmp,hash,fmt,iter,convert}.kgr` through
 ordinary trait lowering. Header collection binds LangRole to declaration IDs;
 signature completion validates installed origin, uniqueness, required roles,
 binders, parents and member types before body selection. Contract decodes a bounded,
@@ -144,7 +144,7 @@ New payloads require no concrete Value/HeapObject variants. Scalar sequences use
 typed compact buffers; GC-bearing sequences use traced Values. Hash callbacks run
 outside table borrows with checked hashes and stable key tokens.
 
-ArrayList stable sorting edits its actual buffer through a scoped lease. Roots
+Vec stable sorting edits its actual buffer through a scoped lease. Roots
 protect reference elements during callback reentry. Cleanup restores valid storage
 on every exit; failure may change ordering but preserves the original elements.
 Completed payload mutations remain. No universal collection rollback is promised.
@@ -403,11 +403,11 @@ The audit evidence is the operator/format/propagation selection in HIR and the
 implicit implementation rules in `kagari-hir/src/language/semantics.rs`. In that
 implementation RangeBounds uses registered engine implementations, while Eq,
 Hash and Ord participate in implicit eligibility. Use this behavior, rather than
-the current placement under `core::language`, to classify ownership.
+module placement, to classify ownership.
 
 Type/member bindings are a separate list: String literal representation,
 Option/Result variants for `?`, Ordering results, range construction, `[T]`'s
-List declaration, default ArrayList construction and writable indexed access.
+List declaration, default Vec construction and writable indexed access.
 These bindings select checked declarations/members or intrinsic representations;
 they do not justify adding all library traits to a language-role enum. In particular,
 the bracket bridge may refer to native-authored List without duplicating its
@@ -486,7 +486,7 @@ ordinary new containers use existing nominal NativeStorage registration without
 a new generic type or execution-dispatch variant.
 
 The bounded `builtin::array_bridge` owns existing syntax bindings: `[T]` selects List<T>; `[a, b]`
-constructs the mandatory ArrayList<T>; `[value; count]` repeats construction without
+constructs the mandatory Vec<T>; `[value; count]` repeats construction without
 putting length in the type. Indexed assignment needs a checked writable member
 contract. Preserve left-to-right once-only evaluation, trap/allocation order and
 completed effects when replacing MakeArray/RepeatArray lowering. These bridges
@@ -545,7 +545,7 @@ CollectionAccess and RangeKind are portable facts consumed by contract validatio
 runtime host registration/GC/borrow checks and VM/backend operations; they do not
 own source declarations or independently select library traits.
 
-Core documentation is authored in `library/core/language.kgr`. Native views copy
+Core documentation is authored in the handwritten `library/core/{ops,cmp,hash,fmt,iter,convert}.kgr` modules. Native views copy
 those declarations verbatim for ordinary analysis. Source provenance accepts only
 exact disjoint copied ranges and retains their original text and revision; HIR
 site lookup uses view offsets while navigation and documentation expose authored
@@ -553,7 +553,8 @@ locations through the owning snapshot. Other native declarations retain generate
 view locations and Rust-owned documentation. Loading and reload compare every
 reserved core trait and installed storage/conversion capability against the exact
 runtime registration, including private records and products with no native calls.
-A foundation module must expose all 24 required core declarations.
+The installed core modules collectively expose all 24 required declarations;
+each owning module must expose its assigned roles exactly once.
 
 The eight RuntimePrimitive entries remain checked execution helpers: value
 comparison/equality/hash/formatting, StringPartsJoin and Assert. Their signatures,

@@ -5,11 +5,12 @@ use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::declaration::ModuleDecl;
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{Runtime, module::LoadedModule, value::Value};
+use kagari_runtime::{Runtime, module::LoadedModule, native::foundation, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
 use std::hint::black_box;
+use std::sync::Arc;
 
 #[test]
 fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
@@ -181,8 +182,11 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
 #[test]
 fn cached_native_receiver_defaults_release_their_program_and_gc_values() {
     let (mut vm, loaded) = load(
-        r#"
-struct Sequence { val items: ArrayList<i32> }
+        r#"use std::collections::{List};
+use std::iter::{CollectionCursor};
+use std::ops::{Index};
+
+struct Sequence { val items: Vec<i32> }
 impl Index<usize> for Sequence {
     type Output = i32;
     fn index(self, index: usize) -> i32 { self.items[index] }
@@ -261,7 +265,15 @@ fn load(source: &str) -> (Vm, LoadedModule) {
     let root = sources
         .set("interface-cache.kgr", source.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(
+        foundation::modules()
+            .unwrap()
+            .iter()
+            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .collect(),
+    );
+    let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();

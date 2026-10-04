@@ -1,5 +1,6 @@
+use std::ops::{Index};
 struct Item { var value: i32 }
-struct Bag { val items: ArrayList<Item> }
+struct Bag { val items: Vec<Item> }
 impl Index<i32> for Bag {
     type Output = Item;
     fn index(self, rhs: i32) -> Item { self.items[rhs] }

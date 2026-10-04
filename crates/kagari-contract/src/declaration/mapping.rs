@@ -71,6 +71,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleDecl<I> {
             dependencies: self.dependencies.clone(),
             types: map_sequence(&self.types, |value| (value).map_identities(mapper))?,
             variant_exports: self.variant_exports.clone(),
+            exports: map_entries(
+                self.exports.len(),
+                self.exports
+                    .iter()
+                    .map(|(name, id)| Ok((name.clone(), mapper.reference(id)?))),
+            )?,
             traits: map_sequence(&self.traits, |value| (value).map_identities(mapper))?,
             implementations: map_sequence(&self.implementations, |value| {
                 (value).map_identities(mapper)
@@ -114,6 +120,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleDecl<I> {
         check_cancel(cancel)?;
         for value0 in &self.types {
             (value0).visit_definitions(visit, cancel)?;
+        }
+        for id in self.exports.values() {
+            visit(id)?;
         }
         for value0 in &self.traits {
             (value0).visit_definitions(visit, cancel)?;

@@ -1,0 +1,26 @@
+// Core cmp traits. This source owns their declarations and language roles.
+
+use core::option::Option;
+
+/// Compares values for equality.
+#[lang = "partial_eq"]
+pub trait PartialEq {
+    fn eq(self, arg1: Self) -> bool;
+}
+
+/// Marks equality as reflexive, symmetric and transitive.
+#[lang = "eq"]
+pub trait Eq: PartialEq {
+}
+
+/// Compares values that may be unordered.
+#[lang = "partial_ord"]
+pub trait PartialOrd: PartialEq {
+    fn partial_cmp(self, arg1: Self) -> Option<Ordering>;
+}
+
+/// Provides a total ordering of values.
+#[lang = "ord"]
+pub trait Ord: Eq + PartialOrd {
+    fn cmp(self, arg1: Self) -> Ordering;
+}

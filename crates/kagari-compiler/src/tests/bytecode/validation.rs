@@ -219,7 +219,7 @@ fn verifier_rejects_type_inconsistent_bytecode() {
 fn verifier_rejects_invalid_language_primitive_signatures() {
     let mut bytecode = common::bytecode_ok(
         r#"
-fn main(value: ArrayList<i32>) -> usize {
+fn main(value: Vec<i32>) -> usize {
     value.len()
 }
 "#,

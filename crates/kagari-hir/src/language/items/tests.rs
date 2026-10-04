@@ -6,7 +6,7 @@ use crate::{
     lower,
     native::{api, render::declaration_source},
 };
-use std::{slice, sync::Arc};
+use std::sync::Arc;
 use {
     kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext},
     kagari_source::{
@@ -15,49 +15,63 @@ use {
     },
 };
 
-fn check_core(mutate: impl FnOnce(&mut String)) -> DiagnosticBuffer {
+fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let cancel = CancellationToken::default();
-    let module = catalog::shared();
-    let mut generated = declaration_source(&module).unwrap();
-    mutate(&mut generated.text);
-    let (_, lowered) = api::import_source(
-        &module,
-        slice::from_ref(&module),
-        &generated,
-        Default::default(),
-        &cancel,
-    )
-    .unwrap();
+    let modules = catalog::shared();
+    let lowered = modules
+        .iter()
+        .map(|module| {
+            let mut generated = declaration_source(module).unwrap();
+            mutate_source(&mut generated.text);
+            api::import_source(module, &modules, &generated, Default::default(), &cancel)
+                .unwrap()
+                .1
+        })
+        .collect::<Vec<_>>();
     let hosts = HostDeclarations::empty();
-    let graph = ModuleGraph::build([lowered.as_ref()], &hosts, &cancel).unwrap();
-    let imports = graph
-        .node(&language::module_identity())
-        .unwrap()
-        .imports
-        .clone();
-    let declared = declare_analysis(
-        lowered,
-        hosts,
-        imports,
-        &DefinitionContext::new().unwrap(),
-        &cancel,
-    );
-    let types = TypeCatalog::new([&declared])
-        .bindings(&declared.names.facts.imports, &cancel)
-        .unwrap();
-    let prepared = declared.check_signatures(types, None, &cancel);
+    let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &hosts, &cancel).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let declared = lowered
+        .into_iter()
+        .map(|lowered| {
+            let imports = graph
+                .node(lowered.source.module_identity())
+                .unwrap()
+                .imports
+                .clone();
+            declare_analysis(lowered, hosts.clone(), imports, &context, &cancel)
+        })
+        .collect::<Vec<_>>();
+    let types = TypeCatalog::new(declared.iter());
+    let prepared = declared
+        .iter()
+        .map(|declared| {
+            declared.clone().check_signatures(
+                types
+                    .bindings(&declared.names.facts.imports, &cancel)
+                    .unwrap(),
+                None,
+                &cancel,
+            )
+        })
+        .collect::<Vec<_>>();
     let mut aggregates = AggregateCatalog::default();
-    aggregates
-        .add_module(
-            &prepared.lowered,
-            &prepared.declarations,
-            prepared.signatures.facts(),
-            &cancel,
-        )
-        .unwrap();
-    let mut diagnostics = prepared.names.diagnostics.clone();
-    diagnostics.extend(prepared.signatures.diagnostics().iter().cloned());
-    validate_shapes(&prepared.declarations, &aggregates, &mut diagnostics);
+    for module in &prepared {
+        aggregates
+            .add_module(
+                &module.lowered,
+                &module.declarations,
+                module.signatures.facts(),
+                &cancel,
+            )
+            .unwrap();
+    }
+    let mut diagnostics = DiagnosticBuffer::default();
+    for module in &prepared {
+        diagnostics.extend(module.names.diagnostics.iter().cloned());
+        diagnostics.extend(module.signatures.diagnostics().iter().cloned());
+        validate_shapes(&module.declarations, &aggregates, &mut diagnostics);
+    }
     diagnostics
 }
 
@@ -122,7 +136,10 @@ fn copied_module_identity_does_not_authorize_application_roles() {
     let mut sources = SourceDatabase::default();
     let uri = "memory://counterfeit.kgr";
     sources
-        .bind_module(uri, language::module_identity())
+        .bind_module(
+            uri,
+            language::identity(kagari_contract::language::Protocol::Add).module,
+        )
         .unwrap();
     let id = sources.set(uri, "#[lang = \"add\"] pub trait Add<Rhs> { type Output; fn add(self, rhs: Rhs) -> Self::Output; }".into(), SourceLayer::Base).unwrap();
     let source = sources.snapshot().file(id).unwrap().clone();

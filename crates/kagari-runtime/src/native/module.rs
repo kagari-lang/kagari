@@ -62,10 +62,15 @@ impl NativeModule {
                 .push(declaration);
         }
         let owned = DeclarationCatalog::declared([&declaration])?;
-        if owned.types.len() != storage.len()
-            || owned.types.iter().any(|(id, ty)| {
+        let storage_types: Vec<_> = owned
+            .types
+            .iter()
+            .filter(|(_, ty)| matches!(ty.kind, TypeDefKind::NativeStorage(_)))
+            .collect();
+        if storage_types.len() != storage.len()
+            || storage_types.iter().any(|(id, ty)| {
                 storage
-                    .get(&id)
+                    .get(id)
                     .is_none_or(|storage| ty.kind != TypeDefKind::NativeStorage(storage.layout()))
             })
         {
@@ -75,6 +80,28 @@ impl NativeModule {
         }
         let mut available = owned.clone();
         available.merge(providers)?;
+        for target in declaration.exports.values() {
+            let mut owner = target.clone();
+            owner.path.truncate(1);
+            let exists = match target.path[0].kind {
+                DefinitionKind::Trait => available.traits.get(target).is_some(),
+                DefinitionKind::Enum | DefinitionKind::AssociatedType => {
+                    available.types.get(&owner).is_some_and(|ty| {
+                        target.path.len() == 1
+                            || ty
+                                .variants
+                                .iter()
+                                .any(|variant| variant.name == target.path[1].name)
+                    })
+                }
+                _ => false,
+            };
+            if !exists {
+                return Err(RuntimeError::metadata_conflict(
+                    "re-export target is not declared by an available provider",
+                ));
+            }
+        }
         // Owned traits and implementation bounds are common to every binding.
         // A binding extends this closed seed only with its own signature/proofs.
         let base =
@@ -108,17 +135,38 @@ impl NativeModule {
                 "missing native implementation binding",
             ));
         }
+        let mut dependencies = dependencies;
+        for target in declaration.exports.values() {
+            let mut owner = target.clone();
+            owner.path.truncate(1);
+            match target.path[0].kind {
+                DefinitionKind::Trait => {
+                    dependencies.insert(
+                        target.clone(),
+                        available.paths(available.traits.get(target).expect("checked export"))?,
+                    )?;
+                }
+                _ => {
+                    dependencies.insert_type(
+                        owner.clone(),
+                        available.paths(available.types.get(&owner).expect("checked export"))?,
+                    )?;
+                }
+            }
+        }
         let required = dependencies.foreign_to(&owned)?;
         let mut declaration = declaration;
-        declaration.dependencies = required
-            .traits
-            .keys()
-            .chain(required.types.keys())
-            .chain(required.declarations.keys())
-            .chain(required.implementations.keys())
-            .map(|id| id.module.clone())
-            .filter(|owner| *owner != declaration.identity)
-            .collect();
+        declaration.dependencies.extend(
+            required
+                .traits
+                .keys()
+                .chain(required.types.keys())
+                .chain(required.declarations.keys())
+                .chain(required.implementations.keys())
+                .map(|id| id.module.clone())
+                .filter(|owner| *owner != declaration.identity)
+                .collect::<Vec<_>>(),
+        );
         declaration
             .validate()
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
@@ -168,23 +216,46 @@ impl NativeModule {
         self.install_into(&mut runtime.native_entries)
     }
 
+    /// Publish a mutually dependent foundation as one validated installation.
+    pub fn install_all(modules: &[Self], runtime: &mut Runtime) -> NativeResult<()> {
+        let mut staged = runtime.native_entries.clone();
+        for module in modules {
+            module.publish_owners(&mut staged)?;
+        }
+        for module in modules {
+            module.publish_bindings(&mut staged)?;
+        }
+        staged.catalog.validate_callable_contracts()?;
+        runtime.native_entries = staged;
+        Ok(())
+    }
+
     pub(crate) fn install_into(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
         let mut staged = registry.clone();
-        if !self.required.satisfied_by(&staged.catalog)? {
-            return Err(RuntimeError::metadata_conflict(
-                "native module dependency is not installed",
-            ));
-        }
-        let owned = &self.owned;
-        for id in owned.traits.keys() {
-            if staged.catalog.get(&id).is_some() {
+        self.publish_owners(&mut staged)?;
+        self.publish_bindings(&mut staged)?;
+        staged.catalog.validate_callable_contracts()?;
+        *registry = staged;
+        Ok(())
+    }
+
+    fn publish_owners(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
+        for id in self.owned.traits.keys() {
+            if registry.catalog.get(&id).is_some() {
                 return Err(RuntimeError::metadata_conflict(
                     "duplicate native trait owner",
                 ));
             }
         }
+        for id in self.owned.types.keys() {
+            if registry.catalog.types.get(&id).is_some() {
+                return Err(RuntimeError::metadata_conflict(
+                    "duplicate native type owner",
+                ));
+            }
+        }
         for (id, storage) in self.storage.iter() {
-            if staged
+            if registry
                 .storage
                 .insert(id, storage.clone())
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
@@ -195,16 +266,23 @@ impl NativeModule {
                 ));
             }
         }
-        staged.catalog.merge(owned)?;
-        staged
+        registry.catalog.merge(&self.owned)?;
+        Ok(())
+    }
+
+    fn publish_bindings(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
+        if !self.required.satisfied_by(&registry.catalog)? {
+            return Err(RuntimeError::metadata_conflict(
+                "native module dependency is not installed",
+            ));
+        }
+        registry
             .catalog
             .check_implementations([&self.to_declaration()?])?;
-        let mut imports = CatalogImports::new(staged.catalog.types.context().clone());
+        let mut imports = CatalogImports::new(registry.catalog.types.context().clone());
         for registration in self.bindings.iter() {
-            staged.install(registration.clone(), &mut imports)?;
+            registry.install(registration.clone(), &mut imports)?;
         }
-        staged.catalog.validate_callable_contracts()?;
-        *registry = staged;
         Ok(())
     }
 

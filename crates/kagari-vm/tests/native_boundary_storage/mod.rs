@@ -9,9 +9,10 @@ use kagari_runtime::{
 #[test]
 fn assigns_stable_object_identity_and_kind() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         struct Empty { val value: () }
-        fn main() -> (ArrayList<i32>, HashMap<i32,i32>, HashSet<i32>, Empty) {
+        fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>, Empty) {
             ([], HashMap::new(), HashSet::new(), Empty { value: () })
         }
     "#,
@@ -59,7 +60,8 @@ fn assigns_stable_object_identity_and_kind() {
 #[test]
 fn hash_map_replaces_duplicates_and_accounts_units() {
     let (mut vm, loaded) = compile(
-        r#"fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new(); map.insert("b", 2); map.insert("a", 1); map.insert("b", 3); map }"#,
+        r#"use std::collections::{HashMap};
+fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new(); map.insert("b", 2); map.insert("a", 1); map.insert("b", 3); map }"#,
         None,
     );
     let value = vm.execute(&loaded, "main").unwrap().return_value;
@@ -113,7 +115,8 @@ fn hash_map_replaces_duplicates_and_accounts_units() {
 #[test]
 fn hash_set_replaces_duplicates_and_accounts_units() {
     let (mut vm, loaded) = compile(
-        r#"fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.insert("b"); set.insert("a"); set.insert("b"); set }"#,
+        r#"use std::collections::{HashSet};
+fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.insert("b"); set.insert("a"); set.insert("b"); set }"#,
         None,
     );
     let value = vm.execute(&loaded, "main").unwrap().return_value;
@@ -149,10 +152,11 @@ fn hash_set_replaces_duplicates_and_accounts_units() {
 #[test]
 fn root_scanning_traces_only_gc_managed_boundaries() {
     let (mut vm, loaded) = compile(
-        r#"
-        struct Record { val map: HashMap<String, ArrayList<i32>> }
+        r#"use std::collections::{HashMap, HashSet};
+
+        struct Record { val map: HashMap<String, Vec<i32>> }
         fn main() -> (Record, HashSet<String>) {
-            val map: HashMap<String, ArrayList<i32>> = HashMap::new(); map.insert("leaf", [1]);
+            val map: HashMap<String, Vec<i32>> = HashMap::new(); map.insert("leaf", [1]);
             val set: HashSet<String> = HashSet::new(); set.insert("seen");
             (Record { map: map }, set)
         }
@@ -196,8 +200,8 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
 fn root_scanning_handles_cycles_without_duplicate_identity() {
     let (mut vm, loaded) = compile(
         r#"
-        struct Cycle { val array: ArrayList<Cycle> }
-        fn main() -> ArrayList<Cycle> { val array: ArrayList<Cycle> = []; array.push(Cycle { array: array }); array }
+        struct Cycle { val array: Vec<Cycle> }
+        fn main() -> Vec<Cycle> { val array: Vec<Cycle> = []; array.push(Cycle { array: array }); array }
     "#,
         None,
     );
@@ -216,8 +220,9 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
 #[test]
 fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() {
     let (mut vm, loaded) = compile(
-        r#"
-        fn main() -> (ArrayList<i32>, HashMap<i32,i32>, HashSet<i32>) { ([], HashMap::new(), HashSet::new()) }
+        r#"use std::collections::{HashMap, HashSet};
+
+        fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) { ([], HashMap::new(), HashSet::new()) }
     "#,
         None,
     );
@@ -286,7 +291,7 @@ fn sorted_set(mut entries: Vec<Value>) -> Vec<Value> {
 fn native_array_helpers_mutate_and_return_options() {
     let (mut vm, loaded) = compile(
         r#"
-        fn main() -> (ArrayList<i32>, Option<i32>, Option<i32>, usize) {
+        fn main() -> (Vec<i32>, Option<i32>, Option<i32>, usize) {
             val array = [1]; val length = array.len();
             array.push(3); array.insert(1, 2);
             val removed = array.remove(1); val missing = array.get(99);
@@ -324,7 +329,8 @@ fn native_array_helpers_mutate_and_return_options() {
 #[test]
 fn native_map_helpers_return_options_and_keep_declared_types() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap};
+
         fn main() -> (HashMap<String,i32>, Option<i32>, Option<i32>, bool) {
             val map: HashMap<String,i32> = HashMap::new();
             map.insert("hp", 100); map.insert("mp", 20);
@@ -371,8 +377,9 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
 #[test]
 fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
     let (mut vm, loaded) = compile(
-        r#"
-        fn main() -> (ArrayList<i32>, HashMap<i32,i32>, HashSet<i32>) {
+        r#"use std::collections::{HashMap, HashSet};
+
+        fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) {
             val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, 2);
             val set: HashSet<i32> = HashSet::new(); set.insert(1);
             ([1], map, set)
@@ -431,7 +438,8 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
 #[test]
 fn native_map_and_set_allocations_update_resource_counters() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         fn main() -> (HashMap<String,i32>, HashSet<String>) {
             val map: HashMap<String,i32> = HashMap::new(); map.insert("hp", 100); map.insert("mp", 20);
             val set: HashSet<String> = HashSet::new(); set.insert("ready"); set.insert("visible");
@@ -464,7 +472,9 @@ fn native_map_and_set_allocations_update_resource_counters() {
 #[test]
 fn custom_set_removal_rejects_iteration_even_when_the_key_is_absent() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashSet};
+use std::hash::{Hash};
+
         struct Key { val number: i32 }
         impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.number == other.number } }
         impl Eq for Key {}

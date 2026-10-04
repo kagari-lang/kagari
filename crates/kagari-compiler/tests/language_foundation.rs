@@ -31,14 +31,16 @@ fn default_list_native_calls_compile_without_optional_modules() {
 #[test]
 fn collection_interface_iteration_compiles_without_optional_modules() {
     compile(
-        "fn main() -> i32 { val values: List<i32> = [1, 2]; var total = 0; for item in values { total = total + item; } total }",
+        "use std::collections::{List};\nfn main() -> i32 { val values: List<i32> = [1, 2]; var total = 0; for item in values { total = total + item; } total }",
     );
 }
 
 #[test]
 fn foundational_static_methods_and_generic_bounds_compile() {
     compile(
-        r#"
+        r#"use std::iter::{Product, Sum};
+use std::str::{FromStr};
+
 struct Count { val value: i32 }
 impl From<i32> for Count { fn from(value:i32)->Self { Count {value} } }
 impl TryFrom<i32> for Count {

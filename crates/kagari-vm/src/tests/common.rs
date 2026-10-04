@@ -10,8 +10,9 @@ use kagari_bytecode::{
 use kagari_common::host_interface::{HostInterface, standard_log};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
-use kagari_runtime::{Runtime, module::LoadedModule};
+use kagari_runtime::{Runtime, module::LoadedModule, native::foundation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use std::sync::Arc;
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
     load_bytecode_module_with_runtime(Runtime::default(), name, bytecode)
@@ -59,6 +60,13 @@ pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
         .set("test.kgr", source_text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(
+        foundation::modules()
+            .unwrap()
+            .iter()
+            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .collect(),
+    );
     analysis.set_host_declarations(
         HostDeclarations::new(HostInterface {
             paths: vec![],

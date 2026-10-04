@@ -63,8 +63,8 @@ fn repeats_evaluate_value_elements_once() {
     execute(
         r#"
     struct Cell { var value: i32 }
-    fn item(log: ArrayList<i32>) -> i32 { log.push(1); 7 }
-    fn count(log: ArrayList<i32>) -> usize { log.push(2); 3 }
+    fn item(log: Vec<i32>) -> i32 { log.push(1); 7 }
+    fn count(log: Vec<i32>) -> usize { log.push(2); 3 }
     fn main() -> i32 {
         val log = [];
         val values = [item(log); count(log)];
@@ -73,7 +73,7 @@ fn repeats_evaluate_value_elements_once() {
         if values[2] != 7 { return 0; }
         val empty = [item(log); 0];
         if !(empty.is_empty() && log.len() == 3usize) { return 0; }
-        val inferred: ArrayList<u8> = [1; 4];
+        val inferred: Vec<u8> = [1; 4];
         if inferred[3] != 1u8 { return 0; }
         42
     }
@@ -89,15 +89,15 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
         "fn main() { val a = [0; true]; }",
         "fn main() { val a = [0; 1i32]; }",
         "fn main() { val a = [1, 2; 3]; }",
-        "fn main() { val a: List<i32> = [0; 2]; a.push(1); }",
-        "fn main() { val a: List<i32> = [0; 2]; a[0] = 1; }",
+        "use std::collections::{List};\nfn main() { val a: List<i32> = [0; 2]; a.push(1); }",
+        "use std::collections::{List};\nfn main() { val a: List<i32> = [0; 2]; a[0] = 1; }",
         "fn main() { val r = true..false; }",
         "fn main() { val r = 1.0..2.0; }",
-        "fn wrong(r: Range<bool>) {} fn main() {}",
+        "use std::ops::{Range};\nfn wrong(r: Range<bool>) {} fn main() {}",
         "fn main() { val r = ..=; }",
         "fn main() { for n in ..3 {} }",
         "fn main() { for n in .. {} }",
-        "fn main() { val r: ArrayList<i32> = 0..3; }",
+        "fn main() { val r: Vec<i32> = 0..3; }",
     ] {
         assert!(
             engine
@@ -111,8 +111,9 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
 #[test]
 fn range_values_iterate_lazily_and_preserve_integer_width() {
     execute(
-        r#"
-    use core::language as foundation;
+        r#"use std::ops::{Bound, Range, RangeBounds};
+
+    use core::ops as foundation;
     fn identity<T>(range: Range<T>) -> Range<T> { range }
     fn upper<R: RangeBounds<usize>>(range: R) -> Bound<usize> { range.end_bound() }
     fn main() -> i32 {
@@ -152,9 +153,9 @@ fn repeated_arrays_reject_mutable_identity_even_when_nested_or_empty() {
         "val a = [Cell { value: 1 }; 0];",
         "val a = [[1, 2]; 2];",
         "val a = [(Cell { value: 1 }, 7); 2];",
-        "val a: ArrayList<Option<Cell>> = [None; 2];",
+        "val a: Vec<Option<Cell>> = [None; 2];",
         "val a = [Wrapped::Data(Cell { value: 1 }); 2];",
-        "val a: ArrayList<Wrapped<Cell>> = [Wrapped::Empty; 2];",
+        "val a: Vec<Wrapped<Cell>> = [Wrapped::Empty; 2];",
         "val a = [|| 1; 2];",
     ] {
         let source = format!(
@@ -180,7 +181,7 @@ fn repeated_value_aggregates_keep_value_semantics() {
     enum Wrapped<T> { Empty, Data(T) }
     fn main() -> i32 {
         val enums = [Wrapped::Data((1, "hello")); 2];
-        val options: ArrayList<Option<i32>> = [None; 2];
+        val options: Vec<Option<i32>> = [None; 2];
         val strings = ["hello"; 2];
         if enums[0] == enums[1] && options[0] == options[1] && strings[0] == strings[1] { 42 } else { 0 }
     }

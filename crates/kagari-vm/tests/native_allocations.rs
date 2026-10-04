@@ -45,7 +45,7 @@ fn module() -> NativeModule {
     let sum = module
         .define_function(
             FunctionDecl::new("sum")
-                .parameter("values", language.array_list(Type::i32()))
+                .parameter("values", language.vec(Type::i32()))
                 .returns(Type::i32()),
         )
         .unwrap();
@@ -69,7 +69,7 @@ fn load() -> (Runtime, LoadedModule) {
             r#"
         use measure::native::{add, sum};
         fn scalar(a: i32, b: i32) -> i32 { add(a, b) }
-        fn bulk(values: ArrayList<i32>) -> i32 { sum(values) }
+        fn bulk(values: Vec<i32>) -> i32 { sum(values) }
     "#
             .into(),
             SourceLayer::Base,

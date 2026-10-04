@@ -8,13 +8,18 @@ supplies the 24 language declarations to source-free consumers.
 
 ## Ownership and installation
 
-The installed `core::language` foundation contains complete language contracts:
+The installed `core`/`alloc`/`std` foundation contains complete language contracts:
 operators, comparisons, hashing, Index, Fn, iteration, collection interfaces,
 formatting and error conversion. It also declares Option/Result/Ordering/Bound,
-range forms and the default ArrayList/HashMap/HashSet types. Their basic native
-operations are always available. Array literals construct ArrayList. The 24 core
+range forms and the default Vec/HashMap/HashSet types. Their basic native
+operations are always available. Array literals construct Vec. The 24 core
 traits come from handwritten Kagari source and validated language roles. Their
 checked portable product remains usable without syntax/HIR or source parsing.
+Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
+retain its definition identity. Native modules carry public alias targets, and
+installation verifies that the canonical declarations exist in their providers.
+The [namespace and prelude inventory](builtins.md#namespaces-and-prelude) defines
+public paths and default name visibility.
 
 Map/Set interfaces do not prescribe storage or traversal order. Default HashMap
 and HashSet use Rust `std::collections` hash tables and require Eq + Hash keys.
@@ -47,9 +52,9 @@ List provides sorted, sorted_by, sorted_by_key, reversed and distinct. MutableLi
 provides sort, sort_by, sort_by_key, reverse, retain and dedup. Natural sorting
 requires T: Ord, while key methods accept a method-local K: Ord. Eq-only distinct
 preserves first occurrences without adding a Hash bound. These are declared trait
-methods with native defaults and optimized ArrayList overrides. Custom containers
+methods with native defaults and optimized Vec overrides. Custom containers
 reuse the defaults through their selected iterator and set/remove operations.
-`map<T, U>` accepts an ArrayList and `fn(T) -> U`, returning the library-owned
+`map<T, U>` accepts a Vec and `fn(T) -> U`, returning the library-owned
 `MapIterator<T, U>`. It remains an ordinary free function.
 
 String also supplies the finite inherent methods documented in
@@ -199,8 +204,9 @@ an installation trigger. The compiler parses/lowers this view through ordinary
 declaration machinery and checks non-trivia correspondence with registration
 before attaching native storage, bindings and default metadata. Declaration
 locations and docs come from the same records used by compilation. Core traits
-and their docs originate in handwritten `library/core/language.kgr`; copied view
-fragments retain exact authored locations and snapshot-owned original text.
+and their docs originate in the handwritten
+`library/core/{ops,cmp,hash,fmt,iter,convert}.kgr` modules. Copied view fragments
+retain exact authored locations and snapshot-owned original text.
 Other generated views include library-owned types,
 inherent methods and trait impl methods, including MapIterator.next.
 

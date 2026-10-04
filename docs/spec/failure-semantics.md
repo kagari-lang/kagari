@@ -32,7 +32,7 @@ mutations are still present. Rust panic recovery is not a transaction mechanism.
 The approved foundation collection algorithms likewise provide no operation-wide
 transaction. Sort, reverse, retain and dedup propagate callback, receiver and
 cancellation failures while preserving valid storage and completed effects.
-ArrayList sorting retains every original element, but may change their order;
+Vec sorting retains every original element, but may change their order;
 custom container writes may leave partial progress. This does not relax individual
 write validation or the separate host-path and reload publication contracts.
 The [collection contract](collection-access.md) defines these mutation guarantees.

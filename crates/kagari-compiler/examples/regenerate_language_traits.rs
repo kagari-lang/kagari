@@ -7,7 +7,7 @@ use kagari_contract::{
 };
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
-use std::{env, fs, path::Path, sync::Arc};
+use std::{collections::BTreeMap, env, fs, path::Path, sync::Arc};
 
 fn main() {
     let source = Arc::new(SourceFile::new(
@@ -17,23 +17,29 @@ fn main() {
     let snapshot = AnalysisDatabase::default()
         .snapshot(SourceSnapshot::single_file(source), &Default::default())
         .unwrap();
-    let file = snapshot
-        .module_graph()
-        .node(&language::module_identity())
-        .unwrap()
-        .file;
-    let checked = snapshot
-        .file(file)
-        .unwrap()
-        .result()
-        .clone()
-        .into_codegen()
-        .expect("core source must pass declaration, role and body checking");
-    let contract = module_contract(&checked, &Default::default()).unwrap();
+    let mut contracts = BTreeMap::new();
+    for role in LangRole::ALL {
+        let owner = language::identity(role.protocol()).module;
+        if contracts.contains_key(&owner) {
+            continue;
+        }
+        let file = snapshot.module_graph().node(&owner).unwrap().file;
+        let checked = snapshot
+            .file(file)
+            .unwrap()
+            .result()
+            .clone()
+            .into_codegen()
+            .expect("core source must pass declaration, role and body checking");
+        contracts.insert(
+            owner,
+            module_contract(&checked, &Default::default()).unwrap(),
+        );
+    }
     let traits = LangRole::ALL
         .into_iter()
         .map(|role| {
-            contract
+            contracts[&language::identity(role.protocol()).module]
                 .public_items
                 .iter()
                 .find_map(|item| match item {

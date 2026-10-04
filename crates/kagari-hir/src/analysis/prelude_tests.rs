@@ -513,7 +513,7 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
     ] {
         let analysis = crate::analyze_source(&SourceFile::new(
             "partial-index.kgr",
-            format!("fn bad(values: ArrayList<i32>) {{ {body} }} fn good() -> i32 {{ 42 }}"),
+            format!("fn bad(values: Vec<i32>) {{ {body} }} fn good() -> i32 {{ 42 }}"),
         ));
         assert_eq!(
             analysis.diagnostics().len(),
@@ -549,7 +549,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
             let analysis = crate::analyze_source(&SourceFile::new(
                 "reflection-completion.kgr",
                 format!(
-                    "struct Box {{ var value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
+                    "struct Box {{ var value: i32 }} fn run(box: Box, array: Vec<i32>) -> i32 {{ {body}; 0 }}"
                 ),
             ));
             assert_eq!(
@@ -569,7 +569,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
         let analysis = crate::analyze_source(&SourceFile::new(
             "reflection-target-completion.kgr",
             format!(
-                "struct Box {{ val value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
+                "struct Box {{ val value: i32 }} fn run(box: Box, array: Vec<i32>) -> i32 {{ {body}; 0 }}"
             ),
         ));
         assert!(!analysis.diagnostics().is_empty(), "{body}");

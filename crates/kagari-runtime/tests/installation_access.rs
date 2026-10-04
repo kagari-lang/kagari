@@ -6,7 +6,8 @@ use kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostVal
 use kagari_common::identity::DefinitionKind;
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
 use kagari_contract::{
-    language::{self, Protocol},
+    language::Protocol,
+    library::namespaces,
     types::{PublicItem, TraitContract, TraitDef},
 };
 use kagari_runtime::module::VerifiedProgram;
@@ -142,85 +143,91 @@ fn storage_capabilities_require_exact_installation_without_native_calls() {
 #[test]
 fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let foundation = LanguageContracts::default();
-    let definition = foundation.declarations();
-    let base = BytecodeModule {
-        identity: definition.identity.clone(),
-        public_items: definition
+    for definition in foundation
+        .declarations()
+        .iter()
+        .filter(|module| namespaces::is_language_module(&module.identity))
+    {
+        let base = BytecodeModule {
+            identity: definition.identity.clone(),
+            public_items: definition
+                .traits
+                .iter()
+                .filter(|trait_| {
+                    Protocol::from_id(&definition.definition(DefinitionKind::Trait, &trait_.name))
+                        .is_some()
+                })
+                .cloned()
+                .map(PublicItem::Trait)
+                .collect(),
+            ..Default::default()
+        };
+        let program = |module| BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        };
+        let mut runtime = Runtime::default();
+        let active = runtime.load_program("core", program(base.clone())).unwrap();
+        let mut forged = base.clone();
+        let changed = forged
+            .public_items
+            .iter_mut()
+            .find_map(|item| match item {
+                PublicItem::Trait(trait_) if !trait_.methods.is_empty() => Some(trait_),
+                _ => None,
+            })
+            .unwrap();
+        let changed_name = changed.name.clone();
+        changed.methods[0].name = "forged_method".into();
+        // Portable structural validation accepts the declaration; installation binds
+        // reserved identities to the exact checked language product.
+        VerifiedProgram::new(program(forged.clone())).unwrap();
+        assert!(
+            runtime
+                .load_program("forged_core", program(forged.clone()))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .stage_reload_program(&active, "core", program(forged))
+                .is_err()
+        );
+        let mut missing = base.clone();
+        missing.public_items.retain(
+            |item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == changed_name),
+        );
+        assert!(
+            runtime
+                .load_program("missing_core", program(missing))
+                .is_err()
+        );
+        let mut duplicate = base.clone();
+        duplicate.public_items.push(base.public_items[0].clone());
+        assert!(
+            runtime
+                .load_program("duplicate_core", program(duplicate))
+                .is_err()
+        );
+        let mut private = base.clone();
+        private.public_items.retain(
+            |item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == changed_name),
+        );
+        let mut contract = definition
             .traits
             .iter()
-            .filter(|trait_| {
-                Protocol::from_id(&definition.definition(DefinitionKind::Trait, &trait_.name))
-                    .is_some()
-            })
-            .cloned()
-            .map(PublicItem::Trait)
-            .collect(),
-        ..Default::default()
-    };
-    let program = |module| BytecodeProgram {
-        root: ModuleRef::new(0),
-        modules: vec![module],
-    };
-    let mut runtime = Runtime::default();
-    let active = runtime.load_program("core", program(base.clone())).unwrap();
-    let mut forged = base.clone();
-    let add = forged
-        .public_items
-        .iter_mut()
-        .find_map(|item| match item {
-            PublicItem::Trait(trait_) if trait_.name == "Add" => Some(trait_),
-            _ => None,
-        })
-        .unwrap();
-    add.methods[0].params[1].name = "forged_operand".into();
-    // Portable structural validation accepts the declaration; installation binds
-    // reserved identities to the exact checked language product.
-    VerifiedProgram::new(program(forged.clone())).unwrap();
-    assert!(
-        runtime
-            .load_program("forged_core", program(forged.clone()))
-            .is_err()
-    );
-    assert!(
-        runtime
-            .stage_reload_program(&active, "core", program(forged))
-            .is_err()
-    );
-    let mut missing = base.clone();
-    missing
-        .public_items
-        .retain(|item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == "Hash"));
-    assert!(
-        runtime
-            .load_program("missing_core", program(missing))
-            .is_err()
-    );
-    let mut duplicate = base.clone();
-    duplicate.public_items.push(base.public_items[0].clone());
-    assert!(
-        runtime
-            .load_program("duplicate_core", program(duplicate))
-            .is_err()
-    );
-    let mut private = base.clone();
-    private
-        .public_items
-        .retain(|item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == "Debug"));
-    let mut contract = definition
-        .traits
-        .iter()
-        .find(|trait_| trait_.name == "Debug")
-        .unwrap()
-        .clone();
-    contract.methods[0].name = "forged_debug".into();
-    private.trait_contracts.push(TraitContract {
-        declaration: language::identity(Protocol::Debug),
-        abi: contract,
-    });
-    VerifiedProgram::new(program(private.clone())).unwrap();
-    assert!(
-        runtime
-            .load_program("private_core", program(private))
-            .is_err()
-    );
+            .find(|trait_| trait_.name == changed_name)
+            .unwrap()
+            .clone();
+        contract.methods[0].name = "forged_debug".into();
+        private.trait_contracts.push(TraitContract {
+            declaration: definition.definition(DefinitionKind::Trait, &changed_name),
+            abi: contract,
+        });
+        VerifiedProgram::new(program(private.clone())).unwrap();
+        assert!(
+            runtime
+                .load_program("private_core", program(private))
+                .is_err()
+        );
+    }
 }

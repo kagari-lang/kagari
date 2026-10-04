@@ -5,21 +5,21 @@ use {crate::typeck::table::CallTarget, kagari_source::diagnostic::DiagnosticKind
 fn body_constraints_use_later_arguments_and_local_uses() {
     for body in [
         "val xs = []; xs.push(42);",
-        "val xs = ArrayList::new(); xs.push(42);",
+        "val xs = Vec::new(); xs.push(42);",
         "val xs = HashSet::new(); xs.insert(42);",
         "val xs = HashMap::new(); xs.insert(1, true);",
         "var xs = []; xs = [42];",
         "consume(Marker { value: 7 }, 1);",
         "val callback = |x| x + 1; callback(41);",
         "apply(|x| x + 1, 41);",
-        "val checked: Result<ArrayList<i32>, String> = Ok([42]);",
-        "val checked: Result<ArrayList<i32>, String> = apply(|x| Ok([x]), 42);",
-        "val checked: Option<Result<ArrayList<i32>, String>> = apply(|x| Some(Ok([x])), 42);",
+        "val checked: Result<Vec<i32>, String> = Ok([42]);",
+        "val checked: Result<Vec<i32>, String> = apply(|x| Ok([x]), 42);",
+        "val checked: Option<Result<Vec<i32>, String>> = apply(|x| Some(Ok([x])), 42);",
     ] {
         let source = SourceFile::new(
             "body-inference.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} fn consume<T>(marker: Marker<T>, seed: T) {{}} fn apply<T, U>(callback: fn(T) -> U, value: T) -> U {{ callback(value) }} fn main() {{ {body} }}"
+                "use std::collections::{{HashMap, HashSet}}; struct Marker<T> {{ val value: i32 }} fn consume<T>(marker: Marker<T>, seed: T) {{}} fn apply<T, U>(callback: fn(T) -> U, value: T) -> U {{ callback(value) }} fn main() {{ {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source);
@@ -38,13 +38,13 @@ fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
         "val xs = [];",
         "val xs = []; xs.push(1); xs.push(true);",
         "val xs: List<i32> = []; xs.push(1);",
-        "val checked: Result<ArrayList<i32>, bool> = apply(|x| Result<ArrayList<i32>, String>::Ok([x]), 42);",
+        "val checked: Result<Vec<i32>, bool> = apply(|x| Result<Vec<i32>, String>::Ok([x]), 42);",
         "val checked: Result<i32, String> = apply(|x| Ok([x]), 42);",
     ] {
         let source = SourceFile::new(
             "body-inference-errors.kgr",
             format!(
-                "fn apply<T,U>(callback: fn(T) -> U, value: T) -> U {{ callback(value) }} fn main() {{ {body} }}"
+                "use std::collections::List; fn apply<T,U>(callback: fn(T) -> U, value: T) -> U {{ callback(value) }} fn main() {{ {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source);
@@ -118,7 +118,7 @@ fn explicit_enum_arguments_check_units_payloads_and_constraints() {
         let source = SourceFile::new(
             "explicit-enum.kgr",
             format!(
-                "enum Token<T> {{ Empty, Data(T) }} enum Key<T: Eq + Hash> {{ Empty }} fn main() {{ {body} }}"
+                "use std::collections::HashMap; use std::hash::{{Hash}};\nenum Token<T> {{ Empty, Data(T) }} enum Key<T: Eq + Hash> {{ Empty }} fn main() {{ {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source);
@@ -171,7 +171,7 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
         let source = SourceFile::new(
             "partial-bound.kgr",
             format!(
-                "struct Restricted<T: {bound}> {{ val value: i32 }} fn take(value: Restricted<{argument}>) {{}}"
+                "use std::collections::HashMap; use std::hash::Hash; struct Restricted<T: {bound}> {{ val value: i32 }} fn take(value: Restricted<{argument}>) {{}}"
             ),
         );
         let analysis = crate::analyze_source(&source);
@@ -213,7 +213,10 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
             ("HashMap<i32, (Missing, HashSet<f32>)>", 1),
             ("HashMap<HashMap<f32, Missing>, i32>", 1),
         ] {
-            let text = template.replace("TYPE", annotation);
+            let text = format!(
+                "use std::collections::{{HashMap, HashSet}}; {}",
+                template.replace("TYPE", annotation)
+            );
             let source = SourceFile::new("partial-constraints.kgr", text.clone());
             let analysis = crate::analyze_source(&source);
             let constraints = analysis
@@ -290,7 +293,7 @@ fn explicit_struct_arguments_check_identity_arity_bounds_and_fields() {
         let source = SourceFile::new(
             "explicit-constructor.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} struct Key<T: Eq + Hash> {{ val value: i32 }} fn main() {{ {body} }}"
+                "use std::collections::HashMap; use std::hash::{{Hash}};\nstruct Marker<T> {{ val value: i32 }} struct Key<T: Eq + Hash> {{ val value: i32 }} fn main() {{ {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source);
@@ -353,27 +356,27 @@ fn earlier_constructor_members_supply_context_to_later_members() {
 fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
     for (source, valid) in [
         (
-            "fn main() { val value: HashMap<f32, i32> = HashMap::new(); }",
+            "use std::collections::HashMap; fn main() { val value: HashMap<f32, i32> = HashMap::new(); }",
             false,
         ),
         (
-            "fn main() { val value: HashSet<f32> = HashSet::new(); }",
+            "use std::collections::{HashSet};\nfn main() { val value: HashSet<f32> = HashSet::new(); }",
             false,
         ),
         (
-            "fn main() { val value: ArrayList<HashMap<f32, i32>> = []; }",
+            "use std::collections::HashMap; fn main() { val value: Vec<HashMap<f32, i32>> = []; }",
             false,
         ),
         (
-            "fn make<T>() { val value: HashSet<T> = HashSet::new(); }",
+            "use std::collections::{HashSet};\nfn make<T>() { val value: HashSet<T> = HashSet::new(); }",
             false,
         ),
         (
-            "fn make<T: Eq + Hash>() { val value: HashSet<T> = HashSet::new(); }",
+            "use std::collections::{HashSet};\nuse std::hash::{Hash};\nfn make<T: Eq + Hash>() { val value: HashSet<T> = HashSet::new(); }",
             true,
         ),
         (
-            "fn main() { val value: HashMap<i32, bool> = HashMap::new(); }",
+            "use std::collections::HashMap; fn main() { val value: HashMap<i32, bool> = HashMap::new(); }",
             true,
         ),
     ] {
@@ -398,11 +401,11 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
 fn empty_container_context_is_shared_by_all_expression_positions() {
     for body in [
         "fn make() -> [i32] { [] }",
-        "fn make() -> HashMap<i32, bool> { HashMap::new() }",
-        "fn make() -> HashSet<i32> { HashSet::new() }",
-        "fn take(values: ArrayList<i32>, map: HashMap<i32, bool>, set: HashSet<i32>) {} fn main() { take([], HashMap::new(), HashSet::new()); }",
-        "struct Values { val array: ArrayList<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> } fn main() { Values { array: [], map: HashMap::new(), set: HashSet::new() }; }",
-        "fn main() { var map: HashMap<i32, bool> = HashMap::new(); map = HashMap::new(); }",
+        "use std::collections::HashMap; fn make() -> HashMap<i32, bool> { HashMap::new() }",
+        "use std::collections::{HashSet};\nfn make() -> HashSet<i32> { HashSet::new() }",
+        "use std::collections::{HashMap, HashSet};\nfn take(values: Vec<i32>, map: HashMap<i32, bool>, set: HashSet<i32>) {} fn main() { take([], HashMap::new(), HashSet::new()); }",
+        "use std::collections::{HashMap, HashSet};\nstruct Values { val array: Vec<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> } fn main() { Values { array: [], map: HashMap::new(), set: HashSet::new() }; }",
+        "use std::collections::HashMap; fn main() { var map: HashMap<i32, bool> = HashMap::new(); map = HashMap::new(); }",
     ] {
         let source = SourceFile::new("empty-context.kgr", body);
         let analysis = crate::analyze_source(&source);
@@ -414,8 +417,8 @@ fn empty_container_context_is_shared_by_all_expression_positions() {
         assert!(analysis.into_codegen().is_ok());
     }
     for source in [
-        "fn make() -> HashMap<i32, bool> { HashMap::new(1) }",
-        "fn make() -> HashMap<i32, bool> { HashSet::new() }",
+        "use std::collections::HashMap; fn make() -> HashMap<i32, bool> { HashMap::new(1) }",
+        "use std::collections::{HashMap, HashSet};\nfn make() -> HashMap<i32, bool> { HashSet::new() }",
         "fn make() -> [i32] { [true] }",
     ] {
         let analysis = crate::analyze_source(&SourceFile::new("invalid-empty-context.kgr", source));
@@ -435,7 +438,7 @@ fn assignment_context_uses_checked_target_types_without_bypassing_writeability()
             true,
         ),
         (
-            "val values: ArrayList<Marker<i32>> = [Marker { value: 1 }]; values[0] = Marker { value: 2 };",
+            "val values: Vec<Marker<i32>> = [Marker { value: 1 }]; values[0] = Marker { value: 2 };",
             true,
         ),
         (

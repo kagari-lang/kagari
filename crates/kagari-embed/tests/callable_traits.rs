@@ -151,7 +151,7 @@ fn callable_errors_are_reported_before_codegen() {
 fn callable_bounds_work_in_methods_and_where_clauses() {
     execute(
         r#"
-use core::language::Fn as Callable;
+use core::ops::Fn as Callable;
 struct Run {}
 impl Run {
     fn apply<T, R, F: Callable(T) -> R>(self, x: T, f: F) -> R { f(x) }
@@ -240,7 +240,8 @@ fn healthy()->i32{42}
 #[test]
 fn native_callbacks_consume_the_coerced_function_signature() {
     execute(
-        r#"
+        r#"use std::cmp::{Ordering};
+
 use std::collections;
 struct Compare {}
 impl Fn<(i32, i32)> for Compare {

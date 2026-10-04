@@ -1,3 +1,4 @@
+use std::collections::{List};
 // Compact scalar slots, shared views, and explicitly separate objects.
 struct Cell {var value:i32}
 fn main()->i32 {

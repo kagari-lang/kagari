@@ -14,7 +14,7 @@ use crate::{
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
 };
-use kagari_contract::{language, standard::surface::StandardEnum};
+use kagari_contract::{library::namespaces, standard::surface::StandardEnum};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry},
@@ -525,6 +525,45 @@ fn resolve_imports(
         }
     }
     add_language_prelude(module, catalog, &local_items, &mut result, cancel)?;
+    if !module.registered_native_api {
+        // Like Rust's extern prelude, installed standard packages are available
+        // through qualified paths without importing their member names.
+        for entries in catalog.paths.values() {
+            let [entry] = entries.as_slice() else {
+                continue;
+            };
+            let identity = entry.source.module_identity();
+            if !entry.installed
+                || !matches!(
+                    identity.package.0.as_str(),
+                    "kagari-core" | "kagari-alloc" | "std"
+                )
+            {
+                continue;
+            }
+            let alias = namespaces::source_module(identity);
+            let package = alias.split("::").next().expect("source package");
+            if local_items.contains(package)
+                || result
+                    .entries
+                    .iter()
+                    .any(|import| import.alias == alias || import.alias == package)
+            {
+                continue;
+            }
+            result.entries.push(ResolvedImport {
+                alias,
+                span: Span::default(),
+                target: Some(ImportTarget::Source(
+                    entry.target(None, module.source.module_identity()),
+                )),
+                glob_root: false,
+                implicit_module: None,
+                visibility: Visibility::Private,
+                internal_namespace: false,
+            });
+        }
+    }
     let mut roots = result
         .entries
         .iter()
@@ -615,8 +654,8 @@ fn add_language_prelude(
     imports: &mut ModuleImports,
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
-    let core = language::module_identity();
-    if module.source.module_identity() == &core {
+    let core = namespaces::prelude();
+    if module.registered_native_api {
         return Ok(());
     }
     let Some(entries) = catalog.paths.get(&core.to_string()) else {
@@ -910,6 +949,7 @@ struct SourceCatalog<'a> {
 
 struct SourceCatalogEntry<'a> {
     source: &'a SourceFile,
+    installed: bool,
     glob_enums: HashSet<EnumId>,
     members: Arc<BTreeMap<String, Vec<CatalogMember>>>,
     reexports: BTreeMap<usize, ImportTarget>,
@@ -1092,6 +1132,7 @@ impl<'a> SourceCatalog<'a> {
                 .or_default()
                 .push(SourceCatalogEntry {
                     source: &module.source,
+                    installed: module.registered_native_api,
                     glob_enums: module
                         .module
                         .enums

@@ -1,12 +1,15 @@
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
-use kagari_runtime::{library::collections, value::Value};
+use kagari_runtime::{native::foundation, value::Value};
 use kagari_source::source::SourceFile;
 
 #[test]
 fn foundation_algorithms_are_available_from_normal_engine_construction() {
     let engine = KagariEngine::new(Default::default());
     let sources = engine.native_declaration_sources();
-    assert_eq!(sources.len(), 1);
+    assert_eq!(
+        sources.len(),
+        kagari_contract::library::catalog::shared().len()
+    );
     let program = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -35,7 +38,10 @@ fn foundation_algorithms_are_available_from_normal_engine_construction() {
 #[test]
 fn explicit_empty_application_modules_keep_the_foundation() {
     let engine = KagariEngine::with_native_modules(Default::default(), vec![]).unwrap();
-    assert_eq!(engine.native_declaration_sources().len(), 1);
+    assert_eq!(
+        engine.native_declaration_sources().len(),
+        kagari_contract::library::catalog::shared().len()
+    );
     assert!(
         engine
             .compile_to_artifact(
@@ -47,7 +53,8 @@ fn explicit_empty_application_modules_keep_the_foundation() {
             )
             .is_ok()
     );
-    let program = engine.compile_to_artifact(SourceFile::new("memory://foundation.kgr", r#"
+    let program = engine.compile_to_artifact(SourceFile::new("memory://foundation.kgr", r#"use std::collections::{HashMap, HashSet};
+
         fn main() -> i32 {
             val values = [20,22]; val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, values[0]);
             val set: HashSet<i32> = HashSet::new(); set.insert(values[1]);
@@ -70,6 +77,13 @@ fn explicit_empty_application_modules_keep_the_foundation() {
 
 #[test]
 fn application_installation_cannot_replace_foundation_bindings() {
-    let module = collections::module().unwrap();
+    let module = foundation::modules()
+        .unwrap()
+        .into_iter()
+        .find(|module| {
+            module.declaration().identity
+                == kagari_contract::library::namespaces::module("std", "collections")
+        })
+        .unwrap();
     assert!(KagariEngine::builder().install(module).build().is_err());
 }

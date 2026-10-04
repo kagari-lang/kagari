@@ -321,7 +321,11 @@ Notes:
 - `mod name;` declares a module through external loading rules defined elsewhere.
 - `mod name { ... }` declares an inline module body.
 - `use` supports aliasing, globs, and grouped import trees.
-- `std` and the implicit prelude come from the installed declaration package.
+- Installed `core`, `alloc`, and `std` modules can be accessed by full paths
+  without a `use` declaration, such as `std::vec::Vec<i32>` or
+  `core::hash::Hash`. A local package root or explicit namespace alias takes
+  precedence. The implicit prelude comes from the installed declaration package.
+  The explicit `std::prelude` inventory is defined in [builtins](builtins.md#namespaces-and-prelude).
   Standard modules, native functions, traits and enum variants follow ordinary
   resolution, visibility and shadowing. A local binding or explicit import takes
   precedence over an implicit prelude name; ambiguous explicit imports remain errors.
@@ -460,7 +464,7 @@ definitions remain explicit and do not accept inference holes.
 
 Calls accept positional type arguments after `::`, for example
 `identity::<i32>(42)`, `Ok::<i32, String>(42)` and
-`values.iter().collect::<ArrayList<i32>>()`. A method lists its own type parameters;
+`values.iter().collect::<Vec<i32>>()`. A method lists its own type parameters;
 parameters fixed by its receiver are not repeated. All parameters must be listed
 when the list is present; `_` requests inference for an individual position.
 Explicit arguments are constraints, not conversions: incompatible arguments or
@@ -470,7 +474,7 @@ are accepted inside a type argument, but not as named call arguments.
 
 Expected result types also constrain intermediate iterator values and callback
 results through declared trait implementations. For example,
-`val values: Result<ArrayList<i32>, String> = [Ok(42)].iter().collect();`
+`val values: Result<Vec<i32>, String> = [Ok(42)].iter().collect();`
 determines the error type of `Ok`. An unambiguous implementation can supply
 structural equalities; multiple candidates remain deferred until more information
 is available. Associated projections are normalized through their selected
@@ -778,8 +782,8 @@ An otherwise unconstrained inference variable supplied only by divergence falls
 back to `!` after ordinary constraints and numeric defaults. This fallback cannot
 override a type learned from another argument or an expected callable result.
 
-This expression coercion does not recurse into type arguments: `ArrayList<!>` and
-`ArrayList<i32>` remain distinct, as do `fn() -> !` and `fn() -> i32`. A closure
+This expression coercion does not recurse into type arguments: `Vec<!>` and
+`Vec<i32>` remain distinct, as do `fn() -> !` and `fn() -> i32`. A closure
 literal can still receive its result type from its expected callable signature.
 `Result<T, !>` can contain `Ok(T)` but cannot contain an `Err` value. Empty matches
 can eliminate a value of an uninhabited type. User-defined zero-variant enums
@@ -917,7 +921,7 @@ literal         ::= INTEGER
   terminates normally. Open-ended iteration traps when the next value would exceed
   its integer type. Iteration retains cooperative cancellation points.
 - Collect explicitly when storage is needed, for example
-  `(0..4).iter().collect::<ArrayList<i32>>()`. Ranges without a start are bounds
+  `(0..4).iter().collect::<Vec<i32>>()`. Ranges without a start are bounds
   descriptions, not iterable sequences. All six forms implement `RangeBounds<T>`
   for array interval operations; `RangeFull` implements it for any `T`.
 - This phase does not introduce fixed-size array types or borrowed slice views.
@@ -1179,5 +1183,5 @@ serialization format. Parser depth, diagnostics and cancellation limits apply.
 
 Repeat arrays `[value; count]` evaluate the value once and require its type to
 contain no shared mutable objects, including recursively inside Tuple or enum
-members. Use `ArrayList::from_fn(count, |index| expression)` for per-element
+members. Use `Vec::from_fn(count, |index| expression)` for per-element
 object initialization. See [the value contract](value-semantics.md#repeat-arrays-and-bulk-replacement).

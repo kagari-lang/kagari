@@ -111,7 +111,7 @@ Installed interfaces determine available APIs; execution supports cancellation a
 
 ## Standard Library
 
-Language-owned protocols and the default `ArrayList`, `HashMap` and `HashSet`
+Language-owned protocols and the default `Vec`, `HashMap` and `HashSet`
 are declared by the compiler. Hash storage uses Rust's standard collections and
 has no insertion-order guarantee; custom keys implement Kagari `Eq` and `Hash`.
 Container storage participates in GC tracing, checked calls and hot reload.

@@ -225,7 +225,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
     let root = insert(
         &mut sources,
         "root",
-        "trait Reader<T: Eq + Hash> { fn read<U>(self, value: U) -> U where U: Missing + Eq + Hash; }",
+        "use std::hash::Hash; trait Reader<T: Eq + Hash> { fn read<U>(self, value: U) -> U where U: Missing + Eq + Hash; }",
     );
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let file = snapshot.file(root).unwrap();

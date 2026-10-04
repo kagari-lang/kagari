@@ -207,7 +207,7 @@ impl TypeId {
                         }));
                         pending.push(Part::Type(item));
                         pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "ArrayList<"
+                            "Vec<"
                         } else {
                             "["
                         }));

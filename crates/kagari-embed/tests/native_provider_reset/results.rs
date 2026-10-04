@@ -28,7 +28,7 @@ fn engine() -> KagariEngine {
             let t = f.type_parameter("T")?.ty();
             f.parameter("value", t.clone());
             f.returns(language.list().apply([t.clone()]).ty());
-            f.produces(language.array_list(t));
+            f.produces(language.vec(t));
             Ok(())
         })
         .unwrap();
@@ -47,7 +47,7 @@ fn engine() -> KagariEngine {
         .unwrap();
     module
         .function(&wrong, |f| {
-            f.produces(language.array_list(Type::i32()));
+            f.produces(language.vec(Type::i32()));
             Ok(())
         })
         .unwrap();
@@ -64,7 +64,7 @@ fn engine() -> KagariEngine {
             let t = f.type_parameter("T")?.ty();
             f.parameter("value", t.clone());
             f.returns(language.list().apply([t.clone()]).ty());
-            f.produces(language.array_list(t));
+            f.produces(language.vec(t));
             Ok(())
         })
         .unwrap();

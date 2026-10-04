@@ -69,7 +69,7 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
                 .is_some()
         );
         // Readonly collection surfaces are declared trait views, not a second
-        // physical ArrayList layout with another set of native implementations.
+        // physical Vec layout with another set of native implementations.
         assert!(
             catalog
                 .engine_implementation(&interface, &readonly, &Default::default())

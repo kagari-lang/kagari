@@ -72,7 +72,7 @@ fn main() -> i32 { add(1, 2) }
         .dependencies
         .push(dependency_slot);
     module.modules.push(dependency_module);
-    let mut dependencies: Vec<_> = module
+    let dependencies: Vec<_> = module
         .modules
         .iter()
         .enumerate()
@@ -82,7 +82,6 @@ fn main() -> i32 { add(1, 2) }
             fingerprint: ArtifactFingerprint::of_serialized(member),
         })
         .collect();
-    dependencies.sort_by(|a, b| a.module_id.cmp(&b.module_id));
     assert!(dependencies.contains(&dependency));
     let artifact = KbcArtifact::from_program(
         module,

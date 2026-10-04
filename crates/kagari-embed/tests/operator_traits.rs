@@ -67,7 +67,8 @@ fn execute(source: &str) {
 #[test]
 fn ordering_protocols_and_builtin_comparisons_agree() {
     execute(
-        r#"
+        r#"use std::cmp::{Ordering};
+
 struct Rank {val value:i32}
 impl PartialEq for Rank {fn eq(self,other:Self)->bool {self.value==other.value}}
 impl Eq for Rank {}
@@ -85,7 +86,8 @@ fn main()->i32 {
 #[test]
 fn unordered_custom_comparisons_are_false_for_all_operators() {
     execute(
-        r#"
+        r#"use std::cmp::{Ordering};
+
 struct Unknown {}
 impl PartialEq for Unknown {fn eq(self,other:Self)->bool {false}}
 impl PartialOrd for Unknown {fn partial_cmp(self,other:Self)->Option<Ordering> {None}}
@@ -97,10 +99,10 @@ fn main()->i32 {val a=Unknown{}; if !(a<a) && !(a<=a) && !(a>a) && !(a>=a) && a.
 #[test]
 fn invalid_ordering_contracts_are_diagnostics() {
     for source in [
-        "fn main(){val a=Ordering::Equal?;}",
-        "fn main()->Ordering {Ordering::Equal?}",
+        "use std::cmp::{Ordering};\nfn main(){val a=Ordering::Equal?;}",
+        "use std::cmp::{Ordering};\nfn main()->Ordering {Ordering::Equal?}",
         "fn needs<T:Ord>(v:T){} fn main(){needs(1.0);}",
-        "struct X{} impl Ord for X {fn cmp(self,other:Self)->Ordering {Ordering::Equal}} fn main(){}",
+        "use std::cmp::{Ordering};\nstruct X{} impl Ord for X {fn cmp(self,other:Self)->Ordering {Ordering::Equal}} fn main(){}",
         "struct X{} fn main()->bool {X{}<X{}}",
         "fn main()->bool {(1,2)<(2,3)}",
     ] {
@@ -120,8 +122,9 @@ fn invalid_ordering_contracts_are_diagnostics() {
 #[test]
 fn arithmetic_protocols_have_rhs_and_associated_output() {
     execute(
-        r#"
-use core::language::Add as Plus;
+        r#"use std::ops::{Add, Div, Mul, Rem, Sub};
+
+use core::ops::Add as Plus;
 struct Vector {val x:i32}
 impl Plus<Vector> for Vector {type Output=Vector;fn add(self,rhs:Vector)->Vector {Vector{x:self.x+rhs.x}}}
 impl Mul<i32> for Vector {type Output=Vector;fn mul(self,rhs:i32)->Vector {Vector{x:self.x*rhs}}}
@@ -141,7 +144,8 @@ fn main()->i32 {
 #[test]
 fn generic_arithmetic_impls_forward_operator_bounds() {
     execute(
-        r#"
+        r#"use std::ops::{Add};
+
 struct Wrap<T>{val item:T}
 impl<T:Add<T,Output=T>> Add<Wrap<T>> for Wrap<T> {type Output=Wrap<T>;fn add(self,rhs:Wrap<T>)->Wrap<T> {Wrap{item:self.item+rhs.item}}}
 fn main()->i32 {(Wrap{item:20}+Wrap{item:22}).item}
@@ -153,7 +157,7 @@ fn main()->i32 {(Wrap{item:20}+Wrap{item:22}).item}
 fn same_named_application_trait_does_not_replace_the_language_role() {
     execute(
         r#"
-use core::language::Add as LanguageAdd;
+use core::ops::Add as LanguageAdd;
 trait Add<Rhs> { fn unrelated(self, rhs: Rhs) -> i32; }
 struct Number { val value: i32 }
 impl Add<Number> for Number { fn unrelated(self, rhs: Number) -> i32 { 0 } }
@@ -169,7 +173,8 @@ fn main() -> i32 { Number { value: 20 } + Number { value: 22 } }
 #[test]
 fn unary_protocols_support_generic_and_different_output_types() {
     execute(
-        r#"
+        r#"use std::ops::{Neg, Not};
+
 struct Signed {val value:i32}
 impl Neg for Signed {type Output=Signed;fn neg(self)->Signed {Signed{value:-self.value}}}
 impl Not for Signed {type Output=bool;fn not(self)->bool {self.value==0}}
@@ -183,9 +188,10 @@ fn main()->i32 {val x=Signed{value:-42};val zero=Signed{value:0};if invert(zero)
 #[test]
 fn readonly_index_returns_shared_objects_without_container_writeback() {
     execute(
-        r#"
+        r#"use std::ops::{Index};
+
 struct Item {var value:i32}
-struct Bag {val items:ArrayList<Item>,var reads:i32}
+struct Bag {val items:Vec<Item>,var reads:i32}
 impl Index<i32> for Bag {type Output=Item;fn index(self,rhs:i32)->Item {self.reads+=1;self.items[rhs]}}
 fn read<C:Index<i32>>(c:C,i:i32)->C::Output {c[i]}
 fn main()->i32 {
@@ -201,7 +207,7 @@ fn main()->i32 {
 fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
     for tail in ["b[0]=Item{value:1};", "b[0].value=1;"] {
         let source = format!(
-            "struct Item {{val value:i32}} struct Bag {{val item:Item}} impl Index<i32> for Bag {{type Output=Item;fn index(self,rhs:i32)->Item {{self.item}}}} fn main() {{val b=Bag{{item:Item{{value:0}}}};{tail}}}"
+            "use std::ops::{{Index}};\nstruct Item {{val value:i32}} struct Bag {{val item:Item}} impl Index<i32> for Bag {{type Output=Item;fn index(self,rhs:i32)->Item {{self.item}}}} fn main() {{val b=Bag{{item:Item{{value:0}}}};{tail}}}"
         );
         assert!(
             matches!(
@@ -220,8 +226,8 @@ fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
 fn ordering_aliases_patterns_and_float_unordered_behavior() {
     execute(
         r#"
-use core::language::Ordering as Order;
-use core::language::Ordering::*;
+use core::cmp::Ordering as Order;
+use core::cmp::Ordering::*;
 fn rank(x:Order)->i32 {match x {Less=>0,Equal=>1,Greater=>2}}
 fn main()->i32 {val nan=0.0/0.0; if nan.partial_cmp(nan) == None && !(nan<nan) && !(nan<=nan) && !(nan>nan) && !(nan>=nan) && rank(Order::Equal)==1 {42}else{0}}
 "#,
@@ -231,7 +237,8 @@ fn main()->i32 {val nan=0.0/0.0; if nan.partial_cmp(nan) == None && !(nan<nan) &
 #[test]
 fn operator_operands_and_index_getters_evaluate_once_in_order() {
     execute(
-        r#"
+        r#"use std::ops::{Add, Index};
+
 struct State {var steps:i32}
 struct Item {var value:i32}
 struct Bag {var item:Item,val state:State}
@@ -256,14 +263,14 @@ fn main()->i32 {
 #[test]
 fn invalid_operator_signatures_bounds_and_writes_are_diagnostics() {
     for source in [
-        "struct X{} impl Add<X> for X {fn add(self,rhs:X)->X {self}} fn main(){}",
-        "struct X{} impl Add<X> for X {type Output=i32;fn add(self,rhs:X)->bool {true}} fn main(){}",
-        "struct X{} impl Add<X> for X {type Output=X;fn add(self,rhs:X)->X {self}} fn main(){var a=X{};a+=X{};}",
-        "fn f<T:Add<i32,Output=bool>>(x:T){} fn main(){f(1);}",
+        "use std::ops::{Add};\nstruct X{} impl Add<X> for X {fn add(self,rhs:X)->X {self}} fn main(){}",
+        "use std::ops::{Add};\nstruct X{} impl Add<X> for X {type Output=i32;fn add(self,rhs:X)->bool {true}} fn main(){}",
+        "use std::ops::{Add};\nstruct X{} impl Add<X> for X {type Output=X;fn add(self,rhs:X)->X {self}} fn main(){var a=X{};a+=X{};}",
+        "use std::ops::{Add};\nfn f<T:Add<i32,Output=bool>>(x:T){} fn main(){f(1);}",
         "fn f<T:Ord>(x:T){} enum E{A} fn main(){f(E::A);}",
         "fn f<T:Ord>(x:T){} fn main(){f((1,2));}",
-        "impl Add<i32> for i32 {type Output=i32;fn add(self,rhs:i32)->i32 {0}} fn main(){}",
-        "struct X{} impl Neg for X {type Output=i32;fn neg(self)->i32 {42}} fn main(){val x=X{};val b=x && x;}",
+        "use std::ops::{Add};\nimpl Add<i32> for i32 {type Output=i32;fn add(self,rhs:i32)->i32 {0}} fn main(){}",
+        "use std::ops::{Neg};\nstruct X{} impl Neg for X {type Output=i32;fn neg(self)->i32 {42}} fn main(){val x=X{};val b=x && x;}",
     ] {
         let result = KagariEngine::default().compile_to_artifact(
             SourceFile::new("bad-operator.kgr", source),
@@ -289,7 +296,8 @@ fn imported_generic_operators_keep_the_defining_implementation() {
     };
     for downstream_override in [false, true] {
         let engine = KagariEngine::default();
-        let model = r#"
+        let model = r#"use std::ops::{Add, Index};
+
 pub struct Box<T> {pub val value:T}
 impl<T:Add<T,Output=T>> Add<T> for Box<T> {type Output=Box<T>;fn add(self,rhs:T)->Box<T> {Box{value:self.value+rhs}}}
 impl<T> Index<i32> for Box<T> {type Output=T;fn index(self,rhs:i32)->T {self.value}}
@@ -297,9 +305,9 @@ fn plus<T:Add<T,Output=T>>(a:Box<T>,b:T)->Box<T> {a+b}
 pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
 "#;
         let root_source = if downstream_override {
-            "use pkg::model::Box; impl Neg for Box<i32> {type Output=i32;fn neg(self)->i32 {0}} fn main()->i32 {42}"
+            "use std::ops::{Neg};\nuse pkg::model::Box; impl Neg for Box<i32> {type Output=i32;fn neg(self)->i32 {0}} fn main()->i32 {42}"
         } else {
-            "use pkg::model::{Box,add}; fn read<T:Index<i32,Output=i32>>(v:T)->i32 {v[0]} fn main()->i32 {read(add(Box{value:20},1)+21)}"
+            "use std::ops::{Index};\nuse pkg::model::{Box,add}; fn read<T:Index<i32,Output=i32>>(v:T)->i32 {v[0]} fn main()->i32 {read(add(Box{value:20},1)+21)}"
         };
         let mut root = None;
         for (name, source) in [("model", model), ("root", root_source)] {
@@ -358,7 +366,8 @@ fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
         .compile_to_artifact(
             SourceFile::new(
                 "operator-wire.kgr",
-                r#"
+                r#"use std::ops::{Add};
+
 struct Number{val value:i32}
 impl Add<i32> for Number {type Output=i32;fn add(self,rhs:i32)->i32 {self.value+rhs}}
 fn main()->i32 {Number{value:20}+22}
@@ -438,7 +447,8 @@ fn operator_traps_and_cancellation_release_execution_roots() {
         .compile_to_artifact(
             SourceFile::new(
                 "operator-failure.kgr",
-                r#"
+                r#"use std::ops::{Add, Index};
+
 struct Number {val value:i32}
 impl Add<i32> for Number {type Output=i32;fn add(self,rhs:i32)->i32 {self.value/rhs}}
 impl Index<i32> for Number {type Output=i32;fn index(self,rhs:i32)->i32 {[self.value][rhs]}}
@@ -480,7 +490,8 @@ fn main()->i32 {Number{value:42}+1}
 #[test]
 fn applied_rhs_types_select_overloads_for_syntax_and_methods() {
     execute(
-        r#"
+        r#"use std::ops::{Add};
+
 struct Number {val value:i32}
 impl Add<i32> for Number {type Output=i32;fn add(self,rhs:i32)->i32 {self.value+rhs}}
 impl Add<Number> for Number {type Output=Number;fn add(self,rhs:Number)->Number {Number{value:self.value+rhs.value}}}

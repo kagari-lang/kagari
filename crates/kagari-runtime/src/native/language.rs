@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct LanguageContracts {
-    declarations: Arc<ModuleDecl>,
+    declarations: Vec<Arc<ModuleDecl>>,
 }
 
 impl Default for LanguageContracts {
@@ -28,12 +28,12 @@ impl Default for LanguageContracts {
 }
 
 impl LanguageContracts {
-    pub fn declarations(&self) -> &Arc<ModuleDecl> {
+    pub fn declarations(&self) -> &[Arc<ModuleDecl>] {
         &self.declarations
     }
 
     pub(crate) fn catalog(&self) -> NativeResult<DeclarationCatalog> {
-        DeclarationCatalog::declared([self.declarations.as_ref()])
+        DeclarationCatalog::declared(self.declarations.iter().map(Arc::as_ref))
     }
 
     pub fn protocol(&self, protocol: Protocol) -> TraitRef {
@@ -41,8 +41,9 @@ impl LanguageContracts {
             id: language::identity(protocol),
             contract: Arc::new(
                 self.declarations
-                    .traits
                     .iter()
+                    .filter(|module| module.identity == language::identity(protocol).module)
+                    .flat_map(|module| &module.traits)
                     .find(|contract| contract.name == protocol.name())
                     .expect("language contract")
                     .clone(),
@@ -55,8 +56,9 @@ impl LanguageContracts {
             id: library::trait_id(name),
             contract: Arc::new(
                 self.declarations
-                    .traits
                     .iter()
+                    .filter(|module| module.identity == library::trait_id(name).module)
+                    .flat_map(|module| &module.traits)
                     .find(|contract| contract.name == name)
                     .expect("installed library trait")
                     .clone(),
@@ -112,7 +114,7 @@ impl LanguageContracts {
         self.protocol(Protocol::Iterable)
     }
 
-    pub fn array_list(&self, item: Type) -> Type {
+    pub fn vec(&self, item: Type) -> Type {
         Type(Ty::Array(Box::new(item.0), CollectionAccess::Mutable))
     }
 

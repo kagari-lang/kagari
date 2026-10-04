@@ -170,7 +170,7 @@ fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
             NameResolution::Ambiguous,
         ),
         (
-            "use demo::native as api; use core::language as api;",
+            "use demo::native as api; use core::cmp as api;",
             "api::choose(1, 1, 1)",
             "api",
             NameResolution::Ambiguous,

@@ -561,7 +561,7 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
             paths: vec![],
         })
         .unwrap();
-    engine.set_source("mem://host-interface", "pub trait Reader<T: Eq + Hash> { type Item: Eq + Hash; fn read(self, amount: T) -> Self::Item; }".into(), SourceLayer::Base).unwrap();
+    engine.set_source("mem://host-interface", "use std::hash::Hash; pub trait Reader<T: Eq + Hash> { type Item: Eq + Hash; fn read(self, amount: T) -> Self::Item; }".into(), SourceLayer::Base).unwrap();
     engine
         .bind_module(
             "mem://consumer",

@@ -85,11 +85,10 @@ fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations
     use kagari_common::identity::ModuleIdentity;
     use kagari_contract::{
         declaration::{ImplDecl, ModuleDecl},
-        language,
         types::Ty,
     };
     let string = Ty::Builtin(BuiltinType::String);
-    let mut owner = ModuleDecl::new(language::module_identity());
+    let mut owner = ModuleDecl::new(kagari_contract::library::namespaces::type_owner("String"));
     assert!(owner.owns_inherent_receiver(&string));
     owner.implementations.push(ImplDecl {
         generic_params: vec![],

@@ -1,5 +1,6 @@
 use crate::{
     language::{Protocol, primitive as intrinsic},
+    library::namespaces,
     types::{
         Ty,
         conversion::ConversionAdapter,
@@ -88,7 +89,8 @@ impl ProofCatalog<'_> {
                     nominal.declaration.module == table.declaration().module
                 }
                 Ty::Array(_, _) | Ty::Map { .. } | Ty::Set(_, _) => {
-                    interface.declaration.module == table.declaration().module
+                    namespaces::receiver_owner(table.receiver()).as_ref()
+                        == Some(&table.declaration().module)
                 }
                 _ => false,
             });
@@ -123,7 +125,11 @@ impl ProofCatalog<'_> {
             {
                 return Ok(false);
             }
-            return Ok(interface.declaration.module == table.declaration().module || iter::once(table.receiver()).chain(&interface.arguments).any(|ty| matches!(ty, Ty::Struct(n) | Ty::NativeObject(n) | Ty::Enum(n) if n.declaration.module == table.declaration().module)));
+            let owner = &table.declaration().module;
+            return Ok(interface.declaration.module == *owner
+                || iter::once(table.receiver())
+                    .chain(&interface.arguments)
+                    .any(|ty| namespaces::receiver_owner(ty).as_ref() == Some(owner)));
         }
         let Some(kind) = kind else {
             return Ok(true);
@@ -137,7 +143,8 @@ impl ProofCatalog<'_> {
         let (Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal)) =
             table.receiver()
         else {
-            return Ok(interface.declaration.module == table.declaration().module);
+            return Ok(namespaces::receiver_owner(table.receiver()).as_ref()
+                == Some(&table.declaration().module));
         };
         if nominal.declaration.module != table.declaration().module {
             return Ok(false);

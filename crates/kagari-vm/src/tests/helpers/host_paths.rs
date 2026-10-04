@@ -222,7 +222,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
             let bytecode = compile_test_bytecode(
-                "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> ArrayList<i32> { [7] }",
+                "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> Vec<i32> { [7] }",
             );
             let compute = bytecode.modules[bytecode.root.index()]
                 .functions

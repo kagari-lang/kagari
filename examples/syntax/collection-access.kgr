@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet, List, Map, MutableList, Set};
 // Interfaces control access; concrete types choose storage. Views stay live.
 fn append(values:MutableList<i32>,value:i32){values.push(value);}
 fn size<C:List<i32>>(values:C)->usize{values.len()}

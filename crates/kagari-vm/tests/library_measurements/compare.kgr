@@ -1,34 +1,36 @@
+use std::cmp::{Ordering};
+use std::collections::{MutableList};
 // Measurement reference only: stable O(n log n) sorting over the same compact
-// ArrayList<i32>. Production algorithms remain Rust implementations.
+// Vec<i32>. Production algorithms remain Rust implementations.
 trait Run {
-    fn primitive(self, values: ArrayList<i32>, calls: ArrayList<usize>);
-    fn callback(self, values: ArrayList<i32>, calls: ArrayList<usize>);
-    fn interface_primitive(self, values: MutableList<i32>, calls: ArrayList<usize>);
-    fn interface_callback(self, values: MutableList<i32>, calls: ArrayList<usize>);
-    fn script(self, values: ArrayList<i32>, calls: ArrayList<usize>);
-    fn view(self, values: ArrayList<i32>) -> MutableList<i32>;
+    fn primitive(self, values: Vec<i32>, calls: Vec<usize>);
+    fn callback(self, values: Vec<i32>, calls: Vec<usize>);
+    fn interface_primitive(self, values: MutableList<i32>, calls: Vec<usize>);
+    fn interface_callback(self, values: MutableList<i32>, calls: Vec<usize>);
+    fn script(self, values: Vec<i32>, calls: Vec<usize>);
+    fn view(self, values: Vec<i32>) -> MutableList<i32>;
 }
 struct Runner {}
 impl Run for Runner {
-    fn primitive(self, values: ArrayList<i32>, calls: ArrayList<usize>) { values.sort(); }
-    fn callback(self, values: ArrayList<i32>, calls: ArrayList<usize>) {
+    fn primitive(self, values: Vec<i32>, calls: Vec<usize>) { values.sort(); }
+    fn callback(self, values: Vec<i32>, calls: Vec<usize>) {
         values.sort_by(|a,b| { calls[0] += 1usize; a.cmp(b) });
     }
-    fn interface_primitive(self, values: MutableList<i32>, calls: ArrayList<usize>) {
+    fn interface_primitive(self, values: MutableList<i32>, calls: Vec<usize>) {
         values.sort();
     }
-    fn interface_callback(self, values: MutableList<i32>, calls: ArrayList<usize>) {
+    fn interface_callback(self, values: MutableList<i32>, calls: Vec<usize>) {
         values.sort_by(|a,b| { calls[0] += 1usize; a.cmp(b) });
     }
-    fn script(self, values: ArrayList<i32>, calls: ArrayList<usize>) {
+    fn script(self, values: Vec<i32>, calls: Vec<usize>) {
         merge_sort(values, |a,b| { calls[0] += 1usize; a.cmp(b) });
     }
-    fn view(self, values: ArrayList<i32>) -> MutableList<i32> { values }
+    fn view(self, values: Vec<i32>) -> MutableList<i32> { values }
 }
 fn runner() -> Run { Runner {} }
-fn merge_sort(values: ArrayList<i32>, compare: fn(i32,i32) -> Ordering) {
+fn merge_sort(values: Vec<i32>, compare: fn(i32,i32) -> Ordering) {
     val size = values.len();
-    var source: ArrayList<i32> = []; var target: ArrayList<i32> = [];
+    var source: Vec<i32> = []; var target: Vec<i32> = [];
     var index = 0usize;
     while index < size { source.push(values[index]); target.push(0); index += 1usize; }
     var width = 1usize;

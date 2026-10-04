@@ -63,12 +63,12 @@ pub(super) fn register(
         })
     })?;
     let map = module.define_function(FunctionDecl::new("map").documentation(
-        "Lazily transform an ArrayList. Each next consumes one source item and invokes the mapper synchronously. Copies share cursor progress; completed effects survive failure."
+        "Lazily transform a Vec. Each next consumes one source item and invokes the mapper synchronously. Copies share cursor progress; completed effects survive failure."
     ))?;
     module.function(&map, |function| {
         let input = function.type_parameter("T")?.ty();
         let output = function.type_parameter("U")?.ty();
-        function.parameter("values", language.array_list(input.clone()));
+        function.parameter("values", language.vec(input.clone()));
         function.parameter("mapper", Type::function([input.clone()], output.clone()));
         function.returns(iterator.apply([input, output])?);
         Ok(())

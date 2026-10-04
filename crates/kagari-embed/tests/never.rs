@@ -86,8 +86,8 @@ fn rejects_normal_returns_and_nested_never_coercions() {
         "fn wrong() -> ! { 42 }",
         "fn wrong() -> ! { return 42; }",
         "fn wrong() -> ! { loop { break; } }",
-        "fn wrong(x: ArrayList<!>) -> ArrayList<i32> { x }",
-        "fn wrong(x: ArrayList<!>) { x[0usize] = 1; }",
+        "fn wrong(x: Vec<!>) -> Vec<i32> { x }",
+        "fn wrong(x: Vec<!>) { x[0usize] = 1; }",
         "fn wrong(value: !) { var x: ! = value; x = 1; }",
         "fn wrong(x: fn() -> !) -> fn() -> i32 { x }",
     ] {
@@ -134,8 +134,8 @@ fn never_preserves_effects_and_releases_resources_on_traps_and_cancellation() {
             SourceFile::new(
                 "never-effects.kgr",
                 r#"
-fn fail(values: ArrayList<i32>) -> ! { values.push(20); print("before"); val zero = 0; 1 / zero; loop {} }
-fn later(values: ArrayList<i32>) -> i32 { print("after"); values.push(99); 99 }
+fn fail(values: Vec<i32>) -> ! { values.push(20); print("before"); val zero = 0; 1 / zero; loop {} }
+fn later(values: Vec<i32>) -> i32 { print("after"); values.push(99); 99 }
 fn consume(a: i32, b: i32) -> i32 { a + b }
 fn main() -> i32 { val values = [1]; consume(fail(values), later(values)) }
 fn forever() -> ! { loop {} }
@@ -143,7 +143,6 @@ fn impossible(value: !) -> i32 { value }
 fn healthy() -> i32 { 42 }
 "#,
             ),
-
             Default::default(),
         )
         .unwrap();
@@ -222,10 +221,11 @@ fn main() -> i32 {
 #[test]
 fn never_containers_and_short_circuiting_keep_normal_paths() {
     execute(
-        r#"
+        r#"use std::collections::{List};
+
 fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
 fn main() -> i32 {
-    val values: ArrayList<!> = [];
+    val values: Vec<!> = [];
     val readonly: List<!> = values;
     val missing: Option<!> = None;
     val result: Result<!, i32> = Err(42);

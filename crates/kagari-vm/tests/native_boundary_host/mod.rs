@@ -57,11 +57,12 @@ fn echo(name: &str, ty: Type) -> HostFunctionDeclaration {
 fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let mut runtime = runtime();
     let program = compile_program(
-        r#"
-        fn fixtures() -> (ArrayList<i32>, ArrayList<bool>, HashMap<String,ArrayList<i32>>, HashMap<String,ArrayList<bool>>, HashSet<String>, HashSet<i32>) {
+        r#"use std::collections::{HashMap, HashSet};
+
+        fn fixtures() -> (Vec<i32>, Vec<bool>, HashMap<String,Vec<i32>>, HashMap<String,Vec<bool>>, HashSet<String>, HashSet<i32>) {
             val array = [7]; val wrong_array = [true];
-            val map: HashMap<String,ArrayList<i32>> = HashMap::new(); map.insert("k", array);
-            val wrong_map: HashMap<String,ArrayList<bool>> = HashMap::new(); wrong_map.insert("k", wrong_array);
+            val map: HashMap<String,Vec<i32>> = HashMap::new(); map.insert("k", array);
+            val wrong_map: HashMap<String,Vec<bool>> = HashMap::new(); wrong_map.insert("k", wrong_array);
             val set: HashSet<String> = HashSet::new(); set.insert("ok");
             val wrong_set: HashSet<i32> = HashSet::new(); wrong_set.insert(7);
             (array, wrong_array, map, wrong_map, set, wrong_set)
@@ -294,7 +295,7 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     use kagari_runtime::host::{HostObjectId, HostSchemaEpoch, HostTypeRegistration};
     let mut runtime = runtime();
     let program = compile_program(
-        "fn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
+        "use std::collections::{HashMap, HashSet};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
         None,
     );
     let loaded = runtime.load_program("host-storage", program).unwrap();

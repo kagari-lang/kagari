@@ -12,7 +12,6 @@ use super::*;
 use {crate::typeck::table::CallTarget, kagari_source::source::SourceFile};
 
 use crate::{language::semantics::ProtocolSemantics, native::NativeBinding};
-use kagari_common::identity::DefinitionKind;
 use kagari_contract::library::catalog;
 
 #[test]
@@ -58,7 +57,8 @@ fn main() -> usize {
 fn infers_map_method_call_types() {
     let source = SourceFile::new(
         "string-method.kgr",
-        r#"
+        r#"use std::collections::{HashMap};
+
 fn main(value: HashMap<String, i32>) -> usize {
     value.len()
 }
@@ -144,12 +144,12 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         };
         assert_eq!(file.declarations().parameters_of(id).len(), arity);
     }
-    assert_eq!(declarations.files().count(), 2); // User input plus language declarations.
-    assert!(
-        declarations
-            .files()
-            .any(|file| file.source().module_identity() == &catalog::shared().identity)
-    );
+    assert_eq!(declarations.files().count(), catalog::shared().len() + 1); // User input plus installed library modules.
+    assert!(declarations.files().any(|file| {
+        catalog::shared()
+            .iter()
+            .any(|module| file.source().module_identity() == &module.identity)
+    }));
     assert!(surface::supports_const_type(&TypeId::Builtin(
         BuiltinType::U64
     )));
@@ -178,13 +178,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .find(|function| {
                         function.implementation
                             == FunctionImplementation::Native(NativeBinding::Entry(
-                                snapshot
-                                    .definitions()
-                                    .lookup(
-                                        &catalog::shared()
-                                            .definition(DefinitionKind::Function, binding),
-                                    )
-                                    .unwrap(),
+                                snapshot.definitions().lookup(&binding_id(binding)).unwrap(),
                             ))
                     })
             })
@@ -204,10 +198,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         assert_eq!(
             signature(binding).implementation,
             FunctionImplementation::Native(NativeBinding::Entry(
-                snapshot
-                    .definitions()
-                    .lookup(&catalog::shared().definition(DefinitionKind::Function, binding))
-                    .unwrap()
+                snapshot.definitions().lookup(&binding_id(binding)).unwrap()
             ))
         );
     }
@@ -231,7 +222,8 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
 fn resolves_language_builtin_type_annotations() {
     let source = SourceFile::new(
         "native-annotations.kgr",
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
 fn choose(value: Option<i32>) -> Option<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
 fn lookup(value: HashMap<String, i32>) -> HashMap<String, i32> { value }
@@ -287,10 +279,10 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
     let source = SourceFile::new(
         "constructor-imports.kgr",
         r#"
-        pub use core::language as foundation;
-        use core::language::ArrayList::new as make_list;
-        fn alias() -> ArrayList<i32> { make_list() }
-        fn qualified() -> ArrayList<i32> { foundation::ArrayList::new() }
+        pub use alloc::vec as foundation;
+        use alloc::vec::Vec::new as make_list;
+        fn alias() -> Vec<i32> { make_list() }
+        fn qualified() -> Vec<i32> { foundation::Vec::new() }
     "#,
     );
     let analyzed = crate::analyze_source(&source)
@@ -312,7 +304,10 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         else {
             panic!("source-owned declaration");
         };
-        assert_eq!(target.module, catalog::shared().identity);
+        assert_eq!(
+            target.module,
+            kagari_contract::library::namespaces::type_owner("Vec")
+        );
         assert_eq!(
             matches!(target.item, Some(ExportItem::Function(_))),
             function
@@ -329,7 +324,10 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
             panic!("imported constructor");
         };
         let imported = analyzed.imported_functions.target(target).unwrap();
-        assert_eq!(imported.declaration.module, catalog::shared().identity);
+        assert_eq!(
+            imported.declaration.module,
+            kagari_contract::library::namespaces::type_owner("Vec")
+        );
         assert_eq!(imported.signature.name, "new");
         assert_eq!(call.type_arguments, [TypeId::Builtin(BuiltinType::I32)]);
         assert_eq!(
@@ -346,16 +344,17 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
 fn type_checks_standard_methods_and_records_checked_bindings() {
     let source = SourceFile::new(
         "standard-methods.kgr",
-        r#"
+        r#"use std::collections::{HashMap};
+
 fn get(values: HashMap<String, i32>) -> Option<i32> {
     values.get("key")
 }
 
-fn len(value: ArrayList<i32>) -> usize {
+fn len(value: Vec<i32>) -> usize {
     value.len()
 }
 
-fn popped(values: ArrayList<i32>) -> Option<i32> {
+fn popped(values: Vec<i32>) -> Option<i32> {
     values.pop()
 }
 "#,
@@ -417,7 +416,9 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
 #[test]
 fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
     let lowered = common::lower_ok(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+use std::hash::{Hash};
+
 fn contains<K: Eq + Hash, V>(values: HashMap<K, V>, key: K) -> bool {
     values.contains_key(key)
 }
@@ -431,7 +432,9 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
         .into_checked()
         .expect("hash-key constrained generics should type check");
 
-    let lowered = common::lower_ok("fn bad(values: HashMap<f64, i32>) -> usize { values.len() }");
+    let lowered = common::lower_ok(
+        "use std::collections::{HashMap};\nfn bad(values: HashMap<f64, i32>) -> usize { values.len() }",
+    );
     let diagnostics = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect_err("f64 map keys should reject");
@@ -443,7 +446,9 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
         )
     }));
 
-    let lowered = common::lower_ok("fn bad<K, V>(values: HashMap<K, V>) -> usize { values.len() }");
+    let lowered = common::lower_ok(
+        "use std::collections::{HashMap};\nfn bad<K, V>(values: HashMap<K, V>) -> usize { values.len() }",
+    );
     let diagnostics = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
@@ -458,7 +463,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
 
 #[test]
 fn rejects_standard_library_invalid_arity_and_argument_types() {
-    let lowered = common::lower_ok("fn bad() { ArrayList::push([1]); }");
+    let lowered = common::lower_ok("fn bad() { Vec::push([1]); }");
     let diagnostics = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect_err("standard call arity should reject");
@@ -472,7 +477,8 @@ fn rejects_standard_library_invalid_arity_and_argument_types() {
     }));
 
     let lowered = common::lower_ok(
-        r#"
+        r#"use std::collections::{HashMap};
+
 fn bad(values: HashMap<String, i32>) -> bool {
     values.contains_key(1)
 }
@@ -552,4 +558,19 @@ fn checks_print_builtin_signature() {
                 found: "i32".to_string(),
             }
     }));
+}
+
+fn binding_id(name: &str) -> kagari_common::identity::DefinitionPath {
+    catalog::shared()
+        .iter()
+        .flat_map(|module| module.native_declarations())
+        .find_map(|declaration| match declaration.function.implementation {
+            kagari_contract::callable::CallableImplementation::Native(id)
+                if id.path.last().is_some_and(|part| part.name == name) =>
+            {
+                Some(id)
+            }
+            _ => None,
+        })
+        .expect("installed native binding")
 }

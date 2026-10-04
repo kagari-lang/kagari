@@ -5,7 +5,7 @@ use crate::typeck::scalar::ScalarValue;
 fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
     let source = SourceFile::new(
         "holes.kgr",
-        "fn bad() { val partial: (i32, List<_>) = (42, []); partial } fn good() -> u8 { 42 }",
+        "use std::collections::{List};\nfn bad() { val partial: (i32, List<_>) = (42, []); partial } fn good() -> u8 { 42 }",
     );
     let result = crate::analyze_source(&source);
     assert!(!result.diagnostics().is_empty());
@@ -271,7 +271,7 @@ fn rejects_heap_backed_const_types() {
         r#"
 struct Point { var x: i32, var y: i32 }
 const PAIR: (i32, i32) = (1, 2);
-const VALUES: ArrayList<i32> = [3, 4];
+const VALUES: Vec<i32> = [3, 4];
 const POINT: Point = Point { x: 5, y: 6 };
 "#,
     );
@@ -291,9 +291,8 @@ const POINT: Point = Point { x: 5, y: 6 };
         diagnostic.kind
             == DiagnosticKind::InvalidConstInitializer {
                 const_name: "VALUES".to_string(),
-                reason:
-                    "const type `ArrayList<i32>` is heap-backed; const supports value types only"
-                        .to_string(),
+                reason: "const type `Vec<i32>` is heap-backed; const supports value types only"
+                    .to_string(),
             }
     }));
     assert!(diagnostics.iter().any(|diagnostic| {

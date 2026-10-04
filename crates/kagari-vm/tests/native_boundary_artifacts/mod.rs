@@ -9,8 +9,9 @@ use kagari_contract::{
     scalar::BuiltinType,
     types::Ty,
 };
-use kagari_runtime::{Runtime, value::Value};
+use kagari_runtime::{Runtime, native::foundation, value::Value};
 use kagari_vm::vm::Vm;
+use std::sync::Arc;
 use {
     kagari_common::identity::{ModuleIdentity, PackageId},
     kagari_source::source_database::{SourceDatabase, SourceLayer},
@@ -38,7 +39,15 @@ fn fixture(dependency_source: &str) -> BytecodeProgram {
             .unwrap();
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
-    let snapshot = kagari_hir::analysis::AnalysisDatabase::default()
+    let mut analysis = kagari_hir::analysis::AnalysisDatabase::default();
+    analysis.set_native_modules(
+        foundation::modules()
+            .unwrap()
+            .iter()
+            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .collect(),
+    );
+    let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot
@@ -54,7 +63,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
     let program = fixture(
         r#"
         pub fn answer() -> i32 {
-            val values: ArrayList<i32> = ArrayList::new();
+            val values: Vec<i32> = Vec::new();
             values.push(40); values.push(2);
             if values.len() == 2usize { values[0] + values[1] } else { 0 }
         }
@@ -103,7 +112,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
 #[test]
 fn forged_native_imports_reject_bindings_signatures_and_obligations() {
     let program = fixture(
-        "pub fn answer() -> i32 { val set: HashSet<i32> = HashSet::new(); set.insert(42); if set.contains(42) { 42 } else { 0 } }",
+        "use std::collections::{HashSet};\npub fn answer() -> i32 { val set: HashSet<i32> = HashSet::new(); set.insert(42); if set.contains(42) { 42 } else { 0 } }",
     );
     let (member, slot) = program
         .modules
@@ -220,7 +229,8 @@ fn concrete_collection_native_signatures_preserve_element_types() {
 #[test]
 fn hash_storage_native_imports_carry_and_validate_selected_callables() {
     let program = fixture(
-        r#"pub fn answer() -> i32 {
+        r#"use std::collections::{HashSet};
+pub fn answer() -> i32 {
         val values: HashSet<i32> = HashSet::new();
         values.insert(42);
         if values.contains(42) { 42 } else { 0 }
@@ -316,7 +326,7 @@ fn native_storage_writes_reject_element_type_forgery() {
         unreachable!()
     };
     // The values share a physical heap-handle representation; the concrete
-    // element contract must reject substituting ArrayList<String> for ArrayList<i32>.
+    // element contract must reject substituting Vec<String> for Vec<i32>.
     args[1] = wrong;
     assert!(verify_program(&program).is_err());
     assert!(KbcArtifact::from_program(program.clone(), Default::default()).is_err());

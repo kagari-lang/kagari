@@ -1,7 +1,7 @@
 //! Private keys for the Rust foundation registration inventory. Generic
 //! consumers use declared identities/capabilities, never this enum.
 use crate::{
-    language,
+    library::catalog::assembly_identity,
     types::{NominalTy, Ty},
 };
 use kagari_common::identity::{
@@ -53,7 +53,7 @@ pub(super) enum RegistrationTrait {
 
 pub(super) fn identity(protocol: RegistrationTrait) -> DefinitionPath {
     DefinitionPath {
-        module: language::module_identity(),
+        module: assembly_identity(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
             name: protocol.name().into(),
@@ -156,7 +156,7 @@ impl RegistrationTrait {
         table: Option<&DefinitionTable>,
     ) -> Option<Self> {
         let view = id.describe(table).ok()?;
-        if view.module() != &language::module_identity() || view.segments().count() != 1 {
+        if view.module() != &assembly_identity() || view.segments().count() != 1 {
             return None;
         }
         let part = view.last()?;

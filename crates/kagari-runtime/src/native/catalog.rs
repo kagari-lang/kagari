@@ -43,12 +43,16 @@ impl DeclarationCatalog<DefinitionPath> {
         let mut result = Self::default();
         for module in modules {
             for ty in &module.types {
-                if matches!(ty.kind, TypeDefKind::NativeStorage(_)) {
-                    result.insert_type(
-                        module.definition(DefinitionKind::AssociatedType, &ty.name),
-                        ty.clone(),
-                    )?;
-                }
+                result.insert_type(
+                    module.definition(
+                        match ty.kind {
+                            TypeDefKind::Native(constructor) => constructor.declaration_kind(),
+                            _ => DefinitionKind::AssociatedType,
+                        },
+                        &ty.name,
+                    ),
+                    ty.clone(),
+                )?;
             }
             for contract in &module.traits {
                 result.insert(

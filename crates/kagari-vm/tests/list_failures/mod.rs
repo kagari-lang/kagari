@@ -48,9 +48,12 @@ fn main() {
     );
 }
 
-const CONTAINER: &str = r#"
+const CONTAINER: &str = r#"use std::collections::{List, MutableList};
+use std::iter::{CollectionCursor};
+use std::ops::{Index};
+
 use test::probe::{keep, tick};
-struct Sequence { val items: ArrayList<i32> }
+struct Sequence { val items: Vec<i32> }
 impl Index<usize> for Sequence {
     type Output = i32;
     fn index(self, index: usize) -> i32 { self.items[index] }

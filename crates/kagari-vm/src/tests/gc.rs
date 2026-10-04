@@ -27,7 +27,7 @@ fn runtime() -> Runtime {
 #[test]
 fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints() {
     let module = compile_test_bytecode(
-        "fn make() -> ArrayList<i32> { [42] } fn main() -> ArrayList<i32> { val kept = make(); val other = [1, 2]; kept }",
+        "fn make() -> Vec<i32> { [42] } fn main() -> Vec<i32> { val kept = make(); val other = [1, 2]; kept }",
     );
     for encoded in [false, true] {
         for jit in [false, true] {

@@ -17,8 +17,8 @@ fn main() -> i32 {
     values.push(22);
 
     // Local holes and explicit call arguments share the same body constraints.
-    val readonly: ArrayList<_> = values;
-    val collected = identity::<ArrayList<i32>>(readonly);
+    val readonly: Vec<_> = values;
+    val collected = identity::<Vec<i32>>(readonly);
     // Suffixes select primitive types; unsuffixed literals use context first.
     val byte: u8 = 255;
     val minimum = -128i8;

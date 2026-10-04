@@ -7,6 +7,7 @@ use kagari_common::identity::{
 use kagari_contract::{
     declaration::ImplDecl,
     language::{self, Protocol},
+    library::namespaces,
     types::{InterfaceTable, PublicItem, Ty},
 };
 
@@ -55,8 +56,11 @@ pub(super) fn validate_installed_traits(
             ));
         }
     }
-    if module.identity == language::module_identity() {
-        for protocol in Protocol::ALL {
+    if namespaces::is_language_module(&module.identity) {
+        for protocol in Protocol::ALL
+            .into_iter()
+            .filter(|protocol| language::identity(*protocol).module == module.identity)
+        {
             let id = language::identity(protocol);
             let expected = installed.traits.get(&id).ok_or_else(|| {
                 RuntimeError::module_validation("language foundation is not installed")
@@ -95,9 +99,10 @@ pub(super) fn validate(
                     |item| matches!(item, PublicItem::Type(declaration) if declaration == expected),
                 )
         }) {
-            return Err(RuntimeError::module_validation(
-                "native storage type differs from its registered contract",
-            ));
+            return Err(RuntimeError::module_validation(format!(
+                "native type {} differs from its registered contract",
+                expected.name
+            )));
         }
     }
     for (id, expected) in required.traits.entries() {

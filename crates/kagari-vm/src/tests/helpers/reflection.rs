@@ -298,7 +298,7 @@ fn main() -> i32 {
 fn executes_source_lowered_set_index_helper() {
     let (runtime, loaded) = load_reflection_test_module(
         r#"
-fn main() -> ArrayList<i32> {
+fn main() -> Vec<i32> {
     val values = [1, 2];
     set_index(values, 0, 9)
 }
@@ -341,7 +341,8 @@ fn main() -> i32 {
 #[test]
 fn standard_collection_reflection_metadata_reports_runtime_categories() {
     let (runtime, loaded) = load_reflection_test_module(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         fn main() -> (String, String) {
             val map: HashMap<i32,i32> = HashMap::new();
             val set: HashSet<i32> = HashSet::new();

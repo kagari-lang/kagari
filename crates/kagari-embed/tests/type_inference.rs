@@ -63,7 +63,8 @@ fn execute(source: &str) {
 #[test]
 fn later_collection_uses_preserve_access_and_runtime_values() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         fn main() -> i32 {
             val values = [];
             val alias = values;
@@ -89,7 +90,7 @@ fn inference_order_does_not_change_evaluation_order() {
         struct Pair<T> { val marker: Marker<T>, val seed: T }
         enum Bundle<T> { Pair(Marker<T>, T) }
         fn consume<T>(marker: Marker<T>, seed: T) -> i32 { marker.value }
-        fn record(events: ArrayList<i32>, value: i32) -> i32 {
+        fn record(events: Vec<i32>, value: i32) -> i32 {
             events.push(value);
             value
         }
@@ -121,7 +122,7 @@ fn expected_collection_types_constrain_sources_and_callbacks() {
             val selected: collections::MapIterator<i32,Result<i32,String>> = collections::map(source, |x| Ok(x));
             var total=0;
             for item in selected {match item {Ok(n)=>{total+=n;},Err(_)=>{return 0;}};}
-            val nested: ArrayList<ArrayList<i32>> = [[], [total]];
+            val nested: Vec<Vec<i32>> = [[], [total]];
             nested[1][0]
         }
     "#,
@@ -131,7 +132,8 @@ fn expected_collection_types_constrain_sources_and_callbacks() {
 #[test]
 fn numeric_suffixes_context_and_full_unsigned_range_execute() {
     execute(
-        r#"
+        r#"use std::collections::{HashSet};
+
         const MINIMUM: i8 = -128i8;
         const WIDE: i64 = 4_000_000_000i64 + 2i64;
         const DOUBLE: f64 = 1.25 + 0.75;
@@ -235,8 +237,8 @@ fn explicit_type_arguments_and_local_placeholders_execute() {
             fn transform<T>(self, value: T) -> T { value }
         }
         fn main() -> i32 {
-            val values: ArrayList<_> = [20, 22];
-            val copy = identity::<ArrayList<i32>>(values);
+            val values: Vec<_> = [20, 22];
+            val copy = identity::<Vec<i32>>(values);
             val mapped = collections::map::<i32,i64>([42], |x| 42i64).next();
             { val passed = mapped == Some(42i64); if !passed {val zero=0;1/zero;} };
             val success = Ok::<i32, String>(42);
@@ -257,7 +259,7 @@ fn invalid_explicit_arguments_and_unresolved_holes_are_rejected() {
         "fn identity<T>(x: T) -> T { x } fn main() { identity::<Missing>(1); }",
         "fn identity<T>(x: T) -> T { x } fn main() { identity::<T = i32>(1); }",
         "fn main() { val f = |x: i32| x; f::<i32>(1); }",
-        "fn main() { val values: ArrayList<_> = []; }",
+        "fn main() { val values: Vec<_> = []; }",
         "fn main(x: _) {}",
         "struct Bad { val field: _ } fn main() {}",
         "fn main() { val x: i64 = Some(1).map::<i32>(|x| x).unwrap(); }",

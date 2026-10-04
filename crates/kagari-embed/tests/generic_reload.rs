@@ -24,7 +24,8 @@ fn retained_generic_default_and_override_closures_pin_types_and_operations_after
         "fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool { || a.cmp(b) == Ordering::Less }";
     for implementation in [String::new(), method.to_owned()] {
         let source = format!(
-            r#"
+            r#"use std::cmp::{{Ordering}};
+
 trait Keep {{ {method} }}
 impl Keep for i32 {{ {implementation} }}
 struct Rank {{ val value: i32 }}

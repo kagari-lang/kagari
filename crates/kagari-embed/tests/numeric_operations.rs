@@ -95,7 +95,8 @@ fn bitwise_example() {
 #[test]
 fn generic_bitwise_static_dispatch() {
     execute(
-        r#"
+        r#"use std::ops::{BitOr};
+
         struct Bits { val value: i32 }
         impl BitOr<Bits> for Bits {
             type Output = Bits;
@@ -154,8 +155,8 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
             SourceFile::new(
                 "commit.kgr",
                 r#"
-        fn index(log: ArrayList<i32>) -> usize { log.push(1); 0usize }
-        fn count(log: ArrayList<i32>) -> u16 { log.push(2); 32u16 }
+        fn index(log: Vec<i32>) -> usize { log.push(1); 0usize }
+        fn count(log: Vec<i32>) -> u16 { log.push(2); 32u16 }
         fn main() { val memory = demo::memory(); memory[index(memory)] <<= count(memory); }
     "#,
             ),
@@ -257,7 +258,7 @@ fn casts_respect_early_return_and_nested_generics() {
         r#"
         fn stop() -> i32 { (if true { return 42; } else { return 1; }) as u8; 0 }
         fn main() -> i32 {
-            val nested: ArrayList<ArrayList<u8>> = [[8u8 >> 1]];
+            val nested: Vec<Vec<u8>> = [[8u8 >> 1]];
             { val passed = nested[0][0] == 4u8; if !passed {val zero=0;1/zero;} };
             stop()
         }

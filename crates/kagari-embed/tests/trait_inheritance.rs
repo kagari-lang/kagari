@@ -168,7 +168,7 @@ fn cycles_missing_parents_and_distinct_parent_methods_are_diagnostics() {
     for source in [
         "trait A: A {} fn main() {}",
         "trait A: B {} trait B: A {} fn main() {}",
-        "trait A<T>: A<List<T>> {} fn main() {}",
+        "use std::collections::{List};\ntrait A<T>: A<List<T>> {} fn main() {}",
         "trait Bound {} trait Parent<T: Bound> {} trait Child<T>: Parent<T> {} fn main() {}",
         "trait Parent<T> { fn read(self) -> T; } trait Child: Parent<Self> {} fn bad(x: Child) {} fn main() {}",
         "trait Parent { type Item; } trait Child: Parent {} fn bad(x: Child) {} fn main() {}",

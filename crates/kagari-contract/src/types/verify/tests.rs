@@ -6,7 +6,10 @@ use crate::{
 
 #[test]
 fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
-    let module = catalog::shared();
+    let module = catalog::shared()
+        .into_iter()
+        .find(|module| module.identity == crate::library::namespaces::module("core", "convert"))
+        .unwrap();
     let cancel = CancellationToken::default();
     for name in ["Into", "TryInto", "TryFrom"] {
         let contract = module

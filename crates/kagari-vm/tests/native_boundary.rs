@@ -22,6 +22,7 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
+        foundation,
         language::LanguageContracts,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
@@ -42,8 +43,15 @@ fn compile_program(text: &str, module: Option<&NativeModule>) -> BytecodeProgram
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        module
-            .into_iter()
+        foundation::modules()
+            .unwrap()
+            .iter()
+            .filter(|installed| {
+                module.is_none_or(|module| {
+                    module.declaration().identity != installed.declaration().identity
+                })
+            })
+            .chain(module)
             .map(|module| Arc::new(module.to_declaration().unwrap()))
             .collect(),
     );
@@ -123,9 +131,10 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
 #[test]
 fn foundation_defaults_execute_without_optional_modules() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
         fn main() -> i32 {
-            val values = ArrayList::new();
+            val values = Vec::new();
             values.push(20); values.push(22);
             val map = HashMap::new(); map.insert(1, values[0]); map.insert(2, values[1]);
             val set = HashSet::new(); set.insert(1); set.insert(1);
@@ -145,7 +154,9 @@ fn foundation_defaults_execute_without_optional_modules() {
 #[test]
 fn custom_hash_collisions_use_selected_script_methods() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap};
+use std::hash::{Hash};
+
         struct Key { val value: i32 }
         impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.value == other.value } }
         impl Eq for Key {}
@@ -416,7 +427,7 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        "use example::buffers::{Buffer, push, sum}; fn main() -> i32 { val buffer: Buffer<i32> = Buffer::new(); val other: Buffer<i32> = Buffer::new(); if buffer != buffer || buffer == other { return -2; } val keys = HashMap::new(); keys.insert(buffer, 42); if !keys.contains_key(buffer) || keys.contains_key(other) { return -3; } if sum(buffer) != 0 { return -1; } push(buffer, 20); push(buffer, 22); sum(buffer) }",
+        "use std::collections::{HashMap};\nuse example::buffers::{Buffer, push, sum}; fn main() -> i32 { val buffer: Buffer<i32> = Buffer::new(); val other: Buffer<i32> = Buffer::new(); if buffer != buffer || buffer == other { return -2; } val keys = HashMap::new(); keys.insert(buffer, 42); if !keys.contains_key(buffer) || keys.contains_key(other) { return -3; } if sum(buffer) != 0 { return -1; } push(buffer, 20); push(buffer, 22); sum(buffer) }",
         Some(&module),
     );
     assert_eq!(
@@ -429,7 +440,7 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
 fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage() {
     let language = LanguageContracts::default();
     let mut builder = ModuleBuilder::new("example::arrays", &language);
-    let array = language.array_list(Type::i32());
+    let array = language.vec(Type::i32());
     let probe = builder
         .define_function(
             FunctionDecl::new("probe")
@@ -461,7 +472,7 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
         r#"
         use example::arrays::probe;
         fn main() -> i32 {
-            val empty: ArrayList<i32> = [];
+            val empty: Vec<i32> = [];
             val values = [20, 22];
             val repeated = [7; 6];
             if probe(empty) != 0 || probe(repeated) != 42 { return -1; }
@@ -517,7 +528,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
     let len = builder
         .define_function(
             FunctionDecl::new("len")
-                .parameter("values", language.array_list(Type::i32()))
+                .parameter("values", language.vec(Type::i32()))
                 .returns(Type::usize()),
         )
         .unwrap();
@@ -526,7 +537,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         .define_function(
             FunctionDecl::new("transform")
                 .parameter("increment", Type::i32())
-                .parameter("values", language.array_list(Type::i32()))
+                .parameter("values", language.vec(Type::i32()))
                 .parameter("scale", Type::i32())
                 .returns(Type::i32()),
         )
@@ -566,7 +577,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
 #[test]
 fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_elements() {
     let (mut vm, loaded) = compile(
-        "struct Node { val value: i32 } fn values() -> ArrayList<i32> { [1, 2, 3, 4] } fn nodes() -> ArrayList<Node> { [Node { value: 42 }] }",
+        "struct Node { val value: i32 } fn values() -> Vec<i32> { [1, 2, 3, 4] } fn nodes() -> Vec<Node> { [Node { value: 42 }] }",
         None,
     );
     let value = vm.execute(&loaded, "values").unwrap().return_value;
@@ -680,10 +691,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
             let function = builder
                 .define_function(
                     FunctionDecl::new(name)
-                        .parameter(
-                            "values",
-                            language.array_list(Type::scalar(BuiltinType::$kind)),
-                        )
+                        .parameter("values", language.vec(Type::scalar(BuiltinType::$kind)))
                         .returns(Type::bool()),
                 )
                 .unwrap();
@@ -762,7 +770,9 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+use std::hash::{Hash};
+
         use example::hash_gc::collect;
         struct Key { val value: i32 }
         impl PartialEq for Key {
@@ -808,7 +818,9 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
 #[test]
 fn empty_hash_containers_reject_wrong_types_and_keep_the_selected_key_protocol() {
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+use std::hash::{Hash};
+
         struct Key { val value: i32 }
         impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.value == other.value } }
         impl Eq for Key {}
@@ -886,7 +898,8 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (mut vm, loaded) = compile(
-        r#"
+        r#"use std::iter::{CollectionCursor};
+
         use example::cursors::hold;
         fn cursor() -> CollectionCursor<i32> { [20, 22].iter() }
         fn first() -> i32 { match hold().next() { Some(value) => value, None => -1 } }
@@ -928,7 +941,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     let new = builder
         .define_function(
             FunctionDecl::new("new")
-                .parameter("values", language.array_list(Type::i32()))
+                .parameter("values", language.vec(Type::i32()))
                 .returns(ty.clone()),
         )
         .unwrap();

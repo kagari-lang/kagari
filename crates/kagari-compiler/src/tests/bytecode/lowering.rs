@@ -520,8 +520,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
-    let mut wrong_index =
-        common::bytecode_ok("fn main() -> ArrayList<i32> { set_index([1], 0, 2) }");
+    let mut wrong_index = common::bytecode_ok("fn main() -> Vec<i32> { set_index([1], 0, 2) }");
     let call = wrong_index.modules[wrong_index.root.index()].functions[0]
         .instructions
         .iter_mut()
@@ -581,7 +580,7 @@ fn main() -> Point {
 fn lowers_set_index_builtin_to_runtime_helper_call() {
     let bytecode = common::bytecode_ok(
         r#"
-fn main(values: ArrayList<i32>) -> ArrayList<i32> {
+fn main(values: Vec<i32>) -> Vec<i32> {
     set_index(values, 0, 9)
 }
 "#,

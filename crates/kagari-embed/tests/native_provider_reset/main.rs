@@ -75,7 +75,7 @@ fn execute(source: &str) {
 #[test]
 fn minimal_array_provider_executes_from_serialized_artifact() {
     execute(
-        "fn main() -> i32 { val a: ArrayList<i32> = ArrayList::new(); a.push(20); a.push(22); if a.len() == 2usize { a[0usize] + a[1usize] } else { 0 } }",
+        "fn main() -> i32 { val a: Vec<i32> = Vec::new(); a.push(20); a.push(22); if a.len() == 2usize { a[0usize] + a[1usize] } else { 0 } }",
     );
 }
 
@@ -125,7 +125,8 @@ fn readonly_interfaces_expose_reads_and_hide_mutators_without_native_access_flag
 #[test]
 fn readonly_list_methods_observe_mutation_through_a_concrete_alias() {
     execute(
-        r#"fn main() -> i32 {
+        r#"use std::collections::{List};
+fn main() -> i32 {
             val storage = [20];
             val view: List<i32> = storage;
             storage.push(22);

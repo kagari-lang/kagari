@@ -28,7 +28,23 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     let file = signatures
         .files
         .values()
-        .find(|file| file.source().name() == declaration_source(&catalog::shared()).unwrap().uri)
+        .find(|file| {
+            file.source().name()
+                == declaration_source(
+                    &catalog::shared()
+                        .into_iter()
+                        .find(|module| {
+                            module.identity
+                                == kagari_contract::library::namespaces::module(
+                                    "std",
+                                    "collections",
+                                )
+                        })
+                        .unwrap(),
+                )
+                .unwrap()
+                .uri
+        })
         .unwrap();
     assert!(
         file.signatures()
@@ -133,7 +149,7 @@ fn signature_navigation_uses_checked_type_targets_before_body_analysis() {
 
 #[test]
 fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
-    let text = "fn before() {} struct Key<T: Hash> { val value: T } struct Holder { val key: Key<f32> } enum Packet { Data(Key<f32>) } fn bad(x: Key<f32>) {} fn unresolved(x: Absent) {} fn good() -> i32 { 7 }";
+    let text = "use std::hash::{Hash};\nfn before() {} struct Key<T: Hash> { val value: T } struct Holder { val key: Key<f32> } enum Packet { Data(Key<f32>) } fn bad(x: Key<f32>) {} fn unresolved(x: Absent) {} fn good() -> i32 { 7 }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("applications.kgr", text.into(), SourceLayer::Base)
@@ -241,7 +257,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
     sources
         .set(
             "mem://types",
-            "pub struct Key<T: Hash> { val value: T }".into(),
+            "use std::hash::Hash; pub struct Key<T: Hash> { val value: T }".into(),
             SourceLayer::Overlay,
         )
         .unwrap();
@@ -292,7 +308,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
         "impl<T> HashSet<T> where T: Eq + Hash",
     ] {
         let text = format!(
-            "trait Get {{ fn get(self) -> i32; }} {header} {{ fn size<T: Get>(self, value: T) -> i32 {{ value.get() }} }} fn bad() {{ missing }}"
+            "use std::collections::HashSet; use std::hash::Hash; trait Get {{ fn get(self) -> i32; }} {header} {{ fn size<T: Get>(self, value: T) -> i32 {{ value.get() }} }} fn bad() {{ missing }}"
         );
         let mut sources = SourceDatabase::default();
         let id = sources.set("bounds.kgr", text, SourceLayer::Base).unwrap();
@@ -350,7 +366,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
 
 #[test]
 fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls() {
-    let text = "trait Get { fn get(self) -> i32; } fn pass<T: Eq + Hash>(x: T) -> T { x } fn main() -> i32 { pass(7) }";
+    let text = "use std::hash::{Hash};\ntrait Get { fn get(self) -> i32; } fn pass<T: Eq + Hash>(x: T) -> T { x } fn main() -> i32 { pass(7) }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("bound-edit.kgr", text.into(), SourceLayer::Base)

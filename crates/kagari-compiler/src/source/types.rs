@@ -15,7 +15,7 @@ pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeDefKind {
     match kind {
         NativeTypeKind::Storage { layout, .. } => TypeDefKind::NativeStorage(layout),
         NativeTypeKind::String => TypeDefKind::Native(NativeTypeConstructor::String),
-        NativeTypeKind::ArrayList => TypeDefKind::Native(NativeTypeConstructor::Array),
+        NativeTypeKind::Vec => TypeDefKind::Native(NativeTypeConstructor::Array),
         NativeTypeKind::HashMap => TypeDefKind::Native(NativeTypeConstructor::Map),
         NativeTypeKind::HashSet => TypeDefKind::Native(NativeTypeConstructor::Set),
         NativeTypeKind::Iter => TypeDefKind::Native(NativeTypeConstructor::Iter),

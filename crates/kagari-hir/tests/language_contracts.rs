@@ -2,6 +2,7 @@ use kagari_contract::library;
 use kagari_contract::library::catalog as language;
 use kagari_contract::{
     language::{self as identities, Protocol},
+    library::namespaces,
     scalar::BuiltinType,
     types::{Constraint, PublicItem, Ty, inheritance, verify},
 };
@@ -18,27 +19,30 @@ use {
 
 #[test]
 fn portable_language_catalog_has_complete_contracts() {
-    let module = language::declarations();
-    module.validate().expect("valid language declarations");
-    let items: Vec<_> = module
-        .traits
-        .iter()
-        .cloned()
-        .map(PublicItem::Trait)
-        .chain(module.types.iter().cloned().map(PublicItem::Type))
-        .collect();
-    verify::validate(&items, &module.identity, &CancellationToken::default()).unwrap();
+    let modules = language::declarations();
+    for module in &modules {
+        module.validate().expect("valid language declarations");
+        let items: Vec<_> = module
+            .traits
+            .iter()
+            .cloned()
+            .map(PublicItem::Trait)
+            .chain(module.types.iter().cloned().map(PublicItem::Type))
+            .collect();
+        verify::validate(&items, &module.identity, &CancellationToken::default()).unwrap();
+    }
+    let traits: Vec<_> = modules.iter().flat_map(|module| &module.traits).collect();
+    let types: Vec<_> = modules.iter().flat_map(|module| &module.types).collect();
     for protocol in Protocol::ALL {
         assert_eq!(
-            module
-                .traits
+            traits
                 .iter()
                 .filter(|contract| contract.name == protocol.name())
                 .count(),
             1
         );
     }
-    let iterable = module.traits.iter().find(|t| t.name == "Iterable").unwrap();
+    let iterable = traits.iter().find(|t| t.name == "Iterable").unwrap();
     let iter = iterable
         .associated_types
         .iter()
@@ -51,8 +55,7 @@ fn portable_language_catalog_has_complete_contracts() {
     );
     for kind in ["Map", "Set", "MutableMap", "MutableSet"] {
         assert!(
-            module
-                .traits
+            traits
                 .iter()
                 .find(|t| t.name == kind)
                 .unwrap()
@@ -62,7 +65,7 @@ fn portable_language_catalog_has_complete_contracts() {
     }
     for kind in ["HashMap", "HashSet"] {
         assert_eq!(
-            module.types.iter().find(|t| t.name == kind).unwrap().bounds[0]
+            types.iter().find(|t| t.name == kind).unwrap().bounds[0]
                 .constraints
                 .iter()
                 .map(|bound| match bound {
@@ -72,17 +75,21 @@ fn portable_language_catalog_has_complete_contracts() {
                 .collect::<Vec<_>>(),
             vec![
                 Some(Protocol::Eq),
-                Some(Protocol::Hash),
-                Some(Protocol::PartialEq)
+                Some(Protocol::PartialEq),
+                Some(Protocol::Hash)
             ]
         );
     }
-    let generated = declaration_source(&module).unwrap();
-    assert!(generated.text.contains("type Iter: Iterator<Item ="));
-    assert!(generated.text.contains("trait FromIterator<T0>"));
-    assert!(generated.text.contains("fn from_iter<M0>(source: M0)"));
-    assert!(generated.text.contains("fn sorted_by_key<M0>"));
-    assert!(generated.text.contains("fn retain("));
+    let generated = modules
+        .iter()
+        .map(|module| declaration_source(module).unwrap().text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(generated.contains("type Iter: Iterator<Item ="));
+    assert!(generated.contains("trait FromIterator<T0>"));
+    assert!(generated.contains("fn from_iter<M0>(source: M0)"));
+    assert!(generated.contains("fn sorted_by_key<M0>"));
+    assert!(generated.contains("fn retain("));
 }
 
 #[test]
@@ -102,7 +109,9 @@ fn language_records_are_available_without_native_modules() {
         .unwrap();
     let core = snapshot
         .files()
-        .find(|file| file.source().module_identity() == &identities::module_identity())
+        .find(|file| {
+            file.source().module_identity() == &identities::identity(Protocol::Iterator).module
+        })
         .unwrap();
     assert!(core.diagnostics().is_empty(), "{:?}", core.diagnostics());
     assert!(
@@ -113,9 +122,9 @@ fn language_records_are_available_without_native_modules() {
             .is_some()
     );
     let array = language::declarations()
-        .types
         .into_iter()
-        .find(|t| t.name == "ArrayList")
+        .flat_map(|module| module.types)
+        .find(|t| t.name == "Vec")
         .unwrap();
     assert!(matches!(
         array.generic_params[0].as_type(),
@@ -125,14 +134,19 @@ fn language_records_are_available_without_native_modules() {
 
 #[test]
 fn portable_collection_view_preserves_concrete_iterator_proofs() {
-    let module = language::declarations();
+    let modules = language::declarations();
     let lookup = |id: &DefinitionPath| {
-        module.traits.iter().find(|contract| {
-            module.definition(
-                kagari_common::identity::DefinitionKind::Trait,
-                &contract.name,
-            ) == *id
-        })
+        modules
+            .iter()
+            .find(|module| module.identity == id.module)
+            .and_then(|module| {
+                module.traits.iter().find(|contract| {
+                    module.definition(
+                        kagari_common::identity::DefinitionKind::Trait,
+                        &contract.name,
+                    ) == *id
+                })
+            })
     };
     let list = library::applied("List", vec![Ty::Builtin(BuiltinType::I32)]);
     let receiver = Ty::Trait(list.clone());
@@ -189,7 +203,8 @@ fn diagnostics(text: &str) -> Vec<String> {
 #[test]
 fn default_containers_and_user_iterator_type_check_without_an_optional_module() {
     let errors = diagnostics(
-        r#"
+        r#"use std::collections::{HashMap, HashSet, MutableList};
+
         struct Cursor { var current: i32 }
         impl Iterator for Cursor {
             type Item = i32;
@@ -224,7 +239,8 @@ fn readonly_mutation_and_unhashable_default_keys_are_rejected() {
         errors.iter().any(|error| error.contains("push")),
         "{errors:#?}"
     );
-    let errors = diagnostics("fn bad(value: HashMap<f64, i32>) { }");
+    let errors =
+        diagnostics("use std::collections::{HashMap};\nfn bad(value: HashMap<f64, i32>) { }");
     assert!(
         errors
             .iter()
@@ -233,7 +249,7 @@ fn readonly_mutation_and_unhashable_default_keys_are_rejected() {
                 && error.contains("Eq + Hash")),
         "default hash storage did not reject its concrete key bound: {errors:#?}"
     );
-    let errors = diagnostics("fn valid<T>(value: Map<T, i32>) { }");
+    let errors = diagnostics("use std::collections::{Map};\nfn valid<T>(value: Map<T, i32>) { }");
     assert!(
         errors.is_empty(),
         "Map incorrectly imposed Hash/Eq: {errors:#?}"
@@ -287,10 +303,12 @@ fn iterable_requires_a_real_iterator_with_the_same_item() {
 
 #[test]
 fn list_method_navigation_uses_language_owned_declarations() {
-    let module = language::declarations();
+    let module = language::declarations()
+        .into_iter()
+        .find(|module| module.identity == namespaces::module("std", "collections"))
+        .unwrap();
     let generated = declaration_source(&module).unwrap();
-    let source =
-        "fn main() { val values: List<i32> = [2,1]; values.sorted_by_key(|value| value); }";
+    let source = "use std::collections::{List};\nfn main() { val values: List<i32> = [2,1]; values.sorted_by_key(|value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("list-navigation.kgr", source.into(), SourceLayer::Base)
@@ -315,7 +333,13 @@ fn list_method_navigation_uses_language_owned_declarations() {
 
 #[test]
 fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
-    let generated = declaration_source(&language::declarations()).unwrap();
+    let generated = declaration_source(
+        &language::declarations()
+            .into_iter()
+            .find(|module| module.identity == namespaces::type_owner("String"))
+            .unwrap(),
+    )
+    .unwrap();
     let source = "fn main() { val text = \"é🙂\"; text.slice(0usize, 2usize); text. }";
     let mut sources = SourceDatabase::default();
     let file = sources

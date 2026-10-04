@@ -6,7 +6,7 @@ use kagari_vm::vm::Vm;
 #[test]
 fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     let program = compile_program(
-        "fn containers() -> (ArrayList<i32>, HashMap<i32,i32>, HashSet<i32>) { val map: HashMap<i32,i32> = HashMap::new(); map.insert(1,7); val set: HashSet<i32> = HashSet::new(); set.insert(7); ([7], map, set) }",
+        "use std::collections::{HashMap, HashSet};\nfn containers() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) { val map: HashMap<i32,i32> = HashMap::new(); map.insert(1,7); val set: HashSet<i32> = HashSet::new(); set.insert(7); ([7], map, set) }",
         None,
     );
     let mut runtime = Runtime::default();

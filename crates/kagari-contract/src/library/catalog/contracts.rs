@@ -8,6 +8,7 @@ use crate::{
     standard::surface::StandardEnum,
     types::{AssociatedTypeDef, Constraint, FnDecl, GenericParam, NominalTy, Param, TraitDef, Ty},
 };
+use kagari_common::identity::mapping::{DefinitionMapper, DefinitionRecord};
 use kagari_common::identity::{DefinitionPath, associated_type_id};
 
 pub(super) fn contract(kind: RegistrationTrait, parameters: &[&str]) -> TraitDef {
@@ -102,7 +103,18 @@ pub(super) fn applied_item(kind: RegistrationTrait, item: Ty) -> NominalTy {
 }
 
 pub(super) fn declare(module: &mut ModuleDecl) {
-    module.traits.extend(product::declarations());
+    module.traits.extend(
+        product::declarations()
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |id: &DefinitionPath| {
+                    let mut id = id.clone();
+                    id.module = module.identity.clone();
+                    Ok(id)
+                },
+                &Default::default(),
+            ))
+            .expect("foundation assembly identities"),
+    );
     let mut bounds = contract(RegistrationTrait::RangeBounds, &["T"]);
     let bound = enum_type(
         StandardEnum::Bound,

@@ -230,8 +230,9 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
 fn host_trait_standard_bounds_are_rechecked_after_decode() {
     use kagari_common::host_interface::value_type::HostValueType;
 
-    let module =
-        host_trait_test_program("trait Readable<T: Eq + Hash> { fn get(self) -> T; } fn main() {}");
+    let module = host_trait_test_program(
+        "use std::hash::{Hash};\ntrait Readable<T: Eq + Hash> { fn get(self) -> T; } fn main() {}",
+    );
     verify_program(&module).unwrap();
     let valid = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
     let mut forged = valid.clone();

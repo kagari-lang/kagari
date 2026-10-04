@@ -112,7 +112,7 @@ fn invalid_conversion_implementations_are_diagnostics() {
 fn aliased_and_generic_from_bounds_evaluate_once() {
     execute(
         r#"
-use core::language::From as Convert;
+use core::convert::From as Convert;
 struct Count{val value:i32}
 impl Convert<i32> for Count{fn from(value:i32)->Self{Count{value}}}
 struct Calls{var count:i32}
@@ -230,7 +230,9 @@ fn main()->i32 {
 #[test]
 fn static_calls_share_ordinary_trait_dispatch() {
     execute(
-        r#"
+        r#"use std::iter::{Product, Sum};
+use std::str::{FromStr};
+
 struct Count {val value:i32}
 impl FromStr for Count {
     type Err=String;
@@ -258,10 +260,12 @@ fn main()->i32 {
 #[test]
 fn foundation_construction_and_primitive_conversions() {
     execute(
-        r#"
+        r#"use std::iter::{Sum};
+use std::num::{TryFromIntError};
+
 fn aggregate<T:Sum<i32>,I:Iterable<Item=i32>>(source:I)->T {T::sum(source)}
 fn main()->i32 {
-    val copied=ArrayList<i32>::from_iter([2,3,7]);
+    val copied=Vec<i32>::from_iter([2,3,7]);
     val product=i32::product(copied);
     val total:i32=aggregate([20,22]);
     val parsed=i32::from_str("42");
@@ -282,7 +286,7 @@ impl Iterator for Counter {
     fn next(self)->Option<i32> {if self.value<22 {self.value=self.value+1;Some(self.value)}else{None}}
 }
 fn main()->i32 {
-    val list=ArrayList<i32>::from_iter(Counter{value:19});
+    val list=Vec<i32>::from_iter(Counter{value:19});
     val total=i32::sum(list);
     total-21
 }
@@ -295,12 +299,12 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
     for source in [
         "struct X{} impl Into<i32> for X {fn into(self)->i32 {1}} fn main(){}",
         "struct X{} impl TryInto<i32> for X {type Error=String;fn try_into(self)->Result<i32,String>{Ok(1)}} fn main(){}",
-        "struct X{} impl FromStr for X {type Err=String;fn from_str(text:i32)->Result<X,String>{Ok(X{})}} fn main(){}",
-        "struct X{} impl FromStr for X {type Err=String;fn from_str(text:String)->Result<X,String>{Ok(X{})}} fn main(){<X as FromStr<Err=i32>>::from_str(\"42\");}",
+        "use std::str::{FromStr};\nstruct X{} impl FromStr for X {type Err=String;fn from_str(text:i32)->Result<X,String>{Ok(X{})}} fn main(){}",
+        "use std::str::{FromStr};\nstruct X{} impl FromStr for X {type Err=String;fn from_str(text:String)->Result<X,String>{Ok(X{})}} fn main(){<X as FromStr<Err=i32>>::from_str(\"42\");}",
         "struct X{} impl TryFrom<i32> for X {type Error=String;fn try_from(value:i32)->X{X{}}} fn main(){}",
-        "struct X{} impl Sum<i32> for X {fn sum<I:Iterable<Item=String>>(source:I)->X{X{}}} fn main(){}",
-        "struct X{} impl Product<i32> for X {fn product(source:i32)->X{X{}}} fn main(){}",
-        "fn main(){val x=ArrayList<i32>::from_iter([true]);}",
+        "use std::iter::{Sum};\nstruct X{} impl Sum<i32> for X {fn sum<I:Iterable<Item=String>>(source:I)->X{X{}}} fn main(){}",
+        "use std::iter::{Product};\nstruct X{} impl Product<i32> for X {fn product(source:i32)->X{X{}}} fn main(){}",
+        "fn main(){val x=Vec<i32>::from_iter([true]);}",
         "fn main()->i32 {i32::sum([true])}",
         "fn main(){val x:Result<i32,String> = i32::try_from(1);}",
     ] {
@@ -320,10 +324,12 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
 #[test]
 fn primitive_construction_preserves_errors_empty_identities_and_fresh_storage() {
     execute(
-        r#"
+        r#"use std::convert::{Infallible};
+use std::num::{ParseError, TryFromIntError};
+
 fn main()->i32 {
-    val source=[1,2];val copy=ArrayList<i32>::from_iter(source);copy.push(3);
-    val empty_values:ArrayList<i32> = [];
+    val source=[1,2];val copy=Vec<i32>::from_iter(source);copy.push(3);
+    val empty_values:Vec<i32> = [];
     if source.len()!=2usize || i32::sum(empty_values)!=0 || i32::product(empty_values)!=1 {return 0;}
     val out=i8::try_from(128);val empty=i32::from_str("");val invalid=bool::from_str("TRUE");
     val narrow:Result<i8,Infallible> = i8::try_from(42i8);
@@ -362,7 +368,8 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
 #[test]
 fn native_aggregation_accepts_readonly_collection_interfaces() {
     execute(
-        r#"
+        r#"use std::collections::{List};
+
 fn main()->i32 {val values:List<i32> = [20,22]; i32::sum(values)}
 "#,
     );
@@ -372,8 +379,8 @@ fn main()->i32 {val values:List<i32> = [20,22]; i32::sum(values)}
 fn native_construction_accepts_custom_iterable_implementations() {
     execute(
         r#"
-struct Source {val values:ArrayList<i32>}
-struct Cursor {val values:ArrayList<i32>,var index:usize}
+struct Source {val values:Vec<i32>}
+struct Cursor {val values:Vec<i32>,var index:usize}
 impl Iterator for Cursor {
     type Item=i32;
     fn next(self)->Option<i32> {if self.index<self.values.len() {val item=self.values[self.index];self.index=self.index+1usize;Some(item)}else{None}}

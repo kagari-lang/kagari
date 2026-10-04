@@ -67,7 +67,9 @@ fn execute(source: &str) {
 #[test]
 fn standard_trait_methods_and_generic_bounds_execute() {
     execute(
-        r#"
+        r#"use std::fmt::{Debug, Display};
+use std::hash::{Hash};
+
 fn same<T: Eq>(a:T, b:T)->bool { a.eq(b) && a == b }
 fn hash<T: Eq + Hash>(a:T)->i64 { a.hash() }
 fn format<T: Debug>(a:T)->String { a.debug() }
@@ -83,7 +85,8 @@ fn main()->i32 {
 #[test]
 fn explicit_formatting_uses_normal_static_dispatch() {
     execute(
-        r#"
+        r#"use std::fmt::{Debug, Display};
+
 struct Item { val value: i32 }
 impl Debug for Item { fn debug(self)->String { "custom debug" } }
 impl Display for Item { fn display(self)->String { self.value.display() } }
@@ -100,7 +103,8 @@ fn main()->i32 {
 #[test]
 fn structural_and_identity_keys_execute_through_artifacts() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap};
+
 struct Key { var value: i32 }
 enum Tag { Name(String), Number(i32) }
 fn main()->i32 {
@@ -122,10 +126,12 @@ fn main()->i32 {
 #[test]
 fn imports_supertraits_and_nested_structural_keys() {
     execute(
-        r#"
-use core::language::Eq as Equal;
-use core::language::Hash;
-use core::language as formatting;
+        r#"use std::collections::{HashSet};
+use std::fmt::{Display};
+
+use core::cmp::Eq as Equal;
+use core::hash::Hash;
+use core::fmt as formatting;
 trait Named: Equal { fn name(self)->String; }
 struct Item { val value: i32 }
 impl Named for Item { fn name(self)->String { "item" } }
@@ -146,19 +152,19 @@ fn main()->i32 {
 fn invalid_standard_trait_uses_report_semantic_diagnostics() {
     for source in [
         "fn needs<T: Eq>(x:T) {} fn main() { needs(1.5); }",
-        "fn needs<T: Hash>(x:T) {} fn main() { needs(1.5); }",
-        "enum Key { Good(i32), Bad(f64) } fn main() { val map: HashMap<Key, i32> = HashMap::new(); }",
-        "enum Key { Good(i32), Bad(f64) } fn needs<T: Eq + Hash>(x:T) {} fn main() { needs(Key::Good(1)); }",
+        "use std::hash::{Hash};\nfn needs<T: Hash>(x:T) {} fn main() { needs(1.5); }",
+        "use std::collections::{HashMap};\nenum Key { Good(i32), Bad(f64) } fn main() { val map: HashMap<Key, i32> = HashMap::new(); }",
+        "use std::hash::{Hash};\nenum Key { Good(i32), Bad(f64) } fn needs<T: Eq + Hash>(x:T) {} fn main() { needs(Key::Good(1)); }",
         "fn needs<T: Eq<i32>>(x:T) {} fn main() {}",
-        "trait Named: Debug {} fn f(x:Named) {} fn main() {}",
+        "use std::fmt::{Debug};\ntrait Named: Debug {} fn f(x:Named) {} fn main() {}",
         "struct Item {} impl Eq for Item {} fn main() {}",
-        "struct Item {} impl Hash for Item { fn hash(self)->i64 { 1 } } fn main() {}",
-        "impl Debug for i32 { fn debug(self)->String { \"x\" } } fn main() {}",
-        "struct Item {} impl Debug for Item { fn debug(self)->i32 { 1 } } fn main() {}",
-        "struct Item {} impl Display for Item {} fn main() {}",
-        "fn f(x: Debug) {} fn main() {}",
+        "use std::hash::{Hash};\nstruct Item {} impl Hash for Item { fn hash(self)->i64 { 1 } } fn main() {}",
+        "use std::fmt::{Debug};\nimpl Debug for i32 { fn debug(self)->String { \"x\" } } fn main() {}",
+        "use std::fmt::{Debug};\nstruct Item {} impl Debug for Item { fn debug(self)->i32 { 1 } } fn main() {}",
+        "use std::fmt::{Display};\nstruct Item {} impl Display for Item {} fn main() {}",
+        "use std::fmt::{Debug};\nfn f(x: Debug) {} fn main() {}",
         "trait Eq {} fn f<T: Eq>(x:T)->bool { x == x } fn main() {}",
-        "trait Hash {} fn f<T: Eq + Hash>(x:T)->HashSet<T> { HashSet::new() } fn main() {}",
+        "use std::collections::{HashSet};\ntrait Hash {} fn f<T: Eq + Hash>(x:T)->HashSet<T> { HashSet::new() } fn main() {}",
         "fn f<T: HashKey>(x:T) {} fn main() {}",
     ] {
         let error = KagariEngine::default()
@@ -177,7 +183,9 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
 #[test]
 fn standard_impls_are_available_to_trait_inputs_and_associated_outputs() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap};
+use std::hash::{Hash};
+
 trait Read<T: Eq + Hash> { type Item: Eq + Hash; fn get(self, value:T)->Self::Item; }
 struct Reader {}
 impl Read<i32> for Reader { type Item = (i32, String); fn get(self,value:i32)->(i32,String) { (value,"ok") } }
@@ -198,7 +206,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
         types::{PublicItem, Ty},
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "struct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "use std::fmt::{Debug};\nstruct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default()).unwrap();
     for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -241,7 +249,8 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
 #[test]
 fn automatic_debug_of_nested_values_never_invokes_custom_member_code() {
     execute(
-        r#"
+        r#"use std::fmt::{Debug};
+
 enum Callback { Run(fn()->i32) }
 impl Debug for Callback { fn debug(self)->String { "custom" } }
 fn format<T: Debug>(x:T)->String { (x,).debug() }
@@ -256,7 +265,8 @@ fn main()->i32 {
 #[test]
 fn identity_operators_use_object_handles_across_backends() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+
 struct Item { var value: i32 }
 fn main()->i32 {
     val a = Item { value: 1 }; val alias = a;
@@ -295,7 +305,8 @@ fn identity_operators_reject_value_types_and_mismatched_objects() {
 #[test]
 fn custom_equality_composes_and_enum_overrides_variant_checks() {
     execute(
-        r#"
+        r#"use std::hash::{Hash};
+
 struct Point { val x:i32 }
 impl PartialEq for Point { fn eq(self, other:Self)->bool { self.x == other.x } }
 impl Eq for Point {}
@@ -317,7 +328,9 @@ fn main()->i32 {
 #[test]
 fn custom_keys_use_hash_buckets_and_script_equality() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+use std::hash::{Hash};
+
 struct Key { val id:i32, var ignored:i32 }
 impl PartialEq for Key { fn eq(self, other:Self)->bool { self.id == other.id } }
 impl Eq for Key {}
@@ -351,7 +364,9 @@ fn main()->i32 {
 #[test]
 fn default_protocols_follow_custom_members_and_recursive_enums() {
     execute(
-        r#"
+        r#"use std::collections::{HashSet};
+use std::hash::{Hash};
+
 struct Key<T> { val value:T }
 impl<T:PartialEq> PartialEq for Key<T> { fn eq(self, other:Self)->bool { self.value == other.value } }
 impl<T:Eq> Eq for Key<T> {}
@@ -371,7 +386,9 @@ fn main()->i32 {
 #[test]
 fn custom_enum_keys_ignore_variants_and_uncompared_payload_capabilities() {
     execute(
-        r#"
+        r#"use std::collections::{HashMap, HashSet};
+use std::hash::{Hash};
+
 enum Id { Local(i32,f32), Remote(i32) }
 fn number(v:Id)->i32 { match v { Id::Local(id,_)=>id, Id::Remote(id)=>id } }
 impl PartialEq for Id { fn eq(self,other:Self)->bool {number(self)==number(other)} }
@@ -419,10 +436,10 @@ fn main()->i32 {
 #[test]
 fn comparison_only_types_do_not_inherit_identity_hashing() {
     for tail in [
-        "fn main(){val set:HashSet<Key> = HashSet::new();}",
-        "fn main(){val set:HashSet<(Key,i32)> = HashSet::new();}",
-        "enum E {Value(Key)} fn main(){val set:HashSet<E> = HashSet::new();}",
-        "fn needs<T:Eq+Hash>(v:T){} fn main(){needs(Key{});}",
+        "use std::collections::{HashSet};\nfn main(){val set:HashSet<Key> = HashSet::new();}",
+        "use std::collections::{HashSet};\nfn main(){val set:HashSet<(Key,i32)> = HashSet::new();}",
+        "use std::collections::{HashSet};\nenum E {Value(Key)} fn main(){val set:HashSet<E> = HashSet::new();}",
+        "use std::hash::{Hash};\nfn needs<T:Eq+Hash>(v:T){} fn main(){needs(Key{});}",
         "fn main(){Key{}.hash();}",
     ] {
         let source = format!(
@@ -443,7 +460,9 @@ fn comparison_only_types_do_not_inherit_identity_hashing() {
 
 #[test]
 fn key_callback_traps_and_reentry_release_guards_without_partial_insertion() {
-    let source = r#"
+    let source = r#"use std::collections::{HashSet};
+use std::hash::{Hash};
+
 struct State {var mode:i32,var calls:i32}
 struct Key {val id:i32,val owner:HashSet<Key>,val state:State}
 impl PartialEq for Key {fn eq(self,other:Self)->bool {
@@ -604,7 +623,9 @@ fn imported_equality_and_hash_use_the_defining_modules_implementations() {
     };
     for downstream_override in [false, true] {
         let engine = KagariEngine::default();
-        let model = r#"
+        let model = r#"use std::collections::{HashMap};
+use std::hash::{Hash};
+
 pub struct Key {pub val id:i32}
 impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}}
 impl Eq for Key {}
@@ -674,7 +695,8 @@ fn portable_hash_implementations_require_explicit_comparison_contracts() {
         .compile_to_artifact(
             SourceFile::new(
                 "key-wire.kgr",
-                r#"
+                r#"use std::hash::{Hash};
+
 struct Key {val id:i32}
 impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}}
 impl Eq for Key {}
@@ -698,7 +720,7 @@ fn composed_enum_hash_uses_variant_identity_instead_of_version_local_slots() {
     let mut hashes = Vec::new();
     for variants in ["Empty, Present(Key)", "Present(Key), Empty"] {
         let source = format!(
-            "struct Key {{val id:i32}} impl PartialEq for Key {{fn eq(self,other:Self)->bool {{self.id==other.id}}}} impl Eq for Key {{}} impl Hash for Key {{fn hash(self)->i64 {{self.id.hash()}}}} enum Envelope {{{variants}}} fn main()->i64 {{Envelope::Present(Key{{id:1}}).hash()}}"
+            "use std::hash::{{Hash}};\nstruct Key {{val id:i32}} impl PartialEq for Key {{fn eq(self,other:Self)->bool {{self.id==other.id}}}} impl Eq for Key {{}} impl Hash for Key {{fn hash(self)->i64 {{self.id.hash()}}}} enum Envelope {{{variants}}} fn main()->i64 {{Envelope::Present(Key{{id:1}}).hash()}}"
         );
         let engine = KagariEngine::default();
         let artifact = engine
