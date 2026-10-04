@@ -1,4 +1,5 @@
 //! Synchronous native access borrows stable, already rooted caller slots.
+mod enums;
 pub mod operations;
 use crate::{
     Runtime,
@@ -307,7 +308,8 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native type scope"))
     }
 
-    fn argument_type_argument(&self, index: usize) -> NativeResult<TypeArgument> {
+    /// Retain the declared argument's supplying type/layout generation.
+    pub fn argument_type_argument(&self, index: usize) -> NativeResult<TypeArgument> {
         match &self.function.scoped_signature {
             Some(signature) => signature
                 .params
@@ -345,6 +347,14 @@ impl<'call> CallContext<'call> {
                     RuntimeError::module_validation("native result type parameter")
                 })?)
             }
+        }
+    }
+
+    /// Retain the complete result type, including nominal payload scopes.
+    pub fn result_type_argument(&self) -> NativeResult<TypeArgument> {
+        match &self.function.scoped_signature {
+            Some(signature) => Ok(signature.result.clone()),
+            None => self.resolve_type(self.result_type()),
         }
     }
 

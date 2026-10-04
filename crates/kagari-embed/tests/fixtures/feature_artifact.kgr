@@ -2,6 +2,18 @@ use std::collections::{MutableList};
 use std::num::{TryFromIntError};
 fn main() -> i32 { 42 }
 
+use external::enums;
+fn native_enum_values() -> i32 {
+    val nested = enums::make(enums::make([38], 2), 2);
+    match enums::roundtrip(nested) {
+        enums::Event::Data(inner, outer) => match inner {
+            enums::Event::Data(value, sequence) => value[0usize] + sequence + outer,
+            enums::Event::Closed => 0
+        },
+        enums::Event::Closed => 0
+    }
+}
+
 fn required_methods() -> i32 {
     val text = "  β,a  ";
     val fields = text.trim().split(",").sorted_by_key(|field| field);

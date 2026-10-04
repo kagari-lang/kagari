@@ -15,6 +15,8 @@ use kagari_source::source::SourceFile;
 use std::{cell::Cell, fs, path::Path, rc::Rc, sync::OnceLock};
 
 // Share application code with the emitter while compiling without its frontend.
+#[path = "support/native_enums.rs"]
+mod native_enums;
 #[path = "support/native_provider.rs"]
 mod provider;
 // A structurally consistent forgery must still fail installed-contract linking.
@@ -26,6 +28,7 @@ fn engine(config: EngineConfig, drops: Rc<Cell<usize>>) -> KagariEngine {
         let mut builder = KagariEngine::builder().unwrap();
         builder.config(config);
         builder.install(provider::module(drops)).unwrap();
+        builder.install(native_enums::module().unwrap()).unwrap();
         builder.build().unwrap()
     }
 }
@@ -99,6 +102,29 @@ fn source_free_native_bindings_execute_and_release_scopes() {
             0
         );
         assert!(!runtime.runtime().is_quarantined());
+        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    }
+}
+
+#[test]
+fn source_free_native_enums_retain_nested_payloads() {
+    let program =
+        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
+            .unwrap();
+    let mut config = EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let mut runtime = engine(config, Default::default()).runtime(Default::default());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    for _ in 0..3 {
+        assert_eq!(
+            runtime
+                .execute(&loaded, "native_enum_values", &[], &Default::default())
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
     }

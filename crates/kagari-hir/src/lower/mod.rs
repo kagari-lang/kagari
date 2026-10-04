@@ -58,6 +58,12 @@ pub struct LoweredModule {
 }
 
 impl LoweredModule {
+    /// Registered APIs may construct their declared generic enums from Rust;
+    /// executable lowering must retain templates even without source constructors.
+    pub fn is_registered_native_api(&self) -> bool {
+        self.registered_native_api
+    }
+
     pub fn registered_native_declarations(&self) -> &[NativeDeclaration] {
         &self.registered_declarations
     }

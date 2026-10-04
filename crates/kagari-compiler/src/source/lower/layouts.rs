@@ -43,13 +43,18 @@ pub(super) fn collect(
     for enumeration in module
         .aggregates
         .enumerations()
-        .filter(|s| s.generic_params.is_empty())
+        .filter(|s| s.generic_params.is_empty() || module.lowered.is_registered_native_api())
     {
         pending.push_back((
             TypeId::Enum(NominalType {
                 associated_types: Default::default(),
                 declaration: enumeration.id.clone(),
-                arguments: Vec::new(),
+                arguments: enumeration
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .map(TypeId::Generic)
+                    .collect(),
             }),
             enumeration.declaration.location.range,
         ));
@@ -84,6 +89,17 @@ pub(super) fn collect(
         )
         .flat_map(|body| body.parameters.iter().cloned())
         .collect::<Vec<_>>();
+    if module.lowered.is_registered_native_api() {
+        scope.extend(module.aggregates.enumerations().flat_map(|enumeration| {
+            enumeration
+                .generic_params
+                .iter()
+                .map(|parameter| GenericParam {
+                    owner: parameter.owner.clone(),
+                    position: parameter.position,
+                })
+        }));
+    }
     while let Some((mut ty, span)) = pending.pop_front() {
         planner.check()?;
         if !ty.is_concrete() && !types_in_scope([&lower_type(&ty)], &scope, &planner.options.cancel)

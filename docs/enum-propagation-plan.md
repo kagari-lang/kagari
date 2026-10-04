@@ -85,8 +85,8 @@ system. Variant identity is owned by the enum declaration; a discriminant is onl
 an index in a validated, generation-pinned layout. Names and matching payload
 shapes cannot substitute for nominal identity.
 
-The public authoring surface follows ModuleBuilder's existing style. These are
-target APIs, not currently implemented calls:
+The public authoring surface follows ModuleBuilder's existing style. EN01-EN02
+implement these APIs:
 
 | API | Contract |
 | --- | --- |
@@ -97,9 +97,9 @@ target APIs, not currently implemented calls:
 | `enum_builder.finish() -> NativeResult<TypeRef>` | Validate and publish the completed declaration into the module's authoring providers |
 | `type_ref.apply(arguments) -> NativeResult<Type>` | Produce the nominal semantic type appropriate to the declaration kind |
 | `type_ref.variant(name) -> NativeResult<VariantRef>` | Resolve a checked member handle for later registration or native use |
-| `cx.enum_value(applied, variant, fields) -> NativeResult<Value>` | Allocate against an installed, scoped enum application and its validated variant |
+| `cx.allocate_enum(applied, variant, fields) -> NativeResult<Value>` | Allocate against an installed, scoped enum application and its validated variant |
 
-Illustrative authoring, to become a compiling example during EN01-EN02:
+Illustrative authoring, exercised by the EN01-EN02 registration tests:
 
 ```rust
 let mut event = module.define_enum("Event");

@@ -4,6 +4,8 @@ use kagari_source::source::SourceFile;
 use std::{fs, path::Path};
 
 // The producer and independent consumer install the exact same public provider.
+#[path = "../tests/support/native_enums.rs"]
+mod native_enums;
 #[path = "../tests/support/native_provider.rs"]
 mod provider;
 
@@ -17,6 +19,7 @@ fn main() {
     builder
         .install(provider::module(Default::default()))
         .unwrap();
+    builder.install(native_enums::module().unwrap()).unwrap();
     let artifact = builder
         .build()
         .unwrap()

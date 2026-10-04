@@ -898,7 +898,7 @@ It supersedes their exclusion of generic enum/protocol migration for this active
 track; current specifications still describe implemented behavior until replaced.
 
 Status: the user activated the continuous EN01-EN05 goal on 2026-10-04.
-EN01 is complete; EN02 is next. No carried build/test failure remains.
+EN01-EN02 are complete; EN03 is in progress. No carried build/test failure remains.
 Commit each accepted phase once, using `Roadmap-Step: EN01` through `EN05`.
 The execution design and its index links enter the first implementation checkpoint.
 
@@ -906,7 +906,7 @@ The execution design and its index links enter the first implementation checkpoi
   enum models; add public enum/variant builders, kind-correct type handles,
   full-doc rendering and declaration correspondence. Define checked executable
   enum/variant handle contracts for EN02.
-- [ ] **EN02: Execute registered enums through generic layouts.** Connect installed
+- [x] **EN02: Execute registered enums through generic layouts.** Connect installed
   declarations, native allocation/inspection and call codecs to existing source
   enum execution. Validate layouts, multiple payload fields, generations, roots,
   optional provenance and source-free executable dependencies.
@@ -949,6 +949,27 @@ formatting, structure (761 Rust files, zero violations/exceptions), changed-doc
 local links/anchors and git diff --check. Initial test-harness API mistakes and a
 remaining native-signature enum exclusion were repaired before acceptance; no
 build/test failure is carried. Full feature/backend acceptance remains EN05 work.
+
+EN02 connects CallContext's scoped argument/result types to allocate_enum,
+enum_argument_is and enum_argument_field. Variant membership, payload count/type,
+heap liveness and pinned generations use the existing ordinary layout checks.
+Registered generic enum templates are retained even without source constructor
+roots; nested supplying scopes survive native construction and inspection.
+Managed Value codecs keep exact declared nominal signatures. Existing enum heap
+storage already carries optional provenance; library capture/forward policy is
+EN03-EN04 work. No new executable inventory or concrete application enum hook is
+introduced.
+
+EN02 validation passes two native enum tests (five successful serialized/fresh-host
+scenarios and five invalid operations), ten artifact consumer tests, four existing
+enum payload/generation/ABI tests and the retained generic reload test. The
+standalone artifact-only consumer passes seven tests without frontend features,
+including nested native enum creation/inspection under collection threshold one.
+Strict all-target runtime/HIR/compiler/embed Clippy, formatting, structure (764
+Rust files, zero violations/exceptions) and diff checks pass. The initial fixture
+put a struct literal in an unsupported match-scrutinee parsing position; binding
+the payload before matching repaired it without a production semantic change.
+No failure is carried. Full feature/backend acceptance remains EN05 work.
 
 ### Other proposals
 

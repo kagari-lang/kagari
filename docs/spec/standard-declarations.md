@@ -98,8 +98,16 @@ Enum and variant documentation use `documentation` and `variant_documentation`.
 Module completion checks the referenced enum providers and generic applications;
 installation rejects absent or conflicting dependencies atomically.
 These declarations use ordinary generated enum syntax and parsed nominal HIR.
-Native allocation/inspection of registered enum values is the following EN02
-checkpoint of the [active enum plan](../enum-propagation-plan.md).
+Native functions obtain scoped applied types through
+`CallContext::result_type_argument` or `argument_type_argument`.
+`allocate_enum(&applied, &variant, fields)` checks the installed nominal owner,
+variant membership, substituted payload types and live heap handles before
+allocation. `enum_argument_is` and `enum_argument_field` inspect rooted arguments
+through those same pinned layouts; wrong variants and payload indices fail.
+Enum codecs use managed Values while the declared native signature retains the
+exact nominal type. Root newly allocated Values before further allocation or
+synchronous reentry. Generic native enum templates travel in checked executable
+layouts, so artifact-only hosts use these APIs without source analysis.
 
 For example, a scalar application entry can be declared and bound as follows:
 
