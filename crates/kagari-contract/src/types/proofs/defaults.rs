@@ -1,15 +1,21 @@
 //! Check default applications against actual registered templates and trait facts.
+use kagari_common::cancellation::CancellationToken;
+
 use crate::{
-    callable::{CallableImplementation, NativeDefaultApplication},
     native_import::NativeSignature,
     types::{
-        ConcreteFunctionIdentity, Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        ConcreteFunctionIdentity,
         proofs::{Budget, ProofCatalog},
-        substitution::{TypeSubstitution, TypeTransformError},
-        verify::types_in_scope,
     },
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_types::{
+    callable::{CallableImplementation, NativeDefaultApplication},
+    declaration::verify::types_in_scope,
+    ty::{
+        Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
+};
 use std::collections::BTreeMap;
 
 pub struct ResolvedNativeDefault {

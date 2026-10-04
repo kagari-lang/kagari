@@ -2,12 +2,11 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::collection::CollectionAccess;
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use kagari_runtime::module::LoadedModule;
 use kagari_runtime::{
-    Runtime, error::RuntimeErrorKind, value::Value, value_semantics::script_equal,
+    Runtime, error::RuntimeErrorKind, module::LoadedModule, value::Value,
+    value_semantics::script_equal,
 };
+use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
 
 fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
     runtime
@@ -152,8 +151,8 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 #[test]
 fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_storage() {
     use {
-        kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType},
         kagari_runtime::{RuntimeConfig, host::HostFunction},
+        kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType},
     };
     let mut runtime = Runtime::new(RuntimeConfig {
         ..Default::default()

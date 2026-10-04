@@ -5,11 +5,8 @@ use crate::{
     verify::ValidatedMirModule,
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::{
-    callable::CallableImplementation,
-    native_import::NativeSignature,
-    types::{proofs::ProofCatalog, substitution::TypeTransformError},
-};
+use kagari_contract::{native_import::NativeSignature, types::proofs::ProofCatalog};
+use kagari_types::{callable::CallableImplementation, ty::substitution::TypeTransformError};
 
 pub(super) fn valid(
     caller: &MirModule,

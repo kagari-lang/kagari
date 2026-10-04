@@ -4,7 +4,7 @@ use crate::{
     typeck::{inference, table::match_implementation},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
+use {kagari_common::cancellation::CancellationToken, kagari_types::collection::CollectionAccess};
 
 impl AggregateCatalog {
     pub(crate) fn storage_views(

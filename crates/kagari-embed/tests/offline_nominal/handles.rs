@@ -1,8 +1,7 @@
 use super::*;
-use kagari_bytecode::program::verify_program;
-use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
-
-use kagari_embed::program::PreparedProgram;
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
+use kagari_contract::representation::semantic_representation;
+use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 
 #[test]
 fn offline_host_type_navigation_is_available_from_signature_query() {
@@ -36,7 +35,7 @@ fn offline_host_type_navigation_is_available_from_signature_query() {
 
 #[test]
 fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once() {
-    use kagari_common::host_interface::type_declaration::HostMethodDeclaration;
+    use kagari_types::host_interface::type_declaration::HostMethodDeclaration;
     let mut interface = interface();
     let mut method = HostMethodDeclaration::new(
         &interface.types[0].id,
@@ -225,10 +224,10 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     };
     assert_eq!(
         pass.return_type,
-        kagari_contract::types::Ty::Host(interface.types[0].id.clone())
+        kagari_types::ty::Ty::Host(interface.types[0].id.clone())
     );
     assert_eq!(
-        pass.return_type.representation(),
+        semantic_representation(&pass.return_type),
         kagari_abi::representation::ValueType::HostHandle
     );
     let mut invalid = artifact.program.clone();

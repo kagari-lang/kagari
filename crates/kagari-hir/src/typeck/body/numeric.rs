@@ -6,11 +6,11 @@ use crate::{
     typeck::{body::BodyChecker, scalar::ScalarValue},
     types::TypeId,
 };
-use kagari_contract::{scalar::BuiltinType, standard::surface as standard_surface};
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     literal,
 };
+use kagari_types::{scalar::BuiltinType, surface as standard_surface};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_numeric_literal(

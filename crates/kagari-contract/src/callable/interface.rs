@@ -1,21 +1,24 @@
 //! Applied interface method signatures retain separate receiver and method binders.
 use crate::callable::witness::{OperationWitness, required_operations};
-use crate::declaration::ModuleDecl;
-use crate::native_import::callables::NativeCallableRequirement;
-use crate::types::{
-    Constraint, GenericBound, GenericParam, NominalTy, PublicItem, TraitContract, TraitDef, Ty,
-    proofs::ProofCatalog,
-    substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
-    trait_contract,
-    verify::types_in_scope,
+use crate::{
+    native_import::callables::normalize_requirement,
+    representation::semantic_representation,
+    types::{PublicItem, TraitContract, proofs::ProofCatalog, trait_contract},
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::DefinitionPath;
-
-use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity},
+    identity::{DefinitionKind, DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+};
+use kagari_types::{
+    declaration::{
+        TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement,
+        verify::types_in_scope,
+    },
+    ty::{
+        Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -55,8 +58,8 @@ impl InterfaceMethodSignature {
     ) -> Option<(Vec<ValueType>, ValueType)> {
         self.types_valid(parameters, cancel).then(|| {
             (
-                self.params.iter().map(Ty::representation).collect(),
-                self.result.representation(),
+                self.params.iter().map(semantic_representation).collect(),
+                semantic_representation(&self.result),
             )
         })
     }
@@ -202,7 +205,7 @@ impl InterfaceCallContract {
         let expected =
             required_operations(&signature.bounds, &|id| catalog.trait_contract(id), cancel)?
                 .iter()
-                .map(|required| required.normalized(catalog, cancel))
+                .map(|required| normalize_requirement(required, catalog, cancel))
                 .collect::<Result<Vec<_>, _>>()?;
         if expected.len() != self.operations.len()
             || expected.iter().any(|required| {

@@ -1,22 +1,25 @@
 use super::collect_module_abi;
+use kagari_common::identity::associated_type_id;
 use kagari_contract::{
-    callable::CallableImplementation,
-    language::{self as traits, Protocol},
-    standard::surface::StandardEnum,
-    types::{
-        self as abi, NominalTy, PublicItem, Ty, TypeDefKind, inheritance::trait_closure,
-        native::NativeTypeConstructor, verify,
-    },
+    types as abi,
+    types::{PublicItem, verify},
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
     native::NativeBinding as HirNativeBinding,
 };
-use std::collections::BTreeMap;
-use {
-    kagari_common::identity::associated_type_id,
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{
+        TypeDefKind, native::NativeTypeConstructor, verify::validate_native_declarations,
+    },
+    language as traits,
+    language::Protocol,
+    surface::StandardEnum,
+    ty::{NominalTy, Ty, inheritance::trait_closure},
 };
+use std::collections::BTreeMap;
 
 #[test]
 fn installed_native_declarations_keep_public_representation_and_payload_contracts() {
@@ -211,7 +214,7 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
         let identity = declared.source().module_identity();
         for declaration in &abi.native_declarations {
             assert!(
-                verify::validate_native_declarations(
+                validate_native_declarations(
                     std::slice::from_ref(declaration),
                     identity,
                     &Default::default()

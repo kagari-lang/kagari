@@ -7,9 +7,8 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
-
-use kagari_common::{integer, range::RangeKind};
-use kagari_contract::{operations, scalar::BuiltinType, types::Ty};
+use kagari_contract::operations;
+use kagari_types::{integer, range::RangeKind, scalar::BuiltinType, ty::Ty};
 use std::ops::Bound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

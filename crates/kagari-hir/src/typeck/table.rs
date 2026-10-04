@@ -16,13 +16,15 @@ use crate::{
         TypeSubstitution,
     },
 };
-
 use kagari_common::{
-    host_interface::path::{HostPathContract, HostPathDeclaration},
     identity::{DefinitionPath, reference::DefinitionReference},
     span::Span,
 };
-use kagari_contract::{language::Protocol, standard::surface::StandardTypeConstraint};
+use kagari_types::{
+    host_interface::path::{HostPathContract, HostPathDeclaration},
+    language::Protocol,
+    surface::StandardTypeConstraint,
+};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

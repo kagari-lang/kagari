@@ -1,35 +1,32 @@
-use kagari_common::identity::table::DefinitionId;
-mod application;
-mod calls;
-pub(crate) mod method;
-mod operations;
-
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::{TypeEnvironment, arguments::TypeArgument},
+    gc,
     gc::{
-        self, HeapObjectId, RootedValue,
+        HeapObjectId, RootedValue,
         interfaces::{
             InterfaceMethodBinding, InterfaceParentBinding, InterfaceResultBinding,
             InterfaceValueSnapshot,
         },
     },
-    module::{self, LoadedModule},
-    value::{self, EnumTag, Value},
+    module,
+    module::LoadedModule,
+    value,
+    value::{EnumTag, Value},
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::CallableTarget;
-
-use kagari_common::identity::{DefinitionKind, reference::DefinitionReference};
-use std::{cell::OnceCell, rc::Rc, slice};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        ids::FunctionRef,
-        operations::IterOp,
-        types::{self as abi, NominalTy, PublicItem, Ty, substitution::TypeSubstitution},
-    },
+use kagari_common::identity::{
+    DefinitionKind, reference::DefinitionReference, table::DefinitionId,
 };
+use kagari_contract::{ids::FunctionRef, operations::IterOp, types as abi, types::PublicItem};
+use kagari_types::ty::{NominalTy, Ty, substitution::TypeSubstitution};
+use std::{cell::OnceCell, rc::Rc, slice};
+mod application;
+mod calls;
+pub(crate) mod method;
+mod operations;
 
 impl Runtime {
     pub fn alloc_array(

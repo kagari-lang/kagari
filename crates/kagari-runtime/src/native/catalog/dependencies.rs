@@ -1,13 +1,13 @@
 //! Retain referenced contracts, not arbitrary authority from an authoring view.
 use crate::{error::RuntimeError, native::catalog::DeclarationCatalog};
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
-use kagari_contract::{
+use kagari_contract::types::proofs::{ProofCatalog, implementation::Implementation};
+use kagari_types::{
     callable::CallableImplementation,
-    declaration::ModuleDecl,
-    types::{
-        Constraint, FnDecl, GenericBound, NativeDeclaration, NominalTy, Ty,
+    declaration::{FnDecl, NativeDeclaration, module::ModuleDecl},
+    ty::{
+        Constraint, GenericBound, NominalTy, Ty,
         matching::{ImplementationPattern, match_pattern},
-        proofs::{ProofCatalog, implementation::Implementation},
     },
 };
 use std::{collections::BTreeSet, iter};

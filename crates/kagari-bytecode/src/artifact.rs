@@ -6,40 +6,37 @@ use crate::{
     program::{BytecodeProgram, verified::VerifiedBytecodeProgram, verify_program},
     verifier::BytecodeVerificationError,
 };
-use kagari_common::identity::DefinitionPath;
-use kagari_common::identity::reference::DefinitionReference;
-mod limits;
-
 use bincode::{DefaultOptions, ErrorKind, Options};
-#[cfg(test)]
-use kagari_common::collection::CollectionAccess;
+use kagari_abi::{
+    representation::ValueType,
+    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+};
 use kagari_common::{
     cancellation::CancellationToken,
-    host_interface::HostInterface,
     identity::{
-        ModuleIdentity,
+        DefinitionPath, ModuleIdentity,
         mapping::DefinitionMappingError,
         metadata::{PortableMetadata, scope_record},
+        reference::DefinitionReference,
         table::wire::PortableDefinitionRef,
     },
 };
-use std::io::{self, Write};
-use {
-    kagari_abi::{
-        representation::ValueType,
-        version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+use kagari_contract::{
+    decode_limits::{
+        MAX_FUNCTIONS, MAX_INSTRUCTIONS, MAX_MODULES, MAX_NESTED_RECORDS, MAX_TABLE_RECORDS,
     },
-    kagari_contract::{
-        decode_limits::{
-            MAX_FUNCTIONS, MAX_INSTRUCTIONS, MAX_MODULES, MAX_NESTED_RECORDS, MAX_TABLE_RECORDS,
-        },
-        effects::EffectSet,
-        ids::FunctionRef,
-        slots::SemanticSlots,
-    },
+    effects::EffectSet,
+    ids::FunctionRef,
+    slots::SemanticSlots,
 };
-
+use kagari_types::host_interface::HostInterface;
 use serde::{Deserialize, Serialize};
+use std::{io, io::Write};
+
+mod limits;
+
+#[cfg(test)]
+use kagari_types::collection::CollectionAccess;
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 116;

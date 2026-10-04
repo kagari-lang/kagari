@@ -1,18 +1,15 @@
 use crate::{module::CallableTarget, program::ModuleRef};
-use kagari_common::identity::DefinitionPath;
-use kagari_common::identity::reference::DefinitionReference;
-use serde::{Deserialize, Serialize};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::{interface::InterfaceCallContract, shared::SharedCall},
-        ids::FunctionRef,
-        numeric::{NumericConversion, NumericOperation},
-        operations::{IterOp, StandardEnumOp},
-        standard::RuntimePrimitive,
-        types::{NominalTy, Ty},
-    },
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_contract::{
+    callable::{interface::InterfaceCallContract, shared::SharedCall},
+    ids::FunctionRef,
+    numeric::{NumericConversion, NumericOperation},
+    operations::{IterOp, StandardEnumOp},
+    standard::RuntimePrimitive,
 };
+use kagari_types::ty::{NominalTy, Ty};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Register(u16);

@@ -1,11 +1,5 @@
-pub mod arithmetic;
+//! Shared identity, location and cancellation infrastructure.
 pub mod cancellation;
-
-pub mod collection;
-mod decode_limits;
-pub mod host_interface;
+pub mod decode_limits;
 pub mod identity;
-pub mod integer;
-pub mod numeric;
-pub mod range;
 pub mod span;

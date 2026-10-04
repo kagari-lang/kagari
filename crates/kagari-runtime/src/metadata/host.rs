@@ -10,12 +10,10 @@ use crate::{
     },
 };
 
-use kagari_common::{
-    host_interface::{
-        type_declaration::{PathAccess, Visibility},
-        value_type::HostValueType,
-    },
-    identity::DefinitionPath,
+use kagari_common::identity::DefinitionPath;
+use kagari_types::host_interface::{
+    type_declaration::{PathAccess, Visibility},
+    value_type::HostValueType,
 };
 use std::{collections::HashMap, fmt::Display};
 

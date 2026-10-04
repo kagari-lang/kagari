@@ -15,10 +15,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_contract::{
-    declaration::ModuleDecl,
-    types::{NativeDeclaration, TraitDef, TypeDef},
-};
+use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ModuleDecl};
 use std::sync::Arc;
 
 fn conflict(cause: impl ToString) -> RuntimeError {

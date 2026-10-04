@@ -1,22 +1,22 @@
-use kagari_common::identity::reference::DefinitionReference;
-use serde::{Deserialize, Serialize};
-mod operands;
-use kagari_common::{host_interface::path::HostPathDeclaration, identity::DefinitionPath};
-use smallvec::SmallVec;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::{interface::InterfaceCallContract, shared::SharedCall},
-        effects::{EffectSet, runtime_primitive_effects},
-        native_import::NativeImport,
-        numeric::{NumericConversion, NumericOperation},
-        operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
-        standard::RuntimePrimitive,
-        types::{NominalTy, Ty},
-    },
-};
-
 use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_contract::{
+    callable::{interface::InterfaceCallContract, shared::SharedCall},
+    effects::{EffectSet, runtime_primitive_effects},
+    native_import::NativeImport,
+    numeric::{NumericConversion, NumericOperation},
+    operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
+    standard::RuntimePrimitive,
+};
+use kagari_types::{
+    host_interface::path::HostPathDeclaration,
+    ty::{NominalTy, Ty},
+};
+use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+
+mod operands;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirValue {

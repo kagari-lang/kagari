@@ -2,7 +2,7 @@
 use crate::native::{binding::NativeResult, scalar::NativeScalar};
 use crate::value::Value;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::Ty;
+use kagari_types::ty::Ty;
 
 mod sealed {
     pub trait Arguments {}

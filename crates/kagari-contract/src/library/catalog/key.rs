@@ -1,12 +1,12 @@
 //! Private keys for the Rust foundation registration inventory. Generic
 //! consumers use declared identities/capabilities, never this enum.
-use crate::{
-    library::catalog::assembly_identity,
-    types::{NominalTy, Ty},
-};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, reference::DefinitionReference,
     table::DefinitionTable,
+};
+use {
+    crate::library::catalog::assembly_identity,
+    kagari_types::ty::{NominalTy, Ty},
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum RegistrationTrait {

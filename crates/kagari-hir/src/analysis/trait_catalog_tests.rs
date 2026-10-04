@@ -1,19 +1,19 @@
 use super::*;
-use crate::analysis::ownership;
-use crate::native::render::declaration_source;
-use crate::tests::native as fixture;
 use crate::{
-    aggregates::traits::MethodDefault, declarations::DeclarationId, native::NativeBinding,
-    typeck::table::CallTarget, types::NominalType,
+    aggregates::traits::MethodDefault,
+    analysis::ownership,
+    declarations::DeclarationId,
+    native::{NativeBinding, render::declaration_source},
+    tests::native as fixture,
+    typeck::table::CallTarget,
+    types::NominalType,
 };
-use kagari_contract::{callable::NativeDefaultApplication, scalar::BuiltinType};
-use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::{
-        diagnostic::DiagnosticKind,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::{callable::NativeDefaultApplication, scalar::BuiltinType};
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     sources
@@ -82,7 +82,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             Some(MethodDefault::Native(NativeBinding::Default(
                 NativeDefaultApplication {
                     declaration: template,
-                    arguments: vec![kagari_contract::types::Ty::SelfType(iterator.id.clone())],
+                    arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id.clone())],
                 }
             )))
         );

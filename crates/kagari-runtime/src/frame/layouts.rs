@@ -13,7 +13,7 @@ use crate::{
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::{GenericParam, Ty};
+use kagari_types::ty::{GenericParam, Ty};
 use std::{borrow::Cow, rc::Rc, slice};
 
 impl ExecutionFrame {

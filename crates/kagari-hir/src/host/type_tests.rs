@@ -1,19 +1,16 @@
 use super::*;
 use crate::{
     analysis::AnalysisDatabase, callable::CallableSignature, declarations::DeclarationId,
-    native::NativeBinding, typeck::FunctionImplementation,
+    hir::expr::ExprKind, native::NativeBinding, typeck::FunctionImplementation,
 };
-use kagari_common::host_interface::type_declaration::HostMethodDeclaration;
-use {
-    crate::hir::expr::ExprKind, kagari_common::host_interface::path::HostPathSegmentDeclaration,
-    kagari_source::diagnostic::DiagnosticKind,
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
 };
-use {
-    kagari_common::{
-        host_interface::{HostParameter, HostPassingStyle},
-        identity::{ModuleIdentity, PackageId},
-    },
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
+use kagari_types::host_interface::{
+    HostParameter, HostPassingStyle, path::HostPathSegmentDeclaration,
+    type_declaration::HostMethodDeclaration,
 };
 
 fn interface() -> HostInterface {
@@ -220,13 +217,13 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
 #[test]
 fn erroneous_host_calls_retain_return_types_and_member_facts() {
     use {
-        kagari_common::host_interface::{
+        kagari_source::diagnostic::DiagnosticKind,
+        kagari_types::host_interface::{
             path::HostPathDeclaration,
             type_declaration::{
                 HostFieldDeclaration, HostMethodDeclaration, HostTypeOwnership, PathAccess,
             },
         },
-        kagari_source::diagnostic::DiagnosticKind,
     };
     let mut declarations = interface();
     let parameter = HostParameter {
@@ -361,7 +358,7 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
 
 #[test]
 fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         path::HostPathDeclaration,
         type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
     };
@@ -464,13 +461,13 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     );
     assert_eq!(
         file.type_at(incomplete.rfind('7').unwrap()),
-        Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+        Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
     );
 }
 
 #[test]
 fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         path::HostPathDeclaration,
         type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
     };
@@ -579,7 +576,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
 
 #[test]
 fn mixed_field_chains_resolve_the_complete_host_suffix() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         path::HostPathDeclaration,
         type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
     };

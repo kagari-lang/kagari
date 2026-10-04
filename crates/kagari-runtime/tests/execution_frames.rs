@@ -1,22 +1,19 @@
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty},
-};
-use {
-    kagari_bytecode::module::RootSlotLayout,
-    kagari_runtime::{
-        error::RuntimeError,
-        frame::ExecutionFrame,
-        session::{ExecutionEvent, ExecutionObserver},
-    },
-};
-
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Register},
-    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_runtime::{Runtime, error::RuntimeErrorKind, module::LoadedModule, value::Value};
+use kagari_contract::ids::FunctionRef;
+use kagari_runtime::{
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
+    frame::ExecutionFrame,
+    module::LoadedModule,
+    session::{ExecutionEvent, ExecutionObserver},
+    value::Value,
+};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[derive(Debug)]
 struct ReentrantObserver;

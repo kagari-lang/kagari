@@ -2,6 +2,15 @@ use crate::source::{
     lower::{MirLoweringError, state::FunctionLowerer},
     types,
 };
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::DefinitionPath;
+use kagari_contract::{
+    callable::interface::InterfaceCallContract,
+    numeric::{NumericConversion, NumericOperation},
+    operations::{BinaryOp, StandardEnumOp, UnaryOp},
+    representation::semantic_representation,
+    standard::RuntimePrimitive,
+};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::ExprId},
@@ -13,23 +22,12 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
-
-use kagari_common::{identity::DefinitionPath, integer::IntegerOp};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::interface::InterfaceCallContract,
-        language::Protocol,
-        numeric::{NumericConversion, NumericOperation},
-        operations::{BinaryOp, StandardEnumOp, UnaryOp},
-        scalar::BuiltinType,
-        standard::RuntimePrimitive,
-        types::conversion::ConversionAdapter,
-    },
-};
-
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
+};
+use kagari_types::{
+    declaration::conversion::ConversionAdapter, integer::IntegerOp, language::Protocol,
+    scalar::BuiltinType,
 };
 
 impl FunctionLowerer<'_, '_> {
@@ -296,7 +294,7 @@ impl FunctionLowerer<'_, '_> {
                 let (_, _, result) = operation
                     .contract()
                     .ok_or(MirLoweringError::MissingBinding("numeric contract"))?;
-                let dst = self.alloc_temp(result.representation());
+                let dst = self.alloc_temp(semantic_representation(&result));
                 self.emit(Instruction::Numeric {
                     dst,
                     operation,
@@ -343,7 +341,7 @@ impl FunctionLowerer<'_, '_> {
                 .ok_or(MirLoweringError::MissingBinding(
                     "numeric conversion contract",
                 ))?;
-            let dst = self.alloc_temp(output.representation());
+            let dst = self.alloc_temp(semantic_representation(&output));
             self.emit(Instruction::Convert {
                 dst,
                 src: args[0],

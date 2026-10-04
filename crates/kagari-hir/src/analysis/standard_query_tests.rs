@@ -2,14 +2,14 @@
 use crate::native::render::declaration_source;
 
 use crate::{
-    analysis::ownership, declarations::DeclarationId, language::semantics::ProtocolSemantics,
-    types::TypeId,
+    analysis::ownership,
+    declarations::DeclarationId,
+    language::semantics::ProtocolSemantics,
+    types::{NominalType, TypeId},
 };
-use kagari_common::collection::CollectionAccess;
-use kagari_contract::language::Protocol;
-
-use crate::types::NominalType;
 use kagari_contract::library;
+use kagari_types::{collection::CollectionAccess, language::Protocol};
+
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
         declaration: library::trait_id(name),
@@ -84,7 +84,7 @@ mod tests {
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
-        let item_type = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
+        let item_type = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));
         let authoring_catalog = analysis.to_unverified(&Default::default()).unwrap();
         let catalog = &authoring_catalog.facts().aggregates;
@@ -174,8 +174,8 @@ mod tests {
             .to_unverified(&Default::default())
             .unwrap();
         let catalog = &authoring_catalog.facts().aggregates;
-        let integer = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
-        let string = TypeId::Builtin(kagari_contract::scalar::BuiltinType::String);
+        let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
+        let string = TypeId::Builtin(kagari_types::scalar::BuiltinType::String);
         let target = TypeId::Map {
             key: Box::new(integer.clone()),
             value: Box::new(string.clone()),
@@ -290,7 +290,7 @@ mod tests {
         assert_eq!(
             signature.result,
             TypeId::Array(
-                Box::new(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)),
+                Box::new(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable
             )
         );
@@ -300,7 +300,7 @@ mod tests {
         assert!(signature.parameters.is_empty());
         assert_eq!(
             signature.result,
-            TypeId::Builtin(kagari_contract::scalar::BuiltinType::USize)
+            TypeId::Builtin(kagari_types::scalar::BuiltinType::USize)
         );
     }
 
@@ -385,7 +385,7 @@ mod trait_tests {
             assert!(signature.parameters.is_empty());
             assert_eq!(
                 signature.result,
-                TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)
+                TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)
             );
         }
     }
@@ -476,7 +476,7 @@ mod interpolation_queries {
         assert_eq!(original.name, "value");
         assert_eq!(
             old.file(file).unwrap().type_at(offset),
-            Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+            Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
         );
         let prefix = "// shifted 😀\r\n";
         sources
@@ -554,11 +554,8 @@ mod interpolation_queries {
 
 #[cfg(test)]
 mod collection_access_tests {
-    use super::foundation_interface;
+    use super::{foundation_interface, *};
     use crate::{analysis::AnalysisDatabase, resolver::resolved::ResolvedName};
-
-    use super::*;
-
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
@@ -576,7 +573,7 @@ mod collection_access_tests {
             .to_unverified(&Default::default())
             .unwrap();
         let catalog = &authoring_catalog.facts().aggregates;
-        let integer = TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32);
+        let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receivers = [
             TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),
             TypeId::Map {

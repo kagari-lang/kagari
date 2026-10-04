@@ -1,6 +1,12 @@
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
+use kagari_abi::representation::ValueType;
+use kagari_contract::{
+    callable::interface::InterfaceCallContract,
+    native_import::{NativeImport, NativeSignature},
+    standard::RuntimePrimitive,
+};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     builtin::BuiltinFunction,
@@ -15,22 +21,10 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
-
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::interface::InterfaceCallContract,
-        language::Protocol,
-        native_import::{NativeImport, NativeSignature},
-        standard::RuntimePrimitive,
-    },
-};
-
-use kagari_common::host_interface;
-
 use kagari_mir::instruction::{
     CallTarget, Instruction, MirValue, RuntimeHelper, SourceFunctionContract, ValueBuffer,
 };
+use kagari_types::{host_interface, language::Protocol};
 use smallvec::SmallVec;
 use std::{ops::ControlFlow, slice};
 

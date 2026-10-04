@@ -23,37 +23,36 @@ use crate::{
     },
     types::TypeId,
 };
-
-use kagari_contract::declaration::ModuleDecl;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        map::{DefinitionContext, DefinitionMap},
+        mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
+use kagari_source::{
+    identity::{FileId, Revision},
+    source::SourceFile,
+    source_database::SourceSnapshot,
+};
 use kagari_syntax::{
     ast::item::SourceFile as AstSourceFile,
     parser::{Parse, ParseLimits},
+};
+use kagari_types::{
+    declaration::module::ModuleDecl,
+    host_interface::{
+        HostFunctionDeclaration,
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+    },
 };
 use std::{
     cell::{OnceCell, RefCell},
     collections::{BTreeMap, HashMap},
     sync::Arc,
-};
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        host_interface::{
-            HostFunctionDeclaration,
-            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        },
-        identity::{
-            map::{DefinitionContext, DefinitionMap},
-            mapping::DefinitionMappingError,
-            metadata::DefinitionMetadata,
-            reference::DefinitionReference,
-            table::{DefinitionId, DefinitionTable},
-        },
-    },
-    kagari_source::{
-        identity::{FileId, Revision},
-        source::SourceFile,
-        source_database::SourceSnapshot,
-    },
 };
 
 const DEFAULT_MAX_SEMANTIC_DIAGNOSTICS: usize = 1_000;

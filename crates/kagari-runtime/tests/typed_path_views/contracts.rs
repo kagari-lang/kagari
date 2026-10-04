@@ -88,7 +88,7 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
 
     let offline = runtime.host().interface();
     let encoded = offline.to_bytes().unwrap();
-    let offline = kagari_common::host_interface::HostInterface::from_bytes(&encoded).unwrap();
+    let offline = kagari_types::host_interface::HostInterface::from_bytes(&encoded).unwrap();
     assert_eq!(offline.paths.len(), 4);
     let mut bound = path_mutation_runtime();
     register_i32(&bound);
@@ -150,7 +150,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
         rc::{Rc, Weak},
     };
     let mut runtime = path_mutation_runtime();
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     };
@@ -265,7 +265,7 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
     let player = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let field = |owner_type| HostPathSegmentRegistration::Field {
         declaration: HostFieldDeclaration::new(
-            &kagari_common::host_interface::host_type_identity(if owner_type == player {
+            &kagari_types::host_interface::host_type_identity(if owner_type == player {
                 "game.Player"
             } else {
                 "game.Other"

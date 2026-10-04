@@ -1,14 +1,14 @@
 //! Foundational conversion, parsing and aggregation contracts. Algorithms are
 //! supplied by ordinary implementations, independently of declaration ownership.
+use crate::library::catalog::contracts;
 use crate::library::catalog::key::{self, RegistrationTrait};
-use crate::{
-    declaration::ModuleDecl,
-    library::catalog::contracts,
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-    types::{Constraint, GenericBound, GenericParam, Ty, conversion::ConversionAdapter},
-};
 use kagari_common::identity::associated_type_id;
+use kagari_types::{
+    declaration::{conversion::ConversionAdapter, module::ModuleDecl},
+    scalar::BuiltinType,
+    surface::StandardEnum,
+    ty::{Constraint, GenericBound, GenericParam, Ty},
+};
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     for (kind, name, parameters, error) in [

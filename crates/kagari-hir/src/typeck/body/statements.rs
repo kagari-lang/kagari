@@ -12,11 +12,9 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_contract::scalar::BuiltinType;
-use {
-    kagari_common::span::Span,
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
-};
+use kagari_common::span::Span;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::scalar::BuiltinType;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {

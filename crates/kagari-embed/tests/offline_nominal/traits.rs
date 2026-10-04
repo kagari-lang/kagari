@@ -1,11 +1,8 @@
 use super::*;
+use kagari_bytecode::artifact::KbcArtifact;
+use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 use kagari_source::diagnostic::DiagnosticKind;
-use {
-    kagari_bytecode::artifact::KbcArtifact,
-    kagari_common::host_interface::type_declaration::PathAccess, kagari_embed::context::JitPolicy,
-};
-
-use kagari_embed::program::PreparedProgram;
+use kagari_types::host_interface::type_declaration::PathAccess;
 
 #[test]
 fn artifact_host_trait_table_requires_callback_before_publication() {

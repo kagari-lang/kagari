@@ -1,23 +1,27 @@
 //! Portable defaults select actual native templates without source analysis.
 use kagari_common::{
     cancellation::CancellationToken,
-    collection::CollectionAccess,
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
         associated_type_id,
     },
 };
-use kagari_contract::{
+use kagari_contract::types::{
+    InterfaceTable, PublicItem,
+    proofs::{ProofCatalog, implementation::Implementation},
+    verify,
+};
+use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
-    declaration::ImplDecl,
-    native_import::callables::NativeCallableRequirement,
+    collection::CollectionAccess,
+    declaration::{
+        AssociatedTypeDef, FnDecl, NativeDeclaration, Param, TraitDef, module::ImplDecl,
+        requirement::NativeCallableRequirement,
+    },
     scalar::BuiltinType,
-    types::{
-        AssociatedTypeDef, Constraint, FnDecl, GenericBound, GenericParam, InterfaceTable,
-        NativeDeclaration, NominalTy, Param, PublicItem, TraitDef, Ty,
-        proofs::{ProofCatalog, implementation::Implementation},
+    ty::{
+        Constraint, GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
-        verify,
     },
 };
 use std::collections::BTreeMap;

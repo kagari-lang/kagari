@@ -2,21 +2,21 @@ mod borrows;
 mod registry;
 use crate::{
     Runtime,
-    error::RuntimeErrorKind,
+    error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     host_scope::HostResourceScope,
+    metadata::{AbiFingerprint, FieldMetadataId, TypeId},
     numeric,
     resource::ResourceState,
-    value::{EnumTag, EphemeralValue},
+    value::{EnumTag, EphemeralValue, Value},
 };
-use kagari_common::{
-    host_interface::{
-        HostFunctionDeclaration, HostPassingStyle,
-        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostVirtualSegmentDeclaration},
-        type_declaration::HostTypeDeclaration,
-        value_type::HostValueType,
-    },
-    identity::DefinitionPath,
+use kagari_bytecode::instruction::BinaryOp;
+use kagari_common::identity::DefinitionPath;
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostPassingStyle,
+    path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostVirtualSegmentDeclaration},
+    type_declaration::{HostTypeDeclaration, PathAccess},
+    value_type::HostValueType,
 };
 use std::{
     cell::RefCell,
@@ -29,18 +29,7 @@ use std::{
     },
 };
 
-use kagari_bytecode::instruction::BinaryOp;
-
 mod path_fingerprint;
-
-use {
-    crate::{
-        error::RuntimeError,
-        metadata::{AbiFingerprint, FieldMetadataId, TypeId},
-        value::Value,
-    },
-    kagari_common::host_interface::type_declaration::PathAccess,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostObjectId(pub u64);

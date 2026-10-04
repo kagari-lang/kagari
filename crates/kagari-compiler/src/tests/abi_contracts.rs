@@ -1,16 +1,16 @@
 use crate::{source::types::raise_type, tests::common::bytecode_ok};
 use bincode::Options;
 use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
-use kagari_contract::{
-    scalar::BuiltinType,
-    standard::surface::StandardEnum as StandardEnumKind,
-    types::{GenericParam, NominalTy, PublicItem, Ty},
-};
-
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
 };
+use kagari_contract::types::PublicItem;
 use kagari_hir::types::abi::lower_type;
+use kagari_types::{
+    scalar::BuiltinType,
+    surface::StandardEnum as StandardEnumKind,
+    ty::{GenericParam, NominalTy, Ty},
+};
 
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()
@@ -218,8 +218,8 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
 
 #[test]
 fn collection_access_survives_checked_host_and_wire_conversions() {
-    use kagari_common::collection::CollectionAccess::{Mutable, ReadOnly};
-    use kagari_common::host_interface::value_type::HostValueType;
+    use kagari_types::collection::CollectionAccess::{Mutable, ReadOnly};
+    use kagari_types::host_interface::value_type::HostValueType;
     let integer = Ty::Builtin(BuiltinType::I32);
     for access in [ReadOnly, Mutable] {
         for ty in [

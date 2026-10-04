@@ -1,7 +1,7 @@
 //! Encode checked HIR types into portable semantic facts.
 use crate::types::{NominalType, TypeId};
 use kagari_common::identity::reference::DefinitionReference;
-use kagari_contract::types::{NominalTy, Ty};
+use kagari_types::ty::{NominalTy, Ty};
 
 pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> NominalTy<I> {
     NominalTy {

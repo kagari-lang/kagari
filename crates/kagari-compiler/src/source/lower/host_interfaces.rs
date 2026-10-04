@@ -3,12 +3,10 @@
 use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
 use kagari_contract::{
-    callable::CallableImplementation,
     native_import::NativeImport,
+    representation::semantic_representation,
     slots::SemanticSlots,
-    types::{
-        ConcreteFunctionIdentity, FnDecl, InterfaceTable, ModuleContract, Param, PublicItem, Ty,
-    },
+    types::{ConcreteFunctionIdentity, InterfaceTable, ModuleContract, PublicItem},
 };
 use kagari_hir::{
     AnalyzedModule,
@@ -22,6 +20,11 @@ use kagari_mir::{
     function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp},
     ids::{BlockId, InstanceId, LocalId, TempId},
     instruction::{CallTarget, Instruction, MirValue, Terminator},
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{FnDecl, Param},
+    ty::Ty,
 };
 
 pub(super) fn collect(
@@ -97,7 +100,7 @@ pub(super) fn collect(
             for (index, param) in params.iter().enumerate() {
                 let value = MirValue {
                     temp: TempId::new(index),
-                    ty: param.ty.representation(),
+                    ty: semantic_representation(&param.ty),
                 };
                 temps.push(MirTemp { ty: value.ty });
                 instructions.push(Instruction::LoadLocal {
@@ -108,7 +111,7 @@ pub(super) fn collect(
             }
             let result = MirValue {
                 temp: TempId::new(temps.len()),
-                ty: result_type.representation(),
+                ty: semantic_representation(&result_type),
             };
             temps.push(MirTemp { ty: result.ty });
             instructions.push(Instruction::Call {
@@ -158,7 +161,7 @@ pub(super) fn collect(
                     .enumerate()
                     .map(|(index, param)| MirParameter {
                         name: param.name.clone(),
-                        ty: param.ty.representation(),
+                        ty: semantic_representation(&param.ty),
                         local: LocalId::new(index),
                     })
                     .collect(),
@@ -167,7 +170,7 @@ pub(super) fn collect(
                     .iter()
                     .map(|param| MirLocal {
                         name: param.name.clone(),
-                        ty: param.ty.representation(),
+                        ty: semantic_representation(&param.ty),
                     })
                     .collect(),
                 temps,
@@ -192,7 +195,7 @@ pub(super) fn collect(
                             local: LocalId::new(index),
                             name: param.name.clone(),
                             span,
-                            ty: param.ty.representation(),
+                            ty: semantic_representation(&param.ty),
                             is_parameter: true,
                         })
                         .collect(),

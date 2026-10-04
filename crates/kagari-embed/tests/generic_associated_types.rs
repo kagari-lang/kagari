@@ -4,9 +4,8 @@ use kagari_embed::{
     engine::KagariEngine,
     program::PreparedProgram,
 };
-use kagari_source::source::SourceFile;
-
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn execute(source: &str) {
     let engine = KagariEngine::default();
@@ -238,10 +237,13 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
 
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
-    use kagari_contract::{
-        scalar::BuiltinType,
-        standard::surface::StandardTypeConstraint,
-        types::{Constraint, GenericBound, PublicItem, Ty},
+    use {
+        kagari_contract::types::PublicItem,
+        kagari_types::{
+            scalar::BuiltinType,
+            surface::StandardTypeConstraint,
+            ty::{Constraint, GenericBound, Ty},
+        },
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"),  Default::default()).unwrap();
@@ -345,8 +347,12 @@ fn main()->i32 { make(Maker {}).read() }
 
 #[test]
 fn complete_family_metadata_cannot_make_a_dynamic_interface() {
-    use kagari_contract::types::{
-        AssociatedTypeDef, AssociatedTypeFamily, GenericParam, PublicItem, Ty,
+    use {
+        kagari_contract::types::PublicItem,
+        kagari_types::{
+            declaration::{AssociatedTypeDef, AssociatedTypeFamily},
+            ty::{GenericParam, Ty},
+        },
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self)->i32; } struct N {} impl Read for N { fn read(self)->i32 { 42 } } fn main()->i32 { val x: Read = N {}; x.read() }"),  Default::default()).unwrap();

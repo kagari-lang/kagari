@@ -4,14 +4,12 @@ use crate::{
     lower::context::{syntax_span, token_span},
     native::render::{DeclarationSource, NativeDeclarationSite},
 };
-use kagari_contract::{
-    declaration::ModuleDecl,
-    language::{Protocol, role::LangRole},
-};
+use kagari_common::identity::{DefinitionKind, associated_type_id};
+use kagari_source::source::SourceFile;
 use kagari_syntax::{ast::item::Item, parser::parse};
-use {
-    kagari_common::identity::{DefinitionKind, associated_type_id},
-    kagari_source::source::SourceFile,
+use kagari_types::{
+    declaration::module::ModuleDecl,
+    language::{Protocol, role::LangRole},
 };
 
 pub(super) fn core_text(role: LangRole) -> String {

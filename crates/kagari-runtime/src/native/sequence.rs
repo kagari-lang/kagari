@@ -11,10 +11,7 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{
-    scalar::BuiltinType,
-    types::{Ty, native::NativeStorageLayout},
-};
+use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
 use std::{any::Any, collections::TryReserveError, rc::Rc};
 
 #[derive(Debug)]

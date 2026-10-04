@@ -1,16 +1,13 @@
 //! Base implementations use ordinary native declarations and selected callbacks.
+use crate::library::catalog::contracts;
 use crate::library::catalog::key::{self, RegistrationTrait};
-use crate::{
-    declaration::ModuleDecl,
-    library::catalog::contracts,
-    native_import::callables::NativeCallableRequirement,
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-    types::{GenericParam, NominalTy, Ty},
-};
-use kagari_common::{
+use kagari_common::identity::{DefinitionKind, associated_type_id};
+use kagari_types::{
     collection::CollectionAccess,
-    identity::{DefinitionKind, associated_type_id},
+    declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
+    scalar::BuiltinType,
+    surface::StandardEnum,
+    ty::{GenericParam, NominalTy, Ty},
 };
 
 const SCALARS: [BuiltinType; 13] = [

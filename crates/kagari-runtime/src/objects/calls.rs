@@ -19,12 +19,14 @@ use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::{
-        CallableImplementation,
         interface::InterfaceCallContract,
         witness::{OperationWitness, SharedMethodWitness},
     },
-    native_import::callables::NativeCallableRequirement,
-    types::{self as abi, ConcreteFunctionIdentity, Ty},
+    types as abi,
+    types::ConcreteFunctionIdentity,
+};
+use kagari_types::{
+    callable::CallableImplementation, declaration::requirement::NativeCallableRequirement, ty::Ty,
 };
 use std::{
     cell::OnceCell,

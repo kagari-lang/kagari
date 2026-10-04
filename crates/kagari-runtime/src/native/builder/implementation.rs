@@ -9,9 +9,10 @@ use crate::{
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
-use kagari_contract::{
-    declaration::{ImplDecl, ModuleDecl},
-    types::{GenericParam, substitution::TypeSubstitution},
+use kagari_contract::library::namespaces;
+use kagari_types::{
+    declaration::module::{ImplDecl, ModuleDecl},
+    ty::{GenericParam, substitution::TypeSubstitution},
 };
 use std::collections::BTreeMap;
 
@@ -31,7 +32,7 @@ impl<'module> ImplementationBuilder<'module> {
         if !self
             .module
             .declaration
-            .owns_inherent_receiver(&self.receiver.0)
+            .owns_inherent_receiver(&self.receiver.0, &namespaces::receiver_owner)
         {
             return Err(RuntimeError::metadata_conflict(
                 "inherent methods belong to the type's defining module",

@@ -8,16 +8,13 @@ use crate::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_contract::callable::witness::OperationWitness;
-use kagari_contract::{
+use kagari_common::identity::DefinitionPath;
+use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
+use kagari_types::{
     callable::CallableImplementation,
-    native_import::callables::NativeCallableRequirement,
-    types::{AssociatedTypeDef, Constraint, FnDecl, GenericBound, GenericParam, PublicItem, Ty},
-};
-
-use kagari_common::{
+    declaration::{AssociatedTypeDef, FnDecl, requirement::NativeCallableRequirement},
     host_interface::{HostInterface, path::HostPathSegmentDeclaration, value_type::HostValueType},
-    identity::DefinitionPath,
+    ty::{Constraint, GenericBound, GenericParam, Ty},
 };
 
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {

@@ -1,11 +1,12 @@
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use kagari_embed::{context::JitPolicy, engine::EngineConfig};
-use kagari_source::source::SourceFile;
-
 use kagari_embed::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -204,11 +205,11 @@ fn main() { val values = [1, 2]; inspect(values); }
 
 #[test]
 fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() {
-    use kagari_common::{
+    use kagari_runtime::host::HostFunction;
+    use kagari_types::{
         collection::CollectionAccess,
         host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
     };
-    use kagari_runtime::host::HostFunction;
     let declaration = HostFunctionDeclaration::new(
         "demo.values",
         vec![],

@@ -1,4 +1,5 @@
 //! Validate registrations and prepare concrete entries/callables before execution.
+
 mod dependencies;
 use crate::{
     error::RuntimeError,
@@ -27,14 +28,18 @@ use kagari_common::{
     },
 };
 use kagari_contract::{
-    callable::{CallableImplementation, witness::OperationWitness},
-    language::Protocol,
+    callable::witness::OperationWitness,
     native_import::{
         NativeImport, NativeSignature,
         callables::{NativeCallableApplication, NativeCallableOrigin},
     },
     standard::RuntimePrimitive,
-    types::{NativeDeclaration, Ty, verify::validate_native_declarations},
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{NativeDeclaration, verify::validate_native_declarations},
+    language::Protocol,
+    ty::Ty,
 };
 use std::{collections::HashSet, rc::Rc, slice};
 

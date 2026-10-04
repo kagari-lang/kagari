@@ -9,9 +9,9 @@ use kagari_common::identity::{
     reference::DefinitionReference,
     table::{DefinitionId, DefinitionTableError},
 };
-use kagari_contract::{
-    declaration::{ImplDecl, ModuleDecl},
-    types::{NativeDeclaration, TraitDef, TypeDef, TypeDefKind},
+use kagari_types::declaration::{
+    NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
+    module::{ImplDecl, ModuleDecl},
 };
 use std::{collections::BTreeMap, sync::Arc};
 

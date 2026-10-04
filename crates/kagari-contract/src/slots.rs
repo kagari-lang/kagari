@@ -1,18 +1,18 @@
-use kagari_common::identity::DefinitionPath;
-use {
-    crate::{
-        callable::generic::GenericBody,
-        native_import::{
-            callables::NativeCallableRequirement,
-            protocol::{adapter_arguments, adapter_contract},
-        },
-        types::{ConcreteFunctionIdentity, Ty, verify::concrete_type_valid},
-    },
-    kagari_abi::representation::ValueType,
+use crate::{
+    callable::generic::GenericBody,
+    native_import::protocol::{adapter_arguments, adapter_contract},
+    representation::semantic_representation,
+    types::ConcreteFunctionIdentity,
 };
-
-use kagari_common::identity::reference::DefinitionReference;
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_abi::representation::ValueType;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference},
+};
+use kagari_types::{
+    declaration::{requirement::NativeCallableRequirement, verify::concrete_type_valid},
+    ty::Ty,
+};
 use std::collections::BTreeMap;
 
 /// Semantic contracts supplement the physical frame layout.
@@ -25,12 +25,12 @@ pub struct SemanticSlots<I = DefinitionPath> {
     pub generic: Option<GenericBody<I>>,
     /// Applied checked language protocol implemented by this generated function.
     pub protocol_adapter: Option<NativeCallableRequirement<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::map")]
+    #[serde(deserialize_with = "kagari_types::decode_limits::map")]
     pub params: BTreeMap<usize, Ty<I>>,
     pub result: Option<Ty<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::map")]
+    #[serde(deserialize_with = "kagari_types::decode_limits::map")]
     pub locals: BTreeMap<usize, Ty<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::map")]
+    #[serde(deserialize_with = "kagari_types::decode_limits::map")]
     pub registers: BTreeMap<usize, Ty<I>>,
 }
 
@@ -68,7 +68,7 @@ impl SemanticSlots {
     ) -> bool {
         let valid = |representation: ValueType, semantic: Option<&Ty>| {
             let generic_semantic =
-                semantic.is_some_and(|ty| ty.representation() == ValueType::Generic);
+                semantic.is_some_and(|ty| semantic_representation(ty) == ValueType::Generic);
             if representation == ValueType::Generic || generic_semantic {
                 self.generic.is_some() && generic_semantic && representation == ValueType::Generic
             } else {

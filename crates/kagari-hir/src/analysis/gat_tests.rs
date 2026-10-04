@@ -1,5 +1,5 @@
 use super::*;
-use kagari_contract::scalar::BuiltinType;
+use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn generic_associated_types_preserve_member_arguments_and_normalize_static_calls() {

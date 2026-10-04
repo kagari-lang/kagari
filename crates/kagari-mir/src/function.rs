@@ -1,26 +1,23 @@
-use kagari_common::identity::DefinitionPath;
-use kagari_common::identity::reference::DefinitionReference;
-use kagari_common::{
-    host_interface::type_declaration::HostTypeDeclaration, identity::ModuleIdentity, span::Span,
-};
-use serde::{Deserialize, Serialize};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::witness::OperationWitness,
-        effects::EffectSet,
-        layout::{EnumLayout, StructLayout},
-        native_import::{NativeImport, callables::NativeCallableApplication},
-        slots::SemanticSlots,
-        types::{ConcreteFunctionIdentity, ModuleContract, NominalTy},
-    },
-};
-
 use crate::{
     debug::MirFunctionDebugMetadata,
     ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId},
     instruction::{CallTarget, Instruction, InstructionBuffer, Terminator},
 };
+use kagari_abi::representation::ValueType;
+use kagari_common::{
+    identity::{DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+    span::Span,
+};
+use kagari_contract::{
+    callable::witness::OperationWitness,
+    effects::EffectSet,
+    layout::{EnumLayout, StructLayout},
+    native_import::{NativeImport, callables::NativeCallableApplication},
+    slots::SemanticSlots,
+    types::{ConcreteFunctionIdentity, ModuleContract},
+};
+use kagari_types::{host_interface::type_declaration::HostTypeDeclaration, ty::NominalTy};
+use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, iter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

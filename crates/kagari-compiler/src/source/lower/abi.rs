@@ -1,4 +1,6 @@
 use crate::source::types::{lower_native_kind, raise_type};
+use kagari_common::identity;
+use kagari_contract::types::{InterfaceTable, ModuleContract, PublicItem, TraitContract};
 use kagari_hir::{
     AnalyzedModule,
     aggregates::traits::MethodDefault,
@@ -17,16 +19,13 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
-
-use kagari_common::identity;
-use kagari_contract::{
+use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
-    types::{
-        AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, Constraint,
-        FieldDef, FnDecl, GenericBound, GenericParam, InterfaceTable, ModuleContract,
-        NativeDeclaration, Param, PublicItem, TraitContract, TraitDef, Ty, TypeDef, TypeDefKind,
-        VariantDef,
+    declaration::{
+        AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl,
+        NativeDeclaration, Param, TraitDef, TypeDef, TypeDefKind, VariantDef,
     },
+    ty::{Constraint, GenericBound, GenericParam, Ty},
 };
 
 #[cfg(test)]

@@ -17,15 +17,12 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_contract::{
+use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity, span::Span};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
     language::{Protocol, role::LangRole},
-    standard::surface::StandardTypeConstraint,
-};
-use {
-    kagari_common::{
-        cancellation::CancellationToken, identity::ModuleIdentity, range::RangeKind, span::Span,
-    },
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+    range::RangeKind,
+    surface::StandardTypeConstraint,
 };
 
 pub(super) fn validate(

@@ -1,30 +1,27 @@
-use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
-use {
-    kagari_common::{
-        collection::CollectionAccess,
-        host_interface::{
-            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-            type_declaration::{
-                HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
-                HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
-            },
-            value_type::HostValueType,
-        },
-        identity::{
-            DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
-        },
-    },
-    kagari_source::{source::SourceFile, source_database::SourceLayer},
+use kagari_bytecode::artifact::KbcArtifact;
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
-
 use kagari_embed::{
-    context::ExecutionContext,
+    context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
     program::PreparedProgram,
 };
 use kagari_runtime::{
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
     value::Value,
+};
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_types::{
+    collection::CollectionAccess,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        type_declaration::{
+            HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+        },
+        value_type::HostValueType,
+    },
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -57,13 +54,13 @@ fn interface() -> HostInterface {
 }
 
 fn assert_source_index_path(field_prefix: bool) {
-    use kagari_common::host_interface::{
-        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::PathAccess,
-    };
     use kagari_runtime::{
         host::{HostError, HostPathAdapter, PreparedHostPathWrite},
         metadata::{AbiFingerprint, TypeKind, TypeRegistration},
+    };
+    use kagari_types::host_interface::{
+        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::PathAccess,
     };
     use std::cell::Cell;
 

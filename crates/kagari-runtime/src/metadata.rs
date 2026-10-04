@@ -1,4 +1,5 @@
-use kagari_common::host_interface::{
+use crate::{error::RuntimeError, reload::ModuleEpoch};
+use kagari_types::host_interface::{
     type_declaration::{PathAccess, Visibility},
     value_type::HostValueType,
 };
@@ -6,8 +7,6 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
 };
-
-use crate::{error::RuntimeError, reload::ModuleEpoch};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(u64);

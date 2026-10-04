@@ -6,8 +6,9 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::{host::HostFunction, value::Value};
+use kagari_source::source::SourceFile;
+use kagari_types::host_interface::standard_log;
 use std::sync::{Arc, Mutex};
-use {kagari_common::host_interface::standard_log, kagari_source::source::SourceFile};
 
 fn execute(source: &str, entry: &str, expected: i32) {
     let engine = KagariEngine::default();

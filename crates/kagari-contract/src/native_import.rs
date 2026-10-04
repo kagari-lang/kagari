@@ -1,22 +1,29 @@
 //! Checked native applications. Declarations own signatures; IDs select installed entries.
-use crate::{
-    callable::{generic::GenericBody, witness::OperationWitness},
-    native_import::{linked::matches_declaration, result::NativeResultAdapter},
-    types::{
-        ConcreteFunctionIdentity, GenericBound, NativeDeclaration, Ty,
-        proofs::ProofCatalog,
-        substitution::TypeTransformError,
-        verify::{native_bounds_valid, types_in_scope},
+use {
+    crate::{
+        callable::{generic::GenericBody, witness::OperationWitness},
+        native_import::{linked::matches_declaration, result::NativeResultAdapter},
+        types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
+    },
+    kagari_types::{
+        declaration::{
+            NativeDeclaration,
+            verify::{native_bounds_valid, types_in_scope},
+        },
+        ty::{GenericBound, Ty, substitution::TypeTransformError},
     },
 };
 
-use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
-    host_interface::HostFunctionDeclaration,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
+    identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        reference::DefinitionReference,
+    },
 };
+use kagari_types::host_interface::HostFunctionDeclaration;
 use serde::{Deserialize, Serialize};
+
 pub mod callables;
 mod linked;
 pub mod protocol;

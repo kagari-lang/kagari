@@ -17,12 +17,12 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::reference::DefinitionReference;
-use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::{Ty, native::NativeStorageLayout};
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
     any::{Any, TypeId},
-    fmt::{self, Debug},
+    fmt,
+    fmt::Debug,
     rc::Rc,
     slice,
 };

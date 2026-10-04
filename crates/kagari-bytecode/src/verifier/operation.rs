@@ -9,14 +9,12 @@ use crate::{
         verify_call_dst, verify_dynamic_path_args, verify_jump, verify_standard_intrinsic_call,
     },
 };
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        contracts::{self, RuntimeHelperKind},
-        operations::{self, UnaryOp as MirUnaryOp},
-        types::{PublicItem, Ty, verify::types_in_scope},
-    },
+use kagari_abi::representation::ValueType;
+use kagari_contract::{
+    contracts, contracts::RuntimeHelperKind, operations, operations::UnaryOp as MirUnaryOp,
+    representation::semantic_representation, types::PublicItem,
 };
+use kagari_types::{declaration::verify::types_in_scope, ty::Ty};
 
 pub(super) fn verify_instruction(
     module: &BytecodeModule,
@@ -151,7 +149,7 @@ pub(super) fn verify_instruction(
             expect_register_ty(
                 function,
                 *value,
-                element.representation(),
+                semantic_representation(element),
                 "repeat array element",
             )?;
             if !element.within_wire_limits()
@@ -190,7 +188,12 @@ pub(super) fn verify_instruction(
                 });
             }
             for value in elements {
-                expect_register_ty(function, *value, element.representation(), "array element")?;
+                expect_register_ty(
+                    function,
+                    *value,
+                    semantic_representation(element),
+                    "array element",
+                )?;
             }
         }
         BytecodeInstruction::MakeTuple { dst, elements } => {
@@ -320,7 +323,7 @@ pub(super) fn verify_instruction(
             expect_register_ty(
                 function,
                 *value,
-                table.for_type.representation(),
+                semantic_representation(&table.for_type),
                 "interface receiver",
             )?;
         }
@@ -336,11 +339,16 @@ pub(super) fn verify_instruction(
                         function: function.id,
                         reason: "invalid numeric conversion",
                     })?;
-            expect_register_ty(function, *src, input.representation(), "conversion source")?;
+            expect_register_ty(
+                function,
+                *src,
+                semantic_representation(&input),
+                "conversion source",
+            )?;
             expect_register_ty(
                 function,
                 *dst,
-                output.representation(),
+                semantic_representation(&output),
                 "conversion destination",
             )?;
         }
@@ -355,12 +363,25 @@ pub(super) fn verify_instruction(
                 reason: "invalid numeric contract",
             };
             let (left, right, output) = operation.contract().ok_or_else(invalid)?;
-            expect_register_ty(function, *lhs, left.representation(), "numeric lhs")?;
-            expect_register_ty(function, *dst, output.representation(), "numeric output")?;
+            expect_register_ty(
+                function,
+                *lhs,
+                semantic_representation(&left),
+                "numeric lhs",
+            )?;
+            expect_register_ty(
+                function,
+                *dst,
+                semantic_representation(&output),
+                "numeric output",
+            )?;
             match (right, rhs) {
-                (Some(ty), Some(value)) => {
-                    expect_register_ty(function, *value, ty.representation(), "numeric rhs")?
-                }
+                (Some(ty), Some(value)) => expect_register_ty(
+                    function,
+                    *value,
+                    semantic_representation(&ty),
+                    "numeric rhs",
+                )?,
                 (None, None) => {}
                 _ => return Err(invalid()),
             }
@@ -448,7 +469,12 @@ pub(super) fn verify_instruction(
                 return Err(invalid());
             }
             for (register, ty) in fields.iter().zip(&layout.payload) {
-                expect_register_ty(function, *register, ty.representation(), "enum payload")?;
+                expect_register_ty(
+                    function,
+                    *register,
+                    semantic_representation(ty),
+                    "enum payload",
+                )?;
             }
         }
         BytecodeInstruction::TestEnumVariant {
@@ -502,7 +528,7 @@ pub(super) fn verify_instruction(
             expect_register_ty(
                 function,
                 *dst,
-                ty.representation(),
+                semantic_representation(&ty),
                 "enum pattern payload dst",
             )?;
         }
@@ -531,7 +557,7 @@ pub(super) fn verify_instruction(
                 expect_register_ty(
                     function,
                     *value,
-                    field.ty.representation(),
+                    semantic_representation(&field.ty),
                     "struct field initializer",
                 )?;
             }
@@ -541,7 +567,7 @@ pub(super) fn verify_instruction(
             expect_register_ty(
                 function,
                 *dst,
-                field.ty.representation(),
+                semantic_representation(&field.ty),
                 "aggregate field dst",
             )?;
             expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
@@ -558,7 +584,7 @@ pub(super) fn verify_instruction(
             expect_register_ty(
                 function,
                 *value,
-                field.ty.representation(),
+                semantic_representation(&field.ty),
                 "aggregate field value",
             )?;
         }
@@ -719,9 +745,18 @@ pub(super) fn verify_call(
                 return Err(invalid());
             }
             for (arg, ty) in args.iter().zip(&contract.signature.params) {
-                expect_register_ty(function, *arg, ty.representation(), "shared call argument")?;
+                expect_register_ty(
+                    function,
+                    *arg,
+                    semantic_representation(ty),
+                    "shared call argument",
+                )?;
             }
-            verify_call_dst(function, dst, contract.signature.result.representation())?;
+            verify_call_dst(
+                function,
+                dst,
+                semantic_representation(&contract.signature.result),
+            )?;
         }
         CallTarget::ModuleFunction {
             module: target_module,
@@ -808,8 +843,12 @@ pub(super) fn verify_call(
                     reason: "unbound interface method application",
                 });
             }
-            let params: Vec<_> = signature.params.iter().map(Ty::representation).collect();
-            let return_type = signature.result.representation();
+            let params: Vec<_> = signature
+                .params
+                .iter()
+                .map(semantic_representation)
+                .collect();
+            let return_type = semantic_representation(&signature.result);
             if args.len() != params.len() {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,

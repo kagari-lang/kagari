@@ -1,15 +1,14 @@
-use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, HeapObject, HeapObjectId},
     native::{
+        hash_storage::{HashMapStorage, HashSetStorage},
         hashed::{MapPayload, SetPayload},
         storage_type::StorageType,
     },
     value::{MapKey, Value},
 };
-
-use kagari_contract::types::Ty;
+use kagari_types::ty::Ty;
 use std::rc::Rc;
 
 fn invalid() -> RuntimeError {

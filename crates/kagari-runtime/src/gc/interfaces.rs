@@ -9,10 +9,8 @@ use crate::{
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{
-    native_import::NativeSignature,
-    types::{GenericParam, NominalTy, Ty},
-};
+use kagari_contract::native_import::NativeSignature;
+use kagari_types::ty::{GenericParam, NominalTy, Ty};
 use std::{cell::OnceCell, rc::Rc};
 
 #[derive(Debug, Clone)]

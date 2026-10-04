@@ -1,5 +1,4 @@
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -16,6 +15,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn engine() -> KagariEngine {
     let language = LanguageContracts::default();

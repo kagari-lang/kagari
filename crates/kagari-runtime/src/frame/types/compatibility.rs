@@ -4,7 +4,7 @@ use crate::{
     module::{LoadedModule, ModuleKey},
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::{NominalTy, Ty, substitution::TypeSubstitution};
+use kagari_types::ty::{NominalTy, Ty, substitution::TypeSubstitution};
 use std::{borrow::Cow, collections::HashSet, ptr};
 
 #[derive(Clone, Copy)]

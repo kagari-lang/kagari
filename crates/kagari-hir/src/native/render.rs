@@ -6,19 +6,20 @@ use crate::{
     native::render::core::{core_text, record_sites},
 };
 use kagari_common::{
-    collection::CollectionAccess,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
     span::Span,
 };
-use kagari_contract::{
-    declaration::{DeclarationError, ModuleDecl},
-    language::{Protocol, role::LangRole},
-    library::namespaces,
-    scalar::BuiltinType,
-    types::{
-        Constraint, FnDecl, GenericBound, GenericParam, NominalTy, Ty, TypeDefKind,
+use kagari_contract::library::namespaces;
+use kagari_types::{
+    collection::CollectionAccess,
+    declaration::{
+        FnDecl, TypeDefKind,
+        module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
     },
+    language::{Protocol, role::LangRole},
+    scalar::BuiltinType,
+    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 

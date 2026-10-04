@@ -1,5 +1,19 @@
-use crate::types::NominalType;
+use crate::{
+    aggregates::AggregateCatalog,
+    analysis::{AnalysisDatabase, AnalysisSnapshot},
+    language::{semantics as traits, semantics::ProtocolSemantics},
+    native::{NativeBinding, NativeTypeKind},
+    typeck::FunctionImplementation,
+    types::{NominalType, TypeId, TypeSubstitution},
+};
 use kagari_contract::library;
+use kagari_source::{
+    identity::FileId,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_types::{
+    collection::CollectionAccess, language::Protocol, scalar::BuiltinType, surface::StandardEnum,
+};
 
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
@@ -8,23 +22,6 @@ fn foundation_interface(name: &str) -> NominalType {
         associated_types: Default::default(),
     }
 }
-use crate::{
-    aggregates::AggregateCatalog,
-    analysis::{AnalysisDatabase, AnalysisSnapshot},
-    language::semantics::{self as traits, ProtocolSemantics},
-    native::{NativeBinding, NativeTypeKind},
-    typeck::FunctionImplementation,
-    types::{TypeId, TypeSubstitution},
-};
-
-use kagari_contract::{language::Protocol, scalar::BuiltinType, standard::surface::StandardEnum};
-use {
-    kagari_common::collection::CollectionAccess,
-    kagari_source::{
-        identity::FileId,
-        source_database::{SourceDatabase, SourceLayer},
-    },
-};
 
 fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
     let mut sources = SourceDatabase::default();

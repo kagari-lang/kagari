@@ -1,14 +1,15 @@
 //! Encode checked source types at the compiler boundary.
-use kagari_common::integer::IntegerOp;
-use kagari_contract::{
-    numeric::NumericOperation,
-    scalar::BuiltinType,
-    types::{NominalTy, Ty, TypeDefKind, native::NativeTypeConstructor},
-};
+use kagari_contract::numeric::NumericOperation;
 use kagari_hir::{
     hir::expr::ops::BinaryOp,
     native::NativeTypeKind,
     types::{GenericParameterType, NominalType, TypeId},
+};
+use kagari_types::{
+    declaration::{TypeDefKind, native::NativeTypeConstructor},
+    integer::IntegerOp,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
 };
 
 pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeDefKind {

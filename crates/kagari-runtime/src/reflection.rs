@@ -187,25 +187,19 @@ fn resolve_field(
 
 #[cfg(test)]
 mod tests {
-    use {
-        crate::host::HostTypeRegistration,
-        kagari_common::host_interface::{
-            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-            value_type::HostValueType,
-        },
-    };
-
     use super::*;
-    use {
-        crate::{
-            host::{
-                DynamicPathArguments, HostBorrowTable, HostObjectId,
-                HostPathDescriptorRegistration, HostPathSegmentRegistration, HostRootHandle,
-                HostSchemaEpoch,
-            },
-            metadata::{AbiFingerprint, TypeId},
+    use crate::{
+        host::{
+            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+            HostPathSegmentRegistration, HostRootHandle, HostSchemaEpoch, HostTypeRegistration,
         },
-        kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
+        metadata::{AbiFingerprint, TypeId},
+    };
+    use kagari_types::host_interface::{
+        type_declaration::{
+            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+        },
+        value_type::HostValueType,
     };
 
     fn host_root_value(object_id: u64) -> Value {

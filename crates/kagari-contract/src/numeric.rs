@@ -1,10 +1,9 @@
 //! Concrete numeric contracts retained through verification and artifact loading.
+use kagari_types::conversion::conversion_error;
 
 pub mod method;
 
-use crate::{scalar::BuiltinType, standard::surface::StandardEnum, types::Ty};
-
-use kagari_common::integer::IntegerOp;
+use kagari_types::{integer::IntegerOp, scalar::BuiltinType, surface::StandardEnum, ty::Ty};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,53 +64,4 @@ impl NumericConversion {
             .can_cast_to(self.target)
             .then_some((Ty::Builtin(self.source), Ty::Builtin(self.target)))
     }
-}
-
-pub fn lossless_from(source: BuiltinType, target: BuiltinType) -> bool {
-    if source == target {
-        return source.number_type().is_some() || source == BuiltinType::Bool;
-    }
-    if source == BuiltinType::Bool {
-        return target.integer_layout().is_some();
-    }
-    match target {
-        BuiltinType::F32 => matches!(
-            source,
-            BuiltinType::I8 | BuiltinType::I16 | BuiltinType::U8 | BuiltinType::U16
-        ),
-        BuiltinType::F64 => matches!(
-            source,
-            BuiltinType::I8
-                | BuiltinType::I16
-                | BuiltinType::I32
-                | BuiltinType::U8
-                | BuiltinType::U16
-                | BuiltinType::U32
-                | BuiltinType::F32
-        ),
-        BuiltinType::ISize => {
-            matches!(source, BuiltinType::I8 | BuiltinType::I16 | BuiltinType::U8)
-        }
-        BuiltinType::USize => matches!(source, BuiltinType::U8 | BuiltinType::U16),
-        _ if matches!(source, BuiltinType::ISize | BuiltinType::USize) => false,
-        _ => match (source.integer_layout(), target.integer_layout()) {
-            (Some((a, sa)), Some((b, sb))) => (sa == sb && a < b) || (!sa && sb && a < b),
-            _ => false,
-        },
-    }
-}
-
-/// Error type of the portable checked scalar conversion contract.
-pub fn conversion_error(source: BuiltinType, target: BuiltinType) -> Option<StandardEnum> {
-    if lossless_from(source, target) {
-        Some(StandardEnum::Infallible)
-    } else if source.integer_layout().is_some() && target.integer_layout().is_some() {
-        Some(StandardEnum::TryFromIntError)
-    } else {
-        None
-    }
-}
-
-pub fn parsing_error(kind: BuiltinType) -> Option<StandardEnum> {
-    (kind.number_type().is_some() || kind == BuiltinType::Bool).then_some(StandardEnum::ParseError)
 }

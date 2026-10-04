@@ -1,8 +1,11 @@
 //! A preselected conversion from a native body's concrete result to its interface.
-use crate::types::{ConcreteFunctionIdentity, GenericParam, Ty, verify::types_in_scope};
+use crate::types::ConcreteFunctionIdentity;
 use kagari_common::identity::DefinitionPath;
 use kagari_common::identity::reference::DefinitionReference;
-
+use kagari_types::{
+    declaration::verify::types_in_scope,
+    ty::{GenericParam, Ty},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

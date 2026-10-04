@@ -1,13 +1,17 @@
 //! Inherent String methods belong to the language declaration owner.
+use crate::library::catalog::contracts;
 use crate::library::catalog::key::{self, RegistrationTrait};
-use crate::{
+use kagari_common::identity::DefinitionKind;
+use kagari_types::{
     callable::CallableImplementation,
-    declaration::{ImplDecl, ModuleDecl},
-    library::catalog::contracts,
+    collection::CollectionAccess,
+    declaration::{
+        Param,
+        module::{ImplDecl, ModuleDecl},
+    },
     scalar::BuiltinType,
-    types::{Param, Ty},
+    ty::Ty,
 };
-use kagari_common::{collection::CollectionAccess, identity::DefinitionKind};
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     let string = Ty::Builtin(BuiltinType::String);

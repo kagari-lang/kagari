@@ -1,18 +1,21 @@
 //! Validate generated protocol functions against carried declarations and bounds.
-use crate::{
-    callable::CallableImplementation,
-    effects::EffectSet,
-    native_import::{
-        NativeSignature,
-        callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
-        protocol::{adapter_arguments, adapter_contract},
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use {
+    crate::{
+        effects::EffectSet,
+        native_import::{
+            NativeSignature,
+            callables::{NativeCallableApplication, NativeCallableOrigin},
+            protocol::{adapter_arguments, adapter_contract},
+        },
+        types::proofs::ProofCatalog,
     },
-    types::{
-        proofs::ProofCatalog,
-        substitution::{TypeSubstitution, TypeTransformError},
+    kagari_types::{
+        callable::CallableImplementation,
+        declaration::requirement::NativeCallableRequirement,
+        ty::substitution::{TypeSubstitution, TypeTransformError},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 
 impl ProofCatalog<'_> {
     pub fn implicit_callable_signature(

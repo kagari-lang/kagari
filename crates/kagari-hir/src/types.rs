@@ -4,14 +4,16 @@ use crate::{
     native::enum_display_name,
     typeck::{GenericBounds, associated},
 };
-use kagari_common::{
-    collection::CollectionAccess::{self, Mutable, ReadOnly},
-    identity::{DefinitionPath, reference::DefinitionReference},
+use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_types::{
+    collection::{
+        CollectionAccess,
+        CollectionAccess::{Mutable, ReadOnly},
+    },
     range::RangeKind,
-};
-use kagari_contract::{
     scalar::BuiltinType,
-    standard::surface::{self as standard_surface, StandardEnum},
+    surface as standard_surface,
+    surface::StandardEnum,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},

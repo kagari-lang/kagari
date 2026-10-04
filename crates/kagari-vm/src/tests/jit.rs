@@ -1,22 +1,18 @@
+use crate::{
+    debug::DebugSession,
+    tests::{common, native_fixtures},
+    vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
+};
+use kagari_abi::{native::BackendId, representation::ValueType};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantOperand, Register},
     module::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
     },
 };
-use {
-    kagari_abi::{native::BackendId, representation::ValueType},
-    kagari_contract::ids::{DebugPointId, FunctionRef},
-};
-
 use kagari_common::span::Span;
+use kagari_contract::ids::{DebugPointId, FunctionRef};
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
-
-use crate::{
-    debug::DebugSession,
-    tests::{common, native_fixtures},
-    vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
-};
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
@@ -24,10 +20,10 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
         artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
         instruction::NativeImportId,
     };
-    use kagari_common::host_interface::{
+    use kagari_runtime::host::HostFunction;
+    use kagari_types::host_interface::{
         HostFunctionDeclaration, standard_log, value_type::HostValueType,
     };
-    use kagari_runtime::host::HostFunction;
     use std::sync::{Arc, Mutex};
     let bytecode = common::compile_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
     for artifact in [false, true] {

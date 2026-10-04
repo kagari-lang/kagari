@@ -22,10 +22,9 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
-use kagari_common::identity::reference::DefinitionReference;
-use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{native_import::callables::NativeCallableRequirement, types::Ty};
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
+use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{rc::Rc, slice};
 
 #[derive(Clone, Copy)]

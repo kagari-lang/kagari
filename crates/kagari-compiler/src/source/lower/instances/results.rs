@@ -6,12 +6,13 @@ use crate::source::{
 use kagari_common::span::Span;
 use kagari_contract::{
     native_import::{NativeImport, result::NativeResultAdapter},
-    types::{ConcreteFunctionIdentity, Constraint, Ty, substitution::TypeSubstitution},
+    types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
     typeck::{GenericBounds, table::ConstraintTarget},
     types::abi::lower_type,
 };
+use kagari_types::ty::{Constraint, Ty, substitution::TypeSubstitution};
 
 impl InstancePlanner<'_> {
     pub(crate) fn native_result_adapter(

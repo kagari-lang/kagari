@@ -3,9 +3,8 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::collection::CollectionAccess;
-use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{Runtime, value::Value};
+use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
 
 fn main() {
     const LEAVES: usize = 10_000;

@@ -1,6 +1,4 @@
 //! Owned metadata contexts and explicit portable projections.
-#[cfg(test)]
-mod tests;
 use crate::{
     cancellation::CancellationToken,
     identity::{

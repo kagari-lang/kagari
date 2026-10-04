@@ -7,6 +7,13 @@ use crate::source::{
     },
     types::raise_type,
 };
+use kagari_abi::representation::ValueType;
+use kagari_contract::{
+    numeric::NumericConversion,
+    operations::{StandardEnumOp, UnaryOp},
+    representation::semantic_representation,
+    standard::RuntimePrimitive,
+};
 use kagari_hir::{
     hir::{
         expr::{Condition, ExprKind, ops::BinaryOp as HirBinaryOp},
@@ -20,36 +27,22 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
+use kagari_mir::instruction::{
+    CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
+};
+use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType, ty::Ty};
+use std::ops::ControlFlow;
 
 mod aggregates;
 mod calls;
 mod patterns;
 mod shared;
 
-use kagari_common::collection::CollectionAccess;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        language::Protocol,
-        numeric::NumericConversion,
-        operations::{StandardEnumOp, UnaryOp},
-        scalar::BuiltinType,
-        standard::RuntimePrimitive,
-        types::Ty,
-    },
-};
-
 mod equality;
 mod native_calls;
 mod native_contracts;
 mod operators;
 mod standard;
-
-use std::ops::ControlFlow;
-
-use kagari_mir::instruction::{
-    CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
-};
 
 impl FunctionLowerer<'_, '_> {
     fn lower_closure(&mut self, expr_id: ExprId) -> Result<MirValue, MirLoweringError> {
@@ -452,7 +445,7 @@ impl FunctionLowerer<'_, '_> {
                 let residual = if matches!(
                     &ty,
                     kagari_hir::types::TypeId::StandardEnum {
-                        kind: kagari_contract::standard::surface::StandardEnum::Result,
+                        kind: kagari_types::surface::StandardEnum::Result,
                         ..
                     }
                 ) {
@@ -557,7 +550,7 @@ impl FunctionLowerer<'_, '_> {
                 let (_, result) = conversion
                     .contract()
                     .ok_or(MirLoweringError::MissingBinding("numeric cast"))?;
-                let dst = self.alloc_temp(result.representation());
+                let dst = self.alloc_temp(semantic_representation(&result));
                 self.emit(Instruction::Convert {
                     dst,
                     src,

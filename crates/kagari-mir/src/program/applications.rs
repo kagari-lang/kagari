@@ -2,11 +2,14 @@ use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
 };
-use kagari_contract::callable::witness::OperationWitness;
-
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
-use kagari_contract::types::{
-    TraitDef, TypeDef, applications::ApplicationValidator, substitution::TypeTransformError,
+use kagari_contract::{
+    callable::witness::OperationWitness,
+    types::applications::{validate_declarations, validate_layouts, validate_slots},
+};
+use kagari_types::{
+    declaration::{TraitDef, TypeDef, applications::ApplicationValidator},
+    ty::substitution::TypeTransformError,
 };
 
 pub(super) fn validate<'a>(
@@ -16,7 +19,12 @@ pub(super) fn validate<'a>(
     storage: impl Fn(&DefinitionPath) -> Option<&'a TypeDef>,
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(cancel, lookup, storage);
-    validator.declarations(&module.abi.public_items, &module.abi.trait_contracts)?;
+    validate_declarations(
+        &validator,
+        &module.abi.public_items,
+        &module.abi.trait_contracts,
+        cancel,
+    )?;
     for declaration in &module.abi.native_declarations {
         validator.function(&declaration.function)?;
         for required in &declaration.callable_requirements {
@@ -46,13 +54,13 @@ pub(super) fn validate<'a>(
             validator.validate_type(&call.signature.result)?;
         }
     }
-    validator.layouts(&module.structures, &module.enumerations)?;
+    validate_layouts(&validator, &module.structures, &module.enumerations, cancel)?;
     for instance in &module.interface_instances {
         validator.types(&instance.arguments)?;
     }
     for function in &module.functions {
         validator.types(&function.instance.arguments)?;
-        validator.slots(&function.semantic)?;
+        validate_slots(&validator, &function.semantic, cancel)?;
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match instruction {

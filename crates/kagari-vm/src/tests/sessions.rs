@@ -1,24 +1,21 @@
 use crate::{
     error::VmError,
+    reentry::reenter,
     tests::{common::compile_test_bytecode, native_fixtures},
     vm::Vm,
 };
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use {
-    crate::reentry::reenter,
-    kagari_runtime::{host::HostBorrowKind, module::LoadedModule},
-};
-
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
-use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
+use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     error::RuntimeErrorKind,
-    host::HostFunction,
+    host::{HostBorrowKind, HostFunction},
+    module::LoadedModule,
     resource::RuntimeLimits,
     value::Value,
 };
+use kagari_types::{host_interface::standard_log, scalar::BuiltinType, ty::Ty};
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {

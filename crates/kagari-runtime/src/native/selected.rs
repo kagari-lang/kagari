@@ -14,7 +14,7 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::native_import::callables::NativeCallableRequirement;
+use kagari_types::declaration::requirement::NativeCallableRequirement;
 use std::{rc::Rc, slice};
 
 impl LinkedCallable {

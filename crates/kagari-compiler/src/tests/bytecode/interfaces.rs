@@ -1,14 +1,15 @@
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
-use {
-    kagari_bytecode::instruction::{
-        BytecodeInstruction, CallTarget as KagaribytecodeCallTarget, Register,
-    },
-    kagari_mir::instruction::{CallTarget, Instruction},
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, CallTarget as KagaribytecodeCallTarget, Register},
+    module::CallableTarget,
+    program::verify_program,
 };
-
-use kagari_bytecode::{module::CallableTarget, program::verify_program};
-use kagari_contract::{ids::FunctionRef, types as abi};
-use kagari_mir::program as mir_program;
+use kagari_contract::ids::FunctionRef;
+use kagari_mir::{
+    instruction::{CallTarget, Instruction},
+    program as mir_program,
+};
+use kagari_types::ty::{Constraint, Ty};
 
 fn script_target(target: CallableTarget) -> FunctionRef {
     let CallableTarget::Script(function) = target else {
@@ -32,7 +33,7 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
             })
             .unwrap();
         assert!(matches!(&bag.bounds[0].constraints[0],
-            abi::Constraint::Trait(ty) if ty.arguments.len() == 1));
+            Constraint::Trait(ty) if ty.arguments.len() == 1));
         let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
         artifact
             .verification
@@ -58,10 +59,10 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
             _ => None,
         })
         .unwrap();
-    let kagari_contract::types::Constraint::Trait(ty) = &mut bag.bounds[0].constraints[0] else {
+    let kagari_types::ty::Constraint::Trait(ty) = &mut bag.bounds[0].constraints[0] else {
         panic!("trait bound");
     };
-    let kagari_contract::types::Ty::Parameter { owner, .. } = &mut ty.arguments[0] else {
+    let kagari_types::ty::Ty::Parameter { owner, .. } = &mut ty.arguments[0] else {
         panic!("template argument");
     };
     *owner = ty.declaration.clone();
@@ -123,7 +124,7 @@ fn applied_trait_template_keeps_impl_and_trait_arguments() {
     assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(item,
         PublicItem::InterfaceTable(table)
             if table.generic_params.len() == 1
-                && matches!(&table.trait_type, abi::Ty::Trait(instance) if instance.arguments.len() == 1)
+                && matches!(&table.trait_type, Ty::Trait(instance) if instance.arguments.len() == 1)
     )));
 }
 
@@ -163,11 +164,9 @@ fn generic_interface_implementation_specializes_reachable_method() {
                 .clone()
         })
         .collect::<Vec<_>>();
-    assert!(arguments.contains(&vec![abi::Ty::Builtin(
-        kagari_contract::scalar::BuiltinType::I32
-    )]));
-    assert!(arguments.contains(&vec![abi::Ty::Builtin(
-        kagari_contract::scalar::BuiltinType::String
+    assert!(arguments.contains(&vec![Ty::Builtin(kagari_types::scalar::BuiltinType::I32)]));
+    assert!(arguments.contains(&vec![Ty::Builtin(
+        kagari_types::scalar::BuiltinType::String
     )]));
     let mut wrong_arity = module.clone();
     let method = slots[0].target;
@@ -215,8 +214,7 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
         .identity
         .as_mut()
         .unwrap()
-        .arguments[0] =
-        kagari_contract::types::Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool);
+        .arguments[0] = kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::Bool);
     wrong_instance.modules[wrong_instance.root.index()].function_table[method].identity =
         wrong_instance.modules[wrong_instance.root.index()].functions[method]
             .identity
@@ -481,7 +479,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
 
 #[test]
 fn private_interface_tables_must_match_their_trait_contract() {
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
 
     let original = common::bytecode_ok(
         "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",

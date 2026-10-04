@@ -4,8 +4,8 @@ use kagari_common::{
     identity::{DefinitionPath, associated_type_id},
     span::Span,
 };
-use kagari_contract::language::{Protocol, identity};
 use kagari_hir::types::{TypeId, TypeSubstitution};
+use kagari_types::language::{Protocol, identity};
 
 impl InstancePlanner<'_> {
     pub(super) fn require_iterator_view(

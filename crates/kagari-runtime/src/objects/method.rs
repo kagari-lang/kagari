@@ -14,7 +14,7 @@ use crate::{
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::{GenericParam, NominalTy, Ty};
+use kagari_types::ty::{GenericParam, NominalTy, Ty};
 use std::{cell::OnceCell, rc::Rc};
 
 pub(crate) enum MethodSelection {

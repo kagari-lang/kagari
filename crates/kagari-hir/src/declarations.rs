@@ -1,19 +1,5 @@
 //! Declaration and binding identities owned by one semantic analysis.
-use kagari_contract::language::role::LangRole;
-
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{
-            DefinitionKind, DefinitionPath, DefinitionPathSegment,
-            map::DefinitionContext,
-            reference::DefinitionReference,
-            table::{DefinitionId, DefinitionTable},
-        },
-        span::Span,
-    },
-    kagari_source::{identity::FileSpan, source::SourceFile},
-};
+use kagari_types::language::role::LangRole;
 
 use crate::{
     hir::{
@@ -33,6 +19,17 @@ use crate::{
     source_map::SourceMap,
     types::GenericParameterType,
 };
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment,
+        map::DefinitionContext,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
+    span::Span,
+};
+use kagari_source::{identity::FileSpan, source::SourceFile};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{

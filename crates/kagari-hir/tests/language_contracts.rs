@@ -1,27 +1,29 @@
-use kagari_contract::library;
-use kagari_contract::library::catalog as language;
-use kagari_contract::{
-    language::{self as identities, Protocol},
-    library::namespaces,
-    scalar::BuiltinType,
-    types::{Constraint, PublicItem, Ty, inheritance, verify},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionPath, associated_type_id},
 };
-use kagari_hir::analysis::AnalysisDatabase;
-use kagari_hir::native::render::declaration_source;
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        collection::CollectionAccess,
-        identity::{DefinitionPath, associated_type_id},
-    },
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
+use kagari_contract::{
+    library,
+    library::{catalog as language, namespaces},
+    types::{PublicItem, verify},
+};
+use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::{
+    collection::CollectionAccess,
+    language as identities,
+    language::Protocol,
+    scalar::BuiltinType,
+    ty::{Constraint, Ty, inheritance},
 };
 
 #[test]
 fn portable_language_catalog_has_complete_contracts() {
     let modules = language::declarations();
     for module in &modules {
-        module.validate().expect("valid language declarations");
+        module
+            .validate(&namespaces::receiver_owner)
+            .expect("valid language declarations");
         let items: Vec<_> = module
             .traits
             .iter()

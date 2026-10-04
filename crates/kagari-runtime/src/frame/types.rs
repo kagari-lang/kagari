@@ -14,10 +14,11 @@ use crate::{
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_contract::{
-    callable::generic::GenericBody,
-    native_import::{NativeSignature, callables::NativeCallableRequirement},
-    standard::RuntimePrimitive,
-    types::{GenericParam, NominalTy, Ty, substitution::substitute_parameters},
+    callable::generic::GenericBody, native_import::NativeSignature, standard::RuntimePrimitive,
+};
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement,
+    ty::{GenericParam, NominalTy, Ty, substitution::substitute_parameters},
 };
 use std::{
     cell::OnceCell,

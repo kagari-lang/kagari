@@ -1,9 +1,3 @@
-use kagari_common::identity::table::DefinitionId;
-mod arguments;
-mod layouts;
-mod native;
-mod shared;
-pub mod types;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -14,21 +8,28 @@ use crate::{
     session::ExecutionSession,
     value::Value,
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, LocalSlot, Register},
     module::{BytecodeFunction, CallableTarget},
     program::ModuleRef,
 };
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{ids::FunctionRef, representation::semantic_representation};
+use kagari_types::ty::Ty;
 use std::{
     borrow::Cow,
     cell::{Ref, RefMut},
-    fmt::{self, Debug, Formatter},
+    fmt,
+    fmt::{Debug, Formatter},
     rc::Rc,
 };
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{ids::FunctionRef, types::Ty},
-};
+
+mod arguments;
+mod layouts;
+mod native;
+mod shared;
+pub mod types;
 
 /// An execution scope over the root session's shared frame stack.
 /// Dropping it unwinds only the frames entered by this scope.
@@ -531,8 +532,8 @@ impl ExecutionFrame {
             return Err(RuntimeError::module_validation("shared closure call type"));
         };
         Ok((
-            Cow::Owned(params.iter().map(Ty::representation).collect()),
-            result.representation(),
+            Cow::Owned(params.iter().map(semantic_representation).collect()),
+            semantic_representation(result),
         ))
     }
 

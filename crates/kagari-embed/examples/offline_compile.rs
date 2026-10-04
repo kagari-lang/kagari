@@ -2,30 +2,27 @@
 
 use kagari_bytecode::artifact::{ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION};
 
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_embed::{
     BytecodeArtifact,
     engine::{KagariEngine, source::ArtifactOptions},
 };
-use {
-    kagari_common::{
-        collection::CollectionAccess,
-        host_interface::{
-            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-            path::{
-                HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-                HostVirtualSegmentDeclaration,
-            },
-            type_declaration::{
-                HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration,
-                HostTypeOwnership, PathAccess,
-            },
-            value_type::HostValueType,
+use kagari_source::source_database::SourceLayer;
+use kagari_types::{
+    collection::CollectionAccess,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        path::{
+            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+            HostVirtualSegmentDeclaration,
         },
-        identity::{ModuleIdentity, PackageId},
+        type_declaration::{
+            HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostTypeOwnership,
+            PathAccess,
+        },
+        value_type::HostValueType,
     },
-    kagari_source::source_database::SourceLayer,
 };
-
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {

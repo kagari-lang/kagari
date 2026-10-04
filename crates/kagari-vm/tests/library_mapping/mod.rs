@@ -1,16 +1,12 @@
 use super::{Probe, program, run};
-use kagari_contract::{
-    declaration::ModuleDecl,
-    language::{self, Protocol},
-};
-use kagari_hir::analysis::AnalysisDatabase;
-use kagari_hir::native::render::declaration_source;
+use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     native::foundation,
     value::{EnumTag, Value},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::{declaration::module::ModuleDecl, language, language::Protocol};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
 

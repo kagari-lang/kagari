@@ -18,18 +18,17 @@ use crate::{
     typeck::{GenericBounds, ModuleSignatures, TypedFunction},
     types::{GenericParameterType, NominalType, TypeId},
 };
+use kagari_types::language::{Protocol, role::LangRole};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 pub mod implementations;
 mod interfaces;
 mod native;
 pub mod protocols;
 mod storage;
 pub mod traits;
-
-use kagari_contract::language::{Protocol, role::LangRole};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldSignature<I: DefinitionReference = DefinitionPath> {

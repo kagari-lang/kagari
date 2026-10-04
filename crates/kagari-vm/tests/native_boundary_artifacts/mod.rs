@@ -3,19 +3,14 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register},
     program::{BytecodeProgram, verify_program},
 };
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_compiler::bytecode::lower_program_to_bytecode;
-use kagari_contract::{
-    callable::{CallableImplementation, witness::OperationWitness},
-    scalar::BuiltinType,
-    types::Ty,
-};
+use kagari_contract::callable::witness::OperationWitness;
 use kagari_runtime::{Runtime, native::foundation, value::Value};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
-use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
-};
 
 fn fixture(dependency_source: &str) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
@@ -209,7 +204,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
             .flat_map(|module| &module.native_imports)
             .any(|import| matches!(
                 import.signature.params.first(),
-                Some(kagari_contract::types::Ty::Array(_, _))
+                Some(kagari_types::ty::Ty::Array(_, _))
             ))
     );
     let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();

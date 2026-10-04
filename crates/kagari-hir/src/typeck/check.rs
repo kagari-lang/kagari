@@ -29,23 +29,19 @@ use crate::{
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-
-use kagari_contract::{
-    scalar::BuiltinType,
-    standard::surface::{self as standard_surface, StandardTypeConstraint},
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, span::Span};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, TypePosition};
+use kagari_types::{
+    scalar::BuiltinType, surface as standard_surface, surface::StandardTypeConstraint,
 };
+use smallvec::SmallVec;
+use std::collections::{HashMap, HashSet};
+
 mod constants;
 mod trait_surface;
 
 #[cfg(test)]
-use kagari_common::collection::CollectionAccess;
-use {
-    kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, span::Span},
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind, TypePosition},
-};
-
-use smallvec::SmallVec;
-use std::collections::{HashMap, HashSet};
+use kagari_types::collection::CollectionAccess;
 
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,

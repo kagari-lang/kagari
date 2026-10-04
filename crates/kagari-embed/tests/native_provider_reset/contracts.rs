@@ -1,9 +1,7 @@
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::DefinitionPath;
-use kagari_contract::{
-    callable::CallableImplementation,
-    types::{FnDecl, PublicItem},
-};
+use kagari_contract::types::PublicItem;
+use kagari_types::{callable::CallableImplementation, declaration::FnDecl};
 
 fn alter_function(function: &mut FnDecl, alter: &impl Fn(&mut DefinitionPath)) {
     if let CallableImplementation::Native(id) = &mut function.implementation {

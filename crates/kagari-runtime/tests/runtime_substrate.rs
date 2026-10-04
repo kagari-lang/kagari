@@ -1,33 +1,34 @@
-use kagari_common::collection::CollectionAccess;
-use {
-    kagari_bytecode::program::{BytecodeProgram, ModuleRef},
-    kagari_common::host_interface::{
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeErrorKind,
+    host::{
+        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+        HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
+    },
+    metadata::{
+        AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
+        ParameterInfo, TraitInfo, TypeId, TypeKind, TypeRegistration,
+    },
+    value::{Value, ValueCategory},
+};
+use kagari_types::{
+    collection::CollectionAccess,
+    host_interface::{
+        type_declaration::{
+            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess, Visibility,
+        },
         value_type::HostValueType,
     },
-    kagari_runtime::host::HostTypeRegistration,
+    scalar::BuiltinType,
+    ty::Ty,
 };
 
 #[path = "support/layouts.rs"]
 mod layouts;
-use kagari_bytecode::module::BytecodeModule;
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use {
-    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess, Visibility},
-    kagari_runtime::{
-        Runtime,
-        error::RuntimeErrorKind,
-        host::{
-            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-            HostPathSegmentRegistration, HostSchemaEpoch,
-        },
-        metadata::{
-            AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
-            ParameterInfo, TraitInfo, TypeId, TypeKind, TypeRegistration,
-        },
-        value::{Value, ValueCategory},
-    },
-};
 
 fn host_root_value(object_id: u64) -> Value {
     let Value::HostPathView(view) = path_view_value(object_id) else {
@@ -125,7 +126,7 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         &[(
             "leaf",
             Ty::Array(
-                Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
+                Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable,
             ),
             true,
@@ -269,7 +270,7 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
         &[(
             "path",
             Ty::Array(
-                Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
+                Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
                 CollectionAccess::Mutable,
             ),
             true,

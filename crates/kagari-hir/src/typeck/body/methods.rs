@@ -10,18 +10,16 @@ use crate::{
             CallTarget, ConstraintTarget, ResolvedAssociatedConst, ResolvedInterfaceCoercion,
             ResolvedInterfaceImplementation,
         },
-        ty::{self, TypeContext, resolve_type_in},
+        ty,
+        ty::{TypeContext, resolve_type_in},
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_contract::{
-    language::{self as standard_traits, Protocol},
-    standard::surface::StandardEnum,
-    types::conversion::ConversionAdapter,
-};
-use {
-    kagari_common::identity,
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+use kagari_common::identity;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    declaration::conversion::ConversionAdapter, language as standard_traits, language::Protocol,
+    surface::StandardEnum,
 };
 
 impl<'a> BodyChecker<'a> {

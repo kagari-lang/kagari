@@ -1,11 +1,14 @@
 use crate::source::lower::MirLoweringError;
-mod callables;
-mod calls;
-mod defaults;
-mod native;
-mod results;
-mod shared;
-mod views;
+use kagari_abi::representation::ValueType;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
+    span::Span,
+};
+use kagari_contract::{
+    native_import::NativeImport, representation::semantic_representation,
+    types::ConcreteFunctionIdentity,
+};
 use kagari_hir::{
     AnalyzedModule,
     aggregates::{AggregateCatalog, traits::MethodDefault},
@@ -15,28 +18,21 @@ use kagari_hir::{
     typeck::{FunctionImplementation, TypedFunction, scalar::ScalarValue},
     types::{NominalType, TypeId, TypeSubstitution, abi::lower_type},
 };
-
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        language::Protocol, native_import::NativeImport, types::ConcreteFunctionIdentity,
-    },
-};
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
-        span::Span,
-    },
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
-};
-
+use kagari_mir::{ids::InstanceId, passes::PassOptions};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::language::Protocol;
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     slice,
 };
 
-use kagari_mir::{ids::InstanceId, passes::PassOptions};
+mod callables;
+mod calls;
+mod defaults;
+mod native;
+mod results;
+mod shared;
+mod views;
 
 #[derive(Debug, Clone)]
 pub struct MirLoweringOptions {
@@ -784,7 +780,7 @@ impl<'a> InstancePlanner<'a> {
         {
             return Err(unresolved_type(&ty, span));
         }
-        Ok(lower_type(&ty).representation())
+        Ok(semantic_representation(&lower_type(&ty)))
     }
 }
 

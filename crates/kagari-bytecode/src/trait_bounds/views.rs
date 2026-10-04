@@ -15,12 +15,14 @@ use kagari_common::{
 };
 use kagari_contract::{
     callable::interface::InterfaceCallContract,
-    language::{Protocol, role::LangRole},
     native_import::{NativeImport, result::NativeResultAdapter},
-    types::{
-        ConcreteFunctionIdentity, GenericParam, InterfaceTable, NominalTy, PublicItem, Ty,
+    types::{ConcreteFunctionIdentity, InterfaceTable, PublicItem, matching::match_implementation},
+};
+use kagari_types::{
+    language::{Protocol, role::LangRole},
+    ty::{
+        GenericParam, NominalTy, Ty,
         inheritance::{erased_iterator_view, interface_views},
-        matching::match_implementation,
         substitution::TypeTransformError,
     },
 };

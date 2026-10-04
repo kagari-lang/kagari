@@ -3,6 +3,9 @@ use crate::source::lower::{
     debug::capture_origin,
     instances::{Instance, InstancePlanner},
 };
+use kagari_abi::representation::ValueType;
+use kagari_common::span::Span;
+use kagari_contract::effects::EffectSet;
 use kagari_hir::{
     AnalyzedModule,
     hir::{
@@ -16,24 +19,16 @@ use kagari_hir::{
     typeck::TypedFunction,
     types::{TypeId, abi::lower_type},
 };
-
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{effects::EffectSet, types::Ty},
-};
-
-use std::{
-    collections::{HashMap, HashSet},
-    slice,
-};
-
-use kagari_common::span::Span;
-
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
     function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp, ParameterBuffer},
     ids::{BlockId, LocalId, TempId},
     instruction::{Instruction, MirValue, Terminator},
+};
+use kagari_types::ty::Ty;
+use std::{
+    collections::{HashMap, HashSet},
+    slice,
 };
 
 #[derive(Debug, Clone, Copy)]

@@ -3,14 +3,12 @@ use crate::{
     hir::{ids::HirOwner, ty::TypeKind},
     typeck::table::{ConstraintTarget, TypeTarget},
 };
-use kagari_contract::scalar::BuiltinType;
-use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::{
-        diagnostic::DiagnosticKind,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::scalar::BuiltinType;
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())

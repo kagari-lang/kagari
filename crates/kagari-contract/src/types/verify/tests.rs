@@ -1,7 +1,12 @@
-use crate::{
+use crate::{library::catalog, types::verify::*};
+use kagari_types::{
     callable::CallableImplementation,
-    library::catalog,
-    types::{Param, conversion::ConversionAdapter, verify::*},
+    declaration::{Param, conversion::ConversionAdapter},
+    scalar::BuiltinType,
+    ty::{
+        GenericBound,
+        matching::{ImplementationPattern, projection_output},
+    },
 };
 
 #[test]
@@ -239,7 +244,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
             position: 0,
         },
         constraints: vec![Constraint::Standard(
-            crate::standard::surface::StandardTypeConstraint::HashKey,
+            kagari_types::surface::StandardTypeConstraint::HashKey,
         )],
     });
     implemented.bounds.push(GenericBound {
@@ -376,8 +381,8 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         normalize_projections(
             ty,
             &|interface, receiver, member, arguments| {
-                matching::projection_output(
-                    matching::ImplementationPattern {
+                projection_output(
+                    ImplementationPattern {
                         storage_access: None,
                         parameters: &dependency.generic_params,
                         receiver: &dependency.for_type,

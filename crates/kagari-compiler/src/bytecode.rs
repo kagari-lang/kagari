@@ -1,12 +1,8 @@
-use kagari_common::identity::table::DefinitionId;
-mod debug;
-mod defaults;
-mod interfaces;
-mod views;
 use crate::bytecode::{
     debug::collect_debug_metadata,
     interfaces::{collect_interface_tables, interface_instances},
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
         BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, EnumId, FieldRef,
@@ -21,12 +17,20 @@ use kagari_bytecode::{
     verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::{
-    host_interface::HostInterface,
     identity::{
         ModuleIdentity,
         mapping::{DefinitionMapper, DefinitionRecord},
+        table::DefinitionId,
     },
     span::Span,
+};
+use kagari_contract::{
+    ids::FunctionRef,
+    layout::{EnumLayout, StructLayout},
+    native_import::NativeImport,
+    operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
+    representation::semantic_representation,
+    types::ConcreteFunctionIdentity,
 };
 use kagari_mir::{
     analysis::FunctionAnalysis,
@@ -39,18 +43,17 @@ use kagari_mir::{
     program::VerifiedMirProgram,
     verify::VerifiedMirModule,
 };
-use std::{collections::HashMap, slice};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::CallableImplementation,
-        ids::FunctionRef,
-        layout::{EnumLayout, StructLayout},
-        native_import::NativeImport,
-        operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
-        types::{ConcreteFunctionIdentity, NominalTy, Ty},
-    },
+use kagari_types::{
+    callable::CallableImplementation,
+    host_interface::HostInterface,
+    ty::{NominalTy, Ty},
 };
+use std::{collections::HashMap, slice};
+
+mod debug;
+mod defaults;
+mod interfaces;
+mod views;
 
 #[derive(Debug)]
 pub enum BytecodeLoweringError {
@@ -419,13 +422,13 @@ fn collect_type_table(module: &BytecodeModule<DefinitionId>) -> Vec<ValueType> {
     }
     for layout in &module.structures {
         for field in &layout.fields {
-            push_type(&mut types, field.ty.representation());
+            push_type(&mut types, semantic_representation(&field.ty));
         }
     }
     for layout in &module.enumerations {
         for variant in &layout.variants {
             for ty in &variant.payload {
-                push_type(&mut types, ty.representation());
+                push_type(&mut types, semantic_representation(ty));
             }
         }
     }

@@ -19,13 +19,19 @@ use kagari_common::{
 };
 use kagari_contract::{
     callable::interface::InterfaceCallContract,
-    language::{Protocol, role::LangRole},
+    types as abi,
     types::{
-        self as abi, GenericBound, GenericParam, NominalTy, PublicItem, TraitDef, Ty,
-        inheritance as trait_inheritance,
+        PublicItem,
         proofs::{ProofCatalog, host_application, implementation::Implementation},
-        substitution::TypeTransformError,
         verify,
+    },
+};
+use kagari_types::{
+    declaration::TraitDef,
+    language::{Protocol, role::LangRole},
+    ty::{
+        GenericBound, GenericParam, NominalTy, Ty, inheritance as trait_inheritance,
+        substitution::TypeTransformError,
     },
 };
 

@@ -3,7 +3,16 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::{
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+};
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeErrorKind,
+    host::{HostFunction, HostTypeRegistration},
+    metadata::TypeKind,
+};
+use kagari_types::{
     collection::CollectionAccess,
     host_interface::{
         HostInterface, HostParameter, HostPassingStyle,
@@ -13,13 +22,6 @@ use kagari_common::{
         },
         value_type::HostValueType,
     },
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
-};
-use kagari_runtime::{
-    Runtime,
-    error::RuntimeErrorKind,
-    host::{HostFunction, HostTypeRegistration},
-    metadata::TypeKind,
 };
 
 #[test]

@@ -5,15 +5,14 @@ use crate::{
     range::RangeValue,
     value_semantics,
 };
+use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::representation::semantic_representation;
+use kagari_types::{surface::StandardEnum as StandardEnumKind, ty::Ty};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     slice,
-};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{standard::surface::StandardEnum as StandardEnumKind, types::Ty},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,7 +129,7 @@ impl EnumTag {
                     && fields
                         .iter()
                         .zip(&layout.variant().payload)
-                        .all(|(value, ty)| value.has_representation(ty.representation()))
+                        .all(|(value, ty)| value.has_representation(semantic_representation(ty)))
             }
         }
     }
@@ -492,25 +491,19 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
-    use {
-        crate::host::HostTypeRegistration,
-        kagari_common::host_interface::{
-            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-            value_type::HostValueType,
-        },
-    };
-
     use super::*;
-    use {
-        crate::{
-            host::{
-                DynamicPathArguments, HostBorrowTable, HostObjectId,
-                HostPathDescriptorRegistration, HostPathSegmentRegistration, HostRootHandle,
-                HostSchemaEpoch,
-            },
-            metadata::{AbiFingerprint, TypeId},
+    use crate::{
+        host::{
+            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+            HostPathSegmentRegistration, HostRootHandle, HostSchemaEpoch, HostTypeRegistration,
         },
-        kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
+        metadata::{AbiFingerprint, TypeId},
+    };
+    use kagari_types::host_interface::{
+        type_declaration::{
+            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+        },
+        value_type::HostValueType,
     };
 
     fn host_root(object_id: u64) -> HostRootHandle {

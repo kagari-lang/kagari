@@ -1,7 +1,6 @@
 use crate::{analyze_source, typeck::table::ConstraintTarget, types::TypeId};
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
-
-use kagari_contract::scalar::BuiltinType;
+use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn broken_signatures_preserve_parameter_slots_without_cascading_arity_errors() {
@@ -166,7 +165,7 @@ fn applied_constraints_preserve_type_arguments() {
     assert!(
         matches!(facts.typed.type_table.constraint(read.generic_params[0].bounds[0].ty),
         Some(ConstraintTarget::Trait(instance))
-            if instance.arguments == [crate::types::TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)])
+            if instance.arguments == [crate::types::TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)])
     );
     assert!(analysis.into_codegen().is_ok());
 }

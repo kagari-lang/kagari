@@ -4,9 +4,8 @@ use kagari_embed::{
     engine::KagariEngine,
     program::PreparedProgram,
 };
-use kagari_source::source::SourceFile;
-
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn execute(source: &str) {
     let engine = KagariEngine::default();
@@ -258,7 +257,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
             let PublicItem::InterfaceTable(table) = item else {
                 return None;
             };
-            let kagari_contract::types::Ty::Trait(interface) = &table.trait_type else {
+            let kagari_types::ty::Ty::Trait(interface) = &table.trait_type else {
                 return None;
             };
             Some(interface.declaration.clone())
@@ -277,9 +276,9 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         .unwrap();
     record
         .associated_consts
-        .push(kagari_contract::types::AssociatedConstDef {
+        .push(kagari_types::declaration::AssociatedConstDef {
             declaration: kagari_common::identity::associated_const_id(&identity, "VALUE"),
-            ty: kagari_contract::types::Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+            ty: kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
             default_value: Some("const-v1:i32:42".into()),
         });
     assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());

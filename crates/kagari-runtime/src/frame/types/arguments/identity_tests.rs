@@ -2,7 +2,8 @@ use super::*;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
 };
-use kagari_contract::{callable::generic::GenericBody, scalar::BuiltinType, types::GenericParam};
+use kagari_contract::callable::generic::GenericBody;
+use kagari_types::{scalar::BuiltinType, ty::GenericParam};
 
 fn owner(module: &str) -> DefinitionPath {
     DefinitionPath {

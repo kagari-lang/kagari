@@ -1,11 +1,15 @@
 use crate::{module::BytecodeModule, trait_bounds::contract};
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::types::{
-    Constraint, GenericBound, GenericParam, InterfaceTable, NominalTy, TraitDef, Ty,
-    applications::ApplicationValidator,
-    native_storage_contract,
+    InterfaceTable, native_storage_contract,
     proofs::{ProofCatalog, host_application},
-    substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+};
+use kagari_types::{
+    declaration::{TraitDef, applications::ApplicationValidator},
+    ty::{
+        Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+    },
 };
 
 /// Discharge family parameter bounds after validating the carried applications.

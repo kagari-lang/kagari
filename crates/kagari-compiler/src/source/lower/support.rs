@@ -1,4 +1,7 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::DefinitionPath;
+use kagari_contract::operations::{BinaryOp, UnaryOp};
 use kagari_hir::{
     hir::{
         expr::ops::{BinaryOp as HirBinaryOp, PrefixOp},
@@ -12,21 +15,15 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
-
-use kagari_common::identity::DefinitionPath;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        language::{self as standard_traits, Protocol},
-        operations::{BinaryOp, UnaryOp},
-        scalar::BuiltinType,
-        types::{NominalTy, Ty},
-    },
-};
-
 use kagari_mir::{
     ids::LocalId,
     instruction::{AggregateFieldRef, Constant, Instruction, MirValue, ValueBuffer},
+};
+use kagari_types::{
+    language as standard_traits,
+    language::Protocol,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
 };
 use std::{ops::ControlFlow, slice};
 

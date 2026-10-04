@@ -1,7 +1,3 @@
-use kagari_common::identity::table::DefinitionId;
-mod arrays;
-mod maps_sets;
-mod native;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
@@ -18,8 +14,10 @@ use crate::{
     session::ExecutionPhase,
     value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, StructValueField, Value},
 };
-#[cfg(test)]
-use kagari_common::collection::CollectionAccess;
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{ids::FunctionRef, representation::semantic_representation};
+use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
@@ -32,13 +30,13 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        ids::FunctionRef,
-        types::{Ty, native::NativeStorageLayout},
-    },
-};
+
+mod arrays;
+mod maps_sets;
+mod native;
+
+#[cfg(test)]
+use kagari_types::collection::CollectionAccess;
 
 mod array_ops;
 mod capacity;
@@ -222,7 +220,7 @@ impl ClosureValueSnapshot {
                 .environment
                 .as_ref()
                 .ok_or_else(|| RuntimeError::module_validation("generic closure environment"))?;
-            Ok(environment.resolve(ty)?.representation())
+            Ok(semantic_representation(&environment.resolve(ty)?))
         };
         let params = function
             .metadata
@@ -538,7 +536,7 @@ impl GcHeap {
             return if kind.integer_layout().is_some() {
                 numeric::read_integer(*kind, value).is_ok()
             } else {
-                value.has_representation(ty.representation())
+                value.has_representation(semantic_representation(ty))
             };
         }
         let mut pending = vec![(value.clone(), ty)];
@@ -546,7 +544,7 @@ impl GcHeap {
             match (value, ty) {
                 (value, Ty::Builtin(kind)) if if kind.integer_layout().is_some() {
                     numeric::read_integer(*kind, &value).is_ok()
-                } else { value.has_representation(ty.representation()) } => {},
+                } else { value.has_representation(semantic_representation(ty)) } => {},
                 (Value::Range(value), Ty::Range(_, _)) if value.matches(ty) => {},
                 (Value::Closure(id), Ty::Function { params, result }) => {
                     let Some(snapshot) = self.closure_snapshot(id) else { return false; };
@@ -744,7 +742,7 @@ impl GcHeap {
         // registry ownership/schema, before entering this allocation boundary.
         let durable_host = matches!(
             (&snapshot.data, &snapshot.concrete_type),
-            (Value::HostRoot(_), kagari_contract::types::Ty::Host(_))
+            (Value::HostRoot(_), kagari_types::ty::Ty::Host(_))
         );
         if !durable_host && !self.valid_payload(&snapshot.data) {
             return Err(RuntimeError::new(

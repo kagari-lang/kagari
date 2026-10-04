@@ -1,7 +1,7 @@
 use super::*;
 use crate::tests::common;
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
-use kagari_contract::{scalar::BuiltinType, types::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn executes_runtime_reflect_type_of_helper() {

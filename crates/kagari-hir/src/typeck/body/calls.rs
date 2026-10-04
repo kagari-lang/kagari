@@ -2,7 +2,7 @@ use crate::{
     callable::{AppliedCallSignature, CallableSignature},
     hir::{expr::ExprKind, ids::ExprId},
     imports::functions::ImportedFunction,
-    language::semantics::{self as traits, intrinsic_holds},
+    language::{semantics as traits, semantics::intrinsic_holds},
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -15,11 +15,10 @@ use crate::{
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
-use kagari_contract::{
-    language::Protocol,
-    standard::surface::{self as standard_surface, StandardTypeConstraint},
-};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    language::Protocol, surface as standard_surface, surface::StandardTypeConstraint,
+};
 use std::iter;
 
 impl<'a> BodyChecker<'a> {

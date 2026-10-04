@@ -15,7 +15,8 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable, DefinitionTableBuilder, DefinitionTableError},
     },
 };
-use kagari_contract::types::{PublicItem, TraitDef, Ty};
+use kagari_contract::types::PublicItem;
+use kagari_types::{declaration::TraitDef, ty::Ty};
 use std::slice;
 
 pub(crate) fn mapping_error(cause: DefinitionMappingError) -> MirVerificationError {

@@ -1,4 +1,8 @@
-use kagari_contract::{scalar::BuiltinType, types::Ty};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -8,12 +12,7 @@ use kagari_runtime::{
     session::{DeterministicInputs, ExecutionPhase},
     value::Value,
 };
-
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
+use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
 
 fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
     runtime
@@ -208,10 +207,10 @@ fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
 
 #[test]
 fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session() {
-    use kagari_common::host_interface::{
+    use kagari_runtime::{host::HostFunction, session::ExecutionPhase};
+    use kagari_types::host_interface::{
         HostFunctionDeclaration, HostFunctionEffects, value_type::HostValueType,
     };
-    use kagari_runtime::{host::HostFunction, session::ExecutionPhase};
     use std::{cell::Cell, rc::Rc};
 
     let mut runtime = Runtime::default();
@@ -334,8 +333,8 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
 
 #[test]
 fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations() {
-    use kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
     use kagari_runtime::host::HostFunction;
+    use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
     let mut runtime = Runtime::default();
 
     let baseline = load(&mut runtime, "main");

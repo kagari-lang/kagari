@@ -2,6 +2,8 @@
 //! This catalog borrows executable contracts; it does not reconstruct source
 //! signatures or infer types. Declaration validity remains the module verifier's
 //! responsibility, while this layer checks dependency-dependent obligations.
+use kagari_types::declaration::verify::DeclarationValidationError;
+
 mod callables;
 mod composition;
 pub mod defaults;
@@ -12,20 +14,18 @@ mod protocols;
 mod search;
 mod structural;
 
-use crate::{
-    layout::{EnumLayout, LayoutValidationError},
-    types::{
-        Constraint, FnDecl, GenericBound, GenericParam, NativeDeclaration, NominalTy, TraitDef, Ty,
-        inheritance,
-        proofs::implementation::Implementation,
-        substitution::{TypeSubstitution, TypeTransformError},
-        verify::validate_native_declarations,
-    },
-};
+use crate::{layout::EnumLayout, types::proofs::implementation::Implementation};
 use kagari_common::{
     cancellation::CancellationToken,
-    host_interface::type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+};
+use kagari_types::{
+    declaration::{FnDecl, NativeDeclaration, TraitDef, verify::validate_native_declarations},
+    host_interface::type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
+    ty::{
+        Constraint, GenericBound, GenericParam, NominalTy, Ty, inheritance,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
 };
 use std::{
     cell::Cell,
@@ -174,7 +174,7 @@ impl<'a> ProofCatalog<'a> {
                 cancel,
             )
             .map_err(|error| match error {
-                LayoutValidationError::Cancelled => TypeTransformError::Cancelled,
+                DeclarationValidationError::Cancelled => TypeTransformError::Cancelled,
                 _ => TypeTransformError::InvalidContract,
             })?;
             if templates

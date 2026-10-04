@@ -9,7 +9,8 @@ use crate::{
 };
 use kagari_bytecode::{program::ModuleRef, trait_bounds::views::native_result_target};
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{native_import::NativeImport, types::Ty};
+use kagari_contract::native_import::NativeImport;
+use kagari_types::ty::Ty;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]

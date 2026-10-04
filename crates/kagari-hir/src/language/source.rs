@@ -1,5 +1,5 @@
 //! Handwritten core traits, combined with native declarations in their owning modules.
-use kagari_contract::language::{self, role::LangRole};
+use kagari_types::{language, language::role::LangRole};
 
 pub fn module_source(path: &str) -> (&'static str, &'static str) {
     macro_rules! source {

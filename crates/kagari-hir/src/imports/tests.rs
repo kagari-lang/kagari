@@ -1,11 +1,8 @@
 use super::*;
-
-use {
-    kagari_common::{host_interface::value_type::HostValueType, identity::PackageId},
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
-};
-
 use crate::analysis::{AnalysisDatabase, AnalysisSnapshot};
+use kagari_common::identity::PackageId;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::host_interface::value_type::HostValueType;
 
 fn identity(name: &str) -> ModuleIdentity {
     ModuleIdentity {
@@ -233,7 +230,7 @@ fn reexports_cannot_widen_private_items_or_modules() {
 
 #[test]
 fn wildcard_import_expands_offline_host_module_declarations() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         value_type::HostValueType,
     };
@@ -354,7 +351,7 @@ fn cycles_are_reachable_without_invalidating_dependents() {
             .unwrap()
             .type_at("use pkg::b; fn good() -> i32 { ".len()),
         Some(crate::types::TypeId::Builtin(
-            kagari_contract::scalar::BuiltinType::I32
+            kagari_types::scalar::BuiltinType::I32
         ))
     );
 }
@@ -566,10 +563,10 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
     let root = insert(&mut db, "root", "use pkg::api; use pkg::api::child;");
     let mut analysis = AnalysisDatabase::default();
     analysis.set_host_declarations(
-        HostDeclarations::new(kagari_common::host_interface::HostInterface {
+        HostDeclarations::new(kagari_types::host_interface::HostInterface {
             paths: vec![],
             types: Vec::new(),
-            functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+            functions: vec![kagari_types::host_interface::HostFunctionDeclaration::new(
                 "pkg.api.external",
                 vec![],
                 HostValueType::Unit,

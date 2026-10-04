@@ -3,21 +3,21 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::{
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    host::HostFunction,
+    module::LoadedModule,
+    value::{EnumTag, Value},
+};
+use kagari_types::{
     collection::CollectionAccess,
     host_interface::{
         HostFunctionDeclaration, HostParameter, HostPassingStyle, value_type::HostValueType as Type,
     },
+    scalar::BuiltinType,
+    ty::Ty,
 };
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use kagari_runtime::module::LoadedModule;
 use kagari_vm::vm::Vm;
-
-use kagari_runtime::{
-    Runtime, RuntimeConfig,
-    host::HostFunction,
-    value::{EnumTag, Value},
-};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -289,10 +289,10 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
 
 #[test]
 fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
-    use kagari_common::host_interface::type_declaration::{
+    use kagari_runtime::host::{HostObjectId, HostSchemaEpoch, HostTypeRegistration};
+    use kagari_types::host_interface::type_declaration::{
         HostTypeDeclaration, HostTypeOwnership, PathAccess,
     };
-    use kagari_runtime::host::{HostObjectId, HostSchemaEpoch, HostTypeRegistration};
     let mut runtime = runtime();
     let program = compile_program(
         "use std::collections::{HashMap, HashSet};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",

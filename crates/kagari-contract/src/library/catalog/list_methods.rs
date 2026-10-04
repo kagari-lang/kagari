@@ -1,18 +1,13 @@
 //! List algorithms are ordinary native defaults with concrete storage overrides.
+use crate::library::catalog::contracts;
 use crate::library::catalog::key::{self, RegistrationTrait};
-use crate::{
+use kagari_common::identity::{DefinitionKind, associated_type_id};
+use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
-    declaration::ModuleDecl,
-    library::catalog::contracts,
-    native_import::callables::NativeCallableRequirement,
-    standard::surface::StandardEnum,
-    types::{
-        Constraint, FnDecl, GenericBound, GenericParam, Param, Ty, substitution::TypeSubstitution,
-    },
-};
-use kagari_common::{
     collection::CollectionAccess,
-    identity::{DefinitionKind, associated_type_id},
+    declaration::{FnDecl, Param, module::ModuleDecl, requirement::NativeCallableRequirement},
+    surface::StandardEnum,
+    ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 use std::collections::{BTreeMap, BTreeSet};
 

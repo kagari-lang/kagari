@@ -1,12 +1,10 @@
 use super::*;
 use crate::declarations::DeclarationId;
-use {
-    kagari_common::{identity::DefinitionKind, span::Span},
-    kagari_source::{
-        diagnostic::DiagnosticKind,
-        line_index::PositionEncoding,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use kagari_common::{identity::DefinitionKind, span::Span};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    line_index::PositionEncoding,
+    source_database::{SourceDatabase, SourceLayer},
 };
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -365,9 +363,7 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
     );
     assert_eq!(
         file.type_at(uses[0]),
-        Some(TypeId::Builtin(
-            kagari_contract::scalar::BuiltinType::String
-        ))
+        Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::String))
     );
     assert_eq!(file.result().diagnostics().len(), 2);
     let edit = format!("// shifted 😀\r\n{text}");
@@ -444,7 +440,7 @@ fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
             let unknown = text.rfind("value.unknown").unwrap() + "value.".len();
             assert_eq!(
                 file.type_at(known),
-                Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+                Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
             );
             assert_eq!(file.type_at(unknown), Some(TypeId::Error));
             assert!(file.definition_at(known).is_some());
@@ -452,7 +448,7 @@ fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
         }
         assert_eq!(
             file.type_at(text.rfind("42").unwrap()),
-            Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+            Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
         );
         assert!(snapshot.check_program(id, &Default::default()).is_err());
     }
@@ -488,14 +484,14 @@ fn unresolved_assignment_receivers_preserve_independent_index_facts() {
             let member = offset + 1;
             assert_eq!(
                 file.type_at(member),
-                Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)),
+                Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)),
                 "{target}"
             );
             assert_eq!(file.definition_at(member).unwrap().name, "value");
         }
         assert_eq!(
             file.type_at(text.rfind("42").unwrap()),
-            Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+            Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
         );
     }
 }
@@ -548,17 +544,17 @@ fn readonly_assignments_retain_target_and_contextual_initializer_types() {
             file.result().diagnostics()
         );
         assert!(
-            matches!(file.type_at(offset - 2), Some(TypeId::Struct(nominal)) if nominal.arguments == vec![TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)]),
+            matches!(file.type_at(offset - 2), Some(TypeId::Struct(nominal)) if nominal.arguments == vec![TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)]),
             "target query: {target}"
         );
         assert!(
-            matches!(file.type_at(offset + 2), Some(TypeId::Struct(nominal)) if nominal.arguments == vec![TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)]),
+            matches!(file.type_at(offset + 2), Some(TypeId::Struct(nominal)) if nominal.arguments == vec![TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)]),
             "{target}: {:?}",
             file.result().diagnostics()
         );
         assert_eq!(
             file.type_at(text.rfind("42").unwrap()),
-            Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+            Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
         );
     }
 }
@@ -580,7 +576,7 @@ fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
         let member = text.find(".value").unwrap() + 1;
         assert_eq!(
             file.type_at(member),
-            Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)),
+            Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)),
             "{index}"
         );
         let field = file.definition_at(member).expect("known element field");
@@ -590,7 +586,7 @@ fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
         );
         assert_eq!(
             file.type_at(text.rfind("42").unwrap()),
-            Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+            Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
         );
         if index == "true" {
             assert_eq!(file.result().diagnostics().len(), 1);
@@ -625,7 +621,7 @@ fn invalid_write_indexes_preserve_target_context_and_projected_members() {
             assert!(snapshot.check_program(id, &Default::default()).is_err());
             let initializer = text.find("Cell { value").unwrap();
             assert!(
-                matches!(file.type_at(initializer), Some(TypeId::Struct(ty)) if ty.arguments == vec![TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32)]),
+                matches!(file.type_at(initializer), Some(TypeId::Struct(ty)) if ty.arguments == vec![TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)]),
                 "{target}: {:?}",
                 file.result().diagnostics()
             );
@@ -639,7 +635,7 @@ fn invalid_write_indexes_preserve_target_context_and_projected_members() {
             }
             assert_eq!(
                 file.type_at(text.rfind("42").unwrap()),
-                Some(TypeId::Builtin(kagari_contract::scalar::BuiltinType::I32))
+                Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
             );
         }
     }

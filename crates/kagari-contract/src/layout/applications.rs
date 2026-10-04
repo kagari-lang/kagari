@@ -1,9 +1,11 @@
 //! Aggregate templates bind only their declaration's own type parameters.
-use crate::{
-    layout::{EnumLayout, StructLayout},
-    types::{GenericParam, Ty, substitution::TypeSubstitution, verify::types_in_scope},
-};
 use kagari_common::{cancellation::CancellationToken, identity::reference::DefinitionReference};
+
+use crate::layout::{EnumLayout, StructLayout};
+use kagari_types::{
+    declaration::verify::types_in_scope,
+    ty::{GenericParam, Ty, substitution::TypeSubstitution},
+};
 use std::borrow::Cow;
 
 fn parameters<I: DefinitionReference>(

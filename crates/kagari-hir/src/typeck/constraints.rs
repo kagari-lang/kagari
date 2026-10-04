@@ -15,17 +15,15 @@ use crate::{
     typeck::{
         check::function_type_context,
         table::{ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget},
-        ty::{self, TypeContext, resolve_type_in},
+        ty,
+        ty::{TypeContext, resolve_type_in},
     },
     types::TypeId,
 };
-
-use kagari_contract::{language::Protocol, standard::surface::StandardTypeConstraint};
+use kagari_common::cancellation::CancellationToken;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{language::Protocol, surface::StandardTypeConstraint};
 use smallvec::SmallVec;
-use {
-    kagari_common::cancellation::CancellationToken,
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
-};
 
 /// Resolve bounds once in their declaring context, before signatures and bodies.
 pub(super) fn resolve_constraints(

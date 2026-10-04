@@ -2,10 +2,9 @@ use crate::{
     hir::ids::{ExprId, TypeRefId},
     types::TypeId,
 };
-use kagari_contract::scalar::BuiltinType;
-use std::collections::{HashMap, HashSet};
-
 use kagari_common::cancellation::{CancellationToken, Cancelled};
+use kagari_types::scalar::BuiltinType;
+use std::collections::{HashMap, HashSet};
 
 /// Constraint storage belongs to one function body, never to a cached signature.
 #[derive(Default)]
@@ -230,8 +229,7 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_common::collection::CollectionAccess;
-    use kagari_contract::scalar::BuiltinType;
+    use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
 
     #[test]
     fn later_constraints_resolve_nested_types_without_conflating_recovery() {

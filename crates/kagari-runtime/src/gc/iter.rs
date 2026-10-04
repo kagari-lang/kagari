@@ -9,11 +9,8 @@ use crate::{
     value::{EnumTag, MapKey, Value},
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{
-    operations::{IterOp, StringIterKind},
-    scalar::BuiltinType,
-    types::Ty,
-};
+use kagari_contract::operations::{IterOp, StringIterKind};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,

@@ -3,8 +3,8 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, value::Value};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn main() {
     let mut runtime = Runtime::default();

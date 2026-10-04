@@ -1,12 +1,8 @@
-use std::{
-    ffi::c_void,
-    rc::Rc,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use kagari_abi::{
+    native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+    native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
+    representation::ValueType,
 };
-
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::BytecodeInstruction,
@@ -14,6 +10,14 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_contract::{
+    ids::FunctionRef,
+    layout::StructLayout,
+    native::{
+        ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind,
+        ExecutableStackMap, NativeCompilationProduct,
+    },
+};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::InstalledNativeFunction},
@@ -24,20 +28,13 @@ use kagari_runtime::{
     resource::RuntimeLimits,
     value::Value,
 };
-use {
-    kagari_abi::{
-        native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-        native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
-        representation::ValueType,
-    },
-    kagari_contract::{
-        ids::FunctionRef,
-        layout::StructLayout,
-        native::{
-            ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind,
-            ExecutableStackMap, NativeCompilationProduct,
-        },
-        types::{NominalTy, Ty},
+use kagari_types::ty::{NominalTy, Ty};
+use std::{
+    ffi::c_void,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 

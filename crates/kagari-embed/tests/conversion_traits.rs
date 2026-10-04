@@ -4,9 +4,8 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_source::source::SourceFile;
-
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();

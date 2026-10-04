@@ -14,29 +14,30 @@ use crate::{
         render::{DeclarationSource, declaration_source_with_providers},
     },
 };
-use kagari_contract::{
-    callable::CallableImplementation,
-    declaration::{DeclarationError, ModuleDecl},
-    language::{Protocol, role::LangRole},
-    library::namespaces,
-    types::{FnDecl, TypeDefKind, native::NativeTypeConstructor},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
+    span::Span,
+};
+use kagari_contract::library::namespaces;
+use kagari_source::{
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_syntax::{
     ast::{item::Item, traits::AstNode},
     parser::{Parse, ParseLimits, parse_declarations},
 };
-use std::{collections::HashSet, sync::Arc};
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
-        span::Span,
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{
+        FnDecl, TypeDefKind,
+        module::{DeclarationError, ModuleDecl},
+        native::NativeTypeConstructor,
     },
-    kagari_source::{
-        source::SourceFile,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+    language::{Protocol, role::LangRole},
 };
+use std::{collections::HashSet, sync::Arc};
 
 pub(crate) fn import(
     definition: &ModuleDecl,
@@ -55,7 +56,7 @@ pub(crate) fn import_source(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    definition.validate()?;
+    definition.validate(&namespaces::receiver_owner)?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())

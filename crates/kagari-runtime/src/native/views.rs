@@ -13,7 +13,7 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::Ty;
+use kagari_types::ty::Ty;
 
 /// A generic value keeps the exact closed Kagari type of its rooted argument.
 /// Use a scalar copy or an explicit owning root when retaining it in Rust.

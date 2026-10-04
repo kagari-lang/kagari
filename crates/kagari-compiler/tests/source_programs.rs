@@ -1,15 +1,8 @@
 use kagari_bytecode::program::verify_program as Kagaribytecodeverify_program;
-use kagari_contract::{
-    scalar::BuiltinType,
-    types::{ConcreteFunctionIdentity, Constraint, PublicItem, Ty},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, PackageId},
 };
-use kagari_mir::{
-    codec::{decode_program, encode_program},
-    instruction::{CallTarget, Instruction},
-    program::{ProgramErrorKind, verify_program},
-    verify::{MirVerificationError, MirVerificationErrorKind},
-};
-
 use kagari_compiler::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
     source::{
@@ -17,20 +10,25 @@ use kagari_compiler::{
         program::{SourceProgramError, lower_program_to_mir},
     },
 };
+use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem};
 use kagari_hir::{
     analysis::AnalysisDatabase,
     program::{CheckedProgram, ProgramCheckError},
 };
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{ModuleIdentity, PackageId},
-    },
-    kagari_source::{
-        diagnostic::DiagnosticKind,
-        identity::FileId,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use kagari_mir::{
+    codec::{decode_program, encode_program},
+    instruction::{CallTarget, Instruction},
+    program::{ProgramErrorKind, verify_program},
+    verify::{MirVerificationError, MirVerificationErrorKind},
+};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    identity::FileId,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_types::{
+    scalar::BuiltinType,
+    ty::{Constraint, Ty},
 };
 
 fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {

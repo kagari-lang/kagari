@@ -1,42 +1,3 @@
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{ids::FunctionRef, native_import::NativeImport},
-};
-use {
-    kagari_bytecode::module::FunctionMetadata,
-    kagari_common::host_interface::{
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    },
-    kagari_runtime::module::LoadedModule,
-};
-use {kagari_bytecode::module::FunctionRecord, kagari_runtime::host::HostPathDescriptorId};
-
-use kagari_bytecode::{
-    instruction::{
-        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register,
-        RuntimeHelper, StructId,
-    },
-    module::{BytecodeFunction, BytecodeModule, PathRecord},
-};
-use std::sync::{Arc, Mutex};
-use {
-    kagari_common::host_interface::type_declaration::{
-        HostReflectionPolicy, HostTypeOwnership, PathAccess,
-    },
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        host::{
-            HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
-            HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
-            PreparedHostPathWrite,
-        },
-        metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-        value::Value,
-    },
-};
-
 use crate::{
     tests::common::{
         compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
@@ -44,6 +5,35 @@ use crate::{
     },
     vm::Vm,
 };
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::{
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register,
+        RuntimeHelper, StructId,
+    },
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
+};
+use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::{
+        HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+        HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
+        HostTypeRegistration, PreparedHostPathWrite,
+    },
+    metadata::{AbiFingerprint, TypeKind, TypeRegistration},
+    module::LoadedModule,
+    value::Value,
+};
+use kagari_types::host_interface::{
+    type_declaration::{
+        HostFieldDeclaration, HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership,
+        PathAccess,
+    },
+    value_type::HostValueType,
+};
+use std::sync::{Arc, Mutex};
 
 fn host_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -88,7 +78,7 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
+            kagari_types::host_interface::HostFunctionDeclaration::new(
                 "host.player",
                 vec![],
                 HostValueType::opaque("game.Player"),
@@ -167,10 +157,10 @@ fn path_module(
         ],
         ..Default::default()
     };
-    let host_interface = kagari_common::host_interface::HostInterface {
+    let host_interface = kagari_types::host_interface::HostInterface {
         paths: vec![],
         types: vec![player_type_declaration()],
-        functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+        functions: vec![kagari_types::host_interface::HostFunctionDeclaration::new(
             "host.player",
             vec![],
             HostValueType::opaque("game.Player"),

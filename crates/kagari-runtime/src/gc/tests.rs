@@ -1,12 +1,22 @@
-use crate::{Runtime, layout_fixtures::allocation_owner};
-use kagari_contract::scalar::BuiltinType;
-use kagari_contract::types::Ty;
-use {
-    crate::host::HostTypeRegistration,
-    kagari_common::host_interface::{
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+use super::*;
+use crate::{
+    Runtime,
+    host::{
+        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+        HostPathSegmentRegistration, HostRootHandle, HostSchemaEpoch, HostTypeRegistration,
+    },
+    layout_fixtures::allocation_owner,
+    metadata::{AbiFingerprint, TypeId},
+};
+use kagari_types::{
+    host_interface::{
+        type_declaration::{
+            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+        },
         value_type::HostValueType,
     },
+    scalar::BuiltinType,
+    ty::Ty,
 };
 
 #[test]
@@ -19,7 +29,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     let interface = crate::layout_fixtures::interface_value_with(
         &mut runtime,
         Ty::Array(
-            Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
+            Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
             CollectionAccess::Mutable,
         ),
         Value::Array(array),
@@ -77,18 +87,6 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
 fn layout(name: &str, field: &str, ty: Ty) -> crate::module::StructLayoutRef {
     crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
 }
-
-use super::*;
-use {
-    crate::{
-        host::{
-            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-            HostPathSegmentRegistration, HostRootHandle, HostSchemaEpoch,
-        },
-        metadata::{AbiFingerprint, TypeId},
-    },
-    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
-};
 
 fn host_root_value(object_id: u64) -> Value {
     Value::HostRoot(HostRootHandle::new(
@@ -213,7 +211,7 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
                 "HostBacked",
                 "path",
                 Ty::Array(
-                    Box::new(Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)),
+                    Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
                     CollectionAccess::Mutable
                 )
             ),
@@ -237,7 +235,7 @@ fn rejects_non_storable_heap_mutations() {
             layout(
                 "Record",
                 "value",
-                Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+                Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
             ),
             vec![Value::I32(1)],
         )
@@ -331,7 +329,7 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
     let schema = layout(
         "Record",
         "value",
-        Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+        Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
     );
     let object = heap
         .alloc_struct(schema.clone(), vec![Value::I32(7)])

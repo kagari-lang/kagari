@@ -1,14 +1,11 @@
 use super::*;
-use crate::{
-    language::{Protocol, primitive as intrinsic},
-    layout::EnumVariantLayout,
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-    types::{AssociatedTypeFamily, GenericParam, InterfaceTable},
+use crate::{language::primitive as intrinsic, layout::EnumVariantLayout, types::InterfaceTable};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
 };
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id},
+use kagari_types::{
+    collection::CollectionAccess, declaration::AssociatedTypeFamily, language::Protocol,
+    scalar::BuiltinType, surface::StandardEnum, ty::GenericParam,
 };
 
 fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
@@ -308,7 +305,7 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
 
 #[test]
 fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         type_declaration::HostAssociatedTypeBinding, value_type::HostValueType,
     };
     let cancel = CancellationToken::default();

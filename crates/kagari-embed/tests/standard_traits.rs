@@ -1,16 +1,16 @@
 mod support;
-use kagari_contract::language::{self as standard_traits, Protocol};
-use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
-use {
-    kagari_embed::{context::JitPolicy, engine::EngineConfig},
-    kagari_vm::vm::Vm,
-};
-
+use kagari_bytecode::program::verify_program;
 use kagari_embed::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    error::EmbeddingError,
+    program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_types::{language as standard_traits, language::Protocol};
+use kagari_vm::vm::Vm;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -201,9 +201,9 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
-    use kagari_contract::{
-        scalar::BuiltinType,
-        types::{PublicItem, Ty},
+    use {
+        kagari_contract::types::PublicItem,
+        kagari_types::{scalar::BuiltinType, ty::Ty},
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "use std::fmt::{Debug};\nstruct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default()).unwrap();
@@ -687,9 +687,9 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
 
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
-    use kagari_contract::{
-        language::Protocol,
-        types::{PublicItem, Ty},
+    use {
+        kagari_contract::types::PublicItem,
+        kagari_types::{language::Protocol, ty::Ty},
     };
     let artifact = KagariEngine::default()
         .compile_to_artifact(

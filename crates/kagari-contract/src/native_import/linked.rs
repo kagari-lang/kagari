@@ -1,13 +1,13 @@
 use crate::{
-    callable::CallableImplementation,
-    native_import::NativeImport,
-    types::{
-        NativeDeclaration,
-        proofs::ProofCatalog,
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
+    native_import::{NativeImport, callables::normalize_requirement},
+    types::proofs::ProofCatalog,
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::NativeDeclaration,
+    ty::substitution::{TypeSubstitution, TypeTransformError},
+};
 
 pub(super) fn matches_declaration(
     import: &NativeImport,
@@ -79,9 +79,8 @@ pub(super) fn matches_declaration(
         .iter()
         .zip(&import.callables)
     {
-        let required = required
-            .apply(&substitution, cancel)?
-            .normalized(catalog, cancel)?;
+        let applied = required.apply(&substitution, cancel)?;
+        let required = normalize_requirement(&applied, catalog, cancel)?;
         if selected.requirement() != &required
             || !selected.valid(
                 catalog,

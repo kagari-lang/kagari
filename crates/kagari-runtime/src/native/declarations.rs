@@ -7,10 +7,10 @@ use crate::{
     },
 };
 use kagari_common::identity::DefinitionPath;
-use kagari_contract::{
+use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    native_import::callables::NativeCallableRequirement,
-    types::{Constraint, FnDecl, GenericBound, GenericParam, Param, Ty},
+    declaration::{FnDecl, Param, requirement::NativeCallableRequirement},
+    ty::{Constraint, GenericBound, GenericParam, Ty},
 };
 use std::collections::{BTreeMap, BTreeSet};
 

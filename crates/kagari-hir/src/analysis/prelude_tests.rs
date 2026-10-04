@@ -1,15 +1,13 @@
 use super::*;
-use crate::analysis::ownership;
 use crate::{
-    builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
-    resolver::resolved::ResolvedName, typeck::table::CallTarget,
+    analysis::ownership, builtin::BuiltinFunction, declarations::DeclarationId,
+    hir::expr::ExprKind, resolver::resolved::ResolvedName, typeck::table::CallTarget,
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-
-use kagari_contract::scalar::BuiltinType;
+use kagari_types::scalar::BuiltinType;
 
 const HELPERS: [(&str, BuiltinFunction); 5] = [
     ("print", BuiltinFunction::Print),
@@ -272,7 +270,7 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
 
 #[test]
 fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         HostFunctionDeclaration, HostInterface, value_type::HostValueType,
     };
     for (name, _) in HELPERS {

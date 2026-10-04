@@ -1,3 +1,14 @@
+use crate::{
+    hir::{
+        ids::{EnumId, FunctionId, OpaqueTypeId, TraitId},
+        item::Module,
+    },
+    lower::context::Lowerer,
+    native::{NativeBinding, NativeTypeKind},
+    source_map::SourceMap,
+};
+use kagari_common::{cancellation::CancellationToken, span::Span};
+use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{
         item::{
@@ -8,35 +19,21 @@ use kagari_syntax::{
     },
     parser::parse,
 };
-
-use kagari_contract::{
+use kagari_types::{
     callable::MethodPolicy,
-    types::{NativeDeclaration, conversion::ConversionAdapter},
+    collection::CollectionAccess,
+    declaration::{NativeDeclaration, conversion::ConversionAdapter},
 };
-use {
-    kagari_common::{cancellation::CancellationToken, collection::CollectionAccess, span::Span},
-    kagari_source::source::SourceFile,
-};
-
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
+
 pub(crate) mod context;
 mod expr;
 mod item;
 mod stmt;
 mod ty;
-
-use crate::{
-    hir::{
-        ids::{EnumId, FunctionId, OpaqueTypeId, TraitId},
-        item::Module,
-    },
-    lower::context::Lowerer,
-    native::{NativeBinding, NativeTypeKind},
-    source_map::SourceMap,
-};
 
 #[derive(Debug, Clone)]
 pub struct LoweredModule {

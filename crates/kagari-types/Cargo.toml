@@ -1,0 +1,11 @@
+[package]
+name = "kagari-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-common.workspace = true
+serde.workspace = true
+bincode.workspace = true
+thiserror.workspace = true

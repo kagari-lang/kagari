@@ -3,12 +3,9 @@
 
 use std::collections::HashMap;
 use {
-    kagari_common::{
-        host_interface::{HostInterface, HostInterfaceError},
-        identity::DefinitionPath,
-        span::Span,
-    },
+    kagari_common::{identity::DefinitionPath, span::Span},
     kagari_source::source_database::normalize_source_name,
+    kagari_types::host_interface::{HostInterface, HostInterfaceError},
 };
 
 #[cfg(test)]

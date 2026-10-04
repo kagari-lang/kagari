@@ -5,11 +5,15 @@ use crate::source::{
 };
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::{
-    callable::{CallableImplementation, generic::GenericBody},
+    callable::generic::GenericBody,
     native_import::{NativeImport, NativeSignature},
-    types::{ConcreteFunctionIdentity, GenericParam, substitution::TypeSubstitution},
+    types::ConcreteFunctionIdentity,
 };
 use kagari_hir::types::{TypeId, abi::lower_type};
+use kagari_types::{
+    callable::CallableImplementation,
+    ty::{GenericParam, substitution::TypeSubstitution},
+};
 
 impl InstancePlanner<'_> {
     pub(crate) fn prepare_native_target(

@@ -1,100 +1,66 @@
 //! Declared native dependencies and their concrete checked trait-member targets.
 use crate::{
-    callable::CallableImplementation,
     effects::EffectSet,
-    language::Protocol,
     native_import::NativeSignature,
-    types::{
-        ConcreteFunctionIdentity, NominalTy, Ty,
-        proofs::ProofCatalog,
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
+    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
-
-use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, associated_type_id},
+    identity::{DefinitionPath, associated_type_id, reference::DefinitionReference},
+};
+use kagari_types::declaration::requirement::NativeCallableRequirement;
+use kagari_types::{
+    callable::CallableImplementation,
+    language::Protocol,
+    ty::{Ty, substitution::TypeTransformError},
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct NativeCallableRequirement<I = DefinitionPath> {
-    pub receiver: Ty<I>,
-    pub interface: NominalTy<I>,
-    pub member: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
-}
-
-impl NativeCallableRequirement {
-    pub fn normalized(
-        &self,
-        catalog: &ProofCatalog<'_>,
-        cancel: &CancellationToken,
-    ) -> Result<Self, TypeTransformError> {
-        let Ty::Trait(mut interface) =
-            catalog.normalize(&Ty::Trait(self.interface.clone()), cancel)?
-        else {
-            return Err(TypeTransformError::InvalidContract);
-        };
-        let receiver = catalog.normalize(&self.receiver, cancel)?;
-        if matches!(receiver, Ty::Trait(_))
-            && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
-        {
-            for name in ["Item", "Iter"] {
-                if name == "Iter"
-                    && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
-                {
-                    continue;
-                }
-                let member = associated_type_id(&interface.declaration, name);
-                if !interface.associated_types.contains_key(&member) {
-                    let output = catalog.normalize(
-                        &Ty::Projection {
-                            receiver: Box::new(receiver.clone()),
-                            interface: Box::new(interface.clone()),
-                            member: member.clone(),
-                            arguments: vec![],
-                        },
-                        cancel,
-                    )?;
-                    interface.associated_types.insert(member, output);
-                }
+pub fn normalize_requirement(
+    requirement: &NativeCallableRequirement,
+    catalog: &ProofCatalog<'_>,
+    cancel: &CancellationToken,
+) -> Result<NativeCallableRequirement, TypeTransformError> {
+    let Ty::Trait(mut interface) =
+        catalog.normalize(&Ty::Trait(requirement.interface.clone()), cancel)?
+    else {
+        return Err(TypeTransformError::InvalidContract);
+    };
+    let receiver = catalog.normalize(&requirement.receiver, cancel)?;
+    if matches!(receiver, Ty::Trait(_))
+        && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
+    {
+        for name in ["Item", "Iter"] {
+            if name == "Iter"
+                && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+            {
+                continue;
+            }
+            let member = associated_type_id(&interface.declaration, name);
+            if !interface.associated_types.contains_key(&member) {
+                let output = catalog.normalize(
+                    &Ty::Projection {
+                        receiver: Box::new(receiver.clone()),
+                        interface: Box::new(interface.clone()),
+                        member: member.clone(),
+                        arguments: vec![],
+                    },
+                    cancel,
+                )?;
+                interface.associated_types.insert(member, output);
             }
         }
-        Ok(Self {
-            receiver,
-            interface,
-            member: self.member.clone(),
-            arguments: self
-                .arguments
-                .iter()
-                .map(|ty| catalog.normalize(ty, cancel))
-                .collect::<Result<_, _>>()?,
-        })
     }
-
-    pub fn apply(
-        &self,
-        substitution: &TypeSubstitution<'_>,
-        cancel: &CancellationToken,
-    ) -> Result<Self, TypeTransformError> {
-        Ok(Self {
-            receiver: substitution.apply(&self.receiver, cancel)?,
-            interface: substitution.apply_nominal(&self.interface, cancel)?,
-            member: self.member.clone(),
-            arguments: self
-                .arguments
-                .iter()
-                .map(|ty| substitution.apply(ty, cancel))
-                .collect::<Result<_, _>>()?,
-        })
-    }
+    Ok(NativeCallableRequirement {
+        receiver,
+        interface,
+        member: requirement.member.clone(),
+        arguments: requirement
+            .arguments
+            .iter()
+            .map(|ty| catalog.normalize(ty, cancel))
+            .collect::<Result<_, _>>()?,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

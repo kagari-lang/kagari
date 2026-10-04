@@ -1,17 +1,14 @@
 use crate::{
+    debug::{DebugSession, SourceBreakpoint},
     tests::{common::compile_test_bytecode, native_fixtures},
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-
-use {
-    crate::debug::{DebugSession, SourceBreakpoint},
-    kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction},
-};
-
-use kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty};
+use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
 };
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {

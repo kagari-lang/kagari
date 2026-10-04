@@ -1,16 +1,13 @@
 use kagari_bytecode::program::verify_program;
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::PreparedProgram,
 };
-use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::{source::SourceFile, source_database::SourceLayer},
-};
-
 use kagari_runtime::value::Value;
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
 
 fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -237,9 +234,12 @@ fn trait_inputs_and_associated_outputs_remain_distinct() {
 
 #[test]
 fn tampered_associated_schemas_and_bounds_are_rejected() {
-    use kagari_contract::{
-        standard::surface::StandardTypeConstraint,
-        types::{Constraint, PublicItem, Ty},
+    use {
+        kagari_contract::types::PublicItem,
+        kagari_types::{
+            surface::StandardTypeConstraint,
+            ty::{Constraint, Ty},
+        },
     };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "use std::hash::{Hash};\npub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
@@ -255,7 +255,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
                     match mutation {
                         0 => {
                             *instance.associated_types.values_mut().next().unwrap() =
-                                Ty::Builtin(kagari_contract::scalar::BuiltinType::F32);
+                                Ty::Builtin(kagari_types::scalar::BuiltinType::F32);
                         }
                         1 => {
                             instance.associated_types.clear();
@@ -361,7 +361,7 @@ fn generic_interface_conversion_checks_implementation_bounds() {
 
 #[test]
 fn interface_instance_bounds_are_checked_without_method_slots() {
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "use std::hash::{Hash};\ntrait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"),  Default::default()).unwrap();
     let mut program = artifact.program.clone();
@@ -429,7 +429,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
 
 #[test]
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "use std::hash::{Hash};\ntrait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
     for mutation in 0..6 {

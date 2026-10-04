@@ -14,11 +14,12 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
-use kagari_common::{collection::CollectionAccess, identity::DefinitionPath};
-use kagari_contract::{
-    native_import::NativeSignature,
-    types::{Ty, TypeDefKind, native::NativeStorageLayout},
+use kagari_common::identity::{DefinitionPath, table::DefinitionId};
+use kagari_contract::native_import::NativeSignature;
+use kagari_types::{
+    collection::CollectionAccess,
+    declaration::{TypeDefKind, native::NativeStorageLayout},
+    ty::Ty,
 };
 use std::{fmt, rc::Rc, slice};
 

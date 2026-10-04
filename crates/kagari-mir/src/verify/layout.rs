@@ -3,11 +3,13 @@ use crate::{
     instruction::{CallTarget, Instruction},
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
-use kagari_common::host_interface::HostInterface;
 use kagari_contract::{
-    host,
-    layout::{self, LayoutValidationError, validate_layouts},
+    host, layout,
+    layout::{LayoutValidationError, validate_layouts},
     types::verify as abi_verify,
+};
+use kagari_types::{
+    declaration::verify::validate_native_declarations, host_interface::HostInterface,
 };
 use std::collections::BTreeMap;
 
@@ -60,7 +62,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             })
         },
     )?;
-    abi_verify::validate_native_declarations(
+    validate_native_declarations(
         &module.abi.native_declarations,
         &module.identity,
         context.cancel,

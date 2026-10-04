@@ -1,5 +1,10 @@
-use crate::types::NominalType;
-use kagari_contract::library;
+use super::*;
+use crate::{
+    language::semantics::ProtocolSemantics, native::NativeBinding, typeck::table::CallTarget,
+    types::NominalType,
+};
+use kagari_contract::{library, library::catalog};
+use kagari_source::source::SourceFile;
 
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
@@ -8,11 +13,6 @@ fn foundation_interface(name: &str) -> NominalType {
         associated_types: Default::default(),
     }
 }
-use super::*;
-use {crate::typeck::table::CallTarget, kagari_source::source::SourceFile};
-
-use crate::{language::semantics::ProtocolSemantics, native::NativeBinding};
-use kagari_contract::library::catalog;
 
 #[test]
 fn infers_array_method_call_types() {
@@ -87,11 +87,8 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         native::NativeTypeKind,
         typeck::{FunctionImplementation, table::ConstraintTarget},
     };
-    use kagari_contract::{
-        language::Protocol,
-        standard::surface::{self as standard_surface, StandardEnum},
-    };
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
+    use kagari_types::{language::Protocol, surface as standard_surface, surface::StandardEnum};
 
     assert!(standard_surface::builtin_type("String").is_some());
     assert!(standard_surface::builtin_type("usize").is_some());
@@ -239,14 +236,14 @@ fn sized(value: usize) -> usize { value }
     assert_eq!(
         typed.functions[0].return_type,
         TypeId::StandardEnum {
-            kind: kagari_contract::standard::surface::StandardEnum::Option,
+            kind: kagari_types::surface::StandardEnum::Option,
             args: vec![TypeId::Builtin(BuiltinType::I32)],
         }
     );
     assert_eq!(
         typed.functions[1].return_type,
         TypeId::StandardEnum {
-            kind: kagari_contract::standard::surface::StandardEnum::Result,
+            kind: kagari_types::surface::StandardEnum::Result,
             args: vec![
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Builtin(BuiltinType::String),
@@ -384,7 +381,7 @@ fn popped(values: Vec<i32>) -> Option<i32> {
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
         Some(TypeId::StandardEnum {
-            kind: kagari_contract::standard::surface::StandardEnum::Option,
+            kind: kagari_types::surface::StandardEnum::Option,
             args: vec![TypeId::Builtin(BuiltinType::I32)],
         })
     );
@@ -407,7 +404,7 @@ fn popped(values: Vec<i32>) -> Option<i32> {
     assert_eq!(
         typed.type_table.expr_type(popped_tail),
         Some(TypeId::StandardEnum {
-            kind: kagari_contract::standard::surface::StandardEnum::Option,
+            kind: kagari_types::surface::StandardEnum::Option,
             args: vec![TypeId::Builtin(BuiltinType::I32)],
         })
     );
@@ -565,7 +562,7 @@ fn binding_id(name: &str) -> kagari_common::identity::DefinitionPath {
         .iter()
         .flat_map(|module| module.native_declarations())
         .find_map(|declaration| match declaration.function.implementation {
-            kagari_contract::callable::CallableImplementation::Native(id)
+            kagari_types::callable::CallableImplementation::Native(id)
                 if id.path.last().is_some_and(|part| part.name == name) =>
             {
                 Some(id)

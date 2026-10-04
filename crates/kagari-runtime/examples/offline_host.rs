@@ -1,10 +1,14 @@
-use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
-use kagari_common::host_interface::{
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_runtime::{
+    Runtime, RuntimeConfig, host::HostFunction, session::TraceValue, value::Value,
+};
+use kagari_types::host_interface::{
     HostFunctionDeclaration, HostInterface, value_type::HostValueType,
 };
-use kagari_runtime::{Runtime, RuntimeConfig, host::HostFunction, value::Value};
 use std::error::Error;
-use {kagari_bytecode::module::BytecodeModule, kagari_runtime::session::TraceValue};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // This definition can be exported by a separate tool with no runtime or services.

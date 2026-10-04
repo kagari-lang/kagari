@@ -6,6 +6,20 @@ function's signature does not define a Kagari API, and no declaration attribute
 macro is involved. A bounded checked product of handwritten core trait source
 supplies the 24 language declarations to source-free consumers.
 
+This page describes current implemented behavior. The pending
+[crate responsibility migration](../architecture.md#crate-responsibility-target-agreed-pending-implementation)
+first moves shared declarations and host schemas to `kagari-types`, restricts
+contract to executable facts and removes HIR's ABI/contract dependencies. The
+[agreed unified registration target](../architecture.md#unified-library-registration-agreed-target-pending-implementation)
+replaces the embedded core product and implicit foundation catalog with explicit
+standard-library registration. It also removes the current pre-parser
+`trait_source` exact-attribute/blank-line extraction and handwritten-core splicing.
+Complete generated modules use the ordinary parser/HIR, with syntax-based role
+recognition and explicit navigation ranges. CR01-CR02 precede library implementation
+in the [single execution plan](../implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed);
+library acceptance is tracked in
+[LR01-LR03](../implementation-roadmap.md#unified-library-registration-lr01-lr03-design-agreed).
+
 ## Ownership and installation
 
 The installed `core`/`alloc`/`std` foundation contains complete language contracts:

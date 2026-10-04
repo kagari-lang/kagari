@@ -12,7 +12,7 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::Ty;
+use kagari_types::ty::Ty;
 use std::cell::Cell;
 
 struct NativeBorrow<'heap>(&'heap Cell<usize>);

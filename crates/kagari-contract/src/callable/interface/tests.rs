@@ -1,11 +1,10 @@
 use super::*;
-use crate::{
-    callable::{CallableImplementation, MethodPolicy},
-    declaration::ModuleDecl,
-    scalar::BuiltinType,
-    types::{FnDecl, Param},
-};
 use kagari_common::identity::ModuleIdentity;
+use kagari_types::{
+    callable::{CallableImplementation, MethodPolicy},
+    declaration::{FnDecl, Param, module::ModuleDecl},
+    scalar::BuiltinType,
+};
 use std::{collections::BTreeMap, slice};
 
 fn fixture() -> (InterfaceCallContract, TraitDef) {

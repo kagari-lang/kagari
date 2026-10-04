@@ -1,13 +1,15 @@
 //! Closed language protocol contracts eligible for generated callable adapters.
-use crate::{
-    declaration::ModuleDecl,
-    language::Protocol,
-    native_import::{NativeSignature, callables::NativeCallableRequirement},
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-    types::Ty,
-};
 use kagari_common::identity::{DefinitionKind, associated_type_id};
+use {
+    crate::native_import::NativeSignature,
+    kagari_types::{
+        declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
+        language::Protocol,
+        scalar::BuiltinType,
+        surface::StandardEnum,
+        ty::Ty,
+    },
+};
 
 pub fn adapter_contract(
     required: &NativeCallableRequirement,

@@ -7,10 +7,11 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
-    callable::{CallableImplementation, generic::GenericBody},
+    callable::generic::GenericBody,
     native_import::NativeSignature,
-    types::{ConcreteFunctionIdentity, proofs::ProofCatalog, substitution::TypeTransformError},
+    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
+use kagari_types::{callable::CallableImplementation, ty::substitution::TypeTransformError};
 
 pub(crate) struct SharedEntry<'a> {
     pub identity: &'a ConcreteFunctionIdentity,

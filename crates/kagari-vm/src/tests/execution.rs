@@ -1,32 +1,27 @@
-use kagari_bytecode::module::RootSlotLayout;
+use crate::{
+    debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
+    error::VmError,
+    tests::common::{compile_test_bytecode, load_test_module},
+    vm::Vm,
+};
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
         BytecodeInstruction, CallTarget, ConstantOperand, ModuleSlot, Register, RuntimeHelper,
     },
     module::{
         BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
-        InstructionSourceSpan, SafeDebugPoint, SafeDebugPointKind,
+        InstructionSourceSpan, RootSlotLayout, SafeDebugPoint, SafeDebugPointKind,
     },
     program::ModuleRef,
 };
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::ids::{DebugPointId, FunctionRef},
-};
-
 use kagari_common::span::Span;
+use kagari_contract::ids::{DebugPointId, FunctionRef};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     module::ModuleEpochRetention,
     resource::RuntimeLimits,
     value::{StructValueField, Value},
-};
-
-use crate::{
-    debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
-    error::VmError,
-    tests::common::{compile_test_bytecode, load_test_module},
-    vm::Vm,
 };
 
 fn test_function(
@@ -174,9 +169,13 @@ fn interface_instruction_module() -> BytecodeModule {
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
-    use kagari_contract::{
-        scalar::BuiltinType,
-        types::{InterfaceTable, NominalTy, PublicItem, TraitDef, Ty},
+    use {
+        kagari_contract::types::{InterfaceTable, PublicItem},
+        kagari_types::{
+            declaration::TraitDef,
+            scalar::BuiltinType,
+            ty::{NominalTy, Ty},
+        },
     };
 
     let identity = ModuleIdentity::single_file("interface-instruction.kgr");

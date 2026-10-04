@@ -1,43 +1,36 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
-use kagari_common::collection::CollectionAccess;
-use kagari_runtime::reload::ReloadValidationError;
-use {
-    kagari_common::host_interface::value_type::HostValueType,
-    kagari_runtime::{error::RuntimeErrorKind, module::LoadedModule, resource::RuntimeLimits},
-};
-
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
-
+use crate::{program::PreparedProgram, runtime::KagariRuntime};
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
     native_input::PortableMir,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
+    error::{RuntimeError, RuntimeErrorKind},
+    frame::ExecutionFrame,
     host::{HostError, HostFunction},
+    module::LoadedModule,
+    resource::RuntimeLimits,
+    session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
-
-use crate::{program::PreparedProgram, runtime::KagariRuntime};
+use kagari_types::{
+    collection::CollectionAccess, host_interface::value_type::HostValueType, scalar::BuiltinType,
+    ty::Ty,
+};
 use kagari_vm::{
     error::VmError,
     vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
 };
-
-use kagari_common::cancellation::CancellationToken;
-use kagari_runtime::{
-    error::RuntimeError,
-    frame::ExecutionFrame,
-    session::{ExecutionEvent, ExecutionObserver},
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    sync::{Arc, Mutex},
 };
 
 #[derive(Debug)]
@@ -180,7 +173,7 @@ impl<'a> Case<'a> {
 }
 
 fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
-    let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
+    let observe = kagari_types::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
         HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
@@ -219,7 +212,7 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     );
     if case.array.is_some() {
         analysis.set_host_declarations(
-            kagari_hir::host::HostDeclarations::new(kagari_common::host_interface::HostInterface {
+            kagari_hir::host::HostDeclarations::new(kagari_types::host_interface::HostInterface {
                 paths: vec![],
                 types: vec![],
                 functions: vec![observe.clone()],
@@ -380,7 +373,7 @@ fn run(
     module: &PreparedProgram,
     candidate_program: Option<&PreparedProgram>,
 ) {
-    let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
+    let observe = kagari_types::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
         HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
@@ -400,7 +393,7 @@ fn run(
     let cancel = cancellation.clone();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::standard_log(),
+            kagari_types::host_interface::standard_log(),
             move |_, args| {
                 let mut state = capture.lock().unwrap();
                 state.calls.push(HostCall {

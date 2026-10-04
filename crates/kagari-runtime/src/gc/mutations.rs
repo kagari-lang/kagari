@@ -11,7 +11,7 @@ use crate::{
 };
 
 use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
-use kagari_contract::{scalar::BuiltinType, types::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {

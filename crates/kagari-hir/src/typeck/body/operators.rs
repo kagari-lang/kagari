@@ -8,21 +8,18 @@ use crate::{
         },
         ids::ExprId,
     },
-    language::semantics::{self as traits, callable_signature},
+    language::{semantics as traits, semantics::callable_signature},
     typeck::{
         BodyTypeEnv, body::BodyChecker, completion, constraints, table::CallTarget,
         ty::display_type_id,
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_contract::{
-    language::{self as standard_traits, Protocol},
-    scalar::BuiltinType,
-    standard::surface::StandardTypeConstraint,
-};
-use {
-    kagari_common::{cancellation::Cancelled, identity},
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+use kagari_common::{cancellation::Cancelled, identity};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    language as standard_traits, language::Protocol, scalar::BuiltinType,
+    surface::StandardTypeConstraint,
 };
 
 impl BodyChecker<'_> {

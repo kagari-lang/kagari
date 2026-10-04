@@ -1,8 +1,8 @@
 //! Rust-authoritative mandatory library declarations and registration identities.
 pub mod catalog;
 pub mod namespaces;
-use crate::types::{NominalTy, Ty};
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_types::ty::{NominalTy, Ty};
 
 /// Build an explicit foundation registration identity. This creates no declaration
 /// and grants no language semantics; consumers must resolve its checked record.

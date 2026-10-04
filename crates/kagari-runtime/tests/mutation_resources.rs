@@ -2,9 +2,8 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use kagari_runtime::module::LoadedModule;
-use kagari_runtime::{Runtime, value::Value};
+use kagari_runtime::{Runtime, module::LoadedModule, value::Value};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn runtime_with_owner() -> (Runtime, LoadedModule) {
     let mut runtime = Runtime::default();

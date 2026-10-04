@@ -7,8 +7,9 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
-use kagari_contract::{
-    language::{self as standard_traits, Protocol, role::LangRole},
+use kagari_types::{
+    language as standard_traits,
+    language::{Protocol, role::LangRole},
     scalar::BuiltinType,
 };
 

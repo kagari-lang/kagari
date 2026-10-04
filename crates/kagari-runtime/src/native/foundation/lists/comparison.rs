@@ -12,7 +12,8 @@ use crate::{
     value::{EnumTag, Value},
     value_semantics,
 };
-use kagari_contract::{scalar::BuiltinType, standard::RuntimePrimitive, types::Ty};
+use kagari_contract::standard::RuntimePrimitive;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::cmp::Ordering;
 
 pub(super) struct Comparison<'call> {

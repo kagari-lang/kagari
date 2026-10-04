@@ -1,22 +1,19 @@
 //! Language protocols have declaration identities and ordinary trait contracts.
 
+use crate::builtin::surface;
 use crate::{
     aggregates::AggregateCatalog,
     typeck::{GenericBounds, table::ConstraintTarget},
     types::{NominalType, TypeId},
 };
-use kagari_contract::{
-    language::{Protocol, identity, role::LangRole},
-    numeric as scalar_numeric,
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-    types::conversion::ConversionAdapter,
-};
-
 use kagari_common::identity::{DefinitionPath, associated_type_id};
-
-use crate::builtin::surface;
-
+use kagari_types::{
+    conversion as scalar_numeric,
+    declaration::conversion::ConversionAdapter,
+    language::{Protocol, identity, role::LangRole},
+    scalar::BuiltinType,
+    surface::StandardEnum,
+};
 use std::collections::{BTreeMap, HashSet};
 
 pub trait ProtocolSemantics {

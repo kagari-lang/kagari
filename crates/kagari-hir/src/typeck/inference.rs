@@ -3,8 +3,9 @@ use crate::{
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
+
 #[cfg(test)]
-use kagari_common::collection::CollectionAccess;
+use kagari_types::collection::CollectionAccess;
 
 /// Infer only the callee's parameters. Repeated occurrences are checked against
 /// the resulting signature by the caller; no source spelling participates.
@@ -113,8 +114,15 @@ pub(crate) fn infer(
 
 #[cfg(test)]
 mod tests {
-    use crate::types::NominalType;
+    use super::*;
+    use crate::{analysis::AnalysisDatabase, types::NominalType};
+    use kagari_common::identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+    };
     use kagari_contract::library;
+    use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
+    use kagari_types::scalar::BuiltinType;
+    use std::sync::Arc;
 
     fn foundation_interface(name: &str) -> NominalType {
         NominalType {
@@ -123,15 +131,6 @@ mod tests {
             associated_types: Default::default(),
         }
     }
-
-    use super::*;
-    use crate::analysis::AnalysisDatabase;
-    use kagari_common::identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-    };
-    use kagari_contract::scalar::BuiltinType;
-    use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
-    use std::sync::Arc;
 
     #[test]
     fn collection_context_infers_slots_across_native_and_declared_views() {

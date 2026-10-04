@@ -1,13 +1,12 @@
 use super::*;
-use kagari_common::host_interface::path::HostPathSegmentDeclaration;
+use kagari_bytecode::artifact::KbcArtifact;
+use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 use kagari_runtime::host::HostPathAdapter;
-use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
-
-use kagari_embed::program::PreparedProgram;
+use kagari_types::host_interface::path::HostPathSegmentDeclaration;
 
 #[test]
 fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
-    use kagari_common::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
+    use kagari_types::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
     let mut declarations = interface();
     declarations.types[0].fields[0].path_access = PathAccess::ReadOnly;
     let mut count =
@@ -145,14 +144,14 @@ fn source_host_field_index_paths_skip_intermediate_reads() {
 
 #[test]
 fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
-    use kagari_common::host_interface::{
+    use kagari_runtime::host::{HostError, HostPathAdapter, PreparedHostPathWrite};
+    use kagari_types::host_interface::{
         path::{
             HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
             HostVirtualSegmentDeclaration,
         },
         type_declaration::PathAccess,
     };
-    use kagari_runtime::host::{HostError, HostPathAdapter, PreparedHostPathWrite};
     use std::cell::Cell;
 
     let mut player = HostTypeDeclaration::new("game.Player");
@@ -333,8 +332,8 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
 
 #[test]
 fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_failure() {
-    use kagari_common::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
     use kagari_runtime::host::{HostError, PreparedHostPathWrite};
+    use kagari_types::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
     use std::cell::Cell;
     let mut declarations = interface();
     declarations.types[0].path_access = PathAccess::ReadWrite;

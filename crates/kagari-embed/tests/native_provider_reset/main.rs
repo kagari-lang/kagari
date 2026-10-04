@@ -9,10 +9,7 @@ mod library;
 mod provider;
 use contracts::alter_bindings;
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_contract::{
-    scalar::BuiltinType,
-    types::{FnDecl, PublicItem, Ty},
-};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -20,6 +17,7 @@ use kagari_embed::{
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_types::{declaration::FnDecl, scalar::BuiltinType, ty::Ty};
 
 fn engine(config: EngineConfig) -> KagariEngine {
     KagariEngine::builder()

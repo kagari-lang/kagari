@@ -15,18 +15,15 @@ use kagari_runtime::{
     module::LoadedModule,
     value::Value,
 };
+use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
+use kagari_syntax::parser::parse_module;
+use kagari_types::host_interface;
 use kagari_vm::vm::ExecutionReport;
 use std::{
     env, fs,
     path::{Path, PathBuf},
     process::ExitCode,
 };
-use {
-    kagari_common::host_interface,
-    kagari_source::{diagnostic::Diagnostic, source::SourceFile},
-};
-
-use kagari_syntax::parser::parse_module;
 
 fn main() -> ExitCode {
     match Cli::parse(env::args().skip(1)).and_then(run_cli) {

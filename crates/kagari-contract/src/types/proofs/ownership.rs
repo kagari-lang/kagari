@@ -1,15 +1,14 @@
 use crate::{
-    language::{Protocol, primitive as intrinsic},
+    language::primitive as intrinsic,
     library::namespaces,
-    types::{
-        Ty,
-        conversion::ConversionAdapter,
-        proofs::implementation::Implementation,
-        proofs::{Budget, ProofCatalog},
-        substitution::TypeTransformError,
-    },
+    types::proofs::{Budget, ProofCatalog, implementation::Implementation},
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_types::{
+    declaration::conversion::ConversionAdapter,
+    language::Protocol,
+    ty::{Ty, substitution::TypeTransformError},
+};
 use std::iter;
 
 impl ProofCatalog<'_> {

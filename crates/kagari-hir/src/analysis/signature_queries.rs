@@ -19,27 +19,25 @@ use crate::{
     types::TypeId,
 };
 
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionPath,
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
+use kagari_source::{
+    diagnostic::Diagnostic,
+    identity::{FileId, Revision},
+    source::SourceFile,
+    source_database::SourceSnapshot,
+};
+use kagari_types::host_interface::type_declaration::HostTypeDeclaration;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
-};
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        host_interface::type_declaration::HostTypeDeclaration,
-        identity::{
-            DefinitionPath,
-            mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-            reference::DefinitionReference,
-            table::{DefinitionId, DefinitionTable},
-        },
-    },
-    kagari_source::{
-        diagnostic::Diagnostic,
-        identity::{FileId, Revision},
-        source::SourceFile,
-        source_database::SourceSnapshot,
-    },
 };
 
 #[cfg(test)]

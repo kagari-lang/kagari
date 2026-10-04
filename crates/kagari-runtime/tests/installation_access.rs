@@ -2,18 +2,26 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
-use kagari_common::identity::DefinitionKind;
-use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_contract::{
-    language::Protocol,
     library::namespaces,
-    types::{PublicItem, TraitContract, TraitDef},
+    types::{PublicItem, TraitContract},
 };
-use kagari_runtime::module::VerifiedProgram;
-use kagari_runtime::native::{builder::ModuleBuilder, language::LanguageContracts};
-use kagari_runtime::{Runtime, host::HostFunction, value::Value};
-use kagari_runtime::{error::RuntimeErrorKind, session::ExecutionOptions};
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeErrorKind,
+    host::HostFunction,
+    module::VerifiedProgram,
+    native::{builder::ModuleBuilder, language::LanguageContracts},
+    session::ExecutionOptions,
+    value::Value,
+};
+use kagari_types::{
+    collection::CollectionAccess,
+    declaration::TraitDef,
+    host_interface::{HostFunctionDeclaration, value_type::HostValueType},
+    language::Protocol,
+};
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {

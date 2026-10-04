@@ -1,22 +1,25 @@
 //! A statically selected shared entry with caller-scoped type and operation arguments.
+use crate::native_import::callables::normalize_requirement;
 use crate::{
     callable::{
-        CallableImplementation,
         generic::GenericBody,
         witness::{OperationWitness, required_operations},
     },
     native_import::NativeSignature,
-    types::{
-        ConcreteFunctionIdentity, GenericBound, GenericParam, Ty,
-        proofs::ProofCatalog,
+    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionPath, reference::DefinitionReference},
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::verify::types_in_scope,
+    ty::{
+        GenericBound, GenericParam, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
-        verify::types_in_scope,
     },
 };
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::DefinitionPath;
-
-use kagari_common::identity::reference::DefinitionReference;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,7 +103,7 @@ impl SharedCall {
         }
         let required = required_operations(&bounds, &|id| catalog.trait_contract(id), cancel)?
             .iter()
-            .map(|required| required.normalized(catalog, cancel))
+            .map(|required| normalize_requirement(required, catalog, cancel))
             .collect::<Result<Vec<_>, _>>()?;
         if required.len() != self.operations.len()
             || required.iter().any(|required| {

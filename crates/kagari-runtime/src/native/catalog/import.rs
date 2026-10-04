@@ -12,10 +12,7 @@ use kagari_common::{
         table::DefinitionId,
     },
 };
-use kagari_contract::{
-    declaration::ImplDecl,
-    types::{NativeDeclaration, TraitDef, TypeDef},
-};
+use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ImplDecl};
 use std::{collections::HashMap, sync::Arc};
 
 type SharedImports<T, U = T> = HashMap<usize, (Arc<DefinitionMap<T>>, Arc<DefinitionMap<U>>)>;

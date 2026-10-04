@@ -14,18 +14,13 @@ use crate::{
     typeck::{scalar::ScalarValue, table::TypeTable},
     types::TypeId,
 };
-use kagari_contract::scalar::BuiltinType;
-use std::collections::HashMap;
-use {
-    kagari_common::{
-        arithmetic::{self, IntegerBinaryOp},
-        cancellation::CancellationToken,
-        integer::{self, IntegerOp},
-    },
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+use kagari_common::cancellation::CancellationToken;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    arithmetic, arithmetic::IntegerBinaryOp, integer, integer::IntegerOp, scalar::BuiltinType,
 };
-
 use smallvec::SmallVec;
+use std::collections::HashMap;
 
 pub(super) fn evaluate_constants(
     lowered: &LoweredModule,

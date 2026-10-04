@@ -4,10 +4,10 @@ mod construction;
 mod hash;
 mod lists;
 mod strings;
-use crate::gc::HeapObjectId;
-use crate::library::collections;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
+    gc::HeapObjectId,
+    library::collections,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -19,11 +19,10 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_contract::{
-    callable::CallableImplementation,
-    declaration::ModuleDecl,
     library::{catalog, namespaces},
     operations::IterOp,
 };
+use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl};
 use std::{cell::OnceCell, collections::BTreeMap};
 
 type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;

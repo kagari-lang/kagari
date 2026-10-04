@@ -10,6 +10,7 @@ source = ["dep:kagari-source", "dep:kagari-compiler", "kagari-compiler/source", 
 native = ["dep:kagari-codegen", "dep:kagari-compiler", "dep:kagari-mir"]
 
 [dependencies]
+kagari-types.workspace = true
 kagari-source = { workspace = true, optional = true }
 kagari-codegen = { workspace = true, optional = true }
 kagari-compiler = { workspace = true, default-features = false, optional = true }

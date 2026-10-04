@@ -3,14 +3,11 @@ use crate::{
     hir::expr::ExprKind,
     resolver::{resolved::ResolvedName, table::NameResolution},
 };
-
-use kagari_contract::scalar::BuiltinType;
-use {
-    kagari_common::{
-        host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
-        identity::{ModuleIdentity, PackageId},
-    },
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::{
+    host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
+    scalar::BuiltinType,
 };
 
 fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {

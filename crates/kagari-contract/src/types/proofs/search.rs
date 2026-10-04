@@ -1,14 +1,18 @@
 use crate::{
-    language::{Protocol, primitive as intrinsic},
-    types::{
-        Constraint, GenericBound, NominalTy, Ty, inheritance, matching,
-        proofs::{Budget, ProofCatalog, host_application, satisfies},
+    language::primitive as intrinsic,
+    types::proofs::{Budget, ProofCatalog, host_application, satisfies},
+};
+use kagari_common::cancellation::CancellationToken;
+use kagari_types::{
+    language::Protocol,
+    ty::{
+        Constraint, GenericBound, NominalTy, Ty, inheritance,
+        matching::match_pattern,
         substitution::{
             MAX_TYPE_NODES, TypeSubstitution, TypeTransformError, resolve_associated_outputs,
         },
     },
 };
-use kagari_common::cancellation::CancellationToken;
 use std::collections::HashSet;
 
 type ProofKey = (NominalTy, Ty);
@@ -282,7 +286,7 @@ impl ProofCatalog<'_> {
             let mut count = 0;
             for implementation in &self.implementations {
                 budget.step(depth)?;
-                let Some(substitution) = matching::match_pattern(
+                let Some(substitution) = match_pattern(
                     implementation
                         .pattern(
                             implementation

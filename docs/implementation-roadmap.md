@@ -24,6 +24,243 @@ are implemented. Remaining measured costs and reproduction commands live in
 remains after AC05 final integration. Performance changes from this cleanup
 have not been measured.
 
+## Crate responsibility migration (CR01-CR02, design agreed)
+
+This is the first pending implementation work. Complete CR01 and CR02 before
+LR01-LR03 below. The [agreed crate target](architecture.md#crate-responsibility-target-agreed-pending-implementation)
+separates shared declaration/type semantics from executable contracts and physical
+ABI. It extends the earlier library-only proposal explicitly; it does not mark
+the completed AC01-AC05 architecture as failed or reopen unrelated features.
+Implementation is active under the continuous goal. The user authorized one
+commit per completed phase, in order: CR01, CR02, LR01, LR02 and LR03.
+
+- [x] **CR01: Establish the shared semantic owner.** Populate `kagari-types`
+  with the existing source-independent types, signatures, trait/generic/member
+  definitions, module declarations, documentation and semantic language-role
+  metadata. Move general substitution, matching, inheritance and declaration-level
+  constraint checks there. Move common's collection access, range forms, numeric
+  evaluation algorithms and offline host declarations/access schemas to focused
+  modules in types. Preserve one numeric implementation for compile-time and
+  runtime evaluation. Keep common focused on spans, cancellation and definition
+  identity/table/mapping infrastructure. Split mixed records before moving them:
+  pure declarations and symbolic defaults belong to types; selected executable
+  targets, concrete native imports, result/callback adapters and physical bindings
+  do not. Classify proof operations by inputs: declaration-level type obligations
+  belong to types, linked executable dependency checks remain in contract. Types
+  must not depend on ABI, contract, source, syntax, HIR or runtime. Retain bounded
+  encoding/checks with the records they protect, without introducing a metadata
+  product, compatibility facade or empty forwarding crate. Migrate affected
+  producers/consumers directly and record necessary intermediate errors here.
+- [ ] **CR02: Enforce semantic and execution boundaries across consumers.**
+  Remove HIR's unused direct ABI dependency and all contract references. HIR uses
+  source, syntax, types and common; inference variables, unknown/error states,
+  resolution and trait selection remain in HIR. Replace declaration fields that
+  expose execution models with semantic records and symbolic declaration links.
+  Move `Ty::representation()` and host-to-slot conversion to contract's focused
+  representation lowering API, invoked by compiler lowering and executable
+  verification, not by HIR/types. Keep logical slots/layouts, selected call and
+  native dependencies, operations, effects, executable envelopes and linked checks
+  in contract; keep physical representations/calls in ABI. Migrate compiler,
+  MIR, bytecode, backends, runtime, VM and embed to import from actual owners.
+  HIR declaration ingestion/rendering receives explicit types records and providers;
+  remove contract catalog injection/fallback at this checkpoint. Existing Engine
+  and standalone caller/test producers supply the current foundation explicitly
+  until LR replaces its authoring owner. Do not move the catalog into types/HIR
+  to remove a dependency. Preserve generic scopes, interface defaults, host
+  signatures/access/borrows, artifact checks and generation identity. Update
+  production dependency assertions and source-free feature consumers.
+
+CR acceptance requires:
+
+- HIR's project dependencies are source, syntax, types and common; its production
+  transitive graph contains no ABI, contract, runtime, stdlib, MIR or backend.
+- Types depends only on common among project crates. Common has no host/type/API
+  inventory; ABI remains independent of semantic models. No re-export/forwarding
+  facade or duplicate semantic implementation hides forbidden dependencies.
+- The same declaration models serve source analysis, registration and source-free
+  loading. HIR's recoverable type state remains distinct from checked portable
+  semantic records; it is not forced into an executable or physical type model.
+- Compile-time and runtime numeric behavior remain consistent. Native/script
+  generics, traits, associated outputs, defaults and host-path validation retain
+  meaningful coverage. MIR and bytecode continue independent bounded validation;
+  runtime/VM remain frontend-free.
+
+CR01 may carry bounded compilation failures while mixed records and consumers
+move. Record commands, representative diagnostics and the owning next checkpoint;
+do not disable validation or add compatibility entrypoints to make a checkpoint
+green. CR02 must close carried boundary-migration failures before LR01 starts.
+Run focused semantic/HIR/MIR/artifact/native checks and the relevant standalone
+feature consumers at CR02; run the full combined matrix once at LR03 unless a
+concrete broad failure requires it earlier. Use `Roadmap-Step: CR01`/`CR02` when
+commits. No additional host/numeric/trait/registration
+crates, new MIR stages or merged compiler/runtime crates are in scope.
+
+## Unified library registration (LR01-LR03, design agreed)
+
+After CR01-CR02, the library migration follows the
+[agreed registration target](architecture.md#unified-library-registration-agreed-target-pending-implementation).
+Standard and application native modules use one Engine registration path.
+Registration owns signatures and Rust bindings; source-enabled analysis receives
+generated `.kgr` views of those same declarations. Types supplies semantic models
+and declaration checks; contract supplies executable checks. Neither owns a
+built-in standard-library catalog. The registration path has no binary
+intermediary. Crate metadata and separate/parallel compilation are
+deferred to their own future design.
+
+The [registration API draft](architecture.md#registration-api-draft) makes the
+provider input, mutable engine builder, full-doc registration and optional source
+cache concrete. API spellings are still under review; the ownership and single
+registration flow are the target. The continuous goal activates these phases
+after CR01-CR02.
+
+This decision supersedes AC02/NS01's handwritten core-trait authority and checked
+`traits.bin` product for the migration. Those checkpoints remain completed history;
+their passing checks describe the current implementation, not LR acceptance.
+This checkpoint records design and scope; LR implementation has not started.
+
+- [ ] **LR01: Give the standard library its own registration owner.** Populate
+  `kagari-stdlib` with the existing contract library recipes, documentation,
+  prelude/re-export inventory and runtime foundation/collection implementations.
+  Provide consistent full-Markdown documentation APIs for modules, traits, types,
+  functions, methods and exposed members; preserve docs through builder completion
+  and inherited method registration. Standard-library docs include module overviews,
+  behavior, relevant failure/mutation rules and meaningful usage examples.
+  Express all 38 traits through explicit registration records, preserving names,
+  constraints, defaults, identities and semantics. Keep types' semantic models
+  separate from contract's execution facts and linked validators. Audit
+  `library::namespaces`,
+  `language`, `standard`, native constructors and ownership checks individually:
+  move API inventories to stdlib; preserve necessary semantic/representation checks
+  through explicit validated bindings. Do not relocate source-free checks into
+  HIR or make generic runtime depend on stdlib. Replace ModuleBuilder's hidden
+  LanguageContracts default with explicit providers. Native implementation moves
+  use checked runtime operations, not newly public heap internals.
+- [ ] **LR02: Connect Engine registration to analysis and runtime installation.**
+  Assemble default standard modules and selected application modules through one
+  validated registration path. Give HIR the complete registered declaration set;
+  retain CR02's explicit provider ingestion with no default catalog fallback.
+  Generate core and application `.kgr` views uniformly, with docs, re-exports, aliases,
+  signatures and checked role metadata. Parse complete generated modules; recognize
+  language attributes through syntax nodes and their owning declarations. Replace
+  handwritten-core splicing and copied-text navigation with renderer-recorded
+  identity/range mappings and parsed spans in the generated snapshot. Any remaining
+  handwritten input during migration uses complete-module parsing and AST ranges,
+  not exact attribute strings or blank-line separators. Provide tooling-host
+  materialization into a generated-source cache with stable content/version paths
+  and file/range navigation matching the analyzed snapshot; keep filesystem IO
+  outside HIR, types and contract. Render module `//!` and item/member `///` docs with complete Markdown,
+  including fenced examples. Connect module/item documentation queries and hover
+  to the same content, with correct spans after multiline docs. Move implicit
+  foundation installation out of Runtime construction into Engine composition.
+  Preserve atomic dependency
+  validation, source/record correspondence and existing snapshot/version ownership.
+  Replace old-product shape checks with installed declaration correspondence plus
+  explicit language-role requirements. Preserve existing default Engine behavior;
+  live registry mutation and a no_std product mode are outside scope.
+- [ ] **LR03: Remove obsolete products and complete integration.** Delete
+  `traits.bin`, its decoder/regenerator and independent handwritten core trait
+  declarations once their consumers use registration records; do not substitute
+  another binary or generated Rust snapshot. Delete `trait_source`,
+  `core_text`, their handwritten-source imports/splicing and copied-text provenance
+  searches after LR02 replaces their consumers. Migrate direct HIR/runtime test
+  producers to explicit module inputs and update specs, examples and tooling
+  navigation expectations. Retain user-program artifact/source-free coverage.
+  Run final validation and resolve all carried failures before acceptance.
+
+Acceptance must demonstrate:
+
+- A registered application module's new type/function/trait is analyzed through
+  generated `.kgr` and executed without editing types, contract, HIR or VM inventories.
+- The CR01-CR02 dependency boundaries remain enforced after stdlib integration:
+  HIR/types do not acquire execution dependencies, and generic runtime, compiler,
+  bytecode and backends do not acquire a concrete stdlib dependency.
+- Standard modules follow that same route; no HIR or generic runtime fallback
+  silently restores unregistered declarations. Default Engine still installs the
+  full standard library, including the bundled iterator adapter.
+- All 38 traits, syntax/implicit-value roles, canonical core/std identity, explicit
+  prelude visibility, Vec/Iterable and generated navigation/docs remain covered.
+- Standard and application declaration navigation opens actual generated `.kgr`
+  files with correct ranges. Unchanged documents reuse paths, changed documents
+  preserve active snapshot targets, and in-memory embedding requires no disk IO.
+- Core declarations use complete generated-module parsing and ordinary HIR lowering.
+  Valid attribute whitespace, blank lines inside traits, multi-paragraph docs,
+  fenced examples and attribute-like text in comments do not affect declaration
+  selection or navigation. No `trait_source` or equivalent textual extraction
+  remains; malformed generated syntax reports an error without partial publication.
+- Registration docs survive for modules, traits, types, functions and exposed
+  members. Cached source and documentation queries retain headings, paragraphs,
+  lists, links and fenced examples. Check inherited/overridden member docs and
+  canonical re-export navigation. Doc-only changes refresh tooling output without
+  changing executable compatibility or requiring ABI version changes.
+- Missing providers, mismatched native signatures, duplicate identities and forged
+  roles are rejected. Failed registration publishes no partial module set.
+- Artifact-only and native-only hosts use registered declarations without a source
+  frontend, declaration binary, generated-source parsing or build-time frontend.
+- Existing roots, scoped borrows, cancellation, failure ordering and generation-
+  pinned execution/reload checks pass after native implementation moves.
+
+Use `Roadmap-Step: LR01` through `LR03` for implementation checkpoints when commits
+are authorized. Use focused checks while migrating; record necessary intermediate
+failures with their command,
+cause and owning phase here. Final integration requires structure, formatting,
+strict workspace Clippy, workspace tests, all four standalone SDK feature consumers,
+CLI JIT tests and diff checks. Update dependency assertions for the concrete stdlib
+owner, narrow common and semantic types owner; retain the frontend-free
+types/ABI/contract/runtime/VM/backend boundaries. Resolve all CR/LR carried errors.
+
+Design ledger: inspected production manifests and current registration consumers.
+Concrete coupling exists in contract's catalog/product, HIR's default catalog and
+old-product shape checks, Runtime's implicit foundation installation, and
+ModuleBuilder/LanguageContracts defaults. Engine already forwards application
+declarations to HIR and native bindings to runtimes; extend that path to the whole
+standard library. No source or runtime implementation changed in this design
+checkpoint. Documentation links/content and `git diff --check` are its validation.
+Subsequent design refinements require real cached `.kgr` files for editor
+navigation and complete module/item/member docs authored through registration.
+Current implementation has FunctionDecl documentation and an item-ID doc map,
+but module/trait/type/method builder coverage and module-doc queries are incomplete;
+LR01/LR02 own those gaps.
+
+Source-path audit also found pre-parser exact-attribute/blank-line extraction in
+`hir::language::source::trait_source`, splicing through `native::render::core_text`,
+and copied-text searches for navigation in `native::api::import_source`. LR02
+replaces their consumers with complete generated-module parsing and explicit
+ranges; LR03 removes the obsolete helpers. This refinement updates the design
+only; implementation remains pending.
+
+Crate audit refinement: HIR declares ABI but has no direct source use; contract's
+`Ty::representation()` still couples its shared type model to ABI. Common mixes
+identity/span/cancellation infrastructure with numeric semantics, collection/range
+forms and a complete offline host schema. CR01/CR02 now own this split before LR01.
+The authorized order is CR01 -> CR02 -> LR01 -> LR02 -> LR03. Existing library
+requirements, full docs/cache navigation, native safety and source-free artifact
+acceptance remain in scope.
+
+Execution ledger (CR01 complete; CR02 next): numerical evaluation,
+collection/range semantics and offline host schemas now belong to `kagari-types`.
+Scoped types, generic constraints, substitution, identity traversal, declarations,
+symbolic defaults and narrow reserved language-role identities moved from contract.
+Declaration shape/binder checks, callback requirement templates, ancestry,
+matching and declaration application checks move with their semantic records.
+Executable-envelope checks, selected signatures and linked proof catalogs remain
+in contract. Physical representation is an explicit contract lowering function.
+Module declaration validation receives an explicit receiver-ownership lookup;
+the existing canonical provider supplies this until CR02/LR migration. Common
+retains identity/location/cancellation and bounded decoding. Host-schema metadata
+tests moved to types, preserving cross-scope, encoded-reference and cancellation
+coverage without a common/types development dependency cycle.
+
+CR01 validation passes: `cargo check --workspace --all-targets`, strict workspace
+Clippy, formatting, structural checks (752 files, zero violations/exceptions),
+eleven production dependency boundaries and `git diff --check`. Focused semantic
+and HIR checks passed 519 tests; native builder/source-program checks passed 23.
+Embedding checks cover source-free functions/nominal types, collection access,
+provider resets and standard traits. An import cleanup mistakenly changed 13 raw
+KGR fixtures; all were restored and the six resulting Hash failures resolved.
+That concrete cross-crate failure justified a full `cargo test --workspace` run:
+1640 passed, one ignored. All intermediate import/call/test errors are closed.
+The standalone feature/backend matrix remains due at CR02/LR03 as specified.
+
 ## Rust-style library namespaces (NS01, complete)
 
 Authorized scope: replace `core::language` with responsibility-based `core`,

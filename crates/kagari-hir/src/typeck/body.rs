@@ -16,7 +16,18 @@ use crate::{
         table::TypeTable,
         ty::{TypeContext, display_type_id, resolve_type_in},
     },
-    types::{self, TypeId},
+    types,
+    types::TypeId,
+};
+use kagari_common::cancellation::CancellationToken;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    collection::CollectionAccess, language::Protocol, range::RangeKind, scalar::BuiltinType,
+};
+use smallvec::SmallVec;
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
 };
 mod calls;
 mod constructors;
@@ -27,24 +38,11 @@ mod places;
 mod statements;
 mod trait_calls;
 
-use kagari_contract::{language::Protocol, scalar::BuiltinType};
-use std::{
-    collections::{HashMap, HashSet},
-    mem,
-};
-use {
-    kagari_common::{
-        cancellation::CancellationToken, collection::CollectionAccess, range::RangeKind,
-    },
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
-};
 mod iteration;
 mod numeric;
 mod operators;
 mod solving;
 mod standard;
-
-use smallvec::SmallVec;
 
 #[derive(Clone)]
 enum HostPathNode<Id> {

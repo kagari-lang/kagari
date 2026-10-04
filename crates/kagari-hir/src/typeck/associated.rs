@@ -13,14 +13,11 @@ use crate::{
     },
     types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
 };
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{DefinitionPath, associated_type_id},
-    },
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionPath, associated_type_id},
 };
-
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 use std::{cell::RefCell, collections::HashSet};
 
@@ -805,12 +802,10 @@ pub(crate) fn normalize(
 mod tests {
     use super::*;
     use crate::{declare_analysis, host::HostDeclarations, lower::lower_module};
-    use kagari_contract::language::{self as standard_traits, Protocol};
+    use kagari_common::identity::map::DefinitionContext;
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
+    use kagari_types::{language as standard_traits, language::Protocol};
     use std::sync::Arc;
-    use {
-        kagari_common::identity::map::DefinitionContext,
-        kagari_source::source_database::{SourceDatabase, SourceLayer},
-    };
 
     #[test]
     fn trait_identity_alone_does_not_replace_source_parameter_or_member_declarations() {

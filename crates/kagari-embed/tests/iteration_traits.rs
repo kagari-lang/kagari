@@ -1,15 +1,14 @@
 mod support;
 use kagari_bytecode::program::verify_program;
-use {kagari_common::collection::CollectionAccess, kagari_source::source::SourceFile};
-use {
-    kagari_embed::{context::JitPolicy, engine::EngineConfig},
-    kagari_runtime::session::ExecutionOptions,
-};
-
 use kagari_embed::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
 };
-use kagari_runtime::value::Value;
+use kagari_runtime::{session::ExecutionOptions, value::Value};
+use kagari_source::source::SourceFile;
+use kagari_types::collection::CollectionAccess;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -131,7 +130,10 @@ fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 
 #[test]
 fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
-    use kagari_contract::{operations::IterOp, scalar::BuiltinType, types::Ty};
+    use {
+        kagari_contract::operations::IterOp,
+        kagari_types::{scalar::BuiltinType, ty::Ty},
+    };
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -360,7 +362,7 @@ fn main()->i32 {
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_contract::{scalar::BuiltinType, standard::surface::StandardEnum, types::Ty};
+    use kagari_types::{scalar::BuiltinType, surface::StandardEnum, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

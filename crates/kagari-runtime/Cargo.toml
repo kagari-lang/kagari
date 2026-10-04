@@ -9,6 +9,7 @@ default = []
 jit = []
 
 [dependencies]
+kagari-types.workspace = true
 bincode.workspace = true
 kagari-abi.workspace = true
 kagari-contract.workspace = true

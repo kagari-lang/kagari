@@ -1,22 +1,16 @@
-use kagari_common::host_interface::{
-    type_declaration::HostTypeDeclaration, value_type::HostValueType,
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
+    value::Value,
 };
-
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostFunctionEffects, HostParameter, HostPassingStyle,
+    type_declaration::{HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership, PathAccess},
+    value_type::HostValueType,
+};
 use std::sync::{Arc, Mutex};
-
-use {
-    kagari_common::host_interface::{
-        HostFunctionDeclaration, HostFunctionEffects, HostParameter, HostPassingStyle,
-        type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
-    },
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-        metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
-        value::Value,
-    },
-};
 
 fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
     let mut registration =
@@ -140,7 +134,7 @@ fn installed_host_functions_are_available() {
     let mut runtime = host_call_enabled_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
+            kagari_types::host_interface::HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
                 HostValueType::Unit,
@@ -161,7 +155,7 @@ fn rejects_duplicate_host_function_symbols() {
     let mut runtime = Runtime::default();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
+            kagari_types::host_interface::HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
                 HostValueType::Unit,
@@ -172,7 +166,7 @@ fn rejects_duplicate_host_function_symbols() {
 
     let error = runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
+            kagari_types::host_interface::HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
                 HostValueType::Unit,
@@ -195,7 +189,7 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
         })
         .unwrap();
 
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     };

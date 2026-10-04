@@ -1,8 +1,9 @@
 use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
 use instances::InstancePlanner;
+use kagari_common::{cancellation::CancellationToken, identity::mapping::DefinitionMappingError};
 use kagari_contract::{
     host as module_host,
-    types::{ConcreteFunctionIdentity, ModuleContract, Ty},
+    types::{ConcreteFunctionIdentity, ModuleContract},
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
@@ -19,14 +20,13 @@ use kagari_mir::{
     passes::optimize,
     verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir},
 };
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::ty::Ty;
 use std::{
     collections::{BTreeSet, HashSet},
     slice,
 };
-use {
-    kagari_common::{cancellation::CancellationToken, identity::mapping::DefinitionMappingError},
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
-};
+
 mod abi;
 mod debug;
 mod expr;

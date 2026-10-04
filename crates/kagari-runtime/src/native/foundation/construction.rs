@@ -9,10 +9,8 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_common::integer::IntegerOp;
-use kagari_contract::{
-    numeric::NumericOperation, scalar::BuiltinType, standard::surface::StandardEnum, types::Ty,
-};
+use kagari_contract::numeric::NumericOperation;
+use kagari_types::{integer::IntegerOp, scalar::BuiltinType, surface::StandardEnum, ty::Ty};
 use std::{
     num::{IntErrorKind, ParseIntError},
     slice,

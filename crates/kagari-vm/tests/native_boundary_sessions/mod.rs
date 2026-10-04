@@ -1,6 +1,6 @@
 use super::compile_program;
-use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{Runtime, value::Value};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 
 #[test]

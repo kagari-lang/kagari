@@ -1,10 +1,9 @@
 use crate::tests::bytecode::*;
+use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use kagari_bytecode::{
     artifact::KBC_ARTIFACT_FORMAT_VERSION,
     program::{BytecodeProgram, ModuleRef},
 };
-
-use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 
 #[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
@@ -144,9 +143,9 @@ fn serializes_kbc_artifact_bytes_for_loader_execution() {
 
 #[test]
 fn fingerprints_public_module_abi_records() {
-    use kagari_contract::{
+    use kagari_types::{
         scalar::BuiltinType,
-        types::{NominalTy, Ty},
+        ty::{NominalTy, Ty},
     };
     let module = common::bytecode_ok(
         r#"

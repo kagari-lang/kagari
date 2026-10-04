@@ -1,7 +1,7 @@
 //! Closed integer-method contracts shared by verification and native execution.
 
-use crate::{scalar::BuiltinType, standard::surface::StandardEnum, types::Ty};
-use kagari_common::integer::IntegerMethod;
+use kagari_types::integer::IntegerMethod;
+use kagari_types::{scalar::BuiltinType, surface::StandardEnum, ty::Ty};
 
 #[cfg(test)]
 mod tests;

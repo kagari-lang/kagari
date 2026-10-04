@@ -1,21 +1,27 @@
 //! Recheck a concrete trait-member selection against carried implementation facts.
+use crate::callable::witness::is_generic_member;
 use crate::{
-    callable::{CallableImplementation, witness::SharedMethodWitness},
+    callable::witness::SharedMethodWitness,
     effects::EffectSet,
     native_import::{
         NativeSignature,
-        callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
+        callables::{NativeCallableApplication, NativeCallableOrigin},
         result::NativeResultAdapter,
     },
-    types::{
-        ConcreteFunctionIdentity, GenericBound, GenericParam, Ty, matching,
-        proofs::ProofCatalog,
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
+    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, DefinitionPathSegment},
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::requirement::NativeCallableRequirement,
+    ty::{
+        GenericBound, GenericParam, Ty,
+        matching::match_pattern,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
 };
 
 impl ProofCatalog<'_> {
@@ -72,7 +78,7 @@ impl ProofCatalog<'_> {
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let required = &selected.requirement;
-        if !required.is_generic_member(self) {
+        if !is_generic_member(required, self) {
             return Ok(false);
         }
         let Some(table) = self
@@ -159,7 +165,7 @@ impl ProofCatalog<'_> {
         let mut selected = None;
         for table in &self.implementations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            let Some(bindings) = matching::match_pattern(
+            let Some(bindings) = match_pattern(
                 table
                     .pattern(
                         table

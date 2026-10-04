@@ -1,11 +1,13 @@
-use crate::{
-    language::{Protocol, primitive as intrinsic},
-    scalar::BuiltinType,
-    standard::surface::{StandardEnum, StandardTypeConstraint},
-    types::{
-        Constraint, GenericBound, Ty,
-        proofs::{Budget, ProofCatalog, search::Search},
-        substitution::TypeTransformError,
+use {
+    crate::{
+        language::primitive as intrinsic,
+        types::proofs::{Budget, ProofCatalog, search::Search},
+    },
+    kagari_types::{
+        language::Protocol,
+        scalar::BuiltinType,
+        surface::{StandardEnum, StandardTypeConstraint},
+        ty::{Constraint, GenericBound, Ty, substitution::TypeTransformError},
     },
 };
 

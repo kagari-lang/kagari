@@ -1,15 +1,13 @@
-use crate::representation::host_representation;
-mod intrinsics;
-
-use kagari_common::host_interface::HostFunctionDeclaration;
-use {
-    crate::{
-        native_import::NativeImport,
-        operations::{BinaryOp, UnaryOp},
-        standard::RuntimePrimitive,
-    },
-    kagari_abi::representation::ValueType,
+use crate::{
+    native_import::NativeImport,
+    operations::{BinaryOp, UnaryOp},
+    representation::{host_representation, semantic_representation},
+    standard::RuntimePrimitive,
 };
+use kagari_abi::representation::ValueType;
+use kagari_types::host_interface::HostFunctionDeclaration;
+
+mod intrinsics;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractError {
@@ -101,10 +99,14 @@ pub fn verify_native_call(
         });
     }
     for (actual, expected) in args.iter().zip(&import.signature.params) {
-        expect_type(*actual, expected.representation(), "native call argument")?;
+        expect_type(
+            *actual,
+            semantic_representation(expected),
+            "native call argument",
+        )?;
     }
 
-    verify_call_dst(dst, import.signature.result.representation())
+    verify_call_dst(dst, semantic_representation(&import.signature.result))
 }
 
 pub fn verify_host_call(
@@ -169,9 +171,9 @@ pub fn binary_result(
         let right = right.ok_or(ContractError::InvalidOperation {
             reason: "numeric binary requires rhs",
         })?;
-        expect_type(lhs, left.representation(), "numeric lhs")?;
-        expect_type(rhs, right.representation(), "numeric rhs")?;
-        return Ok(output.representation());
+        expect_type(lhs, semantic_representation(&left), "numeric lhs")?;
+        expect_type(rhs, semantic_representation(&right), "numeric rhs")?;
+        return Ok(semantic_representation(&output));
     }
     expect_type(rhs, lhs, "binary rhs")?;
     match op {

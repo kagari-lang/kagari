@@ -1,13 +1,13 @@
 //! Bounded classification of core equality composition from executable facts.
 use crate::{
-    language::{Protocol, primitive as intrinsic},
-    types::{
-        Ty,
-        proofs::{Budget, ProofCatalog, search::Search},
-        substitution::TypeTransformError,
-    },
+    language::primitive as intrinsic,
+    types::proofs::{Budget, ProofCatalog, search::Search},
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_types::{
+    language::Protocol,
+    ty::{Ty, substitution::TypeTransformError},
+};
 use std::collections::HashSet;
 
 impl ProofCatalog<'_> {

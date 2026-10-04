@@ -1,25 +1,18 @@
-use kagari_common::{
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        host_type_identity,
-        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-        type_declaration::HostTypeDeclaration,
-        value_type::HostValueType,
-    },
-    identity::DefinitionPath,
+use kagari_common::identity::DefinitionPath;
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    metadata::TypeId,
+    value::Value,
 };
-
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, host_type_identity,
+    path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+    type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
+    value_type::HostValueType,
+};
 use std::{cell::Cell, rc::Rc};
-use {
-    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-        metadata::TypeId,
-        value::Value,
-    },
-};
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -324,14 +317,14 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
 
 #[test]
 fn path_fields_are_derived_from_nominal_declarations() {
-    use kagari_common::host_interface::type_declaration::{
+    use kagari_types::host_interface::type_declaration::{
         HostFieldDeclaration, HostTypeDeclaration,
     };
     use {
-        kagari_common::host_interface::type_declaration::Visibility,
         kagari_runtime::host::{
             HostPathDescriptorRegistration, HostPathSegment, HostPathSegmentRegistration,
         },
+        kagari_types::host_interface::type_declaration::Visibility,
     };
     let mut runtime = runtime();
     let mut owner = HostTypeDeclaration::new("game.Player");
@@ -425,12 +418,12 @@ fn path_fields_are_derived_from_nominal_declarations() {
 
 #[test]
 fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
-    use kagari_common::host_interface::type_declaration::{
-        HostFieldDeclaration, HostTypeDeclaration,
-    };
     use kagari_runtime::{
         host::{HostPathDescriptorRegistration, HostPathSegmentRegistration},
         metadata::{TypeKind, TypeRegistration},
+    };
+    use kagari_types::host_interface::type_declaration::{
+        HostFieldDeclaration, HostTypeDeclaration,
     };
     let fingerprint =
         |padding: usize, docs: &str, writable: bool, epoch: usize, ty: HostValueType| {

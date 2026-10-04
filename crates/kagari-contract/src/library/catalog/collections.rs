@@ -2,10 +2,9 @@
 use crate::library::catalog::contracts::{
     applied_item, boolean, contract, method, option, receiver, unit, usize_type,
 };
-use crate::library::catalog::key::{self, RegistrationTrait};
-use crate::{declaration::ModuleDecl, types::Ty};
-use kagari_common::collection::CollectionAccess;
+use crate::library::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::associated_type_id;
+use kagari_types::{collection::CollectionAccess, declaration::module::ModuleDecl, ty::Ty};
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     let mut list = contract(RegistrationTrait::List, &["T"]);

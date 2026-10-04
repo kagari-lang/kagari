@@ -5,6 +5,8 @@ use crate::source::{
     },
     types,
 };
+use kagari_abi::representation::ValueType;
+use kagari_contract::operations::StandardEnumOp;
 use kagari_hir::{
     hir::{
         expr::Condition,
@@ -14,15 +16,8 @@ use kagari_hir::{
     typeck::table::ResolvedIteration,
     types::TypeId,
 };
-
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        language::Protocol, operations::StandardEnumOp, standard::surface::StandardEnum,
-    },
-};
-
 use kagari_mir::instruction::{Instruction, MirValue, Terminator};
+use kagari_types::{language::Protocol, surface::StandardEnum};
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_block(

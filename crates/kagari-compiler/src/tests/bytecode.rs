@@ -1,4 +1,5 @@
 use crate::tests::common;
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactSectionId,
@@ -12,19 +13,9 @@ use kagari_bytecode::{
     program::{BytecodeProgram, verify_program},
     verifier::{BytecodeVerificationError, verify_module},
 };
-
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        ids::FunctionRef,
-        types::{PublicItem, TypeDefKind},
-    },
-};
-
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::{ModuleIdentity, PackageId},
-};
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_contract::{ids::FunctionRef, types::PublicItem};
+use kagari_types::{collection::CollectionAccess, declaration::TypeDefKind};
 
 fn host_trait_test_program(source: &str) -> BytecodeProgram {
     let mut module = common::bytecode_ok(source);
@@ -34,15 +25,15 @@ fn host_trait_test_program(source: &str) -> BytecodeProgram {
 }
 
 fn add_readable_host(module: &mut BytecodeModule) {
-    use kagari_common::{
-        host_interface::{
+    use {
+        kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+        kagari_types::host_interface::{
             type_declaration::{
                 HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
                 HostTypeDeclaration,
             },
             value_type::HostValueType,
         },
-        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     };
 
     let trait_id = DefinitionPath {

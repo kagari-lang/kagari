@@ -1,7 +1,7 @@
 //! Lower semantic types and portable host schemas to physical slots.
-use crate::scalar::BuiltinType;
 use kagari_abi::representation::ValueType;
-use kagari_common::host_interface::value_type::HostValueType;
+use kagari_common::identity::reference::DefinitionReference;
+use kagari_types::{host_interface::value_type::HostValueType, scalar::BuiltinType, ty::Ty};
 
 pub fn host_representation(ty: &HostValueType) -> ValueType {
     match ty {
@@ -38,5 +38,15 @@ pub fn builtin_representation(ty: BuiltinType) -> ValueType {
         BuiltinType::F32 => ValueType::F32,
         BuiltinType::F64 => ValueType::F64,
         BuiltinType::String => ValueType::Str,
+    }
+}
+
+/// Lower a semantic type to the physical slot required by checked execution.
+pub fn semantic_representation<I: DefinitionReference>(ty: &Ty<I>) -> ValueType {
+    match ty {
+        Ty::Host(_) => ValueType::HostHandle,
+        Ty::Builtin(ty) => builtin_representation(*ty),
+        Ty::Parameter { .. } | Ty::Projection { .. } | Ty::SelfType(_) => ValueType::Generic,
+        _ => ValueType::HeapObject,
     }
 }

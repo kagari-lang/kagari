@@ -6,7 +6,7 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
-use kagari_contract::language::{Protocol, identity};
+use kagari_types::language::{Protocol, identity};
 
 impl AggregateCatalog {
     /// An Iterable value hides its concrete iterator behind the declared

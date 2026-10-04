@@ -1,17 +1,14 @@
-use kagari_common::{
-    identity::{reference::DefinitionReference, table::DefinitionTable},
+use crate::{numeric::NumericOperation, representation::semantic_representation};
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
+use kagari_types::{
+    declaration::verify::{concrete_type_valid, types_in_scope, types_in_scope_in},
     range::RangeKind,
+    scalar::BuiltinType,
+    surface::StandardEnum as StandardEnumKind,
+    ty::{GenericParam, Ty},
 };
 use serde::{Deserialize, Serialize};
-use {
-    crate::{
-        numeric::NumericOperation,
-        scalar::BuiltinType,
-        standard::surface::StandardEnum as StandardEnumKind,
-        types::{GenericParam, Ty, verify},
-    },
-    kagari_abi::representation::ValueType,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOp {
@@ -56,7 +53,7 @@ impl StandardEnumOp {
         ty: &Ty,
         parameters: &[GenericParam],
     ) -> Option<(Option<ValueType>, ValueType)> {
-        if !verify::types_in_scope([ty], parameters, &Default::default()) {
+        if !types_in_scope([ty], parameters, &Default::default()) {
             return None;
         }
         let Ty::StandardEnum { kind, args } = ty else {
@@ -69,7 +66,9 @@ impl StandardEnumOp {
             Self::Make(v) | Self::Test(v) | Self::Read(v) => v,
         };
         let variant = kind.variants().get(variant as usize)?;
-        let payload = variant.payload().map(|slot| args[slot].representation());
+        let payload = variant
+            .payload()
+            .map(|slot| semantic_representation(&args[slot]));
         match self {
             Self::Make(_) => Some((payload, ValueType::HeapObject)),
             Self::Test(_) => Some((Some(ValueType::HeapObject), ValueType::Bool)),
@@ -88,7 +87,7 @@ pub enum IterOp {
 
 impl IterOp {
     pub fn contract(self, ty: &Ty) -> Option<(Option<ValueType>, ValueType)> {
-        if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
+        if !ty.within_wire_limits() || !concrete_type_valid(ty, &Default::default()) {
             return None;
         }
         let input = match self {
@@ -141,9 +140,9 @@ pub fn range_operands_valid(ty: &Ty, start: Option<ValueType>, end: Option<Value
         return false;
     };
     ty.within_wire_limits()
-        && verify::concrete_type_valid(ty, &Default::default())
-        && start == kind.has_start().then(|| item.representation())
-        && end == kind.has_end().then(|| item.representation())
+        && concrete_type_valid(ty, &Default::default())
+        && start == kind.has_start().then(|| semantic_representation(item))
+        && end == kind.has_end().then(|| semantic_representation(item))
 }
 
 pub fn range_bound_valid(range: &Ty, bound: &Ty) -> bool {
@@ -167,7 +166,7 @@ pub fn range_bound_valid_in<I: DefinitionReference>(
     };
     range.within_wire_limits()
         && bound.within_wire_limits()
-        && verify::types_in_scope_in([range, bound], &[], &Default::default(), table)
+        && types_in_scope_in([range, bound], &[], &Default::default(), table)
         && args.len() == 1
         && (*kind == RangeKind::Full || args[0] == **item)
 }

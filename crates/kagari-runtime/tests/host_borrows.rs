@@ -2,7 +2,6 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -10,6 +9,7 @@ use kagari_runtime::{
     metadata::TypeId,
     value::Value,
 };
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn shared_borrows_coexist_and_unique_conflicts_until_frame_exits() {

@@ -1,15 +1,15 @@
 //! Publish assembled records under their canonical owners without duplicate declarations.
-use crate::{
-    declaration::ModuleDecl,
-    library::{catalog::assembly_identity, namespaces},
-    types::{FnDecl, GenericBound, TypeDefKind},
-};
+use crate::library::{catalog::assembly_identity, namespaces};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
         mapping::{DefinitionMapper, DefinitionRecord},
     },
+};
+use kagari_types::{
+    declaration::{FnDecl, TypeDefKind, module::ModuleDecl},
+    ty::GenericBound,
 };
 use std::collections::BTreeMap;
 
@@ -265,7 +265,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
             .unwrap();
         module.dependencies.extend(dependencies);
         module
-            .validate()
+            .validate(&namespaces::receiver_owner)
             .unwrap_or_else(|error| panic!("{}: {error}", module.identity));
     }
     modules.into_values().collect()

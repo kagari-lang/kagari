@@ -7,12 +7,8 @@ use crate::{
     },
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::{
-    language::Protocol,
-    native_import::{
-        NativeSignature, callables::NativeCallableRequirement, protocol::adapter_contract,
-    },
-};
+use kagari_contract::native_import::{NativeSignature, protocol::adapter_contract};
+use kagari_types::{declaration::requirement::NativeCallableRequirement, language::Protocol};
 
 pub struct ImplicitProtocolApplication {
     pub kind: Protocol,

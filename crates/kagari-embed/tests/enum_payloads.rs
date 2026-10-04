@@ -1,12 +1,9 @@
-use kagari_contract::library;
-use kagari_contract::{
-    scalar::BuiltinType,
-    types::{PublicItem, Ty},
-};
-use {kagari_bytecode::instruction::EnumId, kagari_runtime::module::LoadedModule};
-
+use kagari_bytecode::instruction::EnumId;
+use kagari_contract::{library, types::PublicItem};
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use kagari_runtime::module::LoadedModule;
 use kagari_source::source::SourceFile;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     let checked = engine

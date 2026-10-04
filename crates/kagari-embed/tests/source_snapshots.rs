@@ -1,15 +1,12 @@
-use kagari_hir::typeck::const_budget::ConstLimits;
-use kagari_syntax::parser::ParseLimits;
-use std::sync::Arc;
-use {
-    kagari_common::cancellation::CancellationToken,
-    kagari_source::{diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceLayer},
-};
-
+use kagari_common::cancellation::CancellationToken;
 use kagari_embed::{
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
 };
+use kagari_hir::typeck::const_budget::ConstLimits;
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceLayer};
+use kagari_syntax::parser::ParseLimits;
+use std::sync::Arc;
 
 #[test]
 fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
@@ -441,7 +438,7 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
         assert_eq!(
             file.type_at("fn good(value: i32) -> i32 { ".len()),
             Some(kagari_hir::types::TypeId::Builtin(
-                kagari_contract::scalar::BuiltinType::I32
+                kagari_types::scalar::BuiltinType::I32
             )),
             "case {index}: preceding function body remains typed",
         );
@@ -614,7 +611,7 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
     assert_eq!(
         file.type_at("fn good(value: i32) -> i32 { ".len()),
         Some(kagari_hir::types::TypeId::Builtin(
-            kagari_contract::scalar::BuiltinType::I32
+            kagari_types::scalar::BuiltinType::I32
         ))
     );
     assert!(analysis.check_program(id, &Default::default()).is_err());
@@ -703,7 +700,7 @@ fn invalid_const_types_cannot_bypass_validation_budget() {
         assert_eq!(
             file.type_at("fn good(value: i32) -> i32 { ".len()),
             Some(kagari_hir::types::TypeId::Builtin(
-                kagari_contract::scalar::BuiltinType::I32
+                kagari_types::scalar::BuiltinType::I32
             ))
         );
         assert!(analysis.check_program(id, &Default::default()).is_err());

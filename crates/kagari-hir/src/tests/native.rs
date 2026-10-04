@@ -1,17 +1,19 @@
 //! Application-owned declaration fixtures; no runtime or bundled-library implementation.
 use crate::analysis::AnalysisDatabase;
 use crate::native::render::declaration_source;
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::{DefinitionKind, ModuleIdentity, PackageId, associated_type_id},
-};
-use kagari_contract::library;
-use kagari_contract::{
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, associated_type_id};
+use kagari_contract::{language::primitive, library, library::namespaces};
+use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
-    declaration::{ImplDecl, ModuleDecl},
-    language::{self, Protocol, primitive},
+    collection::CollectionAccess,
+    declaration::{
+        FnDecl, Param, TraitDef,
+        module::{ImplDecl, ModuleDecl},
+    },
+    language,
+    language::Protocol,
     scalar::BuiltinType,
-    types::{Constraint, FnDecl, GenericBound, GenericParam, NominalTy, Param, TraitDef, Ty},
+    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
 use std::sync::Arc;
 
@@ -22,7 +24,7 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
     });
     module
         .dependencies
-        .insert(language::identity(kagari_contract::language::Protocol::Add).module);
+        .insert(language::identity(kagari_types::language::Protocol::Add).module);
     for (name, arity) in [("choose", 3), ("echo", 1)] {
         let id = module.definition(DefinitionKind::Function, name);
         let parameter = GenericParam {
@@ -117,7 +119,7 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
         associated_consts: vec![],
         methods,
     });
-    module.validate().unwrap();
+    module.validate(&namespaces::receiver_owner).unwrap();
     Arc::new(module)
 }
 
@@ -156,7 +158,7 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
     });
     module
         .dependencies
-        .insert(language::identity(kagari_contract::language::Protocol::Add).module);
+        .insert(language::identity(kagari_types::language::Protocol::Add).module);
     let owner = module.definition(DefinitionKind::Trait, "TextItems");
     let interface = NominalTy {
         declaration: owner.clone(),
@@ -234,6 +236,6 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
             methods: vec![method],
         });
     }
-    module.validate().unwrap();
+    module.validate(&namespaces::receiver_owner).unwrap();
     Arc::new(module)
 }

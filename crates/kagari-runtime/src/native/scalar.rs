@@ -6,7 +6,7 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::reference::DefinitionReference;
-use kagari_contract::{scalar::BuiltinType, types::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 mod sealed {
     pub trait Scalar {}

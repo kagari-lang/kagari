@@ -1,8 +1,10 @@
 use super::*;
-use crate::{Runtime, layout_fixtures::allocation_owner};
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-
-use crate::gc::{GcHeap, GcHeapConfig};
+use crate::{
+    Runtime,
+    gc::{GcHeap, GcHeapConfig},
+    layout_fixtures::allocation_owner,
+};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn join_validates_native_arguments_and_leaves_the_array_unchanged() {

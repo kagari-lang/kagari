@@ -5,7 +5,6 @@ use kagari_bytecode::{
     module::{FunctionRecord, RootSlotLayout},
     program::verify_program,
 };
-
 use kagari_contract::{effects::EffectSet, standard::RuntimePrimitive};
 
 #[test]
@@ -444,9 +443,7 @@ fn verifier_rejects_malformed_debug_metadata() {
 
 #[test]
 fn mapped_result_error_rejects_invalid_contracts_and_registers() {
-    use kagari_contract::{
-        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::Ty,
-    };
+    use kagari_types::{scalar::BuiltinType, surface::StandardEnum as StandardEnumKind, ty::Ty};
     let module = common::bytecode_ok(
         "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");Ok(r?)}",
     );
@@ -485,10 +482,8 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
 
 #[test]
 fn ranges_reject_forged_shapes_endpoints_and_bounds() {
-    use kagari_common::range::RangeKind;
-    use kagari_contract::{
-        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::Ty,
-    };
+    use kagari_types::range::RangeKind;
+    use kagari_types::{scalar::BuiltinType, surface::StandardEnum as StandardEnumKind, ty::Ty};
     let module =
         common::bytecode_ok("fn main() { val range = 0usize..2usize; range.start_bound(); }");
     verify_program(&module).unwrap();

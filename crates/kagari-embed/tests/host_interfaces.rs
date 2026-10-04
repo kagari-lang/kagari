@@ -1,33 +1,27 @@
 use kagari_bytecode::{module::CallableTarget, program::verify_program};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use kagari_contract::native_import::NativeImport;
-use {
-    kagari_common::host_interface::type_declaration::PathAccess, kagari_embed::context::JitPolicy,
-    kagari_vm::reentry::reenter,
-};
-
 use kagari_embed::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
 };
 use kagari_runtime::{
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
     value::Value,
 };
-use std::{cell::RefCell, rc::Rc};
-use {
-    kagari_common::{
-        host_interface::{
-            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-            type_declaration::{
-                HostAssociatedTypeBinding, HostMethodDeclaration,
-                HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
-                HostTypeOwnership,
-            },
-            value_type::HostValueType,
-        },
-        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+use kagari_source::source_database::SourceLayer;
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+    type_declaration::{
+        HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
+        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
     },
-    kagari_source::source_database::SourceLayer,
+    value_type::HostValueType,
 };
+use kagari_vm::reentry::reenter;
+use std::{cell::RefCell, rc::Rc};
 
 const SOURCE: &str = concat!(
     include_str!("../../../examples/host-interfaces.kgr"),
@@ -265,7 +259,7 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
 #[test]
 fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, NativeImportId};
-    use kagari_contract::types::{PublicItem, Ty};
+    use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
     let (_, artifact, _, _) = fixture();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
@@ -291,7 +285,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                     unreachable!()
                 };
                 *interface.associated_types.values_mut().next().unwrap() =
-                    Ty::Builtin(kagari_contract::scalar::BuiltinType::I64);
+                    Ty::Builtin(kagari_types::scalar::BuiltinType::I64);
             }
             3 => {
                 let PublicItem::InterfaceTable(table) = module

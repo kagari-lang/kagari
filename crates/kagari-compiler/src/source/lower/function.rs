@@ -3,34 +3,30 @@ use crate::source::lower::{
     instances::{Instance, InstancePlanner},
     state::FunctionLowerer,
 };
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_contract::standard::RuntimePrimitive;
 use kagari_hir::{
     AnalyzedModule,
     hir::{expr::ExprKind, ids::ExprId, item::function::Function},
-    language::semantics::callable_signature,
+    language::semantics::{ProtocolSemantics, callable_signature},
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, TypedFunction},
-    types::TypeId,
-};
-
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
-use kagari_hir::{
-    language::semantics::ProtocolSemantics,
-    types::abi::{lower_nominal_type, lower_type},
-};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        language::{Protocol, identity},
-        native_import::callables::NativeCallableRequirement,
-        scalar::BuiltinType,
-        standard::{RuntimePrimitive, surface::StandardEnum},
+    types::{
+        TypeId,
+        abi::{lower_nominal_type, lower_type},
     },
 };
-
 use kagari_mir::{
     debug::MirCapturedBindingDebugInfo,
     function::{MirFunction, MirParameter},
     instruction::{Instruction, Terminator},
+};
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement,
+    language::{Protocol, identity},
+    scalar::BuiltinType,
+    surface::StandardEnum,
 };
 use std::iter;
 

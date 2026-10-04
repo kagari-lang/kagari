@@ -9,8 +9,9 @@ mod key;
 mod list_methods;
 mod partition;
 mod strings;
-use crate::{declaration::ModuleDecl, library::namespaces};
+use crate::library::namespaces;
 use kagari_common::identity::ModuleIdentity;
+use kagari_types::declaration::module::ModuleDecl;
 use std::sync::{Arc, OnceLock};
 
 // Assembly is transient authoring state. It is never installed, exported or

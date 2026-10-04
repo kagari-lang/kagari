@@ -1,32 +1,23 @@
+use crate::{source::lower::lower_to_mir, tests::common};
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::ArtifactFingerprint,
-    instruction::{BytecodeInstruction, ConstantOperand},
+    instruction::{
+        BinaryOp as KagaribytecodeBinaryOp, BytecodeInstruction, ConstantOperand, EnumId,
+    },
+    program::{ModuleRef, verify_program},
     verifier::BytecodeVerificationError,
 };
-
-use {
-    kagari_bytecode::{
-        instruction::{BinaryOp as KagaribytecodeBinaryOp, EnumId},
-        program::{ModuleRef, verify_program},
-    },
-    kagari_mir::instruction::PathRef,
-};
-
-use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{contracts::ContractError, effects::EffectSet, operations::BinaryOp};
 use kagari_hir::types::abi::lower_type;
-
-use crate::{source::lower::lower_to_mir, tests::common};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{contracts::ContractError, effects::EffectSet, operations::BinaryOp},
-};
-
 use kagari_mir::{
     function::{MirModule, MirTemp},
     ids::{BlockId, InstanceId, LocalId, TempId},
-    instruction::{CallTarget, Constant, Instruction, MirValue, Terminator},
+    instruction::{CallTarget, Constant, Instruction, MirValue, PathRef, Terminator},
     verify::{MirVerificationErrorKind as Error, verify_mir},
 };
+use kagari_types::collection::CollectionAccess;
 
 fn raw(source: &str) -> MirModule {
     lower_to_mir(&common::analyze_ok(source), &Default::default())
@@ -75,7 +66,7 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
         else {
             unreachable!()
         };
-        let kagari_contract::types::Ty::Parameter { owner, position } =
+        let kagari_types::ty::Ty::Parameter { owner, position } =
             &mut template.variants[0].payload[0]
         else {
             unreachable!()
@@ -100,7 +91,7 @@ fn layout_templates_require_scoped_instruction_arguments() {
             .structures
             .first_mut()
         {
-            layout.arguments[0] = kagari_contract::types::Ty::Parameter {
+            layout.arguments[0] = kagari_types::ty::Ty::Parameter {
                 owner: layout.declaration.clone(),
                 position: 0,
             };
@@ -111,7 +102,7 @@ fn layout_templates_require_scoped_instruction_arguments() {
                 .iter_mut()
                 .find(|layout| layout.declaration.module == member.identity)
                 .unwrap();
-            layout.arguments[0] = kagari_contract::types::Ty::Parameter {
+            layout.arguments[0] = kagari_types::ty::Ty::Parameter {
                 owner: layout.declaration.clone(),
                 position: 0,
             };
@@ -153,11 +144,11 @@ fn layout_templates_require_scoped_instruction_arguments() {
 
 #[test]
 fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
-    use kagari_contract::{
-        scalar::BuiltinType,
-        types::{NominalTy, Ty},
-    };
     use kagari_hir::types::{NominalType, TypeId};
+    use kagari_types::{
+        scalar::BuiltinType,
+        ty::{NominalTy, Ty},
+    };
     let source =
         "struct Point {} enum Event { Data(Point) } fn main() -> Event { Event::Data(Point {}) }";
     let mut module = raw(source);
@@ -238,7 +229,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let mut absent = module.enumerations[enumeration].declaration.clone();
     absent.path[0].name = "Absent".into();
     module.enumerations[enumeration].variants[0].payload[0] =
-        kagari_contract::types::Ty::Enum(kagari_contract::types::NominalTy {
+        kagari_types::ty::Ty::Enum(kagari_types::ty::NominalTy {
             associated_types: Default::default(),
             declaration: absent,
             arguments: Vec::new(),
@@ -774,9 +765,13 @@ fn verification_observes_cancellation_even_for_empty_modules() {
 
 #[test]
 fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
-    use kagari_contract::{
-        scalar::BuiltinType,
-        types::{FieldDef, PublicItem, Ty, TypeDefKind, VariantDef},
+    use {
+        kagari_contract::types::PublicItem,
+        kagari_types::{
+            declaration::{FieldDef, TypeDefKind, VariantDef},
+            scalar::BuiltinType,
+            ty::Ty,
+        },
     };
     for source in [
         "pub struct Box<T> { val value: T } fn main() {}",

@@ -4,7 +4,7 @@ use crate::{
     types::TypeId,
 };
 use kagari_common::identity::associated_type_id;
-use kagari_contract::language::Protocol;
+use kagari_types::language::Protocol;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_iteration(

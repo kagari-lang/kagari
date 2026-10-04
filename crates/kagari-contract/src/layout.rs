@@ -1,19 +1,18 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
 
+use crate::types::PublicItem;
 use kagari_common::identity::reference::DefinitionReference;
-mod applications;
-
-use crate::{
-    standard::surface::StandardEnum as StandardEnumKind,
-    types::{PublicItem, Ty, TypeDef, TypeDefKind, substitution::TypeSubstitution},
-};
-
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
 };
-
+use kagari_types::{
+    declaration::{TypeDef, TypeDefKind, verify::DeclarationValidationError},
+    surface::StandardEnum as StandardEnumKind,
+    ty::{Ty, substitution::TypeSubstitution},
+};
 use std::collections::{HashMap, HashSet};
+mod applications;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(bound(
@@ -444,3 +443,12 @@ pub fn validate_layouts(
 }
 
 mod mapping;
+
+impl From<DeclarationValidationError> for LayoutValidationError {
+    fn from(error: DeclarationValidationError) -> Self {
+        match error {
+            DeclarationValidationError::Invalid => Self::Invalid,
+            DeclarationValidationError::Cancelled => Self::Cancelled,
+        }
+    }
+}

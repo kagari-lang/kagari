@@ -5,19 +5,21 @@ use kagari_bytecode::{
     instruction::NativeImportId,
     module::{CallableTarget, InterfaceMethodSlot, InterfaceTableRecord},
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, DefinitionPathSegment, table::DefinitionId},
 };
 use kagari_contract::{
-    callable::CallableImplementation,
     ids::FunctionRef,
     native_import::NativeImport,
-    types::{ConcreteFunctionIdentity, GenericParam, PublicItem, Ty},
+    types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_mir::{
     instruction::Instruction, program::VerifiedMirProgram, verify::VerifiedMirModule,
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    ty::{GenericParam, Ty},
 };
 use std::slice;
 

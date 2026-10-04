@@ -1,8 +1,5 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
-use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{standard::surface::StandardEnum as StandardEnumKind, types::Ty};
-
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -13,11 +10,13 @@ use crate::{
     value::Value,
     value_semantics,
 };
-
 use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget};
+use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
+use kagari_types::{surface::StandardEnum as StandardEnumKind, ty::Ty};
 use std::{
-    fmt::{self, Display, Formatter},
+    fmt,
+    fmt::{Display, Formatter},
     sync::Arc,
 };
 

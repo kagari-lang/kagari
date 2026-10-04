@@ -1,15 +1,17 @@
 //! Complete syntax/value contracts, explicitly expressed in Kagari's type model.
+use crate::language::product;
 use crate::library::catalog::key::{self, RegistrationTrait};
-use crate::{
-    callable::{CallableImplementation, MethodPolicy},
-    declaration::ModuleDecl,
-    language::product,
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-    types::{AssociatedTypeDef, Constraint, FnDecl, GenericParam, NominalTy, Param, TraitDef, Ty},
+use kagari_common::identity::{
+    DefinitionPath, associated_type_id,
+    mapping::{DefinitionMapper, DefinitionRecord},
 };
-use kagari_common::identity::mapping::{DefinitionMapper, DefinitionRecord};
-use kagari_common::identity::{DefinitionPath, associated_type_id};
+use kagari_types::{
+    callable::{CallableImplementation, MethodPolicy},
+    declaration::{AssociatedTypeDef, FnDecl, Param, TraitDef, module::ModuleDecl},
+    scalar::BuiltinType,
+    surface::StandardEnum,
+    ty::{Constraint, GenericParam, NominalTy, Ty},
+};
 
 pub(super) fn contract(kind: RegistrationTrait, parameters: &[&str]) -> TraitDef {
     let owner = key::identity(kind);

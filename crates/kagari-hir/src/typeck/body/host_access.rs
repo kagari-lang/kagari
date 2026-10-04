@@ -5,7 +5,8 @@ use crate::{
         ids::{ExprId, PlaceId},
         place::PlaceKind,
     },
-    host::{self, HostSourcePathStep},
+    host,
+    host::HostSourcePathStep,
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv,
@@ -16,18 +17,17 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_contract::scalar::BuiltinType;
-use {
-    kagari_common::{
-        cancellation::Cancelled,
-        collection::CollectionAccess,
-        host_interface::{
-            self, HostFunctionDeclaration,
-            path::HostPathSegmentDeclaration,
-            type_declaration::{HostFieldDeclaration, PathAccess},
-        },
+use kagari_common::cancellation::Cancelled;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    collection::CollectionAccess,
+    host_interface,
+    host_interface::{
+        HostFunctionDeclaration,
+        path::HostPathSegmentDeclaration,
+        type_declaration::{HostFieldDeclaration, PathAccess},
     },
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+    scalar::BuiltinType,
 };
 
 impl<'a> BodyChecker<'a> {

@@ -1,27 +1,24 @@
-use kagari_common::identity::DefinitionPath;
-use kagari_common::identity::reference::DefinitionReference;
-pub mod verified;
-
 use crate::{
     artifact::{ArtifactFingerprint, DependencyFingerprint},
     instruction::{BytecodeInstruction, CallTarget},
     module::BytecodeModule,
-    trait_bounds,
-    verifier::{self, BytecodeVerificationError},
+    trait_bounds, verifier,
+    verifier::BytecodeVerificationError,
 };
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
 use kagari_contract::{
-    host,
-    language::Protocol,
-    layout,
+    host, layout,
     library::namespaces,
-    types::{PublicItem, Ty, TypeDefKind, verify},
+    types::{PublicItem, verify},
 };
+use kagari_types::{declaration::TypeDefKind, language::Protocol, ty::Ty};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     slice,
 };
+
+pub mod verified;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModuleRef(u32);

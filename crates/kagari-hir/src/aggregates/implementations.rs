@@ -4,7 +4,7 @@ use crate::{
         traits::{MethodDefault, MethodSignature},
     },
     declarations::Declarations,
-    language::semantics::{self as traits, ProtocolSemantics},
+    language::{semantics as traits, semantics::ProtocolSemantics},
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
@@ -16,14 +16,13 @@ use crate::{
     },
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionPath, reference::DefinitionReference},
+    identity,
+    identity::{DefinitionPath, reference::DefinitionReference},
 };
-use kagari_contract::{
-    language::{self as standard_traits, Protocol},
-    types::conversion::ConversionAdapter,
+use kagari_types::{
+    declaration::conversion::ConversionAdapter, language as standard_traits, language::Protocol,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -881,7 +880,7 @@ mod search_tests {
     use kagari_common::identity::{
         DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
     };
-    use kagari_contract::scalar::BuiltinType;
+    use kagari_types::scalar::BuiltinType;
 
     fn definition(kind: DefinitionKind, name: &str) -> DefinitionPath {
         DefinitionPath {

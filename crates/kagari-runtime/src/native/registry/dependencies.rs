@@ -5,11 +5,10 @@ use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, table::DefinitionId,
 };
 use kagari_contract::{
-    declaration::ImplDecl,
-    language::{self, Protocol},
     library::namespaces,
-    types::{InterfaceTable, PublicItem, Ty},
+    types::{InterfaceTable, PublicItem},
 };
+use kagari_types::{declaration::module::ImplDecl, language, language::Protocol, ty::Ty};
 
 /// Native storage/conversion capabilities are installation facts even without calls.
 /// A portable script cannot grant itself identity/storage semantics by forging a

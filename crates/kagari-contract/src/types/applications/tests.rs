@@ -1,14 +1,16 @@
 use super::*;
-use crate::{
-    callable::CallableImplementation,
-    scalar::BuiltinType,
-    types::{
-        AssociatedTypeDef, ConstDef, FieldDef, GenericParam, TypeDef, TypeDefKind,
-        native::NativeStorageLayout, native_storage_contract,
-    },
-};
+use crate::types::native_storage_contract;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{
+        AssociatedTypeDef, ConstDef, FieldDef, FnDecl, TypeDef, TypeDefKind,
+        native::NativeStorageLayout,
+    },
+    scalar::BuiltinType,
+    ty::{GenericParam, NominalTy, Ty, substitution::MAX_TYPE_NODES},
 };
 
 fn declaration() -> (DefinitionPath, TraitDef) {
@@ -178,7 +180,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
     ];
     for item in items {
         assert_eq!(
-            check.declarations(&[item], &[]),
+            validate_declarations(&check, &[item], &[], &cancel),
             Err(TypeTransformError::InvalidContract)
         );
     }
@@ -187,7 +189,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
         ..Default::default()
     };
     assert_eq!(
-        check.slots(&slots),
+        validate_slots(&check, &slots, &cancel),
         Err(TypeTransformError::InvalidContract)
     );
     assert_eq!(

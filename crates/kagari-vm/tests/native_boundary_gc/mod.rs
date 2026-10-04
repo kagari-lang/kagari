@@ -1,16 +1,14 @@
 use super::{compile, compile_program};
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::BytecodeModuleSlot;
 use kagari_runtime::{
     Runtime,
     value::{EnumTag, MapKey, Value},
     value_semantics::{format_value, script_equal},
 };
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 use std::collections::HashSet;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{scalar::BuiltinType, types::Ty},
-};
 
 #[test]
 fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachable_graphs() {

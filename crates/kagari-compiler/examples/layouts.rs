@@ -1,25 +1,24 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
 
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::{
-    declaration::ModuleDecl,
-    scalar::BuiltinType,
-    types::{GenericParam, PublicItem, Ty, TypeDef, TypeDefKind, native::NativeTypeConstructor},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, ModuleIdentity, PackageId},
 };
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::{library::namespaces, types::PublicItem};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
-use std::sync::Arc;
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{DefinitionKind, ModuleIdentity, PackageId},
-    },
-    kagari_source::{
-        source::SourceFile,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use kagari_source::{
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::{
+    declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeTypeConstructor},
+    scalar::BuiltinType,
+    ty::{GenericParam, Ty},
+};
+use std::sync::Arc;
 
 fn main() {
     let source = SourceFile::new(
@@ -47,7 +46,7 @@ fn main() {
         fields: vec![],
         variants: vec![],
     });
-    storage.validate().unwrap();
+    storage.validate(&namespaces::receiver_owner).unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(vec![Arc::new(storage)]);
     let snapshot = analysis

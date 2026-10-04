@@ -1,12 +1,13 @@
-use kagari_contract::{scalar::BuiltinType, types::Ty};
-use kagari_embed::{context::JitPolicy, engine::EngineConfig};
-use kagari_source::source::SourceFile;
-use std::{cell::RefCell, rc::Rc};
-
 use kagari_embed::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
+use std::{cell::RefCell, rc::Rc};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -132,11 +133,11 @@ fn shifts_reject_negative_and_width_counts() {
 
 #[test]
 fn failed_shift_keeps_target_and_completed_rhs_effects() {
-    use kagari_common::{
+    use kagari_runtime::host::HostFunction;
+    use kagari_types::{
         collection::CollectionAccess,
         host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
     };
-    use kagari_runtime::host::HostFunction;
     let declaration = HostFunctionDeclaration::new(
         "demo.memory",
         vec![],
@@ -269,7 +270,7 @@ fn casts_respect_early_return_and_nested_generics() {
 #[test]
 fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
     use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_contract::scalar::BuiltinType;
+    use kagari_types::scalar::BuiltinType;
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(

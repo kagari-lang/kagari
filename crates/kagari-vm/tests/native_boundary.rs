@@ -1,22 +1,10 @@
-use std::sync::Arc;
-mod native_boundary_artifacts;
-mod native_boundary_callbacks;
-mod native_boundary_control;
-mod native_boundary_gc;
-mod native_boundary_host;
-mod native_boundary_interfaces;
-mod native_boundary_resources;
-mod native_boundary_sessions;
-mod native_boundary_storage;
-mod support;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::types::Ty;
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::gc::mutations::PreparedCollectionCommit;
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
+    gc::mutations::PreparedCollectionCommit,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -32,9 +20,19 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::ty::Ty;
 use kagari_vm::{error::VmError, vm::Vm};
-use std::ops::Bound;
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, ops::Bound, rc::Rc, sync::Arc};
+mod native_boundary_artifacts;
+mod native_boundary_callbacks;
+mod native_boundary_control;
+mod native_boundary_gc;
+mod native_boundary_host;
+mod native_boundary_interfaces;
+mod native_boundary_resources;
+mod native_boundary_sessions;
+mod native_boundary_storage;
+mod support;
 
 fn compile_program(text: &str, module: Option<&NativeModule>) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
@@ -612,7 +610,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .runtime()
         .alloc_array(
             &loaded,
-            Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool),
+            Ty::Builtin(kagari_types::scalar::BuiltinType::Bool),
             vec![Value::Bool(true); 3],
         )
         .unwrap();
@@ -627,7 +625,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .runtime()
         .alloc_array(
             &loaded,
-            Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool),
+            Ty::Builtin(kagari_types::scalar::BuiltinType::Bool),
             vec![Value::Bool(true), Value::Bool(false), Value::Bool(true)],
         )
         .unwrap();
@@ -680,7 +678,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
 
 #[test]
 fn every_scalar_layout_is_selected_from_the_declared_array_element() {
-    use kagari_contract::scalar::BuiltinType;
+    use kagari_types::scalar::BuiltinType;
     let language = LanguageContracts::default();
     let mut builder = ModuleBuilder::new("example::scalar_arrays", &language);
     let calls = Rc::new(Cell::new(0));

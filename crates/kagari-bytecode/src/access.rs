@@ -1,20 +1,25 @@
 //! Access-flow validation runs after physical operand and layout validation.
 use kagari_contract::representation::builtin_representation;
 
-use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
-use kagari_contract::{
-    operations::{IterOp, StandardEnumOp},
-    scalar::BuiltinType as B,
-    standard::{RuntimePrimitive as S, surface::StandardEnum},
-    types::{self as abi, NominalTy, PublicItem, Ty, access},
-};
-
 use crate::{
     instruction::{BytecodeInstruction as I, CallTarget, ConstantOperand, Register, RuntimeHelper},
     module::{BytecodeFunction, BytecodeModule},
     program::{BytecodeProgram, ModuleRef},
     trait_bounds,
     verifier::BytecodeVerificationError as Error,
+};
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::{
+    operations::{IterOp, StandardEnumOp},
+    standard::RuntimePrimitive as S,
+    types as abi,
+    types::PublicItem,
+};
+use kagari_types::{
+    collection::CollectionAccess as Access,
+    scalar::BuiltinType as B,
+    surface::StandardEnum,
+    ty::{NominalTy, Ty, access},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

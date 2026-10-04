@@ -21,9 +21,8 @@ use crate::{
     },
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
-use kagari_contract::{
-    callable::CallableImplementation, declaration::ModuleDecl, native_import::NativeSignature,
-};
+use kagari_contract::native_import::NativeSignature;
+use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]

@@ -6,13 +6,11 @@ use crate::{
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
-use kagari_contract::{
+use kagari_contract::native_import::NativeSignature;
+use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
-    declaration::ModuleDecl,
-    native_import::NativeSignature,
-    types::{
-        Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution,
-    },
+    declaration::module::ModuleDecl,
+    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
 use std::collections::BTreeMap;
 

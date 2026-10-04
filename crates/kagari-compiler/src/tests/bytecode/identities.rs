@@ -1,5 +1,5 @@
 use crate::tests::bytecode::*;
-use kagari_contract::types as abi;
+use kagari_types::ty::Ty;
 
 #[test]
 fn executable_function_identities_survive_lowering_and_reject_mismatched_records() {
@@ -36,7 +36,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .as_ref()
             .unwrap()
             .arguments,
-        [abi::Ty::Builtin(kagari_contract::scalar::BuiltinType::I32)]
+        [Ty::Builtin(kagari_types::scalar::BuiltinType::I32)]
     );
     let mut mismatched_record = module.clone();
     mismatched_record.modules[mismatched_record.root.index()].function_table[generic].identity =
@@ -112,7 +112,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .as_mut()
         .unwrap()
         .arguments = vec![
-        abi::Ty::Builtin(kagari_contract::scalar::BuiltinType::I32);
+        Ty::Builtin(kagari_types::scalar::BuiltinType::I32);
         kagari_contract::decode_limits::MAX_NESTED_RECORDS + 1
     ];
     oversized.modules[oversized.root.index()].function_table[generic].identity =
@@ -130,7 +130,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .identity
         .as_mut()
         .unwrap()
-        .arguments[0] = kagari_contract::types::Ty::Parameter {
+        .arguments[0] = kagari_types::ty::Ty::Parameter {
         owner: unresolved.modules[unresolved.root.index()].function_table[generic]
             .identity
             .as_ref()
@@ -214,9 +214,9 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
 
 #[test]
 fn executable_struct_fields_require_concrete_resolved_types() {
-    use kagari_contract::{
+    use kagari_types::{
         scalar::BuiltinType,
-        types::{NominalTy, Ty},
+        ty::{NominalTy, Ty},
     };
     let module = common::bytecode_ok(
         "struct Box<T> { val value: T } fn main() -> i32 { Box<i32> { value: 42 }.value }",
@@ -245,7 +245,7 @@ fn executable_struct_fields_require_concrete_resolved_types() {
 #[test]
 fn struct_instances_must_match_public_templates_locally_and_across_modules() {
     use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let owner = common::bytecode_ok(
         "pub struct Box<T> { var values: Vec<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
     );

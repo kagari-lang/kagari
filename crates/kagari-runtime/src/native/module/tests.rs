@@ -248,12 +248,11 @@ fn registration_scope_survives_catalog_growth_and_module_drop() {
 #[test]
 fn installed_reexports_require_declared_and_installed_canonical_targets() {
     use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
-    use kagari_contract::{
-        declaration::ModuleDecl,
-        language::{self, Protocol},
-        library::namespaces,
-    };
     use std::collections::BTreeMap;
+    use {
+        kagari_contract::library::namespaces,
+        kagari_types::{declaration::module::ModuleDecl, language, language::Protocol},
+    };
 
     let language = LanguageContracts::default();
     let providers = language.catalog().unwrap();

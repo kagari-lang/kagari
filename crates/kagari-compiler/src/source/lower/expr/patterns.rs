@@ -1,4 +1,9 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer, support::lower_scalar};
+use kagari_abi::representation::ValueType;
+use kagari_contract::{
+    operations::{BinaryOp, StandardEnumOp},
+    representation::semantic_representation,
+};
 use kagari_hir::{
     hir::{
         expr::MatchArmBuffer,
@@ -11,12 +16,6 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
-
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::operations::{BinaryOp, StandardEnumOp},
-};
-
 use kagari_mir::{
     ids::{BlockId, LocalId},
     instruction::{Constant, Instruction, MirValue, Terminator},
@@ -272,7 +271,7 @@ impl FunctionLowerer<'_, '_> {
                     .pattern_scalar_value(pattern)
                     .cloned()
                     .ok_or(MirLoweringError::MissingBinding("checked pattern literal"))?;
-                let ty = lower_type(&scalar.ty()).representation();
+                let ty = semantic_representation(&lower_type(&scalar.ty()));
                 let literal = self.lower_constant(lower_scalar(scalar), ty);
                 let cond = self.alloc_temp(ValueType::Bool);
                 self.emit(Instruction::Binary {

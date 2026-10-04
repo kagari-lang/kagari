@@ -9,6 +9,10 @@ use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     native_input::PortableMir,
 };
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, reference::DefinitionReference},
+};
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::{
@@ -30,20 +34,13 @@ use kagari_mir::{
     codec::{MirCodecError, encode_program},
     program::ProgramErrorKind,
 };
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        host_interface::HostInterfaceError,
-        identity::{ModuleIdentity, reference::DefinitionReference},
-    },
-    kagari_source::{
-        identity::FileId,
-        source::SourceFile,
-        source_database::{SourceLayer, SourceSnapshot},
-    },
+use kagari_source::{
+    identity::FileId,
+    source::SourceFile,
+    source_database::{SourceLayer, SourceSnapshot},
 };
-
 use kagari_syntax::parser::ParseLimits;
+use kagari_types::host_interface::HostInterfaceError;
 use std::sync::Arc;
 
 fn analysis_error(error: AnalysisError) -> EmbeddingError {

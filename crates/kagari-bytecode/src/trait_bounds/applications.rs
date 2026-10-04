@@ -4,9 +4,15 @@ use crate::{
     trait_bounds::contract,
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::callable::witness::OperationWitness;
-use kagari_contract::types::{
-    applications::ApplicationValidator, native_storage_contract, substitution::TypeTransformError,
+use kagari_contract::{
+    callable::witness::OperationWitness,
+    types::{
+        applications::{validate_declarations, validate_layouts, validate_slots},
+        native_storage_contract,
+    },
+};
+use kagari_types::{
+    declaration::applications::ApplicationValidator, ty::substitution::TypeTransformError,
 };
 
 pub(super) fn validate(
@@ -23,7 +29,12 @@ pub(super) fn validate(
                 .find_map(|owner| native_storage_contract(&owner.identity, &owner.public_items, id))
         },
     );
-    validator.declarations(&module.public_items, &module.trait_contracts)?;
+    validate_declarations(
+        &validator,
+        &module.public_items,
+        &module.trait_contracts,
+        cancel,
+    )?;
     for declaration in &module.native_declarations {
         validator.function(&declaration.function)?;
         for required in &declaration.callable_requirements {
@@ -53,7 +64,7 @@ pub(super) fn validate(
             validator.validate_type(&call.signature.result)?;
         }
     }
-    validator.layouts(&module.structures, &module.enumerations)?;
+    validate_layouts(&validator, &module.structures, &module.enumerations, cancel)?;
     for table in &module.interface_tables {
         validator.types(&table.arguments)?;
         for slot in &table.methods {
@@ -73,7 +84,7 @@ pub(super) fn validate(
         if let Some(identity) = &function.identity {
             validator.types(&identity.arguments)?;
         }
-        validator.slots(&function.metadata.semantic)?;
+        validate_slots(&validator, &function.metadata.semantic, cancel)?;
         for instruction in &function.instructions {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if let Some(arguments) = instruction.layout_arguments() {

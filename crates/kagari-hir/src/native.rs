@@ -3,14 +3,11 @@ use crate::{
     host::HostFunctionId,
     types::{NominalType, TypeId},
 };
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::{DefinitionPath, reference::DefinitionReference},
-    range::RangeKind,
-};
-use kagari_contract::{
-    callable::NativeDefaultApplication, scalar::BuiltinType, standard::surface::StandardEnum,
-    types::native::NativeStorageLayout,
+use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_types::{
+    callable::NativeDefaultApplication, collection::CollectionAccess,
+    declaration::native::NativeStorageLayout, range::RangeKind, scalar::BuiltinType,
+    surface::StandardEnum,
 };
 
 pub(crate) mod api;

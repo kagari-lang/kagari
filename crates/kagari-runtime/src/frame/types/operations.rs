@@ -1,9 +1,9 @@
 //! Shared receiver selections and call-local witnesses retain their supplying group.
 use crate::frame::types::BoundOperation;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{
-    native_import::callables::NativeCallableRequirement,
-    types::{NominalTy, Ty},
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement,
+    ty::{NominalTy, Ty},
 };
 use std::{collections::HashMap, rc::Rc};
 

@@ -4,8 +4,7 @@ use crate::{
     module::{BytecodeFunction, FunctionRecord},
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
-
-use kagari_common::host_interface::path::HostPathSegmentDeclaration;
+use kagari_types::host_interface::path::HostPathSegmentDeclaration;
 
 #[test]
 fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
@@ -178,13 +177,13 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
 
 #[test]
 fn oversized_memory_identity_paths_reject_before_fingerprinting() {
-    use kagari_common::{
-        host_interface::{
+    use kagari_types::ty::Ty;
+    use {
+        kagari_common::identity::MAX_IDENTITY_PATH_SEGMENTS,
+        kagari_types::host_interface::{
             HostInterface, host_type_identity, type_declaration::HostTypeDeclaration,
         },
-        identity::MAX_IDENTITY_PATH_SEGMENTS,
     };
-    use kagari_contract::types::Ty;
 
     let valid = BytecodeProgram {
         root: ModuleRef::new(0),
@@ -216,7 +215,7 @@ fn oversized_memory_identity_paths_reject_before_fingerprinting() {
                 program.modules[0]
                     .public_items
                     .push(kagari_contract::types::PublicItem::Const(
-                        kagari_contract::types::ConstDef {
+                        kagari_types::declaration::ConstDef {
                             name: "bad".into(),
                             ty: Ty::Host(id),
                             value: "0".into(),
@@ -416,7 +415,7 @@ fn decoder_rejects_huge_module_count_before_reading_module_data() {
 
 #[test]
 fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let valid = BytecodeProgram {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
@@ -429,7 +428,7 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
     program.modules[0]
         .public_items
         .push(kagari_contract::types::PublicItem::Const(
-            kagari_contract::types::ConstDef {
+            kagari_types::declaration::ConstDef {
                 name: "deep".into(),
                 ty: deep,
                 value: "0".into(),
@@ -454,14 +453,13 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
 
 #[test]
 fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
-    use kagari_common::{
-        host_interface::{path::HostPathDeclaration, type_declaration::PathAccess},
-        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    use {
+        kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+        kagari_types::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess},
     };
-    use kagari_contract::{
-        layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
-        scalar::BuiltinType,
-        types::{FieldDef, Ty},
+    use {
+        kagari_contract::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
+        kagari_types::{declaration::FieldDef, scalar::BuiltinType, ty::Ty},
     };
 
     let valid = BytecodeProgram {
@@ -525,9 +523,9 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
     public_abi.modules[0]
         .public_items
         .push(kagari_contract::types::PublicItem::Type(
-            kagari_contract::types::TypeDef {
+            kagari_types::declaration::TypeDef {
                 name: "item".into(),
-                kind: kagari_contract::types::TypeDefKind::Struct,
+                kind: kagari_types::declaration::TypeDefKind::Struct,
                 generic_params: Vec::new(),
                 bounds: Vec::new(),
                 fields: vec![
@@ -669,7 +667,7 @@ fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
 
 #[test]
 fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {
-    use kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
+    use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
     let valid = BytecodeProgram {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
@@ -789,7 +787,7 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
 
 #[test]
 fn artifact_preserves_portable_virtual_path_declarations() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
         type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
         value_type::HostValueType,
@@ -826,7 +824,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
 
 #[test]
 fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         HostFunctionDeclaration, HostInterface, standard_log, value_type::HostValueType,
     };
     let interface = HostInterface {

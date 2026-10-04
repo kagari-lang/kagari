@@ -12,23 +12,27 @@ use crate::{
     trait_bounds,
     verifier::operation::verify_instruction,
 };
-mod operation;
-
+use kagari_abi::representation::ValueType;
 use kagari_common::identity::DefinitionKind;
-use std::{collections::HashSet, iter};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::CallableImplementation,
-        contracts::{self, ContractError},
-        host,
-        ids::FunctionRef,
-        layout::{self, StructFieldLayout},
-        operations::BinaryOp as MirBinaryOp,
-        standard::RuntimePrimitive,
-        types::{InterfaceTable, PublicItem, Ty, verify},
-    },
+use kagari_contract::{
+    contracts,
+    contracts::ContractError,
+    host,
+    ids::FunctionRef,
+    layout,
+    layout::StructFieldLayout,
+    operations::BinaryOp as MirBinaryOp,
+    standard::RuntimePrimitive,
+    types::{InterfaceTable, PublicItem, verify},
 };
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::verify::{concrete_type_valid, validate_native_declarations},
+    ty::Ty,
+};
+use std::{collections::HashSet, iter};
+
+mod operation;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {
@@ -205,7 +209,7 @@ pub(super) fn verify_module_with_program(
     }
     verify::validate(&module.public_items, &module.identity, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    verify::validate_native_declarations(
+    validate_native_declarations(
         &module.native_declarations,
         &module.identity,
         &Default::default(),
@@ -302,8 +306,7 @@ pub(super) fn verify_module_with_program(
                     matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
                 })
                 || identity.arguments.iter().any(|ty| {
-                    !ty.within_wire_limits()
-                        || !verify::concrete_type_valid(ty, &Default::default())
+                    !ty.within_wire_limits() || !concrete_type_valid(ty, &Default::default())
                 })
                 || !identities.insert(identity))
         {

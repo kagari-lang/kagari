@@ -1,18 +1,18 @@
-use kagari_common::{
-    host_interface::{
-        HostInterface,
-        type_declaration::{
-            HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
-            HostTypeDeclaration,
-        },
-        value_type::HostValueType,
-    },
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
 use kagari_runtime::{
     Runtime,
     host::{HostFunction, HostTypeRegistration},
     value::Value,
+};
+use kagari_types::host_interface::{
+    HostInterface,
+    type_declaration::{
+        HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
+        HostTypeDeclaration,
+    },
+    value_type::HostValueType,
 };
 
 fn main() {

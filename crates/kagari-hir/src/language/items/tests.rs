@@ -6,14 +6,12 @@ use crate::{
     lower,
     native::{api, render::declaration_source},
 };
-use std::sync::Arc;
-use {
-    kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext},
-    kagari_source::{
-        source::SourceFile,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
+use kagari_source::{
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
 };
+use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let cancel = CancellationToken::default();
@@ -138,7 +136,7 @@ fn copied_module_identity_does_not_authorize_application_roles() {
     sources
         .bind_module(
             uri,
-            language::identity(kagari_contract::language::Protocol::Add).module,
+            language::identity(kagari_types::language::Protocol::Add).module,
         )
         .unwrap();
     let id = sources.set(uri, "#[lang = \"add\"] pub trait Add<Rhs> { type Output; fn add(self, rhs: Rhs) -> Self::Output; }".into(), SourceLayer::Base).unwrap();

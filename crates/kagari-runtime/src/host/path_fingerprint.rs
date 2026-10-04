@@ -1,20 +1,6 @@
 //! Versioned fixed-width encoding of resolved path contracts, independent of slots.
 use kagari_contract::representation::host_representation;
 
-use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
-use kagari_common::host_interface::{
-    path::{HostPathContract, HostPathInput, HostPathSegmentContract},
-    type_declaration::PathAccess,
-    value_type::HostValueType,
-};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        mapping::{DefinitionMapper, DefinitionRecord},
-        table::{DefinitionId, DefinitionTable},
-    },
-};
-
 use crate::{
     error::RuntimeError,
     host::{HostPathDescriptorRegistration, HostPathSegment, HostRegistry},
@@ -22,6 +8,19 @@ use crate::{
     module::LinkedHostBindings,
 };
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        mapping::{DefinitionMapper, DefinitionRecord},
+        table::{DefinitionId, DefinitionTable},
+    },
+};
+use kagari_types::host_interface::{
+    path::{HostPathContract, HostPathInput, HostPathSegmentContract},
+    type_declaration::PathAccess,
+    value_type::HostValueType,
+};
 
 impl HostRegistry {
     pub(crate) fn link_module(

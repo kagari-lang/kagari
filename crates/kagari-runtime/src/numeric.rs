@@ -3,19 +3,20 @@ use crate::{
     gc::GcHeap,
     value::{EnumTag, Value},
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
-use kagari_common::{
-    arithmetic::{self, ArithmeticError, IntegerBinaryOp},
-    integer::{self, IntegerMethod},
-    numeric::{self, Number},
+use kagari_contract::{
+    numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
+    representation::builtin_representation,
 };
-use kagari_contract::representation::builtin_representation;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
-        scalar::BuiltinType,
-    },
+use kagari_types::{
+    arithmetic,
+    arithmetic::{ArithmeticError, IntegerBinaryOp},
+    integer,
+    integer::IntegerMethod,
+    numeric,
+    numeric::Number,
+    scalar::BuiltinType,
 };
 
 pub fn arithmetic_trap(error: ArithmeticError) -> RuntimeError {
@@ -320,8 +321,8 @@ mod boundary_tests {
 
     #[test]
     fn invalid_direct_native_inputs_return_errors_without_panicking() {
-        use kagari_common::integer::IntegerMethod as M;
-        use kagari_contract::scalar::BuiltinType as B;
+        use kagari_types::integer::IntegerMethod as M;
+        use kagari_types::scalar::BuiltinType as B;
         let runtime = crate::Runtime::default();
         for (method, ty, args) in [
             (M::RotateLeft, B::U8, [Value::I64(1), Value::I64(-1)]),

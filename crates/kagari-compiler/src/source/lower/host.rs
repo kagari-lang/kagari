@@ -1,14 +1,12 @@
 use crate::source::lower::MirLoweringError;
-
-use kagari_common::{
-    cancellation::CancellationToken,
-    host_interface::{path::HostPathSegmentDeclaration, type_declaration::HostTypeDeclaration},
-    identity::DefinitionPath,
-};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use kagari_hir::host::HostDeclarations;
 use kagari_mir::{
     function::MirFunction,
     instruction::{CallTarget, Instruction},
+};
+use kagari_types::host_interface::{
+    path::HostPathSegmentDeclaration, type_declaration::HostTypeDeclaration,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},

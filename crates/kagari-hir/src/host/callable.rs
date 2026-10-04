@@ -5,7 +5,7 @@ use crate::{
     typeck::FunctionImplementation,
     types::TypeId,
 };
-use kagari_common::host_interface::HostFunctionDeclaration;
+use kagari_types::host_interface::HostFunctionDeclaration;
 
 /// Semantic types are imported once when the immutable host interface is installed.
 #[derive(Debug)]

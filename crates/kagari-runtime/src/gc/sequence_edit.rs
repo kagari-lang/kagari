@@ -118,7 +118,7 @@ fn invalid() -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use crate::{Runtime, error::RuntimeError, layout_fixtures::allocation_owner, value::Value};
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]

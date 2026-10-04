@@ -1,17 +1,15 @@
-use kagari_bytecode::{module::RootSlotLayout, program::ModuleRef};
-use kagari_contract::native_import::NativeImport;
-use {kagari_abi::representation::ValueType, kagari_contract::ids::FunctionRef};
-
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantOperand},
-    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
-    program::BytecodeProgram,
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
+    program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::host_interface::{HostInterface, standard_log};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
 use kagari_runtime::{Runtime, module::LoadedModule, native::foundation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::host_interface::{HostInterface, standard_log};
 use std::sync::Arc;
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
@@ -129,10 +127,10 @@ pub fn test_function_module(
 
 pub fn with_host_imports(
     mut module: BytecodeModule,
-    functions: Vec<kagari_common::host_interface::HostFunctionDeclaration>,
+    functions: Vec<kagari_types::host_interface::HostFunctionDeclaration>,
 ) -> BytecodeModule {
     module.native_imports = functions.iter().map(NativeImport::from_host).collect();
-    module.host_interface = kagari_common::host_interface::HostInterface {
+    module.host_interface = kagari_types::host_interface::HostInterface {
         paths: vec![],
         types: Vec::new(),
         functions,

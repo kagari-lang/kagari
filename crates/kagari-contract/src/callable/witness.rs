@@ -1,25 +1,32 @@
 //! Checked operations supplied by a generic caller, independent of native binding.
-use crate::{
-    callable::{CallableImplementation, interface::InterfaceCallContract},
-    declaration::ModuleDecl,
-    effects::EffectSet,
-    native_import::{
-        NativeSignature,
-        callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
+use {
+    crate::{
+        callable::interface::InterfaceCallContract,
+        effects::EffectSet,
+        native_import::{
+            NativeSignature,
+            callables::{NativeCallableApplication, NativeCallableOrigin},
+        },
+        types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
     },
-    types::{
-        ConcreteFunctionIdentity, Constraint, GenericBound, GenericParam, TraitDef, Ty,
-        inheritance,
-        proofs::ProofCatalog,
-        substitution::{TypeSubstitution, TypeTransformError},
-        verify::{concrete_type_valid, types_in_scope},
+    kagari_types::{
+        callable::CallableImplementation,
+        declaration::{
+            TraitDef,
+            module::ModuleDecl,
+            requirement::NativeCallableRequirement,
+            verify::{concrete_type_valid, types_in_scope},
+        },
+        ty::{
+            Constraint, GenericBound, GenericParam, Ty, inheritance,
+            substitution::{TypeSubstitution, TypeTransformError},
+        },
     },
 };
 
-use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath},
+    identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference},
 };
 use serde::{Deserialize, Serialize};
 
@@ -135,10 +142,15 @@ impl OperationWitness {
                 available.receiver == required.receiver
                     && available.interface == required.interface
                     && available.member == required.member
-            }) && (required.is_generic_member(catalog)
-                || required
-                    .signature_in_scope(catalog, parameters, assumptions, cancel)?
-                    .is_some())),
+            }) && (is_generic_member(required, catalog)
+                || requirement_signature_in_scope(
+                    required,
+                    catalog,
+                    parameters,
+                    assumptions,
+                    cancel,
+                )?
+                .is_some())),
         }
     }
 }
@@ -197,106 +209,115 @@ pub fn required_operations<'a>(
     Ok(operations)
 }
 
-impl NativeCallableRequirement {
-    pub fn is_generic_member(&self, catalog: &ProofCatalog<'_>) -> bool {
-        self.arguments.is_empty()
-            && catalog
-                .trait_contract(&self.interface.declaration)
-                .is_some_and(|contract| {
-                    contract.methods.iter().any(|method| {
-                        !method.generic_params.is_empty()
-                            && self.member
-                                == ModuleDecl::method_id(&self.interface.declaration, &method.name)
-                    })
+pub fn is_generic_member(
+    requirement: &NativeCallableRequirement,
+    catalog: &ProofCatalog<'_>,
+) -> bool {
+    requirement.arguments.is_empty()
+        && catalog
+            .trait_contract(&requirement.interface.declaration)
+            .is_some_and(|contract| {
+                contract.methods.iter().any(|method| {
+                    !method.generic_params.is_empty()
+                        && requirement.member
+                            == ModuleDecl::method_id(
+                                &requirement.interface.declaration,
+                                &method.name,
+                            )
                 })
-    }
-
-    /// Instantiate a member declaration with a raw constrained receiver, rather
-    /// than the boxed interface receiver used by ordinary interface dispatch.
-    pub fn signature(
-        &self,
-        contract: &TraitDef,
-        cancel: &CancellationToken,
-    ) -> Result<NativeSignature, TypeTransformError> {
-        let slot = contract
-            .methods
-            .iter()
-            .position(|method| {
-                let mut member = self.interface.declaration.clone();
-                let Some(segment) = self.member.path.last() else {
-                    return false;
-                };
-                member.path.push(segment.clone());
-                member == self.member
-                    && segment.name == method.name
-                    && segment.kind == DefinitionKind::Method
-                    && segment.occurrence == 0
             })
-            .ok_or(TypeTransformError::InvalidContract)?;
-        let call = InterfaceCallContract {
-            receiver: Some(self.receiver.clone()),
-            operations: vec![],
-            interface: self.interface.clone(),
-            method_slot: slot as u32,
-            arguments: self.arguments.clone(),
-        };
-        let signature = call.signature(contract, cancel)?;
-        Ok(NativeSignature {
-            params: signature.params,
-            result: signature.result,
+}
+
+/// Instantiate a member declaration with a raw constrained receiver, rather
+/// than the boxed interface receiver used by ordinary interface dispatch.
+pub fn requirement_signature(
+    requirement: &NativeCallableRequirement,
+    contract: &TraitDef,
+    cancel: &CancellationToken,
+) -> Result<NativeSignature, TypeTransformError> {
+    let slot = contract
+        .methods
+        .iter()
+        .position(|method| {
+            let mut member = requirement.interface.declaration.clone();
+            let Some(segment) = requirement.member.path.last() else {
+                return false;
+            };
+            member.path.push(segment.clone());
+            member == requirement.member
+                && segment.name == method.name
+                && segment.kind == DefinitionKind::Method
+                && segment.occurrence == 0
         })
-    }
+        .ok_or(TypeTransformError::InvalidContract)?;
+    let call = InterfaceCallContract {
+        receiver: Some(requirement.receiver.clone()),
+        operations: vec![],
+        interface: requirement.interface.clone(),
+        method_slot: slot as u32,
+        arguments: requirement.arguments.clone(),
+    };
+    let signature = call.signature(contract, cancel)?;
+    Ok(NativeSignature {
+        params: signature.params,
+        result: signature.result,
+    })
+}
 
-    pub fn signature_in_scope(
-        &self,
-        catalog: &ProofCatalog<'_>,
-        parameters: &[GenericParam],
-        assumptions: &[GenericBound],
-        cancel: &CancellationToken,
-    ) -> Result<Option<NativeSignature>, TypeTransformError> {
-        let Some(contract) = catalog.trait_contract(&self.interface.declaration) else {
-            return Ok(None);
-        };
-        let signature = self.signature(contract, cancel)?;
-        if !types_in_scope(
-            signature
-                .params
-                .iter()
-                .chain([&signature.result])
-                .chain(&self.arguments),
-            parameters,
-            cancel,
-        ) || !catalog.holds(&self.interface, &self.receiver, assumptions, cancel)?
-        {
-            return Ok(None);
-        }
-        let method = contract
-            .methods
+pub fn requirement_signature_in_scope(
+    requirement: &NativeCallableRequirement,
+    catalog: &ProofCatalog<'_>,
+    parameters: &[GenericParam],
+    assumptions: &[GenericBound],
+    cancel: &CancellationToken,
+) -> Result<Option<NativeSignature>, TypeTransformError> {
+    let Some(contract) = catalog.trait_contract(&requirement.interface.declaration) else {
+        return Ok(None);
+    };
+    let signature = requirement_signature(requirement, contract, cancel)?;
+    if !types_in_scope(
+        signature
+            .params
             .iter()
-            .find(|method| {
-                self.member
-                    .path
-                    .last()
-                    .is_some_and(|member| member.name == method.name)
-            })
-            .ok_or(TypeTransformError::InvalidContract)?;
-        let mut substitution = TypeSubstitution::default();
-        substitution.bind_receiver(&self.interface.declaration, &self.receiver);
-        for (parameter, argument) in contract
-            .generic_params
-            .iter()
-            .zip(&self.interface.arguments)
-            .chain(method.generic_params.iter().zip(&self.arguments))
-        {
-            substitution.bind(&parameter.owner, parameter.position, argument);
-        }
-        for bound in substitution.apply_bounds(&method.bounds, cancel)? {
-            if !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
-                return Ok(None);
-            }
-        }
-        Ok(Some(signature))
+            .chain([&signature.result])
+            .chain(&requirement.arguments),
+        parameters,
+        cancel,
+    ) || !catalog.holds(
+        &requirement.interface,
+        &requirement.receiver,
+        assumptions,
+        cancel,
+    )? {
+        return Ok(None);
     }
+    let method = contract
+        .methods
+        .iter()
+        .find(|method| {
+            requirement
+                .member
+                .path
+                .last()
+                .is_some_and(|member| member.name == method.name)
+        })
+        .ok_or(TypeTransformError::InvalidContract)?;
+    let mut substitution = TypeSubstitution::default();
+    substitution.bind_receiver(&requirement.interface.declaration, &requirement.receiver);
+    for (parameter, argument) in contract
+        .generic_params
+        .iter()
+        .zip(&requirement.interface.arguments)
+        .chain(method.generic_params.iter().zip(&requirement.arguments))
+    {
+        substitution.bind(&parameter.owner, parameter.position, argument);
+    }
+    for bound in substitution.apply_bounds(&method.bounds, cancel)? {
+        if !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
+            return Ok(None);
+        }
+    }
+    Ok(Some(signature))
 }
 
 mod mapping;

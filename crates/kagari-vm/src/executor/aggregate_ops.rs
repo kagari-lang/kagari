@@ -1,14 +1,12 @@
+use crate::{error::VmError, executor::Executor};
 use kagari_bytecode::instruction::{EnumId, FieldRef, Register, StructId};
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{
-    operations::StandardEnumOp, standard::surface::StandardEnum as StandardEnumKind, types::Ty,
-};
+use kagari_contract::{operations::StandardEnumOp, representation::semantic_representation};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     value::{EnumTag, Value},
 };
-
-use crate::{error::VmError, executor::Executor};
+use kagari_types::{surface::StandardEnum as StandardEnumKind, ty::Ty};
 
 impl Executor<'_> {
     pub(crate) fn test_enum_variant(
@@ -335,10 +333,10 @@ impl Executor<'_> {
                     .get(variant as usize)
                     .and_then(|variant| variant.payload())
                     .ok_or(VmError::TypeMismatch("standard enum payload type"))?;
-                let output = args
-                    .get(slot)
-                    .ok_or(VmError::TypeMismatch("standard enum payload type"))?
-                    .representation();
+                let output = semantic_representation(
+                    args.get(slot)
+                        .ok_or(VmError::TypeMismatch("standard enum payload type"))?,
+                );
                 if !value.has_representation(output) {
                     return Err(VmError::TypeMismatch(
                         "standard enum payload representation",

@@ -4,7 +4,7 @@ use crate::{
     native::sequence::SequencePayload,
     value::Value,
 };
-use kagari_contract::types::Ty;
+use kagari_types::ty::Ty;
 use std::ops::Bound;
 
 fn invalid() -> RuntimeError {

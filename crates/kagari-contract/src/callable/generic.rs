@@ -1,12 +1,14 @@
 //! Binder scope of a shared executable body, separate from its concrete owner.
-use crate::types::{
-    ConcreteFunctionIdentity, GenericBound, GenericParam, Ty,
-    verify::{native_bounds_valid, types_in_scope},
-};
+use crate::types::ConcreteFunctionIdentity;
 use kagari_common::identity::DefinitionPath;
-
-use kagari_common::identity::reference::DefinitionReference;
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, reference::DefinitionReference},
+};
+use kagari_types::{
+    declaration::verify::{native_bounds_valid, types_in_scope},
+    ty::{GenericBound, GenericParam, Ty},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

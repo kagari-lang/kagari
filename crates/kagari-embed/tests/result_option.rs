@@ -6,9 +6,8 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
-use kagari_source::source::SourceFile;
-
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 #[test]
 fn propagation_requires_one_infallible_conversion_bound() {
@@ -351,9 +350,9 @@ fn main()->i32 {
 #[test]
 fn malformed_standard_enum_operations_are_rejected_before_execution() {
     use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_contract::{
-        operations::StandardEnumOp, scalar::BuiltinType,
-        standard::surface::StandardEnum as StandardEnumKind, types::Ty,
+    use {
+        kagari_contract::operations::StandardEnumOp,
+        kagari_types::{scalar::BuiltinType, surface::StandardEnum as StandardEnumKind, ty::Ty},
     };
     let artifact = KagariEngine::default()
         .compile_to_artifact(

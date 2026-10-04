@@ -14,7 +14,7 @@ use crate::{
     module::LoadedModule,
     value::{EnumTag, Value},
 };
-use kagari_contract::types::{Ty, verify::types_in_scope_in};
+use kagari_types::{declaration::verify::types_in_scope_in, ty::Ty};
 use std::{rc::Rc, slice};
 
 #[derive(Debug, Clone)]

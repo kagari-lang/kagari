@@ -1,16 +1,20 @@
-use kagari_contract::scalar::BuiltinType;
+use kagari_contract::library::namespaces;
 use kagari_hir::native::render::declaration_source;
-use kagari_runtime::native::{
-    binding::{Codec, NativeBinding, NativeResult},
-    builder::ModuleBuilder,
-    context::CallContext,
-    declarations::{CallableRequirement, FunctionDecl, MethodDecl},
-    language::LanguageContracts,
-    storage::{NativePayload, NativeStorage},
-    types::Type,
-    views::{SequenceHandle, SequenceMutHandle},
+use kagari_runtime::{
+    Runtime,
+    native::{
+        binding::{Codec, NativeBinding, NativeResult},
+        builder::ModuleBuilder,
+        context::CallContext,
+        declarations::{CallableRequirement, FunctionDecl, MethodDecl},
+        language::LanguageContracts,
+        storage::{NativePayload, NativeStorage},
+        types::Type,
+        views::{SequenceHandle, SequenceMutHandle},
+    },
+    value::Value,
 };
-use kagari_runtime::{Runtime, value::Value};
+use kagari_types::scalar::BuiltinType;
 
 fn add(_cx: &mut CallContext<'_>, left: i32, right: i32) -> NativeResult<i32> {
     Ok(left + right)
@@ -83,13 +87,13 @@ fn finalization_rejects_a_declaration_without_an_entry() {
 #[test]
 fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations() {
     use kagari_common::identity::ModuleIdentity;
-    use kagari_contract::{
-        declaration::{ImplDecl, ModuleDecl},
-        types::Ty,
+    use kagari_types::{
+        declaration::module::{ImplDecl, ModuleDecl},
+        ty::Ty,
     };
     let string = Ty::Builtin(BuiltinType::String);
-    let mut owner = ModuleDecl::new(kagari_contract::library::namespaces::type_owner("String"));
-    assert!(owner.owns_inherent_receiver(&string));
+    let mut owner = ModuleDecl::new(namespaces::type_owner("String"));
+    assert!(owner.owns_inherent_receiver(&string, &namespaces::receiver_owner));
     owner.implementations.push(ImplDecl {
         generic_params: vec![],
         bounds: vec![],
@@ -97,10 +101,10 @@ fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations
         for_type: string.clone(),
         methods: vec![],
     });
-    owner.validate().unwrap();
+    owner.validate(&namespaces::receiver_owner).unwrap();
     owner.identity = ModuleIdentity::single_file("foreign.kgr");
-    assert!(!owner.owns_inherent_receiver(&string));
-    assert!(owner.validate().is_err());
+    assert!(!owner.owns_inherent_receiver(&string, &namespaces::receiver_owner));
+    assert!(owner.validate(&namespaces::receiver_owner).is_err());
 
     let mut foreign = ModuleBuilder::new("example::foreign", &LanguageContracts::default());
     let error = foreign

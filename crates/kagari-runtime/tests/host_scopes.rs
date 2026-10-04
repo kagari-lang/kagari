@@ -1,31 +1,31 @@
-use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostParameter, HostPassingStyle,
-    type_declaration::HostTypeDeclaration, value_type::HostValueType,
-};
-use kagari_contract::{ids::FunctionRef, scalar::BuiltinType, types::Ty};
-use kagari_runtime::session::TraceValue;
-
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-
+use kagari_contract::ids::FunctionRef;
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::{
+        HostBorrowKind, HostError, HostFunction, HostObjectId, HostSchemaEpoch,
+        HostTypeRegistration,
+    },
+    metadata::TypeId,
+    session::TraceValue,
+    value::Value,
+};
+use kagari_types::{
+    host_interface::{
+        HostFunctionDeclaration, HostParameter, HostPassingStyle,
+        type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
+        value_type::HostValueType,
+    },
+    scalar::BuiltinType,
+    ty::Ty,
+};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-};
-use {
-    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        host::{
-            HostBorrowKind, HostError, HostFunction, HostObjectId, HostSchemaEpoch,
-            HostTypeRegistration,
-        },
-        metadata::TypeId,
-        value::Value,
-    },
 };
 
 fn runtime() -> Runtime {

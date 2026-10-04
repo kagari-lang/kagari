@@ -1,11 +1,13 @@
 use super::tests::{analyze, insert};
-use crate::analysis::ownership;
-use crate::{analysis::AnalysisDatabase, types::TypeId};
-use kagari_contract::scalar::BuiltinType;
+use crate::{
+    analysis::{AnalysisDatabase, ownership},
+    types::TypeId,
+};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::scalar::BuiltinType;
 use std::sync::Arc;
 
 #[test]

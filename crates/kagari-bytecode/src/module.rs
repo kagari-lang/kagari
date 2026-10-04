@@ -5,26 +5,25 @@ use crate::{
     },
     program::ModuleRef,
 };
-use kagari_common::identity::reference::DefinitionReference;
+use kagari_abi::representation::ValueType;
 use kagari_common::{
-    host_interface::HostInterface,
-    identity::{DefinitionPath, ModuleIdentity},
+    identity::{DefinitionPath, ModuleIdentity, reference::DefinitionReference},
     span::Span,
 };
-use serde::{Deserialize, Serialize};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        effects::EffectSet,
-        ids::{DebugPointId, FunctionRef},
-        layout::{EnumLayout, StructLayout},
-        native_import::NativeImport,
-        slots::SemanticSlots,
-        types::{
-            ConcreteFunctionIdentity, NativeDeclaration, NominalTy, PublicItem, TraitContract, Ty,
-        },
-    },
+use kagari_contract::{
+    effects::EffectSet,
+    ids::{DebugPointId, FunctionRef},
+    layout::{EnumLayout, StructLayout},
+    native_import::NativeImport,
+    slots::SemanticSlots,
+    types::{ConcreteFunctionIdentity, PublicItem, TraitContract},
 };
+use kagari_types::{
+    declaration::NativeDeclaration,
+    host_interface::HostInterface,
+    ty::{NominalTy, Ty},
+};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(

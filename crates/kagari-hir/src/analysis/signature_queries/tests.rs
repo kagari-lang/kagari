@@ -1,17 +1,17 @@
 use super::*;
-use crate::analysis::ownership;
-use crate::native::render::declaration_source;
 use crate::{
+    analysis::ownership,
     declarations::DeclarationId,
-    native::NativeBinding,
+    native::{NativeBinding, render::declaration_source},
     typeck::{FunctionImplementation, signature_reuse::reuse_signatures},
     types::TypeId,
 };
-use kagari_contract::{library::catalog, scalar::BuiltinType};
+use kagari_contract::library::catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::scalar::BuiltinType;
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapshot {
     db.signatures(sources.snapshot(), &Default::default())

@@ -1,9 +1,10 @@
 use super::*;
 use kagari_common::identity::{ModuleIdentity, associated_type_id};
-use kagari_contract::{
-    language::primitive,
+use kagari_contract::{language::primitive, types::InterfaceTable};
+use kagari_types::{
+    declaration::{AssociatedTypeDef, AssociatedTypeFamily},
     scalar::BuiltinType,
-    types::{AssociatedTypeDef, AssociatedTypeFamily, Constraint, InterfaceTable},
+    ty::Constraint,
 };
 
 fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {

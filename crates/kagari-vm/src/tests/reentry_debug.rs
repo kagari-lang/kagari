@@ -4,13 +4,12 @@ use crate::{
     tests::{common::compile_test_bytecode, native_fixtures},
     vm::Vm,
 };
-
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget},
 };
-use kagari_common::host_interface::standard_log;
 use kagari_runtime::{Runtime, RuntimeConfig, host::HostFunction, value::Value};
+use kagari_types::host_interface::standard_log;
 
 #[test]
 fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {

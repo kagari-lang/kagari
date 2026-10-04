@@ -3,6 +3,7 @@ use crate::{
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     reload::ReloadValidationError,
 };
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactValidationError,
@@ -12,15 +13,9 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
-
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::CallableImplementation,
-        ids::FunctionRef,
-        scalar::BuiltinType,
-        types::{FnDecl, PublicItem, Ty},
-    },
+use kagari_contract::{ids::FunctionRef, types::PublicItem};
+use kagari_types::{
+    callable::CallableImplementation, declaration::FnDecl, scalar::BuiltinType, ty::Ty,
 };
 
 #[test]

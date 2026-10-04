@@ -6,7 +6,7 @@ use crate::source::{
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::{
     native_import::{NativeImport, NativeSignature},
-    types::{ConcreteFunctionIdentity, substitution::TypeSubstitution},
+    types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault,
@@ -18,6 +18,7 @@ use kagari_hir::{
     types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, abi::lower_type},
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
+use kagari_types::ty::substitution::TypeSubstitution;
 use std::slice;
 
 pub(super) struct NativeApplication<'a> {

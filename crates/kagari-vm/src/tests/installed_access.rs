@@ -1,17 +1,18 @@
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::instruction::NativeImportId;
-use {
-    crate::debug::SourceBreakpoint,
-    kagari_bytecode::program::{BytecodeProgram, ModuleRef},
-    kagari_common::host_interface::value_type::HostValueType,
+use crate::{
+    debug::{DebugSession, SourceBreakpoint},
+    tests::common::test_function_module,
+    vm::Vm,
 };
-
-use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::{
+    instruction::{
+        BytecodeInstruction, CallTarget, ConstantOperand, NativeImportId, Register, RuntimeHelper,
+        StructId,
+    },
+    program::{BytecodeProgram, ModuleRef},
 };
 use kagari_runtime::{Runtime, RuntimeConfig, host::HostFunction, value::Value};
-
-use crate::{debug::DebugSession, tests::common::test_function_module, vm::Vm};
+use kagari_types::host_interface::value_type::HostValueType;
 
 #[test]
 fn installed_host_reflection_and_debugger_operations_are_available() {
@@ -20,7 +21,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
     });
     host_runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
+            kagari_types::host_interface::HostFunctionDeclaration::new(
                 "host.hidden",
                 vec![],
                 HostValueType::I32,
@@ -47,7 +48,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
                         ValueType::I32,
                         vec![ValueType::I32],
                     ),
-                    vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    vec![kagari_types::host_interface::HostFunctionDeclaration::new(
                         "host.hidden",
                         vec![],
                         HostValueType::I32,

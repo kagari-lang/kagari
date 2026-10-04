@@ -1,15 +1,15 @@
-use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
-};
-use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{operations::IterOp, standard::RuntimePrimitive, types::Ty};
-use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
-use std::iter;
-
 use crate::{
     error::VmError,
     executor::{Executor, native::invoke_script},
 };
+use kagari_bytecode::instruction::{
+    BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
+};
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
+use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
+use kagari_types::ty::Ty;
+use std::iter;
 
 impl<'a> Executor<'a> {
     fn dispatch_iterator(

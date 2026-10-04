@@ -1,15 +1,14 @@
-use kagari_contract::callable::CallableImplementation;
+use kagari_bytecode::program::ModuleRef;
 use kagari_contract::library;
-use {kagari_bytecode::program::ModuleRef, kagari_embed::context::JitPolicy};
-
 use kagari_embed::{
     BytecodeArtifact,
-    context::ExecutionContext,
+    context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_types::callable::CallableImplementation;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -409,7 +408,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
 #[test]
 fn forged_shared_generic_environments_and_applications_are_rejected_without_source() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -500,7 +499,7 @@ fn main() -> i32 {
 #[test]
 fn shared_list_table_mappings_are_checked_without_source() {
     use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -620,7 +619,7 @@ fn main() -> i32 {
 #[test]
 fn shared_function_call_arguments_and_operations_are_verified_without_source() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -781,7 +780,7 @@ fn main() -> i32 {
 #[test]
 fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
     use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -945,7 +944,7 @@ fn main() -> i32 {
 #[test]
 fn shared_nominal_layout_applications_are_verified_without_source() {
     use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

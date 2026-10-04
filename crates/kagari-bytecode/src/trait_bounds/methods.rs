@@ -2,13 +2,15 @@
 use crate::module::{BytecodeModule, CallableTarget};
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
-    callable::CallableImplementation,
     native_import::NativeSignature,
-    types::{
-        ConcreteFunctionIdentity, PublicItem, Ty,
-        proofs::ProofCatalog,
+    types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::verify::types_in_scope,
+    ty::{
+        Ty,
         substitution::{TypeSubstitution, TypeTransformError},
-        verify::types_in_scope,
     },
 };
 

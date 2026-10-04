@@ -2,19 +2,16 @@
 //! Run with `cargo run -p kagari-embed --example host_interfaces`.
 
 use {
-    kagari_common::{
-        host_interface::{
-            HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-            type_declaration::{
-                HostAssociatedTypeBinding, HostMethodDeclaration,
-                HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
-                HostTypeOwnership, PathAccess,
-            },
-            value_type::HostValueType,
-        },
-        identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
-    },
+    kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
     kagari_source::source_database::SourceLayer,
+    kagari_types::host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        type_declaration::{
+            HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+        },
+        value_type::HostValueType,
+    },
 };
 
 use kagari_embed::{

@@ -4,7 +4,7 @@ use crate::{
     gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, iter::NativeIter},
     value::Value,
 };
-use kagari_contract::types::Ty;
+use kagari_types::ty::Ty;
 use std::collections::HashSet;
 
 fn invalid() -> RuntimeError {

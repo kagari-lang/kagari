@@ -11,10 +11,10 @@ use crate::{
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::{
-    callable::witness::OperationWitness,
-    native_import::{NativeSignature, callables::NativeCallableRequirement},
-    types::{self as abi, PublicItem, Ty},
+    callable::witness::OperationWitness, native_import::NativeSignature, types as abi,
+    types::PublicItem,
 };
+use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},

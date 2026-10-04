@@ -6,7 +6,7 @@ use serde::{
 
 use std::{fmt, marker::PhantomData};
 
-pub(crate) fn bounded_vec<'de, D, T>(
+pub fn bounded_vec<'de, D, T>(
     deserializer: D,
     limit: usize,
     label: &'static str,

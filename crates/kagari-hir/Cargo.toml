@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kagari-types.workspace = true
 kagari-source.workspace = true
 kagari-abi.workspace = true
 kagari-contract.workspace = true

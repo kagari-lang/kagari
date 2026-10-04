@@ -1,23 +1,30 @@
 //! Nominal host dependencies include signatures and layouts, even without a call.
 
-use crate::{
-    language::Protocol,
-    layout::{EnumLayout, LayoutValidationError, StructLayout},
-    standard::surface::StandardTypeConstraint,
-    types::{
-        self as abi, Constraint, FnDecl, InterfaceTable, PublicItem, TraitContract, TraitDef, Ty,
-        substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES},
+use {
+    crate::{
+        layout::{EnumLayout, LayoutValidationError, StructLayout},
+        types as abi,
+        types::{InterfaceTable, PublicItem, TraitContract},
+    },
+    kagari_types::{
+        declaration::{FnDecl, TraitDef},
+        language::Protocol,
+        surface::StandardTypeConstraint,
+        ty::{
+            Constraint, Ty,
+            substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES},
+        },
     },
 };
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    host_interface::{
-        HostInterface,
-        type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    },
     identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
+};
+use kagari_types::host_interface::{
+    HostInterface,
+    type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
+    value_type::HostValueType,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -456,7 +463,7 @@ pub fn satisfies_standard_constraint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_common::collection::CollectionAccess;
+    use kagari_types::collection::CollectionAccess;
 
     #[test]
     fn host_standard_constraints_distinguish_payload_and_collection_identity() {

@@ -8,18 +8,19 @@ use crate::{
     typeck::{FunctionImplementation, GenericBounds, ModuleSignatures, table::ConstraintTarget},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
-use kagari_contract::{callable::MethodPolicy, types::conversion::ConversionAdapter};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity,
+    identity::{DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+};
+use kagari_source::identity::FileSpan;
+use kagari_types::{
+    callable::MethodPolicy, collection::CollectionAccess,
+    declaration::conversion::ConversionAdapter,
+};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
-};
-use {
-    kagari_common::{
-        cancellation::{CancellationToken, Cancelled},
-        collection::CollectionAccess,
-        identity::{self, DefinitionPath, ModuleIdentity, reference::DefinitionReference},
-    },
-    kagari_source::identity::FileSpan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,30 +1,34 @@
 use super::*;
-use kagari_bytecode::instruction::NativeImportId;
-use {crate::error::VmError, kagari_common::host_interface::value_type::HostValueType};
-use {crate::reentry::reenter, kagari_runtime::host::HostPathDescriptorId};
-
-use crate::{tests::native_fixtures, vm::native::PreparedNativeEntry};
-
-use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
-use kagari_runtime::backend::{BackendInvocationError, native::NativeInvocationFailure};
+use crate::{
+    error::VmError, reentry::reenter, tests::native_fixtures, vm::native::PreparedNativeEntry,
+};
+use kagari_bytecode::{
+    instruction::NativeImportId,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_runtime::{
+    backend::{BackendInvocationError, native::NativeInvocationFailure},
+    host::HostPathDescriptorId,
+};
+use kagari_types::host_interface::value_type::HostValueType;
 
 #[test]
 fn executes_runtime_host_helper_call() {
     let mut runtime = host_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
+            kagari_types::host_interface::HostFunctionDeclaration::new(
                 "host.add_i32",
                 vec![
-                    kagari_common::host_interface::HostParameter {
+                    kagari_types::host_interface::HostParameter {
                         name: "lhs".into(),
                         ty: HostValueType::I32,
-                        passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                        passing: kagari_types::host_interface::HostPassingStyle::Owned,
                     },
-                    kagari_common::host_interface::HostParameter {
+                    kagari_types::host_interface::HostParameter {
                         name: "rhs".into(),
                         ty: HostValueType::I32,
-                        passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                        passing: kagari_types::host_interface::HostPassingStyle::Owned,
                     },
                 ],
                 HostValueType::I32,
@@ -63,18 +67,18 @@ fn executes_runtime_host_helper_call() {
                         ValueType::I32,
                         vec![ValueType::I32, ValueType::I32, ValueType::I32],
                     ),
-                    vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                    vec![kagari_types::host_interface::HostFunctionDeclaration::new(
                         "host.add_i32",
                         vec![
-                            kagari_common::host_interface::HostParameter {
+                            kagari_types::host_interface::HostParameter {
                                 name: "lhs".into(),
                                 ty: HostValueType::I32,
-                                passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                                passing: kagari_types::host_interface::HostPassingStyle::Owned,
                             },
-                            kagari_common::host_interface::HostParameter {
+                            kagari_types::host_interface::HostParameter {
                                 name: "rhs".into(),
                                 ty: HostValueType::I32,
-                                passing: kagari_common::host_interface::HostPassingStyle::Owned,
+                                passing: kagari_types::host_interface::HostPassingStyle::Owned,
                             },
                         ],
                         HostValueType::I32,
@@ -266,7 +270,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .unwrap();
             runtime
                 .register_host_function(HostFunction::new(
-                    kagari_common::host_interface::standard_log(),
+                    kagari_types::host_interface::standard_log(),
                     move |call, _| {
                         call.runtime()
                             .set_host_path(
@@ -568,7 +572,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
 
 #[test]
 fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         path::HostIndexSegmentDeclaration, value_type::HostValueType,
     };
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);

@@ -2,14 +2,13 @@
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::{
-    callable::{CallableImplementation, shared::SharedCall},
-    native_import::NativeSignature,
-    types::ConcreteFunctionIdentity,
+    callable::shared::SharedCall, native_import::NativeSignature, types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
     resolver::resolved::ResolvedName,
     types::{GenericParameterType, TypeId, TypeSubstitution, abi::lower_type},
 };
+use kagari_types::callable::CallableImplementation;
 
 impl InstancePlanner<'_> {
     pub(crate) fn shared_call(

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{Runtime, layout_fixtures::allocation_owner};
-use kagari_contract::{scalar::BuiltinType, types::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn bulk_failure_preserves_slots_and_releases_preparation_resources() {

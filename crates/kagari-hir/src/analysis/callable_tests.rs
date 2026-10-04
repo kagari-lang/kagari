@@ -9,18 +9,18 @@ use crate::{
     typeck::{FunctionImplementation, table::CallTarget},
     types::TypeId,
 };
-
-use kagari_contract::{callable::NativeDefaultApplication, scalar::BuiltinType};
-use {
-    kagari_common::host_interface::{
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_types::{
+    callable::NativeDefaultApplication,
+    host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         value_type::HostValueType,
     },
-    kagari_source::{
-        diagnostic::DiagnosticKind,
-        source::SourceFile,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+    scalar::BuiltinType,
 };
 
 #[test]
@@ -135,7 +135,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
                     kagari_common::identity::DefinitionKind::Function,
                     &format!("default_{name}"),
                 ),
-                arguments: vec![kagari_contract::types::Ty::SelfType(iterator.id.clone())],
+                arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id.clone())],
             }));
         let method = iterator
             .methods

@@ -5,11 +5,7 @@ use crate::source::lower::{
     instances::{Instance, InstancePlanner},
 };
 use kagari_common::{identity::DefinitionPath, span::Span};
-use kagari_contract::{
-    callable::{generic::GenericBody, witness::OperationWitness},
-    native_import::callables::NativeCallableRequirement,
-    types::GenericParam,
-};
+use kagari_contract::callable::{generic::GenericBody, witness::OperationWitness};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
     typeck::{GenericBounds, TypedFunction, table::ConstraintTarget},
@@ -18,6 +14,7 @@ use kagari_hir::{
         abi::{lower_nominal_type, lower_type},
     },
 };
+use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::GenericParam};
 
 impl InstancePlanner<'_> {
     /// Supply the member operations promised by receiver and method bounds.

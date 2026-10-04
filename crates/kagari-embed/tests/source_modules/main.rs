@@ -1,15 +1,12 @@
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{ModuleIdentity, PackageId},
-    },
-    kagari_source::{identity::FileId, source_database::SourceLayer},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, PackageId},
 };
-
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
 };
 use kagari_runtime::value::Value;
+use kagari_source::{identity::FileId, source_database::SourceLayer};
 
 fn compile(engine: &KagariEngine, root: FileId) -> BytecodeArtifact {
     let checked = engine
@@ -38,9 +35,9 @@ fn host_fixture() -> (
     KagariEngine,
     BytecodeArtifact,
     ExecutionContext,
-    kagari_common::host_interface::HostFunctionDeclaration,
+    kagari_types::host_interface::HostFunctionDeclaration,
 ) {
-    use kagari_common::host_interface::{
+    use kagari_types::host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         value_type::HostValueType,
     };

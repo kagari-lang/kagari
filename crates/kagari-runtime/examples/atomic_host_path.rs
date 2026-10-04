@@ -1,27 +1,26 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
 
-use kagari_common::host_interface::{
-    self,
-    path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-    type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-    value_type::HostValueType,
-};
-
-use std::{cell::Cell, rc::Rc};
-use {
-    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        host::{
-            HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
-            HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
-            PreparedHostPathWrite,
-        },
-        resource::RuntimeLimits,
-        value::Value,
+use kagari_types::{
+    host_interface,
+    host_interface::{
+        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
     },
 };
+
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::{
+        HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
+        HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration, PreparedHostPathWrite,
+    },
+    resource::RuntimeLimits,
+    value::Value,
+};
+use kagari_types::host_interface::type_declaration::{HostTypeOwnership, PathAccess};
+use std::{cell::Cell, rc::Rc};
 
 fn main() {
     let mut runtime = Runtime::new(RuntimeConfig {

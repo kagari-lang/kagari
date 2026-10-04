@@ -4,6 +4,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
     program::BytecodeProgram,
 };
+use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
 use kagari_runtime::{
@@ -19,21 +20,15 @@ use kagari_runtime::{
     resource::RuntimeLimits,
     value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::host_interface::{HostInterface, standard_log};
 use kagari_vm::{
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
     error::VmError,
     reentry::reenter,
     vm::Vm,
 };
-use std::sync::Arc;
-use std::{cell::RefCell, rc::Rc};
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        host_interface::{HostInterface, standard_log},
-    },
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
-};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 fn module() -> NativeModule {
     let mut module = ModuleBuilder::new("test::boundary", &LanguageContracts::default());

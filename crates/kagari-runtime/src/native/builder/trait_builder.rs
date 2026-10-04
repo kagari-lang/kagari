@@ -9,14 +9,13 @@ use crate::{
         types::{AppliedTrait, FunctionRef, ParameterRef, TraitRef, Type},
     },
 };
-use kagari_common::{
+use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
+use kagari_types::{
     collection::CollectionAccess,
-    identity::{DefinitionKind, DefinitionPath, associated_type_id},
-};
-use kagari_contract::{
-    declaration::ModuleDecl,
-    native_import::callables::NativeCallableRequirement,
-    types::{AssociatedTypeDef, Constraint, GenericParam, NominalTy, TraitDef, Ty},
+    declaration::{
+        AssociatedTypeDef, TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement,
+    },
+    ty::{Constraint, GenericParam, NominalTy, Ty},
 };
 use std::{collections::BTreeMap, sync::Arc};
 

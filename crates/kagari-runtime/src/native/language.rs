@@ -4,13 +4,10 @@ use crate::native::{
     catalog::DeclarationCatalog,
     types::{TraitRef, Type},
 };
-use kagari_common::collection::CollectionAccess;
-use kagari_contract::library::{self, catalog};
-use kagari_contract::{
-    declaration::ModuleDecl,
-    language::{self, Protocol},
-    standard::surface::StandardEnum,
-    types::Ty,
+use kagari_contract::{library, library::catalog};
+use kagari_types::{
+    collection::CollectionAccess, declaration::module::ModuleDecl, language, language::Protocol,
+    surface::StandardEnum, ty::Ty,
 };
 use std::sync::Arc;
 

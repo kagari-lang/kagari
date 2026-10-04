@@ -1,8 +1,9 @@
 use super::*;
 use crate::executor::Executor;
 use kagari_bytecode::instruction::StructId;
-use kagari_contract::types::{NominalTy, PublicItem, Ty};
+use kagari_contract::types::PublicItem;
 use kagari_runtime::module::LoadedModule;
+use kagari_types::ty::{NominalTy, Ty};
 use std::slice;
 
 #[test]
@@ -43,7 +44,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 
 #[test]
 fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
-    use kagari_contract::types::{PublicItem, Ty};
+    use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
     let (runtime, loaded) = load_test_module(
         "trait Other {} trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
     );

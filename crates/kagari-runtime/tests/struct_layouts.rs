@@ -2,13 +2,11 @@ use kagari_bytecode::{
     instruction::StructId,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::collection::CollectionAccess;
+use kagari_runtime::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
+use kagari_types::{collection::CollectionAccess, ty::Ty};
+
 #[path = "support/layouts.rs"]
 mod layouts;
-
-use kagari_contract::types::Ty;
-
-use kagari_runtime::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
 
 #[test]
 fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
@@ -19,12 +17,12 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         &[
             (
                 "x",
-                Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+                Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
                 true,
             ),
             (
                 "fixed",
-                Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool),
+                Ty::Builtin(kagari_types::scalar::BuiltinType::Bool),
                 false,
             ),
         ],
@@ -93,7 +91,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[(
             "x",
-            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -103,7 +101,7 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
         "Point",
         &[(
             "x",
-            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -148,7 +146,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         "Point",
         &[(
             "x",
-            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
             true,
         )],
     );
@@ -202,7 +200,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         "Point",
         &[(
             "x",
-            Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
             false,
         )],
     );
@@ -222,7 +220,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
 #[test]
 fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
-    use kagari_contract::{scalar::BuiltinType, types::NominalTy};
+    use kagari_types::{scalar::BuiltinType, ty::NominalTy};
     let mut runtime = Runtime::default();
     let leaf = layouts::layout(
         &mut runtime,

@@ -2,15 +2,17 @@
 use crate::bytecode::BytecodeLoweringError;
 use kagari_common::{
     cancellation::CancellationToken,
-    host_interface::type_declaration::HostTypeDeclaration,
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
 };
-use kagari_contract::layout::EnumLayout;
-use kagari_contract::types::{
-    ModuleContract, PublicItem,
-    proofs::{ProofCatalog, implementation::Implementation},
+use kagari_contract::{
+    layout::EnumLayout,
+    types::{
+        ModuleContract, PublicItem,
+        proofs::{ProofCatalog, implementation::Implementation},
+    },
 };
 use kagari_mir::verify::VerifiedMirModule;
+use kagari_types::host_interface::type_declaration::HostTypeDeclaration;
 
 pub(super) struct Contracts {
     declarations: Vec<(ModuleIdentity, ModuleContract)>,

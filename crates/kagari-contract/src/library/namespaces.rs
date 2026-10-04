@@ -1,6 +1,6 @@
 //! Canonical declaration ownership and public package spelling of the bundled library.
-use crate::{scalar::BuiltinType, standard::surface::StandardEnum, types::Ty};
 use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_types::{scalar::BuiltinType, surface::StandardEnum, ty::Ty};
 
 pub fn module(package: &str, path: &str) -> ModuleIdentity {
     ModuleIdentity {

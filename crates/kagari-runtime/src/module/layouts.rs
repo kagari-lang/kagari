@@ -5,10 +5,8 @@ use crate::{
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{
-    layout::{EnumLayout, StructLayout},
-    types::{NominalTy, Ty},
-};
+use kagari_contract::layout::{EnumLayout, StructLayout};
+use kagari_types::ty::{NominalTy, Ty};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 type LayoutApplications<Id, Layout> =

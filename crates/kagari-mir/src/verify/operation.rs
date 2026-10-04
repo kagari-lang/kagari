@@ -3,17 +3,20 @@ use crate::{
     instruction::{CallTarget, Constant, Instruction, RuntimeHelper},
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
-use kagari_contract::representation::host_representation;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        contracts::{self, ContractError, RuntimeHelperKind},
-        operations::{self, range_operands_valid},
-        types::{PublicItem, Ty, verify::types_in_scope},
-    },
+use kagari_abi::representation::ValueType;
+use kagari_contract::{
+    contracts,
+    contracts::{ContractError, RuntimeHelperKind},
+    operations,
+    operations::range_operands_valid,
+    representation::{host_representation, semantic_representation},
+    types::PublicItem,
 };
-
-use kagari_common::host_interface::{HostInterface, type_declaration::PathAccess};
+use kagari_types::{
+    declaration::verify::types_in_scope,
+    host_interface::{HostInterface, type_declaration::PathAccess},
+    ty::Ty,
+};
 use std::collections::HashSet;
 
 pub(super) fn verify(
@@ -78,8 +81,12 @@ pub(super) fn verify(
                     reason: "invalid numeric conversion",
                 })
             })?;
-            context.expect(src.ty, input.representation(), "conversion source")?;
-            context.expect(dst.ty, output.representation(), "conversion destination")?;
+            context.expect(src.ty, semantic_representation(&input), "conversion source")?;
+            context.expect(
+                dst.ty,
+                semantic_representation(&output),
+                "conversion destination",
+            )?;
         }
         Instruction::Numeric {
             dst,
@@ -92,11 +99,11 @@ pub(super) fn verify(
                     reason: "invalid numeric contract",
                 })
             })?;
-            context.expect(lhs.ty, left.representation(), "numeric input")?;
-            context.expect(dst.ty, result.representation(), "numeric output")?;
+            context.expect(lhs.ty, semantic_representation(&left), "numeric input")?;
+            context.expect(dst.ty, semantic_representation(&result), "numeric output")?;
             match (right, rhs) {
                 (Some(ty), Some(value)) => {
-                    context.expect(value.ty, ty.representation(), "numeric rhs")?
+                    context.expect(value.ty, semantic_representation(&ty), "numeric rhs")?
                 }
                 (None, None) => {}
                 _ => {
@@ -173,11 +180,15 @@ pub(super) fn verify(
                     }));
                 }
                 for (arg, param) in args.iter().zip(&call.signature.params) {
-                    context.expect(arg.ty, param.representation(), "shared call argument")?;
+                    context.expect(
+                        arg.ty,
+                        semantic_representation(param),
+                        "shared call argument",
+                    )?;
                 }
                 contracts::verify_call_dst(
                     dst.map(|v| v.ty),
-                    call.signature.result.representation(),
+                    semantic_representation(&call.signature.result),
                 )
                 .map_err(contract)?;
             }
@@ -256,7 +267,7 @@ pub(super) fn verify(
                         interface_call
                             .receiver
                             .as_ref()
-                            .map_or(ValueType::HeapObject, |ty| ty.representation()),
+                            .map_or(ValueType::HeapObject, semantic_representation),
                         "interface receiver",
                     )?;
                 }
@@ -346,7 +357,11 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "repeat array destination")?;
             context.expect(count.ty, ValueType::U64, "repeat array count")?;
-            context.expect(value.ty, element.representation(), "repeat array element")?;
+            context.expect(
+                value.ty,
+                semantic_representation(element),
+                "repeat array element",
+            )?;
             if !element.within_wire_limits()
                 || (!element.is_concrete()
                     && !function
@@ -379,7 +394,7 @@ pub(super) fn verify(
                 }));
             }
             for value in elements {
-                context.expect(value.ty, element.representation(), "array element")?;
+                context.expect(value.ty, semantic_representation(element), "array element")?;
             }
         }
         Instruction::MakeTuple { dst, .. } => {
@@ -469,7 +484,7 @@ pub(super) fn verify(
                 .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
             context.expect(
                 value.ty,
-                table.for_type.representation(),
+                semantic_representation(&table.for_type),
                 "interface receiver",
             )?;
         }
@@ -532,7 +547,7 @@ pub(super) fn verify(
             }
             for (value, ty) in fields.iter().zip(&variant.payload) {
                 context.check_cancel()?;
-                context.expect(value.ty, ty.representation(), "enum payload")?;
+                context.expect(value.ty, semantic_representation(ty), "enum payload")?;
             }
         }
         Instruction::TestEnumVariant {
@@ -573,7 +588,11 @@ pub(super) fn verify(
                 .and_then(|layout| layout.variants.get(*variant).cloned())
                 .and_then(|variant| variant.payload.get(*index).cloned())
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
-            context.expect(dst.ty, payload.representation(), "enum pattern payload")?;
+            context.expect(
+                dst.ty,
+                semantic_representation(&payload),
+                "enum pattern payload",
+            )?;
         }
         Instruction::MakeStruct {
             dst,
@@ -599,7 +618,7 @@ pub(super) fn verify(
                 }
                 context.expect(
                     field.value.ty,
-                    target.ty.representation(),
+                    semantic_representation(&target.ty),
                     "struct field initializer",
                 )?;
             }
@@ -610,7 +629,7 @@ pub(super) fn verify(
                 .structure(&field.owner)
                 .and_then(|layout| layout.fields.get(field.slot).cloned())
                 .ok_or_else(|| context.error(Error::InvalidField))?;
-            context.expect(dst.ty, target.ty.representation(), "field read")?;
+            context.expect(dst.ty, semantic_representation(&target.ty), "field read")?;
         }
         Instruction::WriteAggregateField { base, field, value } => {
             context.expect(base.ty, ValueType::HeapObject, "field base")?;
@@ -621,7 +640,7 @@ pub(super) fn verify(
             if !target.mutable {
                 return Err(context.error(Error::ReadOnlyField));
             }
-            context.expect(value.ty, target.ty.representation(), "field write")?;
+            context.expect(value.ty, semantic_representation(&target.ty), "field write")?;
         }
         Instruction::ReadAggregateIndex { base, index, .. }
         | Instruction::WriteAggregateIndex { base, index, .. } => {

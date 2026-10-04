@@ -1,17 +1,19 @@
 //! Scalar operators, callable output and Iterator's identity Iterable rule.
 //! Collections and library traits are proved from carried implementation records.
-use crate::{
-    language::{self, Protocol},
-    numeric,
-    scalar::BuiltinType,
-    types::{
-        Constraint, GenericBound, NominalTy, TraitDef, Ty,
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
-};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionPath, associated_type_id},
+};
+use kagari_types::{
+    conversion as numeric,
+    declaration::TraitDef,
+    language,
+    language::Protocol,
+    scalar::BuiltinType,
+    ty::{
+        Constraint, GenericBound, NominalTy, Ty,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
 };
 use std::collections::BTreeMap;
 

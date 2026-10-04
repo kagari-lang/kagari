@@ -6,12 +6,10 @@ use crate::{
     native::NativeBinding,
     typeck::FunctionImplementation,
 };
-use {
-    kagari_common::host_interface::{
-        type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    },
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::host_interface::{
+    type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
+    value_type::HostValueType,
 };
 
 fn location(uri: &str) -> HostSourceLocation {

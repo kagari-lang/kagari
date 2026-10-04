@@ -1,12 +1,16 @@
 use crate::{
-    language::{Protocol, primitive as intrinsic},
-    types::{
-        Ty, inheritance, matching,
-        proofs::{Budget, ProofCatalog, host_application, satisfies, search::Search},
+    language::primitive as intrinsic,
+    types::proofs::{Budget, ProofCatalog, host_application, satisfies, search::Search},
+};
+use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
+use kagari_types::{
+    language::Protocol,
+    ty::{
+        Ty, inheritance,
+        matching::projection_output,
         substitution::{TypeTransformError, normalize_projections},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
 
 impl ProofCatalog<'_> {
     pub fn normalize(&self, ty: &Ty, cancel: &CancellationToken) -> Result<Ty, TypeTransformError> {
@@ -73,7 +77,7 @@ impl ProofCatalog<'_> {
                 for implementation in &self.implementations {
                     budget.step(depth)?;
                     if let Some(output) =
-                        matching::projection_output(
+                        projection_output(
                             implementation
                                 .pattern(implementation.interface().and_then(|interface| {
                                     self.trait_contract(&interface.declaration)

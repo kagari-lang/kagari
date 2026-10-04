@@ -4,9 +4,8 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_source::source::SourceFile;
-
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -326,7 +325,10 @@ fn main() -> i32 {
 #[test]
 fn forged_constraint_operations_are_rejected_before_execution() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_contract::{callable::witness::OperationWitness, scalar::BuiltinType, types::Ty};
+    use {
+        kagari_contract::callable::witness::OperationWitness,
+        kagari_types::{scalar::BuiltinType, ty::Ty},
+    };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

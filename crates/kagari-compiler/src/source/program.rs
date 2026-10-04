@@ -1,20 +1,23 @@
-use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions};
-use kagari_contract::{
-    callable::CallableImplementation,
-    types::{ConcreteFunctionIdentity, GenericParam},
+use crate::source::{
+    lower,
+    lower::{MirLoweringError, instances::MirLoweringOptions},
 };
-use kagari_hir::program::CheckedProgram;
-use kagari_hir::{resolver::resolved::ResolvedName, typeck::FunctionImplementation};
+use kagari_common::identity::ModuleIdentity;
+use kagari_contract::types::ConcreteFunctionIdentity;
+use kagari_hir::{
+    program::CheckedProgram, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
+};
 use kagari_mir::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
     program::{ProgramError, ProgramErrorKind, VerifiedMirProgram, verify_program},
 };
+use kagari_source::diagnostic::DiagnosticKind;
+use kagari_types::{callable::CallableImplementation, ty::GenericParam};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     iter,
 };
-use {kagari_common::identity::ModuleIdentity, kagari_source::diagnostic::DiagnosticKind};
 
 #[derive(Debug)]
 pub enum SourceProgramError {

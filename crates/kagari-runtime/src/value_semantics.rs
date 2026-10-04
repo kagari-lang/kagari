@@ -9,7 +9,8 @@ use crate::{
 use kagari_contract::types as abi;
 use std::{
     cmp::Ordering,
-    fmt::{self, Error, Write},
+    fmt,
+    fmt::{Error, Write},
 };
 
 /// Collection interface boxes preserve the identity of their underlying object.
@@ -310,10 +311,9 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
 
 #[cfg(test)]
 mod tests {
-    use kagari_bytecode::instruction::EnumId;
-    use kagari_contract::{scalar::BuiltinType, types::Ty};
-
     use super::*;
+    use kagari_bytecode::instruction::EnumId;
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
 
     #[test]
     fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
@@ -324,10 +324,9 @@ mod tests {
         use kagari_common::identity::{
             DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
         };
-        use kagari_contract::{
-            layout::{EnumLayout, EnumVariantLayout},
-            scalar::BuiltinType,
-            types::Ty,
+        use {
+            kagari_contract::layout::{EnumLayout, EnumVariantLayout},
+            kagari_types::{scalar::BuiltinType, ty::Ty},
         };
 
         let identity = ModuleIdentity::single_file("enum-equality.kgr");

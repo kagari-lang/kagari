@@ -1,5 +1,4 @@
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_contract::{scalar::BuiltinType, types::Ty};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -8,6 +7,7 @@ use kagari_embed::{
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 
 #[test]

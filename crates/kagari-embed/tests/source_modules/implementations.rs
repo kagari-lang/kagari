@@ -135,7 +135,7 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         _ => None,
     });
     method.unwrap().return_type =
-        kagari_contract::types::Ty::Builtin(kagari_contract::scalar::BuiltinType::Bool);
+        kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::Bool);
     assert!(matches!(
         verify_program(&wrong_contract),
         Err(BytecodeVerificationError::InvalidInterfaceTable)

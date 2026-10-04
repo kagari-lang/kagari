@@ -1,18 +1,16 @@
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
-use kagari_common::{
+use kagari_runtime::{Runtime, host::HostFunction, value::Value};
+use kagari_types::{
     collection::CollectionAccess,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter,
         HostPassingStyle, value_type::HostValueType,
     },
 };
-
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-
-use kagari_runtime::{Runtime, host::HostFunction, value::Value};
 
 fn declaration() -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(

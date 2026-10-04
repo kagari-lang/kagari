@@ -3,14 +3,12 @@ use crate::{
     analysis::AnalysisDatabase, callable::CallableSignature, native::NativeBinding,
     typeck::FunctionImplementation,
 };
-use {
-    kagari_common::host_interface::{HostParameter, HostPassingStyle},
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
-};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::host_interface::{HostParameter, HostPassingStyle};
 
 #[test]
 fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
-    use kagari_common::host_interface::type_declaration::{
+    use kagari_types::host_interface::type_declaration::{
         HostFieldDeclaration, HostTypeDeclaration,
     };
     let mut declaration = HostTypeDeclaration::new("model.Player");

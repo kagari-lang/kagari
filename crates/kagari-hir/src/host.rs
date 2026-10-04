@@ -9,9 +9,26 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 
-use kagari_contract::{
-    host::satisfies_standard_constraint, language::Protocol, scalar::BuiltinType,
-    standard::surface::StandardEnum,
+use callable::{HostCallable, HostSignature};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::{DefinitionPath, ModuleIdentity},
+    span::Span,
+};
+use kagari_contract::host::satisfies_standard_constraint;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostInterfaceError,
+        path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::{
+            HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,
+        },
+        value_type::HostValueType,
+    },
+    language::Protocol,
+    scalar::BuiltinType,
+    surface::StandardEnum,
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -21,26 +38,9 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-use {
-    kagari_common::{
-        cancellation::{CancellationToken, Cancelled},
-        host_interface::{
-            HostFunctionDeclaration, HostInterface, HostInterfaceError,
-            path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
-            type_declaration::{
-                HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,
-            },
-            value_type::HostValueType,
-        },
-        identity::{DefinitionPath, ModuleIdentity},
-        span::Span,
-    },
-    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
-};
 
 pub mod callable;
 pub mod origin;
-use callable::{HostCallable, HostSignature};
 
 #[cfg(test)]
 mod facade_tests;

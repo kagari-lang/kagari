@@ -1,4 +1,9 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use kagari_abi::representation::ValueType;
+use kagari_common::identity;
+use kagari_contract::{
+    callable::interface::InterfaceCallContract, numeric::NumericOperation, operations::BinaryOp,
+};
 use kagari_hir::{
     builtin::array_bridge,
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
@@ -6,20 +11,11 @@ use kagari_hir::{
     resolver::resolved::ResolvedName,
     types::{TypeId, abi::lower_nominal_type},
 };
-
-use kagari_common::identity;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        callable::interface::InterfaceCallContract, language::Protocol, numeric::NumericOperation,
-        operations::BinaryOp, scalar::BuiltinType, types::NominalTy,
-    },
-};
-
 use kagari_mir::{
     ids::LocalId,
     instruction::{AggregateFieldRef, CallTarget, Instruction, MirValue, PathRef, ValueBuffer},
 };
+use kagari_types::{language::Protocol, scalar::BuiltinType, ty::NominalTy};
 use std::ops::ControlFlow;
 
 pub(super) struct PreparedPlace {

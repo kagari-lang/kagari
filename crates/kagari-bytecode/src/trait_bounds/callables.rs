@@ -1,9 +1,11 @@
 //! Selected native callbacks must have a matching concrete executable target.
 use crate::module::BytecodeModule;
 use kagari_contract::{
-    callable::{CallableImplementation, witness::OperationWitness},
+    callable::witness::OperationWitness,
     native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
+    representation::semantic_representation,
 };
+use kagari_types::callable::CallableImplementation;
 
 pub(super) fn witness_valid(operation: &OperationWitness, closure: &[&BytecodeModule]) -> bool {
     match operation {
@@ -61,8 +63,9 @@ pub(super) fn target_valid(call: &NativeCallableApplication, closure: &[&Bytecod
                         .params
                         .iter()
                         .zip(&call.signature.params)
-                        .all(|(physical, semantic)| *physical == semantic.representation())
-                    && function.metadata.return_type == call.signature.result.representation()
+                        .all(|(physical, semantic)| *physical == semantic_representation(semantic))
+                    && function.metadata.return_type
+                        == semantic_representation(&call.signature.result)
                     && function.metadata.semantic.params.len() == call.signature.params.len()
                     && call.signature.params.iter().enumerate().all(|(index, ty)| {
                         function.metadata.semantic.params.get(&index) == Some(ty)

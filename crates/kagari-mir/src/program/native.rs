@@ -10,11 +10,16 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 use kagari_contract::{
-    callable::CallableImplementation,
     native_import::{NativeSignature, callables::NativeCallableOrigin},
     types::{
-        ConcreteFunctionIdentity, GenericParam, PublicItem,
+        ConcreteFunctionIdentity, PublicItem,
         proofs::{ProofCatalog, implementation::Implementation},
+    },
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    ty::{
+        GenericParam,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };

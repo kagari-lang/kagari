@@ -1,16 +1,20 @@
 //! Checked implementation sources share pattern matching without invented tables.
-use crate::{
-    callable::CallableImplementation,
-    declaration::ImplDecl,
-    types::{
-        AssociatedTypeFamily, FnDecl, GenericBound, GenericParam, InterfaceTable, NominalTy,
-        TraitDef, Ty,
-        matching::ImplementationPattern,
-        substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
-        verify::types_in_scope,
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+
+use {
+    crate::types::InterfaceTable,
+    kagari_types::{
+        callable::CallableImplementation,
+        declaration::{
+            AssociatedTypeFamily, FnDecl, TraitDef, module::ImplDecl, verify::types_in_scope,
+        },
+        ty::{
+            GenericBound, GenericParam, NominalTy, Ty,
+            matching::ImplementationPattern,
+            substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+        },
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 
 /// Source-independent facts from a verified interface or validated registration.
 /// The caller owns declaration/method validation; proof checks applicability.

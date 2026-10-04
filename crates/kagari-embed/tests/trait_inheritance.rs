@@ -1,17 +1,14 @@
 use kagari_bytecode::program::verify_program;
-use kagari_source::source::SourceFile;
-use {
-    kagari_embed::{context::JitPolicy, error::EmbeddingError},
-    kagari_vm::vm::Vm,
-};
-
 use kagari_embed::{
     BytecodeArtifact,
-    context::ExecutionContext,
+    context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
+    error::EmbeddingError,
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
+use kagari_vm::vm::Vm;
 
 fn compile(source: &str) -> Result<BytecodeArtifact, EmbeddingError> {
     KagariEngine::default().compile_to_artifact(
@@ -269,7 +266,7 @@ fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected()
             };
             ty.supertraits.push(parent);
         } else {
-            module.public_items.retain(|item| !matches!(item, PublicItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_contract::types::Ty::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
+            module.public_items.retain(|item| !matches!(item, PublicItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_types::ty::Ty::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
         }
         assert!(verify_program(&program).is_err());
     }

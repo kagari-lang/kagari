@@ -13,7 +13,7 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::Ty;
+use kagari_types::ty::Ty;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]

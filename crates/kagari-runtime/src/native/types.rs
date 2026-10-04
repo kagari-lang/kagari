@@ -4,10 +4,10 @@ use crate::{
     native::binding::{Codec, NativeResult},
 };
 use kagari_common::identity::{DefinitionPath, associated_type_id};
-use kagari_contract::{
-    declaration::ModuleDecl,
+use kagari_types::{
+    declaration::{TraitDef, TypeDef, module::ModuleDecl},
     scalar::BuiltinType,
-    types::{NominalTy, TraitDef, Ty, TypeDef},
+    ty::{NominalTy, Ty},
 };
 use std::{collections::BTreeMap, sync::Arc};
 

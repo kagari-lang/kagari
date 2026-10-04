@@ -8,9 +8,8 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::types::Ty;
+use kagari_types::{collection::CollectionAccess, ty::Ty};
 use std::{mem, ops::Bound, rc::Rc};
 
 fn invalid() -> RuntimeError {

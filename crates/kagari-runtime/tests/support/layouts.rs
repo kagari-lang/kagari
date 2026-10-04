@@ -3,25 +3,22 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_contract::{
-    layout::{StructFieldLayout, StructLayout},
-    types::Ty,
-};
-
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
 };
+use kagari_contract::layout::{StructFieldLayout, StructLayout};
 use kagari_runtime::{
     Runtime,
     module::{LoadedModule, StructLayoutRef},
     value::Value,
 };
+use kagari_types::ty::Ty;
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value(runtime: &mut Runtime) -> Value {
     interface_value_with(
         runtime,
-        Ty::Builtin(kagari_contract::scalar::BuiltinType::I32),
+        Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
         Value::I32(7),
     )
 }
@@ -32,7 +29,10 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Valu
         module::InterfaceTableRecord,
         program::{BytecodeProgram, ModuleRef},
     };
-    use kagari_contract::types::{InterfaceTable, NominalTy, PublicItem, TraitDef};
+    use {
+        kagari_contract::types::{InterfaceTable, PublicItem},
+        kagari_types::{declaration::TraitDef, ty::NominalTy},
+    };
     let identity = ModuleIdentity::single_file("interface-fixture.kgr");
     let declaration = |kind, name: &str| DefinitionPath {
         module: identity.clone(),

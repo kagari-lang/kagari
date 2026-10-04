@@ -1,29 +1,8 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
+use kagari_contract::representation::semantic_representation;
 mod applications;
 mod native;
 mod shared;
-use kagari_common::{
-    cancellation::CancellationToken,
-    host_interface::HostInterface,
-    identity::{
-        DefinitionKind, DefinitionPath, ModuleIdentity,
-        mapping::{DefinitionMapper, DefinitionRecord},
-        table::{DefinitionId, DefinitionTable},
-    },
-};
-use std::collections::{HashMap, HashSet};
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        contracts, host,
-        language::Protocol,
-        types::{
-            self as abi, ConcreteFunctionIdentity, PublicItem, Ty, inheritance,
-            substitution::TypeTransformError,
-        },
-    },
-};
-
 use crate::{
     function::MirModule,
     ids::InstanceId,
@@ -32,6 +11,25 @@ use crate::{
         MirVerificationError, VerificationBudget, VerifiedMirModule, ownership, verify_with_budget,
     },
 };
+use kagari_abi::representation::ValueType;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind, DefinitionPath, ModuleIdentity,
+        mapping::{DefinitionMapper, DefinitionRecord},
+        table::{DefinitionId, DefinitionTable},
+    },
+};
+use kagari_contract::{
+    contracts, host, types as abi,
+    types::{ConcreteFunctionIdentity, PublicItem},
+};
+use kagari_types::{
+    host_interface::HostInterface,
+    language::Protocol,
+    ty::{Ty, inheritance, substitution::TypeTransformError},
+};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProgramFunctionRef {
@@ -445,7 +443,7 @@ pub fn verify_program(
                     })
                     .is_some_and(|table| {
                         dst.ty == ValueType::HeapObject
-                            && value.ty == table.for_type.representation()
+                            && value.ty == semantic_representation(&table.for_type)
                             && table.generic_params.is_empty()
                     });
                 if !valid {

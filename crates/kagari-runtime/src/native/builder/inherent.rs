@@ -9,7 +9,10 @@ use crate::{
     },
 };
 use kagari_common::identity::DefinitionPath;
-use kagari_contract::{callable::CallableImplementation, declaration::ModuleDecl, types::FnDecl};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{FnDecl, module::ModuleDecl},
+};
 use std::collections::BTreeMap;
 
 pub struct InherentMethodsBuilder {

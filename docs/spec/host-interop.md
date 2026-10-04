@@ -108,8 +108,8 @@ Rust consumers import each API from its owning module. For example,
 `kagari_runtime::native::api`, typed conversions to `kagari_runtime::native_value`,
 and array handles to `kagari_runtime::native_value::array`. The `native_module`
 attribute belongs to `kagari_native_macros`; consumers declare that direct
-dependency. Native type wrapper expansions also name `kagari_contract::types::Ty`
-and require a direct `kagari-contract` dependency. Crate roots do not re-export these
+dependency. Native type wrapper expansions also name `kagari_types::ty::Ty`
+and require a direct `kagari-types` dependency. Crate roots do not re-export these
 items. Any future re-export requires a reviewed exact whitelist entry under the
 [structure-check policy](../structure-checks.md).
 
@@ -147,7 +147,7 @@ opaque/type/path adapters remains pending; their identity, declared access, scop
 borrow, schema and output checks below continue to apply.
 
 The current function API is `HostFunction::new(declaration, callback)`. Its
-`HostFunctionDeclaration` comes from `kagari_common::host_interface`, which has no
+`HostFunctionDeclaration` comes from `kagari_types::host_interface`, which has no
 runtime dependency. It carries a `DefinitionPath`, export label, typed parameters
 and result, passing styles, effects and documentation.
 `HostValueType` covers scalar and composite representations plus opaque nominal

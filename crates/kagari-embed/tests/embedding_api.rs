@@ -1,26 +1,16 @@
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{ids::FunctionRef, native_import::NativeImport},
-};
-use {
-    kagari_bytecode::{
-        module::RootSlotLayout,
-        program::{BytecodeProgram, ModuleRef},
-    },
-    kagari_common::host_interface::{
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    },
-    kagari_runtime::host::HostPathDescriptor,
-};
-
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     instruction::{
         BytecodeInstruction, CallTarget, ConstantOperand, NativeImportId, PathId, Register,
     },
-    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
+    module::{
+        BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord,
+        RootSlotLayout,
+    },
+    program::{BytecodeProgram, ModuleRef},
 };
+use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -29,20 +19,22 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions, ReloadOptions},
 };
+use kagari_runtime::{
+    host::{
+        HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptor,
+        HostPathDescriptorId, HostPathDescriptorRegistration, HostPathSegmentRegistration,
+        HostSchemaEpoch, HostTypeRegistration,
+    },
+    metadata::{AbiFingerprint, TypeKind, TypeRegistration},
+    value::Value,
+};
 use kagari_source::source::SourceFile;
-use {
-    kagari_common::host_interface::type_declaration::{
-        HostReflectionPolicy, HostTypeOwnership, PathAccess,
+use kagari_types::host_interface::{
+    type_declaration::{
+        HostFieldDeclaration, HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership,
+        PathAccess,
     },
-    kagari_runtime::{
-        host::{
-            HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptorId,
-            HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
-            HostTypeRegistration,
-        },
-        metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-        value::Value,
-    },
+    value_type::HostValueType,
 };
 
 fn compile_artifact(
@@ -81,7 +73,7 @@ fn register_embedding_host_path_runtime(
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::HostFunctionDeclaration::new(
+            kagari_types::host_interface::HostFunctionDeclaration::new(
                 "host.player",
                 vec![],
                 HostValueType::opaque("game.Player"),
@@ -169,7 +161,7 @@ fn host_path_artifact(
                     )
                 }) {
                     vec![NativeImport::from_host(
-                        &kagari_common::host_interface::HostFunctionDeclaration::new(
+                        &kagari_types::host_interface::HostFunctionDeclaration::new(
                             "host.player",
                             vec![],
                             HostValueType::opaque("game.Player"),
@@ -178,7 +170,7 @@ fn host_path_artifact(
                 } else {
                     vec![]
                 },
-                host_interface: kagari_common::host_interface::HostInterface {
+                host_interface: kagari_types::host_interface::HostInterface {
                     paths: vec![],
                     types: if instructions.iter().any(|instruction| {
                         matches!(
@@ -202,7 +194,7 @@ fn host_path_artifact(
                             }
                         )
                     }) {
-                        vec![kagari_common::host_interface::HostFunctionDeclaration::new(
+                        vec![kagari_types::host_interface::HostFunctionDeclaration::new(
                             "host.player",
                             vec![],
                             HostValueType::opaque("game.Player"),
@@ -643,7 +635,7 @@ fn installed_host_and_reflection_helpers_are_available() {
     let mut runtime = engine.runtime(ExecutionContext::default());
     runtime
         .register_host_function(HostFunction::new(
-            kagari_common::host_interface::standard_log(),
+            kagari_types::host_interface::standard_log(),
             |_, _| Ok(Value::Unit),
         ))
         .unwrap();

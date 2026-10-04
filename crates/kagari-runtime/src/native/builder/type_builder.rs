@@ -9,7 +9,10 @@ use crate::{
     },
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPath};
-use kagari_contract::types::{GenericParam, Ty, TypeDef, TypeDefKind};
+use kagari_types::{
+    declaration::{TypeDef, TypeDefKind},
+    ty::{GenericParam, Ty},
+};
 use std::sync::Arc;
 
 pub struct TypeBuilder<'module> {

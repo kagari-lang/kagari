@@ -1,11 +1,9 @@
 //! Checked product of handwritten library/core trait modules.
 //! Executable consumers decode declarations without loading source or HIR.
-use crate::{
-    language::{self, role::LangRole},
-    types::{PublicItem, TraitDef, verify},
-};
+use crate::types::{PublicItem, verify};
 use bincode::{DefaultOptions, Options};
 use kagari_common::cancellation::CancellationToken;
+use kagari_types::{declaration::TraitDef, language, language::role::LangRole};
 use std::sync::OnceLock;
 
 pub(crate) fn declarations() -> Vec<TraitDef> {

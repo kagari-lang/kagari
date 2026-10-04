@@ -8,17 +8,13 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
-    callable::{
-        CallableImplementation,
-        witness::{OperationWitness, SharedMethodWitness},
-    },
+    callable::witness::{OperationWitness, SharedMethodWitness},
     effects::EffectSet,
-    language::Protocol,
     native_import::{
         NativeImport, NativeSignature,
-        callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
+        callables::{NativeCallableApplication, NativeCallableOrigin},
     },
-    types::{ConcreteFunctionIdentity, NativeDeclaration, substitution::TypeSubstitution},
+    types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault,
@@ -28,6 +24,12 @@ use kagari_hir::{
         TypeId, TypeSubstitution as HirSubstitution,
         abi::{lower_nominal_type, lower_type},
     },
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{NativeDeclaration, requirement::NativeCallableRequirement},
+    language::Protocol,
+    ty::substitution::TypeSubstitution,
 };
 
 impl InstancePlanner<'_> {

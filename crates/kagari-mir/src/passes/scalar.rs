@@ -1,20 +1,15 @@
-use kagari_common::{
-    arithmetic::{self, IntegerBinaryOp},
-    integer::{self, IntegerOp},
-};
-use kagari_contract::representation::builtin_representation;
-use std::cmp::Ordering;
-use {
-    kagari_abi::representation::ValueType,
-    kagari_contract::{
-        numeric::NumericOperation,
-        operations::{BinaryOp, UnaryOp},
-        scalar::BuiltinType,
-        types::Ty,
-    },
-};
-
 use crate::instruction::Constant;
+use kagari_abi::representation::ValueType;
+use kagari_contract::{
+    numeric::NumericOperation,
+    operations::{BinaryOp, UnaryOp},
+    representation::builtin_representation,
+};
+use kagari_types::{
+    arithmetic, arithmetic::IntegerBinaryOp, integer, integer::IntegerOp, scalar::BuiltinType,
+    ty::Ty,
+};
+use std::cmp::Ordering;
 
 /// Copyable, bounded facts. Strings/heap values/floating-point payloads are not
 /// copied or interpreted by these portable scalar passes.

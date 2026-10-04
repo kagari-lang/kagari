@@ -1,8 +1,6 @@
 use super::*;
-use kagari_common::{
-    collection::CollectionAccess,
-    identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity},
-};
+use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity};
+use kagari_types::collection::CollectionAccess;
 
 fn definition(module: &str, kind: DefinitionKind) -> DefinitionPath {
     DefinitionPath {
@@ -17,7 +15,7 @@ fn definition(module: &str, kind: DefinitionKind) -> DefinitionPath {
 
 #[test]
 fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
-    use kagari_common::collection::CollectionAccess::{Mutable, ReadOnly};
+    use kagari_types::collection::CollectionAccess::{Mutable, ReadOnly};
     let parameter = GenericParameterType {
         owner: definition("collection.kgr", DefinitionKind::Function),
         position: 0,

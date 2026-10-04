@@ -1,6 +1,6 @@
 //! Representation sizes only; execution and artifact sizes require integration.
 use kagari_common::identity::{DefinitionPath, table::DefinitionId};
-use kagari_contract::types::{GenericParam, NominalTy, Ty};
+use kagari_types::ty::{GenericParam, NominalTy, Ty};
 
 fn main() {
     println!(

@@ -1,16 +1,15 @@
 mod support;
-use kagari_contract::language as standard_traits;
+use kagari_bytecode::program::verify_program;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
+    error::EmbeddingError,
     program::PreparedProgram,
 };
-use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
-
-use kagari_source::source::SourceFile;
-
 use kagari_runtime::value::Value;
+use kagari_source::source::SourceFile;
+use kagari_types::language as standard_traits;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -358,9 +357,9 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
 
 #[test]
 fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
-    use kagari_contract::{
-        language::Protocol,
-        types::{PublicItem, Ty},
+    use {
+        kagari_contract::types::PublicItem,
+        kagari_types::{language::Protocol, ty::Ty},
     };
     let artifact = KagariEngine::default()
         .compile_to_artifact(

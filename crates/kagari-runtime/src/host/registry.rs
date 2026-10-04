@@ -15,14 +15,15 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_common::{
+use kagari_common::identity::DefinitionPath;
+use kagari_types::{
+    host_interface,
     host_interface::{
-        self, HostInterface,
+        HostInterface,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::{HostTypeOwnership, PathAccess, Visibility},
         value_type::HostValueType,
     },
-    identity::DefinitionPath,
 };
 use std::iter;
 

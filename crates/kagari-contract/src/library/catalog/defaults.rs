@@ -1,21 +1,20 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
 use crate::library::catalog::contracts::{applied_item, method, unit};
-use crate::library::catalog::key::{self, RegistrationTrait};
-use crate::{
+use crate::library::catalog::{key, key::RegistrationTrait};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
+use kagari_types::{
     callable::CallableImplementation,
-    declaration::{ImplDecl, ModuleDecl},
-    native_import::callables::NativeCallableRequirement,
-    scalar::BuiltinType,
-    standard::surface::StandardEnum,
-    types::{
-        Constraint, FnDecl, GenericBound, GenericParam, NominalTy, Ty, TypeDef, TypeDefKind,
-        VariantDef, native::NativeTypeConstructor, substitution::TypeSubstitution,
-    },
-};
-use kagari_common::{
     collection::CollectionAccess,
-    identity::{DefinitionKind, DefinitionPath, associated_type_id},
+    declaration::{
+        FnDecl, TypeDef, TypeDefKind, VariantDef,
+        module::{ImplDecl, ModuleDecl},
+        native::NativeTypeConstructor,
+        requirement::NativeCallableRequirement,
+    },
     range::RangeKind,
+    scalar::BuiltinType,
+    surface::StandardEnum,
+    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
 
 fn define_type(
