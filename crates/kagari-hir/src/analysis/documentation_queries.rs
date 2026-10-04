@@ -16,10 +16,10 @@ use kagari_syntax::ast::{
 };
 use {
     kagari_common::{
-        identity::{reference::DefinitionReference, table::DefinitionId},
+        identity::{ModuleIdentity, reference::DefinitionReference, table::DefinitionId},
         span::Span,
     },
-    kagari_source::identity::FileId,
+    kagari_source::identity::{FileId, FileSpan},
 };
 
 #[cfg(test)]
@@ -49,7 +49,28 @@ impl FileAnalysis {
     }
 }
 
+/// Module Markdown and its location in this immutable analysis snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleDocumentation {
+    pub module: ModuleIdentity,
+    pub location: FileSpan,
+    pub documentation: String,
+}
+
 impl DeclarationSnapshot {
+    pub fn module_documentation(&self, module: &ModuleIdentity) -> Option<ModuleDocumentation> {
+        let file = self
+            .files
+            .values()
+            .find(|file| file.source().module_identity() == module)?;
+        let source = file.source();
+        Some(ModuleDocumentation {
+            module: module.clone(),
+            location: source.span(Span::new(0, source.text().len()))?,
+            documentation: file.syntax().module_documentation(),
+        })
+    }
+
     /// Read documentation without resolving or checking any function body.
     /// Identities absent from this snapshot never fall back to a global catalog.
     pub fn documentation<I: DefinitionReference>(
@@ -61,6 +82,19 @@ impl DeclarationSnapshot {
 }
 
 impl AnalysisSnapshot {
+    pub fn module_documentation_at(
+        &self,
+        file: FileId,
+        offset: usize,
+    ) -> Option<ModuleDocumentation> {
+        let target = self.source_import_at(file, offset)?;
+        if target.item.is_some() {
+            return None;
+        }
+        self.declaration_snapshot()
+            .module_documentation(&target.module)
+    }
+
     /// Read source metadata for the resolved declaration at a use or declaration site.
     pub fn documentation_at(
         &self,

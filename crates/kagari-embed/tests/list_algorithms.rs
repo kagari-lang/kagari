@@ -251,10 +251,9 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
                 },
             )
             .unwrap();
-        let engine = KagariEngine::builder()
-            .install(module.finish().unwrap())
-            .build()
-            .unwrap();
+        let mut builder = KagariEngine::builder().unwrap();
+        builder.install(module.finish().unwrap()).unwrap();
+        let engine = builder.build().unwrap();
         let source = format!(
             "use test::cancellation::{{keep, visit}}; fn main() {{ val values = [1,3,2,0]; keep(values); values.{operation}; }}"
         );

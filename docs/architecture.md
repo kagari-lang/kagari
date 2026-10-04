@@ -297,8 +297,9 @@ their declarations; there is no additional metadata acquisition step.
 
 For editor/LSP use, the tooling host materializes these documents as real `.kgr`
 files in a configurable generated-source cache, for example
-`target/kagari/declarations/<snapshot>/std/vec.kgr`. Navigation returns the file URI
-and the precise range in that same rendered content. Analysis can retain an
+`target/kagari-declarations/kgr-native-v1/<content-hash>.kgr`. The SDK returns
+normalized absolute file paths and precise ranges in the same rendered content;
+LSP adapters encode those paths as file URIs at their protocol boundary. Analysis can retain an
 in-memory snapshot; materialization does not require rereading files to recover
 registered declarations. Filesystem IO belongs to the tooling/host integration,
 not types, contract, HIR's renderer or generic runtime.
@@ -348,12 +349,11 @@ an automatic doctest runner.
 
 ### Registration API draft
 
-The following API shape is proposed for review; it is not implemented. Preserve
-the existing explicit-signature/binding model and existing builders where their
-responsibilities fit. Add documentation support and change provider ownership
-rather than introducing a second registration model.
+The Engine builder uses the same explicit-signature/binding model as standalone
+native libraries. Registration and configuration operations mutate the builder;
+`build` consumes it and seals the module set.
 
-| API | Draft behavior |
+| API | Behavior |
 | --- | --- |
 | `KagariEngine::builder() -> NativeResult<KagariEngineBuilder>` | Construct a registration builder and install `kagari_stdlib::modules()` through the ordinary batch installation path; report any failure |
 | `builder.declarations() -> &DeclarationCatalog` | Read the checked providers already registered with this builder; no global foundation fallback |
@@ -393,8 +393,8 @@ When a cache directory is configured, it publishes complete files and associates
 their URIs with the same analyzed snapshots before exposing navigation. Without a
 directory it retains in-memory documents. Cache IO/errors belong to this SDK
 tooling integration, not to module registration or runtime execution; SDK errors
-retain the failing path and underlying cause. The default LSP/CLI tooling
-configuration supplies a directory; embedded hosts can choose either mode.
+retain the failing path and underlying cause. CLI source commands supply `target/kagari-declarations`; LSP hosts configure a
+directory through the builder. Embedded hosts can choose either mode.
 Standalone HIR accepts explicit declaration records and source origins from its
 caller without depending on Engine or stdlib.
 

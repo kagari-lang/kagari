@@ -163,7 +163,17 @@ impl AnalysisDatabase {
                 let modules = &self.native_modules;
                 let prepared = modules
                     .iter()
-                    .map(|module| native_api::import(module, modules, self.parse_limits, cancel))
+                    .enumerate()
+                    .map(|(index, module)| match &self.native_sources {
+                        Some(sources) => native_api::import_source(
+                            module,
+                            modules,
+                            &sources[index],
+                            self.parse_limits,
+                            cancel,
+                        ),
+                        None => native_api::import(module, modules, self.parse_limits, cancel),
+                    })
                     .collect::<Result<Vec<_>, _>>();
                 cancel.check()?;
                 self.native_files

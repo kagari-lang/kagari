@@ -14,6 +14,7 @@ use crate::{
     host::HostDeclarations,
     imports::{ImportTarget, ModuleGraph, SourceImport, functions::ImportedFunction},
     lower::LoweredModule,
+    native::render::DeclarationSource,
     resolver::resolved::ResolvedName,
     typeck::{
         ModuleSignatures,
@@ -43,7 +44,7 @@ use kagari_syntax::{
     parser::{Parse, ParseLimits},
 };
 use kagari_types::{
-    declaration::module::ModuleDecl,
+    declaration::module::{DeclarationError, ModuleDecl},
     host_interface::{
         HostFunctionDeclaration,
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
@@ -742,6 +743,7 @@ pub struct AnalysisDatabase {
     hosts: Arc<HostDeclarations>,
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
     native_modules: Vec<Arc<ModuleDecl>>,
+    native_sources: Option<Vec<DeclarationSource>>,
     native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
 }
 
@@ -761,6 +763,7 @@ impl Default for AnalysisDatabase {
             hosts: HostDeclarations::empty(),
             inline_ids: RefCell::new(HashMap::new()),
             native_modules: vec![],
+            native_sources: None,
             native_files: OnceCell::new(),
         }
     }
@@ -770,11 +773,29 @@ impl AnalysisDatabase {
     /// Native declarations are explicit snapshot inputs. Existing snapshots keep their owners.
     pub fn set_native_modules(&mut self, modules: Vec<Arc<ModuleDecl>>) {
         self.native_modules = modules;
+        self.native_sources = None;
         self.native_files.take();
         self.declaration_cache = None;
         self.signature_cache = None;
         self.body_cache.clear();
         self.files.clear();
+    }
+
+    /// Supply presentation origins in the same order as the explicit providers.
+    /// Every source is parsed and checked against its authoritative registration.
+    pub fn set_native_sources(
+        &mut self,
+        modules: Vec<Arc<ModuleDecl>>,
+        sources: Vec<DeclarationSource>,
+    ) -> Result<(), AnalysisError> {
+        if modules.len() != sources.len() {
+            return Err(AnalysisError::NativeApi(DeclarationError(
+                "native declaration source/provider inventory differs".into(),
+            )));
+        }
+        self.set_native_modules(modules);
+        self.native_sources = Some(sources);
+        Ok(())
     }
 
     pub fn set_max_semantic_diagnostics(&mut self, limit: usize) {

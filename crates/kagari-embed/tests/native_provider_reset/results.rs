@@ -87,11 +87,12 @@ fn engine() -> KagariEngine {
     let module = module.finish().unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::builder()
-        .config(config)
-        .install(module)
-        .build()
-        .unwrap()
+    {
+        let mut builder = KagariEngine::builder().unwrap();
+        builder.config(config);
+        builder.install(module).unwrap();
+        builder.build().unwrap()
+    }
 }
 
 fn artifact(engine: &KagariEngine, source: &str) -> KbcArtifact {

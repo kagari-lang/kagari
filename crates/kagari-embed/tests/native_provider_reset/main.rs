@@ -20,11 +20,14 @@ use kagari_source::source::SourceFile;
 use kagari_types::{declaration::FnDecl, scalar::BuiltinType, ty::Ty};
 
 fn engine(config: EngineConfig) -> KagariEngine {
-    KagariEngine::builder()
-        .config(config)
-        .install(provider::module(Default::default()))
-        .build()
-        .unwrap()
+    {
+        let mut builder = KagariEngine::builder().unwrap();
+        builder.config(config);
+        builder
+            .install(provider::module(Default::default()))
+            .unwrap();
+        builder.build().unwrap()
+    }
 }
 
 fn artifact(source: &str) -> KbcArtifact {

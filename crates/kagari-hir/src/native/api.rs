@@ -7,7 +7,6 @@ use crate::{
         item::{function::FunctionKind, module::Import, storage::Visibility},
         ty::TypeKind,
     },
-    language::source::{module_source, trait_source},
     lower::{LoweredModule, lower_module_controlled},
     native::{
         NativeBinding, NativeTypeKind,
@@ -25,7 +24,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_syntax::{
-    ast::{item::Item, traits::AstNode},
+    ast::traits::AstNode,
     parser::{Parse, ParseLimits, parse_declarations},
 };
 use kagari_types::{
@@ -37,7 +36,6 @@ use kagari_types::{
         ownership::ReceiverOwners,
     },
     language,
-    language::{Protocol, role::LangRole},
 };
 use std::{collections::HashSet, sync::Arc};
 
@@ -71,33 +69,11 @@ pub(crate) fn import_source(
     let id = sources
         .set(&generated.uri, generated.text.clone(), SourceLayer::Base)
         .map_err(DeclarationError)?;
-    let mut source = sources
+    let source = sources
         .snapshot()
         .file(id)
         .expect("native declaration source")
         .clone();
-    if language::is_language_module(&definition.identity) {
-        let (uri, authored_source) = module_source(&definition.identity.path[0]);
-        let original = Arc::new(SourceFile::new(uri, authored_source));
-        let view = Arc::make_mut(&mut source);
-        for role in LangRole::ALL
-            .into_iter()
-            .filter(|role| language::identity(role.protocol()).module == definition.identity)
-        {
-            let text = trait_source(role);
-            if let Some(start) = view.text().find(text) {
-                let authored = authored_source
-                    .find(text)
-                    .expect("handwritten trait fragment");
-                view.add_copy(
-                    Span::new(start, start + text.len()),
-                    original.clone(),
-                    Span::new(authored, authored + text.len()),
-                )
-                .map_err(|error| DeclarationError(error.into()))?;
-            }
-        }
-    }
     let parsed = parse_declarations(&source, limits, cancel)
         .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
     if !parsed.diagnostics().is_empty() {
@@ -131,8 +107,8 @@ pub(crate) fn import_source(
 }
 
 /// Exact non-trivia syntax correspondence prevents attaching a Rust entry to a
-/// changed declaration. The handwritten core portion is checked by role/shape
-/// validation instead. Signatures still pass ordinary name and type analysis.
+/// changed declaration. Role attributes belong to the parsed owning declarations;
+/// signatures still pass ordinary name and type analysis.
 fn validate_view(
     definition: &ModuleDecl,
     providers: &[Arc<ModuleDecl>],
@@ -151,19 +127,6 @@ fn validate_view(
         parsed
             .syntax()
             .items()
-            .filter(|item| {
-                if !language::is_language_module(&definition.identity) {
-                    return true;
-                }
-                let Item::TraitDef(item) = item else {
-                    return true;
-                };
-                let owner = definition
-                    .definition(DefinitionKind::Trait, &item.name_text().unwrap_or_default());
-                Protocol::from_id(&owner)
-                    .and_then(LangRole::from_protocol)
-                    .is_none()
-            })
             .map(|item| {
                 item.syntax()
                     .descendants_with_tokens()

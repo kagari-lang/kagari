@@ -12,6 +12,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
+use kagari_syntax::parser::parse_declarations;
 use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
@@ -21,10 +22,37 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
         .iter()
         .map(|module| {
             let mut generated = declaration_source(module, &foundation_catalog::shared()).unwrap();
+            let (_, original) =
+                api::import_source(module, &modules, &generated, Default::default(), &cancel)
+                    .unwrap();
             mutate_source(&mut generated.text);
-            api::import_source(module, &modules, &generated, Default::default(), &cancel)
-                .unwrap()
-                .1
+            if generated.text == original.source.text() {
+                return original;
+            }
+            // Exercise the role/shape checker independently of the production
+            // registration correspondence gate, which rejects these views earlier.
+            let mut sources = SourceDatabase::default();
+            sources
+                .bind_module(&generated.uri, module.identity.clone())
+                .unwrap();
+            let file = sources
+                .set(&generated.uri, generated.text, SourceLayer::Base)
+                .unwrap();
+            let source = sources.snapshot().file(file).unwrap().clone();
+            let parsed = parse_declarations(&source, Default::default(), &cancel).unwrap();
+            assert!(parsed.diagnostics().is_empty());
+            let mut lowered = lower::lower_module_controlled(source, &parsed.syntax(), &cancel);
+            lowered.language_foundation = original.language_foundation;
+            lowered.registered_native_api = original.registered_native_api;
+            lowered.native_package_alias = original.native_package_alias.clone();
+            lowered.native_prelude = original.native_prelude;
+            lowered.registered_traits = original.registered_traits.clone();
+            lowered.native_array_interfaces = original.native_array_interfaces.clone();
+            lowered
+                .module
+                .imports
+                .extend(original.module.imports.clone());
+            Arc::new(lowered)
         })
         .collect::<Vec<_>>();
     let hosts = HostDeclarations::empty();

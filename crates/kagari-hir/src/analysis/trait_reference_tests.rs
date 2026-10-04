@@ -258,7 +258,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
         .unwrap();
     assert_eq!(
         snapshot.source(declaration.location.file).unwrap().name(),
-        crate::language::source::module_source("iter").0
+        "kagari://native/kagari-core/iter.kgr"
     );
 }
 

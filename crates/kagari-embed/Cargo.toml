@@ -6,10 +6,11 @@ license.workspace = true
 
 [features]
 default = ["source", "native"]
-source = ["dep:kagari-source", "dep:kagari-compiler", "kagari-compiler/source", "dep:kagari-hir", "dep:kagari-syntax", "dep:kagari-mir", "dep:smallvec"]
+source = ["dep:kagari-source", "dep:kagari-compiler", "kagari-compiler/source", "dep:kagari-hir", "dep:kagari-syntax", "dep:kagari-mir", "dep:smallvec", "dep:blake3"]
 native = ["dep:kagari-codegen", "dep:kagari-compiler", "dep:kagari-mir"]
 
 [dependencies]
+blake3 = { version = "1", optional = true }
 kagari-stdlib.workspace = true
 kagari-types.workspace = true
 kagari-source = { workspace = true, optional = true }

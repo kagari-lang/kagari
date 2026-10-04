@@ -371,6 +371,23 @@ impl MethodDef {
 }
 
 impl SourceFile {
+    /// Inner documentation belongs to the module's leading parsed trivia.
+    pub fn module_documentation(&self) -> String {
+        self.syntax()
+            .descendants_with_tokens()
+            .filter_map(|element| element.into_token())
+            .take_while(|token| token.kind().is_trivia())
+            .filter(|token| token.kind() == SyntaxKind::LineComment)
+            .filter_map(|token| {
+                token
+                    .text()
+                    .strip_prefix("//!")
+                    .map(|line| line.strip_prefix(' ').unwrap_or(line).to_owned())
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub fn items(&self) -> impl Iterator<Item = Item> {
         support::children(self.syntax())
     }

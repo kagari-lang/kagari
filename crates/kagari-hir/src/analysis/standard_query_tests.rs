@@ -445,7 +445,7 @@ mod trait_tests {
                 .source(declaration.location.file)
                 .unwrap()
                 .name()
-                .ends_with("library/core/iter.kgr")
+                .ends_with("kagari-core/iter.kgr")
         );
     }
 }

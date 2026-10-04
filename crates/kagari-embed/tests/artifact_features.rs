@@ -22,11 +22,12 @@ mod provider;
 mod contracts;
 
 fn engine(config: EngineConfig, drops: Rc<Cell<usize>>) -> KagariEngine {
-    KagariEngine::builder()
-        .config(config)
-        .install(provider::module(drops))
-        .build()
-        .unwrap()
+    {
+        let mut builder = KagariEngine::builder().unwrap();
+        builder.config(config);
+        builder.install(provider::module(drops)).unwrap();
+        builder.build().unwrap()
+    }
 }
 
 fn artifact_bytes() -> &'static [u8] {

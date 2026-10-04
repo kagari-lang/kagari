@@ -82,5 +82,5 @@ fn application_installation_cannot_replace_foundation_bindings() {
             module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
-    assert!(KagariEngine::builder().install(module).build().is_err());
+    assert!(KagariEngine::builder().unwrap().install(module).is_err());
 }

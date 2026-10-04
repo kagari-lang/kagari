@@ -1,12 +1,5 @@
-//! Native declaration views combined with authoritative handwritten core traits.
-mod core;
-use crate::{
-    language::source::module_source,
-    native::{
-        paths::module_path,
-        render::core::{core_text, record_sites},
-    },
-};
+//! Complete native declaration views derived from authoritative registrations.
+use crate::native::paths::module_path;
 use kagari_common::{
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
     span::Span,
@@ -18,7 +11,6 @@ use kagari_types::{
         module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
     },
-    language,
     language::{Protocol, role::LangRole},
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
@@ -73,6 +65,12 @@ impl DeclarationView<'_> {
             text: "// Generated from native registration definitions. Do not edit.\n\n".into(),
             sites: BTreeMap::new(),
         };
+        for line in self.module_documentation.lines() {
+            output.text.push_str("//! ");
+            output.text.push_str(line);
+            output.text.push('\n');
+        }
+        output.text.push('\n');
         for (name, target) in &self.exports {
             let path = target
                 .path
@@ -86,13 +84,6 @@ impl DeclarationView<'_> {
                 path,
                 name
             ));
-        }
-        if language::is_language_module(&self.identity) {
-            let (_, source) = module_source(&self.identity.path[0]);
-            for line in source.lines().filter(|line| line.starts_with("use ")) {
-                output.text.push_str(line);
-                output.text.push('\n');
-            }
         }
         for ty in &self.types {
             let constructor = match ty.kind {
@@ -174,15 +165,13 @@ impl DeclarationView<'_> {
         }
         for item in &self.traits {
             let id = self.definition(DefinitionKind::Trait, &item.name);
-            if language::is_language_module(&self.identity)
-                && let Some(role) = Protocol::from_id(&id).and_then(LangRole::from_protocol)
-            {
-                output.text.push_str(&core_text(role));
-                output.text.push_str("\n\n");
-                continue;
-            }
             output.doc(&id);
             let start = output.text.len();
+            if let Some(role) = Protocol::from_id(&id).and_then(LangRole::from_protocol) {
+                output
+                    .text
+                    .push_str(&format!("#[lang = \"{}\"]\n", role.name()));
+            }
             output.text.push_str("pub trait ");
             let name_span = output.name(&item.name);
             let generics = output.generics(&item.generic_params);
@@ -278,7 +267,7 @@ impl DeclarationView<'_> {
         while output.text.ends_with("\n\n") {
             output.text.pop();
         }
-        let mut source = DeclarationSource {
+        let source = DeclarationSource {
             uri: format!(
                 "kagari://native/{}/{}.kgr",
                 self.identity.package.0,
@@ -287,9 +276,6 @@ impl DeclarationView<'_> {
             text: output.text,
             sites: output.sites,
         };
-        if language::is_language_module(&self.identity) {
-            record_sites(&mut source, self);
-        }
         Ok(source)
     }
 

@@ -135,7 +135,7 @@ This checkpoint records design and scope; LR implementation has not started.
   HIR or make generic runtime depend on stdlib. Replace ModuleBuilder's hidden
   LanguageContracts default with explicit providers. Native implementation moves
   use checked runtime operations, not newly public heap internals.
-- [ ] **LR02: Connect Engine registration to analysis and runtime installation.**
+- [x] **LR02: Connect Engine registration to analysis and runtime installation.**
   Assemble default standard modules and selected application modules through one
   validated registration path. Give HIR the complete registered declaration set;
   retain CR02's explicit provider ingestion with no default catalog fallback.
@@ -236,7 +236,7 @@ The authorized order is CR01 -> CR02 -> LR01 -> LR02 -> LR03. Existing library
 requirements, full docs/cache navigation, native safety and source-free artifact
 acceptance remain in scope.
 
-Execution ledger (CR01-CR02 and LR01 complete; LR02 next): numerical evaluation,
+Execution ledger (CR01-CR02 and LR01-LR02 complete; LR03 next): numerical evaluation,
 collection/range semantics and offline host schemas now belong to `kagari-types`.
 Scoped types, generic constraints, substitution, identity traversal, declarations,
 symbolic defaults and narrow reserved language-role identities moved from contract.
@@ -316,6 +316,35 @@ Initial failures were producers relying on implicit installation, an accidentall
 aliased KGR fixture import, and enum docs omitted by the renderer. Those failures
 are closed by focused reruns; assertions and negative installation coverage remain.
 Final complete workspace and standalone feature/backend matrices remain LR03 work.
+
+LR02 starts by rendering all core and application declarations uniformly, including
+module Markdown and parsed role attributes. Native import no longer splices or
+searches handwritten trait text, and non-trivia correspondence covers core views.
+The unused extraction modules remain on disk until LR03 deletes their last tests
+and product workflow. The mutable, fallible Engine builder installs default and
+application modules through the same atomic batch path, rejects duplicate module
+identities and exposes its checked authoring providers. Build seals the module set
+and checks complete rendered signatures; runtime installs that same sealed batch.
+SDK materialization uses renderer-version/BLAKE3 content paths and atomic complete
+file publication without replacement. Published normalized physical paths match
+analysis source names, including spaces/Unicode. Memory mode performs no IO.
+Module and item documentation queries retain Markdown and parsed owning locations.
+
+Initial LR02 navigation-cache tests exposed SourceDatabase's existing file-URI
+normalization; SDK views now publish the same normalized absolute paths. Four
+registration/source/cache regressions pass. The HIR unit run passes 413 tests and
+finds three obsolete negative producers that altered views after registration;
+those producers now test the independent role/shape layer directly, with all six
+role tests passing and separate production import forgery/syntax tests retained.
+The three carried HIR failures are closed by focused reruns; its 416 unit cases
+are covered. SDK validation passes all 424 unit/integration cases, including the
+combined observable source/artifact/interpreter/native matrix and five registration,
+documentation and cache regressions. Doc-only changes also load an artifact emitted
+by the old registration. CLI passes all five pipeline/diagnostic tests. Strict
+workspace Clippy, formatting, structure (764 files, zero violations/exceptions),
+thirteen production dependency boundaries, ABI/contract build graphs and diff checks
+pass. The ten initially reported qualified paths are corrected. No LR02 build or
+test errors remain. Full workspace and standalone feature integration remain LR03.
 
 ## Rust-style library namespaces (NS01, complete)
 

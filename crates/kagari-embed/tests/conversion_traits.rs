@@ -10,7 +10,9 @@ use kagari_source::source::SourceFile;
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::builder().config(config).build().unwrap();
+    let mut builder = KagariEngine::builder().unwrap();
+    builder.config(config);
+    let engine = builder.build().unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
@@ -307,7 +309,7 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
         "fn main()->i32 {i32::sum([true])}",
         "fn main(){val x:Result<i32,String> = i32::try_from(1);}",
     ] {
-        let engine = KagariEngine::builder().build().unwrap();
+        let engine = KagariEngine::builder().unwrap().build().unwrap();
         assert!(
             engine
                 .compile_to_artifact(
@@ -341,7 +343,7 @@ fn main()->i32 {
 
 #[test]
 fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
-    let engine = KagariEngine::builder().build().unwrap();
+    let engine = KagariEngine::builder().unwrap().build().unwrap();
     for source in [
         "fn main()->i8 {i8::sum([127i8,1i8])}",
         "fn main()->u8 {u8::product([128u8,2u8])}",

@@ -215,9 +215,16 @@ fn parse_source(path: &Path) -> Result<(), CliError> {
     }
 }
 
+fn source_engine() -> Result<KagariEngine, CliError> {
+    let mut builder =
+        KagariEngine::builder().map_err(|error| CliError::message(1, error.to_string()))?;
+    builder.declaration_cache("target/kagari-declarations");
+    builder.build().map_err(print_embedding_error)
+}
+
 fn check_source(path: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = KagariEngine::default();
+    let engine = source_engine()?;
     match engine.compile_source(source) {
         Ok(_) => {
             println!("checked {}", path.display());
@@ -229,7 +236,7 @@ fn check_source(path: &Path) -> Result<(), CliError> {
 
 fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = KagariEngine::default();
+    let engine = source_engine()?;
     let artifact = engine
         .compile_to_artifact(source, ArtifactOptions::default())
         .map_err(print_embedding_error)?;
@@ -248,7 +255,7 @@ fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
 
 fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = KagariEngine::default();
+    let engine = source_engine()?;
     let artifact = engine
         .compile_to_artifact(source, ArtifactOptions::default())
         .map_err(print_embedding_error)?;

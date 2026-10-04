@@ -13,8 +13,11 @@ fn main() {
         "memory://feature-artifact.kgr",
         fs::read_to_string(fixtures.join("feature_artifact.kgr")).unwrap(),
     );
-    let artifact = KagariEngine::builder()
+    let mut builder = KagariEngine::builder().unwrap();
+    builder
         .install(provider::module(Default::default()))
+        .unwrap();
+    let artifact = builder
         .build()
         .unwrap()
         .compile_to_artifact(source, Default::default())

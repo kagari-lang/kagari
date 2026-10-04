@@ -17,6 +17,8 @@ use kagari_vm::error::VmError;
 #[cfg(feature = "source")]
 use smallvec::SmallVec;
 use std::sync::Arc;
+#[cfg(feature = "source")]
+use std::{io, path::PathBuf};
 
 #[cfg(feature = "source")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +115,14 @@ impl RuntimeFailureKind {
 
 #[derive(Debug)]
 pub enum EmbeddingError {
+    Registration {
+        error: RuntimeError,
+    },
+    #[cfg(feature = "source")]
+    DeclarationCache {
+        path: PathBuf,
+        error: io::Error,
+    },
     Source {
         message: String,
     },
@@ -153,6 +163,9 @@ impl EmbeddingError {
 
     pub fn code(&self) -> String {
         match self {
+            Self::Registration { error } => error.code().to_owned(),
+            #[cfg(feature = "source")]
+            Self::DeclarationCache { .. } => "KG_DECLARATION_CACHE".to_owned(),
             Self::Source { .. } => "KG_SOURCE_INPUT".to_owned(),
             Self::Cancelled => "KG_ANALYSIS_CANCELLED".to_owned(),
             #[cfg(feature = "source")]
