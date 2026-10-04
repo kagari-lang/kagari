@@ -16,7 +16,7 @@ use crate::{
     },
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
-use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +99,18 @@ pub enum TypeDefKind {
     Enum,
     Native(NativeTypeConstructor),
     NativeStorage(NativeStorageLayout),
+}
+
+impl TypeDefKind {
+    /// Nominal identity belongs to the declaration kind, independent of its producer.
+    pub fn definition_kind(self) -> DefinitionKind {
+        match self {
+            Self::Struct => DefinitionKind::Struct,
+            Self::Enum => DefinitionKind::Enum,
+            Self::Native(constructor) => constructor.declaration_kind(),
+            Self::NativeStorage(_) => DefinitionKind::AssociatedType,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

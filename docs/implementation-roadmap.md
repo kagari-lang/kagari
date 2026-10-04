@@ -887,6 +887,71 @@ actual validation and any remaining blockers or limitations.
 
 ## Other queued designs
 
+### Nominal enums and propagation (EN01-EN05, active)
+
+The [execution design](enum-propagation-plan.md) replaces the closed StandardEnum
+type/execution inventory with ordinary nominal enum declarations and layouts,
+then connects `?` to library-authored Try/FromResidual protocols. Option/Result
+remain core-library definitions installed through the completed LR registration
+flow. This is a finite follow-up to CR01-CR02/LR01-LR03, not a replay of them.
+It supersedes their exclusion of generic enum/protocol migration for this active
+track; current specifications still describe implemented behavior until replaced.
+
+Status: the user activated the continuous EN01-EN05 goal on 2026-10-04.
+EN01 is complete; EN02 is next. No carried build/test failure remains.
+Commit each accepted phase once, using `Roadmap-Step: EN01` through `EN05`.
+The execution design and its index links enter the first implementation checkpoint.
+
+- [x] **EN01: Author and validate ordinary native enums.** Reuse portable nominal
+  enum models; add public enum/variant builders, kind-correct type handles,
+  full-doc rendering and declaration correspondence. Define checked executable
+  enum/variant handle contracts for EN02.
+- [ ] **EN02: Execute registered enums through generic layouts.** Connect installed
+  declarations, native allocation/inspection and call codecs to existing source
+  enum execution. Validate layouts, multiple payload fields, generations, roots,
+  optional provenance and source-free executable dependencies.
+- [ ] **EN03: Replace the seven standard enum families.** Migrate library records,
+  Rust bodies, iteration/comparison/conversion/reporting and all executable
+  consumers. Delete dedicated standard semantic types, fixed tags and operations.
+  Preserve existing Option/Result `?` temporarily through checked nominal bindings.
+  Resolve any EN01-EN02 carried build failures at this checkpoint.
+- [ ] **EN04: Implement Try/FromResidual propagation.** Register protocols and
+  ControlFlow, migrate standard carriers and compile propagation through selected
+  calls/associated outputs. Support checked local source/native custom carriers
+  and generic bounds; preserve inference, effect ordering and Err provenance.
+  Remove direct compiler Option/Result propagation policy and audit From's role.
+- [ ] **EN05: Remove remnants and complete integration.** Update affected executable
+  fixtures at one schema checkpoint, current docs and dependency/role inventories.
+  Pass the design's complete behavioral, standalone-feature and backend matrix
+  plus all repository final checks, resolving every carried failure.
+
+Phase order is EN01 -> EN02 -> EN03 -> EN04 -> EN05. EN01-EN02 may carry bounded
+compilation failures documented with reproduction/cause and the owning follow-up;
+EN03 restores the baseline before EN04, and EN04 closes its failures before final
+integration. Preserve validation without compatibility aliases or old readers.
+Detailed API targets, failure-origin rules and acceptance live in the linked
+design. Separate crate metadata, general Rust value/Serde binding and broader
+intrinsic/backend redesign remain outside this track.
+
+Execution ledger: EN01 reuses TypeDefKind::Enum, VariantDef and Ty::Enum rather
+than adding a parallel native type model. EnumBuilder and owner-qualified
+VariantRef support generic/unit/multiple-field/recursive/empty declarations,
+full docs and kind-correct TypeRef applications. Native module validation,
+catalog identities, rendering and parsed HIR attachment now accept ordinary
+enums. Dependency closure traverses variant payloads and rejects missing providers,
+wrong enum arity/kind and foreign binders; no raw discriminant authoring is added.
+Execution resolves these authoring identities in an installed pinned scope in EN02.
+
+EN01 validation passes the eight new registration/source/doc/correspondence tests,
+fourteen existing native-builder tests, forty types tests, five native HIR ingestion
+tests, focused production check, strict all-target types/HIR/runtime Clippy,
+formatting, structure (761 Rust files, zero violations/exceptions), changed-doc
+local links/anchors and git diff --check. Initial test-harness API mistakes and a
+remaining native-signature enum exclusion were repaired before acceptance; no
+build/test failure is carried. Full feature/backend acceptance remains EN05 work.
+
+### Other proposals
+
 These are design documents, not additional active execution plans. Activation and
 exact scheduling must be agreed within the user's scope. Completed migrations are
 not prerequisites to replay.

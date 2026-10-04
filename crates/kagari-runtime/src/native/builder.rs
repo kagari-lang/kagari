@@ -1,4 +1,5 @@
 //! Explicit Kagari declarations plus checked local Rust bindings.
+pub mod enum_builder;
 pub mod implementation;
 pub mod inherent;
 pub mod trait_builder;
@@ -8,8 +9,8 @@ use crate::{
     native::{
         binding::{NativeBinding, NativeResult},
         builder::{
-            implementation::ImplementationBuilder, trait_builder::TraitBuilder,
-            type_builder::TypeBuilder,
+            enum_builder::EnumBuilder, implementation::ImplementationBuilder,
+            trait_builder::TraitBuilder, type_builder::TypeBuilder,
         },
         catalog::DeclarationCatalog,
         declarations::{FunctionBuilder, FunctionDecl, normalize_bounds},
@@ -183,6 +184,11 @@ impl ModuleBuilder {
 
     pub fn define_type(&mut self, name: impl Into<String>) -> TypeBuilder<'_> {
         TypeBuilder::new(self, name.into())
+    }
+
+    /// Declare an ordinary managed enum; no opaque Rust storage is required.
+    pub fn define_enum(&mut self, name: impl Into<String>) -> EnumBuilder<'_> {
+        EnumBuilder::new(self, name.into())
     }
 
     pub fn implement<T>(

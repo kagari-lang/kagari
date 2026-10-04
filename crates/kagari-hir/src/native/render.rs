@@ -88,33 +88,25 @@ impl DeclarationView<'_> {
         for ty in &self.types {
             let constructor = match ty.kind {
                 TypeDefKind::Native(constructor) => Some(constructor),
-                TypeDefKind::NativeStorage(_) => None,
+                TypeDefKind::Enum | TypeDefKind::NativeStorage(_) => None,
                 _ => {
                     return Err(DeclarationError(
                         "native declaration requires a registered representation".into(),
                     ));
                 }
             };
-            let id = self.definition(
-                constructor.map_or(
-                    DefinitionKind::AssociatedType,
-                    NativeTypeConstructor::declaration_kind,
-                ),
-                &ty.name,
-            );
+            let id = self.definition(ty.kind.definition_kind(), &ty.name);
+            let is_enum = ty.kind == TypeDefKind::Enum
+                || matches!(constructor, Some(NativeTypeConstructor::Enum(_)));
             output.doc(&id);
             let start = output.text.len();
-            output.text.push_str(
-                if matches!(constructor, Some(NativeTypeConstructor::Enum(_))) {
-                    "pub enum "
-                } else {
-                    "pub type "
-                },
-            );
+            output
+                .text
+                .push_str(if is_enum { "pub enum " } else { "pub type " });
             let name_span = output.name(&ty.name);
             let generics = output.generics(&ty.generic_params);
             let bounds = output.bounds(&ty.bounds)?;
-            if matches!(constructor, Some(NativeTypeConstructor::Enum(_))) {
+            if is_enum {
                 output.text.push_str(" {\n");
                 for variant in &ty.variants {
                     let mut owner = id.clone();
@@ -343,7 +335,7 @@ impl DeclarationView<'_> {
             Ty::Function { params, result } => {
                 format!("fn({}) -> {}", join(params)?, self.spell(result)?)
             }
-            Ty::Trait(ty) | Ty::NativeObject(ty) => self.nominal_spelling(ty)?,
+            Ty::Trait(ty) | Ty::NativeObject(ty) | Ty::Enum(ty) => self.nominal_spelling(ty)?,
             Ty::Projection {
                 receiver,
                 interface,

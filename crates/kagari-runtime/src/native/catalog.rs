@@ -10,7 +10,7 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTableError},
 };
 use kagari_types::declaration::{
-    NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
+    NativeDeclaration, TraitDef, TypeDef,
     module::{ImplDecl, ModuleDecl},
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -48,13 +48,7 @@ impl DeclarationCatalog<DefinitionPath> {
             Arc::make_mut(&mut result.documentation).extend(module.documentation.clone());
             for ty in &module.types {
                 result.insert_type(
-                    module.definition(
-                        match ty.kind {
-                            TypeDefKind::Native(constructor) => constructor.declaration_kind(),
-                            _ => DefinitionKind::AssociatedType,
-                        },
-                        &ty.name,
-                    ),
+                    module.definition(ty.kind.definition_kind(), &ty.name),
                     ty.clone(),
                 )?;
             }

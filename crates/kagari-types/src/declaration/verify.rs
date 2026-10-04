@@ -612,12 +612,7 @@ pub fn type_definition_valid(
     module: &ModuleIdentity,
     cancel: &CancellationToken,
 ) -> bool {
-    let kind = match ty.kind {
-        TypeDefKind::Struct => DefinitionKind::Struct,
-        TypeDefKind::Enum => DefinitionKind::Enum,
-        TypeDefKind::Native(kind) => kind.declaration_kind(),
-        TypeDefKind::NativeStorage(_) => DefinitionKind::AssociatedType,
-    };
+    let kind = ty.kind.definition_kind();
     let owner = owner(module, &[], kind, &ty.name);
     aggregate_shape_valid(ty, cancel)
         && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {

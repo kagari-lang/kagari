@@ -4,7 +4,7 @@ use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
 use kagari_contract::types::proofs::{ProofCatalog, implementation::Implementation};
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, NativeDeclaration, module::ModuleDecl},
+    declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
     ty::{
         Constraint, GenericBound, NominalTy, Ty,
         matching::{ImplementationPattern, match_pattern},
@@ -15,6 +15,7 @@ use std::{collections::BTreeSet, iter};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Reference {
     Type(DefinitionPath),
+    Enum(NominalTy),
     Trait(DefinitionPath),
     Template(DefinitionPath),
     Obligation(Ty, NominalTy),
@@ -64,6 +65,9 @@ impl References {
                     if matches!(ty, Ty::NativeObject(_)) {
                         self.pending
                             .push(Reference::Type(nominal.declaration.clone()));
+                    }
+                    if matches!(ty, Ty::Enum(_)) {
+                        self.pending.push(Reference::Enum(nominal.clone()));
                     }
                     if matches!(ty, Ty::Trait(_)) {
                         self.pending
@@ -164,6 +168,19 @@ impl References {
         }
         Ok(())
     }
+
+    fn type_definition(&mut self, declaration: &TypeDef) -> Result<(), RuntimeError> {
+        self.bounds(&declaration.bounds)?;
+        for ty in declaration.fields.iter().map(|field| &field.ty).chain(
+            declaration
+                .variants
+                .iter()
+                .flat_map(|variant| &variant.payload),
+        ) {
+            self.ty(ty)?;
+        }
+        Ok(())
+    }
 }
 
 impl DeclarationCatalog<DefinitionPath> {
@@ -182,7 +199,7 @@ impl DeclarationCatalog<DefinitionPath> {
         }
         for module in modules {
             for ty in &module.types {
-                references.bounds(&ty.bounds)?;
+                references.type_definition(ty)?;
             }
             for implementation in &module.implementations {
                 if let Some(interface) = &implementation.trait_type {
@@ -217,6 +234,24 @@ impl DeclarationCatalog<DefinitionPath> {
                 continue;
             }
             match reference {
+                Reference::Enum(applied) => {
+                    let declaration = self.types.get(&applied.declaration).ok_or_else(|| {
+                        RuntimeError::metadata_conflict(
+                            "enum is absent from the declaration catalog",
+                        )
+                    })?;
+                    if declaration.kind != TypeDefKind::Enum
+                        || declaration.generic_params.len() != applied.arguments.len()
+                        || !applied.associated_types.is_empty()
+                    {
+                        return Err(RuntimeError::metadata_conflict(
+                            "invalid registered enum application",
+                        ));
+                    }
+                    references
+                        .pending
+                        .push(Reference::Type(applied.declaration));
+                }
                 Reference::Obligation(receiver, interface) => {
                     for (id, implementation) in self.implementations.iter() {
                         let Some(implemented) = &implementation.trait_type else {
@@ -276,7 +311,7 @@ impl DeclarationCatalog<DefinitionPath> {
                             "native storage type is absent from the declaration catalog",
                         )
                     })?;
-                    references.bounds(&declaration.bounds)?;
+                    references.type_definition(declaration)?;
                     closure.catalog.insert_type(id, declaration.clone())?;
                 }
                 Reference::Trait(id) => {

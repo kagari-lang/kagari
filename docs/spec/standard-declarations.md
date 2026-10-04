@@ -87,6 +87,20 @@ reference complete checked trait contracts instead of redeclaring them.
 capability. It does not grant a new heap representation; nominal implementations
 retain their storage and ownership checks. Script traits cannot author this fact.
 
+`ModuleBuilder::define_enum` authors an ordinary managed nominal enum rather than
+an opaque Rust storage object. Its `EnumBuilder` declares type parameters and unit
+or tuple-payload variants, exposes `self_type()` for recursive payloads, and
+validates the completed declaration before publishing it into the module's
+authoring providers. `finish()` returns the same `TypeRef` handle used by generic
+implementation builders; `apply` produces `Ty::Enum` for an enum declaration.
+`TypeRef::variant` returns an owner-qualified `VariantRef`, not a raw discriminant.
+Enum and variant documentation use `documentation` and `variant_documentation`.
+Module completion checks the referenced enum providers and generic applications;
+installation rejects absent or conflicting dependencies atomically.
+These declarations use ordinary generated enum syntax and parsed nominal HIR.
+Native allocation/inspection of registered enum values is the following EN02
+checkpoint of the [active enum plan](../enum-propagation-plan.md).
+
 For example, a scalar application entry can be declared and bound as follows:
 
 ```rust

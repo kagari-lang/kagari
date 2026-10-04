@@ -561,6 +561,7 @@ dependencies = [
  "kagari-contract",
  "kagari-hir",
  "kagari-mir",
+ "kagari-source",
  "kagari-stdlib",
  "kagari-types",
  "thiserror",

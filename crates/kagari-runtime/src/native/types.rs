@@ -5,7 +5,7 @@ use crate::{
 };
 use kagari_common::identity::{DefinitionPath, associated_type_id};
 use kagari_types::{
-    declaration::{TraitDef, TypeDef, module::ModuleDecl},
+    declaration::{TraitDef, TypeDef, TypeDefKind, module::ModuleDecl},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -86,7 +86,12 @@ impl TypeRef {
     }
 
     pub fn codec(&self) -> Codec {
-        Codec::Object(self.id.clone())
+        match self.declaration.kind {
+            // Managed enum Values retain their exact type in the declared signature;
+            // they are not opaque Rust storage objects.
+            TypeDefKind::Enum => Codec::Value,
+            _ => Codec::Object(self.id.clone()),
+        }
     }
 
     pub fn apply(&self, arguments: impl IntoIterator<Item = Type>) -> NativeResult<Type> {
@@ -96,11 +101,49 @@ impl TypeRef {
                 "native type argument count",
             ));
         }
-        Ok(Type(Ty::NativeObject(NominalTy {
+        let nominal = NominalTy {
             declaration: self.id.clone(),
             arguments,
             associated_types: BTreeMap::new(),
-        })))
+        };
+        Ok(Type(match self.declaration.kind {
+            TypeDefKind::Enum => Ty::Enum(nominal),
+            TypeDefKind::NativeStorage(_) => Ty::NativeObject(nominal),
+            _ => {
+                return Err(RuntimeError::metadata_conflict(
+                    "unsupported authoring type kind",
+                ));
+            }
+        }))
+    }
+
+    /// Resolve a member of this enum without exposing unchecked discriminants.
+    pub fn variant(&self, name: &str) -> NativeResult<VariantRef> {
+        if self.declaration.kind != TypeDefKind::Enum
+            || !self
+                .declaration
+                .variants
+                .iter()
+                .any(|variant| variant.name == name)
+        {
+            return Err(RuntimeError::metadata_conflict("unknown enum variant"));
+        }
+        Ok(VariantRef {
+            id: ModuleDecl::variant_id(&self.id, name),
+        })
+    }
+}
+
+/// An authoring member identity. Execution resolves it in the selected installed
+/// generation and validates its owner and payload layout before access.
+#[derive(Debug, Clone)]
+pub struct VariantRef {
+    pub(crate) id: DefinitionPath,
+}
+
+impl VariantRef {
+    pub fn id(&self) -> &DefinitionPath {
+        &self.id
     }
 }
 

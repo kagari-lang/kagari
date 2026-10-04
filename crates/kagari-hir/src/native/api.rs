@@ -150,6 +150,15 @@ fn attach_types(
     lowered: &mut LoweredModule,
 ) -> Result<(), DeclarationError> {
     for ty in &definition.types {
+        if ty.kind == TypeDefKind::Enum {
+            if !lowered.module.enums.iter().any(|item| item.name == ty.name) {
+                return Err(DeclarationError(
+                    "missing registered enum declaration".into(),
+                ));
+            }
+            // Ordinary registered enums use the parsed nominal enum representation.
+            continue;
+        }
         let kind = match ty.kind {
             TypeDefKind::NativeStorage(layout) => NativeTypeKind::Storage {
                 declaration: definition.definition(DefinitionKind::AssociatedType, &ty.name),
@@ -298,10 +307,7 @@ fn attach_dependencies(
             if !referenced.contains(alias.as_str()) {
                 continue;
             }
-            let kind = match ty.kind {
-                TypeDefKind::Native(NativeTypeConstructor::Enum(_)) => DefinitionKind::Enum,
-                _ => DefinitionKind::AssociatedType,
-            };
+            let kind = ty.kind.definition_kind();
             imports.insert(provider.definition(kind, &ty.name));
         }
     }

@@ -131,6 +131,16 @@ impl ModuleDecl {
         id
     }
 
+    pub fn variant_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
+        let mut id = owner.clone();
+        id.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::Variant,
+            name: name.into(),
+            occurrence: 0,
+        });
+        id
+    }
+
     /// Inherent declarations are owned by the receiver's defining module.
     /// Built-in value families use their canonical core/alloc/std declaration owner.
     pub fn owns_inherent_receiver(
@@ -378,12 +388,16 @@ impl ModuleDecl {
         let mut names = HashSet::new();
         let cancel = CancellationToken::default();
         for ty in &self.types {
+            for payload in ty.variants.iter().flat_map(|variant| &variant.payload) {
+                supported_type(payload)?;
+            }
             if !identifier(&ty.name)
                 || !names.insert(&ty.name)
                 || !matches!(
                     ty.kind,
-                    TypeDefKind::Native(_) | TypeDefKind::NativeStorage(_)
+                    TypeDefKind::Enum | TypeDefKind::Native(_) | TypeDefKind::NativeStorage(_)
                 )
+                || ty.variants.iter().any(|variant| !identifier(&variant.name))
             {
                 return Err(fail());
             }
@@ -442,7 +456,10 @@ impl ModuleDecl {
             let Some(ty) = self.types.iter().find(|ty| ty.name == *owner) else {
                 return Err(fail());
             };
-            if !matches!(ty.kind, TypeDefKind::Native(NativeTypeConstructor::Enum(_))) {
+            if !matches!(
+                ty.kind,
+                TypeDefKind::Enum | TypeDefKind::Native(NativeTypeConstructor::Enum(_))
+            ) {
                 return Err(fail());
             }
             for variant in &ty.variants {
@@ -818,7 +835,7 @@ fn supported_type(ty: &Ty) -> Result<(), DeclarationError> {
                 pending.extend(&nominal.arguments);
                 pending.extend(nominal.associated_types.values());
             }
-            Ty::NativeObject(nominal) => {
+            Ty::NativeObject(nominal) | Ty::Enum(nominal) => {
                 if !nominal.associated_types.is_empty() {
                     return Err(invalid());
                 }
