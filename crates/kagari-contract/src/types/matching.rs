@@ -36,10 +36,10 @@ pub fn match_implementation<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::library;
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, associated_type_id,
     };
+    use kagari_stdlib::identity as library;
     use kagari_types::{
         collection::CollectionAccess,
         declaration::AssociatedTypeFamily,
@@ -61,10 +61,10 @@ mod tests {
 
     #[test]
     fn native_templates_weaken_only_declared_readonly_outer_access() {
-        let catalog = crate::library::catalog::shared()
+        let catalog = kagari_stdlib::catalog::shared()
             .into_iter()
             .find(|module| {
-                module.identity == crate::library::namespaces::module("std", "collections")
+                module.identity == kagari_stdlib::namespaces::module("std", "collections")
             })
             .unwrap();
         let mut contract = catalog

@@ -8,12 +8,12 @@ use crate::{
     typeck::{FunctionImplementation, table::CallTarget},
     types::TypeId,
 };
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::NativeDefaultApplication,
     host_interface::{

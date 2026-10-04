@@ -9,11 +9,11 @@ use crate::{
     types::NominalType,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{callable::NativeDefaultApplication, scalar::BuiltinType};
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {

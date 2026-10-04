@@ -6,8 +6,9 @@ use kagari_bytecode::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_compiler::bytecode::lower_program_to_bytecode;
 use kagari_contract::callable::witness::OperationWitness;
-use kagari_runtime::{Runtime, native::foundation, value::Value};
+use kagari_runtime::{Runtime, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib as foundation;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
@@ -94,6 +95,11 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
     decoded.validate_for_loader(&Default::default()).unwrap();
     for program in [program, decoded.program] {
         let mut runtime = Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         let loaded = runtime.load_program("native-imports", program).unwrap();
         let mut vm = Vm::new(runtime);
         assert_eq!(
@@ -181,6 +187,11 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
             "artifact accepted corruption {corrupt}"
         );
         let mut runtime = Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         assert!(
             runtime.load_program("forged-native", forged).is_err(),
             "runtime accepted corruption {corrupt}"
@@ -211,6 +222,11 @@ fn concrete_collection_native_signatures_preserve_element_types() {
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     for program in [program, decoded.program] {
         let mut runtime = Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         let loaded = runtime.load_program("native-collections", program).unwrap();
         let mut vm = Vm::new(runtime);
         assert_eq!(
@@ -265,6 +281,11 @@ pub fn answer() -> i32 {
     let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let loaded = runtime
         .load_program("native-witnesses", decoded.program)
         .unwrap();
@@ -326,6 +347,11 @@ fn native_storage_writes_reject_element_type_forgery() {
     assert!(verify_program(&program).is_err());
     assert!(KbcArtifact::from_program(program.clone(), Default::default()).is_err());
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     assert!(runtime.load_program("forged-storage", program).is_err());
     assert_eq!(runtime.gc().active_roots(), 0);
 }

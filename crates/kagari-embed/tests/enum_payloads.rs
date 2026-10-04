@@ -1,8 +1,9 @@
 use kagari_bytecode::instruction::EnumId;
-use kagari_contract::{library, types::PublicItem};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::module::LoadedModule;
 use kagari_source::source::SourceFile;
+use kagari_stdlib::identity as library;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {

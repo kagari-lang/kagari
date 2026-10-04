@@ -14,4 +14,5 @@ smallvec.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+kagari-stdlib.workspace = true
 kagari-contract.workspace = true

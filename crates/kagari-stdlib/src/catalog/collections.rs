@@ -1,8 +1,8 @@
 //! Collection contracts carry capabilities, never an allocator or hash algorithm.
-use crate::library::catalog::contracts::{
+use crate::catalog::contracts::{
     applied_item, boolean, contract, method, option, receiver, unit, usize_type,
 };
-use crate::library::catalog::{key, key::RegistrationTrait};
+use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::associated_type_id;
 use kagari_types::{collection::CollectionAccess, declaration::module::ModuleDecl, ty::Ty};
 

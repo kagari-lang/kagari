@@ -1,8 +1,8 @@
 use super::*;
 use crate::{analysis::AnalysisSnapshot, tests::test_analysis};
 use kagari_common::identity::PackageId;
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::host_interface::value_type::HostValueType;
 
 fn identity(name: &str) -> ModuleIdentity {

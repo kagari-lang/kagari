@@ -1,7 +1,7 @@
 //! O1 architecture baseline; run with default source/native features.
 //! `cargo run -p kagari-embed --example architecture_baseline`
 //! Timings include the counting allocator's atomic bookkeeping overhead.
-use kagari_contract::library::catalog as foundation_catalog;
+use kagari_stdlib::catalog as foundation_catalog;
 mod memory;
 
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};

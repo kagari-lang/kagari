@@ -1,7 +1,6 @@
 use super::collect_module_abi;
 use kagari_common::identity::associated_type_id;
 use kagari_contract::{
-    library::catalog as foundation_catalog,
     types as abi,
     types::{PublicItem, verify},
 };
@@ -10,6 +9,7 @@ use kagari_hir::{
     native::NativeBinding as HirNativeBinding,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{

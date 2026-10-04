@@ -9,17 +9,20 @@ use kagari_runtime::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         declarations::{FunctionDecl, MethodDecl},
-        language::LanguageContracts,
         types::Type,
     },
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn engine() -> KagariEngine {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("example::results", &language);
+    let language = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new(
+        "example::results",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let singleton = module
         .define_function(FunctionDecl::new("singleton"))
         .unwrap();
@@ -225,8 +228,11 @@ fn native_result_conversion_validates_the_rust_body_value() {
 
 #[test]
 fn native_registration_rejects_an_unimplemented_result_interface() {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("example::bad_result", &language);
+    let language = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new(
+        "example::bad_result",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let function = module
         .define_function(
             FunctionDecl::new("wrong").returns(language.list().apply([Type::i32()]).ty()),

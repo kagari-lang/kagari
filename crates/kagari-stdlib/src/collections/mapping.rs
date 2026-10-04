@@ -1,21 +1,23 @@
 //! A library-owned lazy iterator: retained state only between synchronous next calls.
-use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
-    native::{
-        binding::NativeResult,
-        builder::ModuleBuilder,
-        callable::{CallableHandle, StoredCallable},
-        context::CallContext,
-        cursor::NativeCursor,
-        declarations::FunctionDecl,
-        language::LanguageContracts,
-        storage::{NativePayload, NativeStorage},
-        types::Type,
-        views::{SequenceHandle, ValueHandle},
-    },
-    value::{EnumTag, Value},
-};
 use std::{cell::Cell, rc::Rc};
+use {
+    crate::declarations::StandardDeclarations,
+    kagari_runtime::{
+        error::{RuntimeError, RuntimeErrorKind},
+        native::{
+            binding::NativeResult,
+            builder::ModuleBuilder,
+            callable::{CallableHandle, StoredCallable},
+            context::CallContext,
+            cursor::NativeCursor,
+            declarations::FunctionDecl,
+            storage::{NativePayload, NativeStorage},
+            types::Type,
+            views::{SequenceHandle, ValueHandle},
+        },
+        value::{EnumTag, Value},
+    },
+};
 
 #[derive(Debug)]
 struct Mapped {
@@ -48,9 +50,10 @@ impl Drop for Active {
 
 pub(super) fn register(
     module: &mut ModuleBuilder,
-    language: &LanguageContracts,
+    language: &StandardDeclarations,
 ) -> NativeResult<()> {
     let mut declaration = module.define_type("MapIterator");
+    declaration.documentation("A lazy mapped cursor. Each next consumes one source item and invokes its stored mapper synchronously. Copies share progress. Recursive next on the same cursor traps; earlier callback effects survive failure.\n\n# Examples\n\n```kgr\nfn first(values: Vec<i32>) -> Option<i32> { std::collections::map(values, |x: i32| x + 1).next() }\n```");
     declaration.type_parameter("T")?;
     declaration.type_parameter("U")?;
     declaration.native_storage(NativeStorage::payload::<Mapped>())?;
@@ -63,7 +66,7 @@ pub(super) fn register(
         })
     })?;
     let map = module.define_function(FunctionDecl::new("map").documentation(
-        "Lazily transform a Vec. Each next consumes one source item and invokes the mapper synchronously. Copies share cursor progress; completed effects survive failure."
+        "Lazily transform a Vec. Each next consumes one source item and invokes the mapper synchronously. Copies share cursor progress; completed effects survive failure.\n\n# Examples\n\n```kgr\nfn first(values: Vec<i32>) -> Option<i32> { std::collections::map(values, |x: i32| x + 1).next() }\n```"
     ))?;
     module.function(&map, |function| {
         let input = function.type_parameter("T")?.ty();
@@ -113,7 +116,5 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
     } else {
         EnumTag::OptionNone
     };
-    cx.heap()
-        .alloc_enum(tag, output.into_iter().collect())
-        .map(Value::Enum)
+    cx.enum_value(tag, output.into_iter().collect())
 }

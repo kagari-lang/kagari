@@ -1,11 +1,8 @@
 //! Application-owned declaration fixtures; no runtime or bundled-library implementation.
 use crate::{analysis::AnalysisDatabase, native::render::declaration_source, tests::test_analysis};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, associated_type_id};
-use kagari_contract::{
-    language::primitive,
-    library,
-    library::{catalog as foundation_catalog, namespaces},
-};
+use kagari_contract::language::primitive;
+use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
     collection::CollectionAccess,
@@ -129,7 +126,7 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
 pub(crate) fn database() -> AnalysisDatabase {
     let mut database = test_analysis();
     database.set_native_modules(
-        library::catalog::shared()
+        kagari_stdlib::catalog::shared()
             .into_iter()
             .chain([module()])
             .collect(),

@@ -18,6 +18,8 @@ use std::{collections::BTreeMap, sync::Arc};
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone)]
 pub struct DeclarationCatalog<I = DefinitionId> {
+    /// Authoring-only Markdown; excluded from executable contract comparisons.
+    pub(crate) documentation: Arc<BTreeMap<DefinitionPath, String>>,
     pub(crate) types: Arc<DefinitionMap<TypeDef<I>>>,
     pub(crate) traits: Arc<DefinitionMap<TraitDef<I>>>,
     pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration<I>>>,
@@ -28,6 +30,7 @@ impl<I> Default for DeclarationCatalog<I> {
     fn default() -> Self {
         let context = DefinitionContext::new().expect("definition context identity exhausted");
         Self {
+            documentation: Arc::default(),
             types: Arc::new(DefinitionMap::new(context.clone())),
             traits: Arc::new(DefinitionMap::new(context.clone())),
             declarations: Arc::new(DefinitionMap::new(context.clone())),
@@ -42,6 +45,7 @@ impl DeclarationCatalog<DefinitionPath> {
     ) -> Result<Self, RuntimeError> {
         let mut result = Self::default();
         for module in modules {
+            Arc::make_mut(&mut result.documentation).extend(module.documentation.clone());
             for ty in &module.types {
                 result.insert_type(
                     module.definition(

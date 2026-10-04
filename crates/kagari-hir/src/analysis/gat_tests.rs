@@ -1,6 +1,6 @@
 use super::*;
 use crate::tests::test_analysis;
-use kagari_contract::library::catalog as foundation_catalog;
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 #[test]

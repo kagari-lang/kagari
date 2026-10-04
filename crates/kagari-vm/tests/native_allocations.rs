@@ -1,7 +1,7 @@
 //! Allocation accounting isolates prepared native invocation from frame setup and compilation.
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::{ids::FunctionRef, library::catalog as foundation_catalog};
+use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
@@ -11,7 +11,6 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::{CallContext, ScriptCall},
         declarations::FunctionDecl,
-        language::LanguageContracts,
         module::NativeModule,
         types::Type,
         views::SequenceHandle,
@@ -19,6 +18,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use native_allocations_counter::{Counts, measured, verify_counter};
 use std::{hint::black_box, sync::Arc, time::Duration};
@@ -26,8 +26,11 @@ use std::{hint::black_box, sync::Arc, time::Duration};
 mod native_allocations_counter;
 
 fn module() -> NativeModule {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("measure::native", &language);
+    let language = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new(
+        "measure::native",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let add = module
         .define_function(
             FunctionDecl::new("add")
@@ -89,6 +92,11 @@ fn load() -> (Runtime, LoadedModule) {
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let program = lower_program_to_bytecode(&mir).unwrap();
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("allocation", program).unwrap();
     (runtime, loaded)

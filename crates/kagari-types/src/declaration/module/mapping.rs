@@ -89,6 +89,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleDecl<I> {
                     .iter()
                     .map(|value| mapper.reference(value)),
             )?,
+            module_documentation: self.module_documentation.clone(),
             documentation: map_entries(
                 self.documentation.len(),
                 self.documentation

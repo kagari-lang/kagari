@@ -1,7 +1,7 @@
 use super::{contracts::analyze_contracts, *};
 use crate::{hir::expr::ExprKind, tests::test_analysis, typeck::table::CallTarget};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::diagnostic::DiagnosticKind;
+use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn terminating_array_members_do_not_contribute_or_enable_later_type_joins() {

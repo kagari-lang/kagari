@@ -6,7 +6,6 @@ use kagari_bytecode::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -15,13 +14,13 @@ use kagari_runtime::{
     host::HostFunction,
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
-        context::CallContext, declarations::FunctionDecl, language::LanguageContracts,
-        module::NativeModule, types::Type,
+        context::CallContext, declarations::FunctionDecl, module::NativeModule, types::Type,
     },
     resource::RuntimeLimits,
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations};
 use kagari_types::host_interface::{HostInterface, standard_log};
 use kagari_vm::{
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
@@ -32,7 +31,12 @@ use kagari_vm::{
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 fn module() -> NativeModule {
-    let mut module = ModuleBuilder::new("test::boundary", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "test::boundary",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let choose = module
         .define_function(
             FunctionDecl::new("choose")
@@ -94,6 +98,11 @@ fn runtime(limits: RuntimeLimits) -> Runtime {
 
         limits,
     });
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     module().install(&mut runtime).unwrap();
     runtime
 }
@@ -482,7 +491,12 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
         let cancel = token.clone();
         let visited = Rc::new(std::cell::Cell::new(0));
         let observed = visited.clone();
-        let mut native = ModuleBuilder::new("test::polling", &LanguageContracts::default());
+        let mut native = ModuleBuilder::new(
+            "test::polling",
+            &StandardDeclarations::default()
+                .catalog()
+                .expect("explicit standard providers"),
+        );
         let work = native
             .define_function(FunctionDecl::new("work").returns(Type::i32()))
             .unwrap();
@@ -506,6 +520,11 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
             Some(&native),
         );
         let mut runtime = Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         native.install(&mut runtime).unwrap();
         let loaded = runtime.load_program("native-poll", program).unwrap();
         let mut options = runtime.execution_options();

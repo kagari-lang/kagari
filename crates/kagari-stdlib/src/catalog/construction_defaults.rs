@@ -1,6 +1,6 @@
 //! Base implementations use ordinary native declarations and selected callbacks.
-use crate::library::catalog::contracts;
-use crate::library::catalog::key::{self, RegistrationTrait};
+use crate::catalog::contracts;
+use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, associated_type_id};
 use kagari_types::{
     collection::CollectionAccess,

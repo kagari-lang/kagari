@@ -4,10 +4,7 @@ use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, table::DefinitionId,
 };
-use kagari_contract::{
-    library::namespaces,
-    types::{InterfaceTable, PublicItem},
-};
+use kagari_contract::types::{InterfaceTable, PublicItem};
 use kagari_types::{declaration::module::ImplDecl, language, language::Protocol, ty::Ty};
 
 /// Native storage/conversion capabilities are installation facts even without calls.
@@ -55,7 +52,7 @@ pub(super) fn validate_installed_traits(
             ));
         }
     }
-    if namespaces::is_language_module(&module.identity) {
+    if language::is_language_module(&module.identity) {
         for protocol in Protocol::ALL
             .into_iter()
             .filter(|protocol| language::identity(*protocol).module == module.identity)

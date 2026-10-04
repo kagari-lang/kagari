@@ -1,4 +1,5 @@
-use crate::{library::catalog, types::verify::*};
+use crate::types::verify::*;
+use kagari_stdlib::catalog;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{Param, conversion::ConversionAdapter},
@@ -13,7 +14,7 @@ use kagari_types::{
 fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
     let module = catalog::shared()
         .into_iter()
-        .find(|module| module.identity == crate::library::namespaces::module("core", "convert"))
+        .find(|module| module.identity == kagari_stdlib::namespaces::module("core", "convert"))
         .unwrap();
     let cancel = CancellationToken::default();
     for name in ["Into", "TryInto", "TryFrom"] {

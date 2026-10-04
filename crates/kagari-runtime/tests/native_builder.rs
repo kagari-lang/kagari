@@ -1,20 +1,22 @@
-use kagari_contract::library::{catalog as foundation_catalog, namespaces};
 use kagari_hir::native::render::declaration_source;
 use kagari_runtime::{
     Runtime,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
+        catalog::DeclarationCatalog,
         context::CallContext,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
-        language::LanguageContracts,
         storage::{NativePayload, NativeStorage},
         types::Type,
         views::{SequenceHandle, SequenceMutHandle},
     },
     value::Value,
 };
-use kagari_types::scalar::BuiltinType;
+use kagari_stdlib::{
+    catalog as foundation_catalog, declarations::StandardDeclarations, namespaces,
+};
+use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType};
 
 fn add(_cx: &mut CallContext<'_>, left: i32, right: i32) -> NativeResult<i32> {
     Ok(left + right)
@@ -26,8 +28,11 @@ fn count(_cx: &mut CallContext<'_>) -> NativeResult<u64> {
 
 #[test]
 fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("example::math", &language);
+    let language = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new(
+        "example::math",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let function = module
         .define_function(
             FunctionDecl::new("add")
@@ -53,7 +58,12 @@ fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
 
 #[test]
 fn same_physical_integer_layout_does_not_erase_usize() {
-    let mut module = ModuleBuilder::new("example::mismatch", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::mismatch",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let function = module
         .define_function(FunctionDecl::new("count").returns(Type::usize()))
         .unwrap();
@@ -63,7 +73,12 @@ fn same_physical_integer_layout_does_not_erase_usize() {
 
 #[test]
 fn explicit_binding_uses_the_same_signature_check() {
-    let mut module = ModuleBuilder::new("example::explicit", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::explicit",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let function = module
         .define_function(FunctionDecl::new("count").returns(Type::usize()))
         .unwrap();
@@ -80,7 +95,12 @@ fn explicit_binding_uses_the_same_signature_check() {
 
 #[test]
 fn finalization_rejects_a_declaration_without_an_entry() {
-    let mut module = ModuleBuilder::new("example::missing", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::missing",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     module
         .define_function(FunctionDecl::new("missing"))
         .unwrap();
@@ -109,7 +129,12 @@ fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations
     assert!(!owner.owns_inherent_receiver(&string, &namespaces::receiver_owner));
     assert!(owner.validate(&namespaces::receiver_owner).is_err());
 
-    let mut foreign = ModuleBuilder::new("example::foreign", &LanguageContracts::default());
+    let mut foreign = ModuleBuilder::new(
+        "example::foreign",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let error = foreign
         .implement(Type::scalar(BuiltinType::String), |group| {
             group.inherent_impl(|_| Ok(()))
@@ -124,7 +149,12 @@ fn sequence_len(_cx: &mut CallContext<'_>, values: SequenceHandle<'_>) -> Native
 
 #[test]
 fn sequence_conversion_rejects_opaque_storage_at_registration() {
-    let mut module = ModuleBuilder::new("example::opaque", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::opaque",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut declaration = module.define_type("Opaque");
     declaration
         .native_storage(NativeStorage::payload::<EmptyPayload>())
@@ -159,7 +189,12 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
 
 #[test]
 fn sequence_receiver_groups_allow_read_and_write_member_views() {
-    let mut module = ModuleBuilder::new("example::views", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::views",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut declaration = module.define_type("Buffer");
     let item = declaration.type_parameter("T").unwrap();
     declaration.sequence_storage(&item).unwrap();
@@ -201,8 +236,11 @@ fn sequence_receiver_groups_allow_read_and_write_member_views() {
 
 #[test]
 fn trait_groups_bind_declared_members_and_associated_outputs() {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("example::traits", &language);
+    let language = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new(
+        "example::traits",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let mut trait_builder = module.define_trait("Measure");
     let output = trait_builder.associated_type("Output", []).unwrap();
     trait_builder
@@ -240,7 +278,12 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
 
 #[test]
 fn missing_or_unknown_trait_member_is_rejected() {
-    let mut module = ModuleBuilder::new("example::missing_trait", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::missing_trait",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut declaration = module.define_trait("Measure");
     declaration
         .define_method(MethodDecl::instance("measure").returns(Type::usize()))
@@ -267,7 +310,12 @@ impl NativePayload for EmptyPayload {
 
 #[test]
 fn generic_receiver_groups_emit_independent_impl_binders() {
-    let mut module = ModuleBuilder::new("example::generic", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::generic",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut declaration = module.define_type("Buffer");
     declaration.type_parameter("T").unwrap();
     declaration
@@ -329,9 +377,12 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
 
 #[test]
 fn selected_callbacks_require_proven_declared_bounds() {
-    let language = LanguageContracts::default();
+    let language = StandardDeclarations::default();
     for declare_bound in [false, true] {
-        let mut module = ModuleBuilder::new("example::selected_bounds", &language);
+        let mut module = ModuleBuilder::new(
+            "example::selected_bounds",
+            &language.catalog().expect("explicit standard providers"),
+        );
         let function = module
             .define_function(FunctionDecl::new("inspect"))
             .unwrap();
@@ -361,8 +412,11 @@ fn selected_callbacks_require_proven_declared_bounds() {
 
 #[test]
 fn generic_default_is_derived_from_the_method_contract() {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("example::defaults", &language);
+    let language = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new(
+        "example::defaults",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let mut declaration = module.define_trait("Echo");
     let item = declaration.type_parameter("T").unwrap().ty();
     let method = declaration
@@ -405,14 +459,23 @@ fn generic_default_is_derived_from_the_method_contract() {
     assert_eq!(template.params[0].ty, template.generic_params[0].as_type());
     assert_eq!(template.params[1].ty, template.generic_params[1].as_type());
     assert_eq!(template.return_type, template.generic_params[2].as_type());
-    module.install(&mut Runtime::default()).unwrap();
+    let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
+    module.install(&mut runtime).unwrap();
 }
 
 #[test]
 fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
-    let language = LanguageContracts::default();
+    let language = StandardDeclarations::default();
     for declare_bound in [false, true] {
-        let mut module = ModuleBuilder::new("example::default_bounds", &language);
+        let mut module = ModuleBuilder::new(
+            "example::default_bounds",
+            &language.catalog().expect("explicit standard providers"),
+        );
         let mut declaration = module.define_trait("Inspect");
         let method = declaration
             .define_method(MethodDecl::instance("inspect"))
@@ -452,7 +515,10 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
         declaration.finish().unwrap();
         assert_eq!(module.finish().is_ok(), declare_bound);
     }
-    let mut module = ModuleBuilder::new("example::default_codec", &language);
+    let mut module = ModuleBuilder::new(
+        "example::default_codec",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let mut declaration = module.define_trait("Count");
     let method = declaration
         .define_method(MethodDecl::instance("count").returns(Type::usize()))
@@ -473,5 +539,101 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
             .unwrap_err()
             .message()
             .contains("codec")
+    );
+}
+
+#[test]
+fn full_markdown_survives_builder_completion_and_cross_module_inheritance() {
+    let markdown = "Read a value.\n\n# Examples\n\n```kgr\nfn answer() -> i32 { 42 }\n```\n\n- Preserve **Markdown**.";
+    let mut provider = ModuleBuilder::new("docs::provider", &DeclarationCatalog::default());
+    provider.documentation("# Provider\n\nFull module overview.");
+    let mut contract = provider.define_trait("Read");
+    contract.documentation("# Read\n\nTrait overview.");
+    contract.associated_type("Item", []).unwrap();
+    assert!(
+        contract
+            .associated_type_documentation("Missing", "invalid")
+            .is_err()
+    );
+    contract
+        .associated_type_documentation("Item", "The returned item.")
+        .unwrap();
+    let read = contract
+        .define_method(
+            MethodDecl::instance("read")
+                .returns(Type::i32())
+                .documentation(markdown),
+        )
+        .unwrap();
+    let overridden = contract
+        .define_method(
+            MethodDecl::instance("other")
+                .returns(Type::i32())
+                .documentation(markdown),
+        )
+        .unwrap();
+    let reference = contract.finish().unwrap();
+    let provider = provider.finish().unwrap();
+    let declared = provider.to_declaration().unwrap();
+    assert_eq!(declared.documentation[read.id()], markdown);
+    assert_eq!(declared.documentation[overridden.id()], markdown);
+    assert_eq!(
+        declared.module_documentation,
+        "# Provider\n\nFull module overview."
+    );
+
+    let mut consumer = ModuleBuilder::new("docs::consumer", &provider.catalog());
+    let mut ty = consumer.define_type("Value");
+    ty.documentation("# Value\n\nShared payload.");
+    ty.native_storage(NativeStorage::new(|_| Ok(EmptyPayload)))
+        .unwrap();
+    let value = ty.finish().unwrap();
+    consumer
+        .implement(value, |group| {
+            group.trait_impl(reference.apply([]), |methods| {
+                methods.associated_type("Item", Type::i32())?;
+                methods.documentation("other", "Implementation-specific **override**.")?;
+                assert!(methods.documentation("missing", "invalid").is_err());
+                for method in ["read", "other"] {
+                    methods.bind_with(
+                        method,
+                        NativeBinding::new(vec![Codec::Value], Codec::Value, |_| {
+                            Ok(Value::I32(42))
+                        }),
+                    )?;
+                }
+                Ok(())
+            })?;
+            group.inherent_impl(|methods| {
+                let method = methods.define_method(
+                    MethodDecl::instance("own")
+                        .returns(Type::i32())
+                        .documentation(markdown),
+                )?;
+                methods.bind_with(
+                    method,
+                    NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::I32(42))),
+                )
+            })
+        })
+        .unwrap();
+    let declared = consumer.finish().unwrap().to_declaration().unwrap();
+    assert!(
+        declared
+            .documentation
+            .values()
+            .any(|text| text == "# Value\n\nShared payload.")
+    );
+    assert_eq!(
+        declared.documentation[&ModuleDecl::method_id(&declared.implementation_id(0), "read")],
+        markdown
+    );
+    assert_eq!(
+        declared.documentation[&ModuleDecl::method_id(&declared.implementation_id(0), "other")],
+        "Implementation-specific **override**."
+    );
+    assert_eq!(
+        declared.documentation[&ModuleDecl::method_id(&declared.implementation_id(1), "own")],
+        markdown
     );
 }

@@ -9,7 +9,6 @@ use kagari_compiler::{
 };
 use kagari_contract::{
     ids::FunctionRef,
-    library::catalog as foundation_catalog,
     native::{ExecutableFunctionArtifact, NativeCompilationProduct},
 };
 use kagari_hir::analysis::AnalysisDatabase;
@@ -18,6 +17,7 @@ use kagari_runtime::{
     module::LoadedModule, resource::RuntimeLimits, value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_vm::{
     error::VmError,
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
@@ -51,6 +51,11 @@ fn setup(bytecode: BytecodeProgram) -> (Vm, LoadedModule) {
         },
         ..Default::default()
     });
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let loaded = runtime.load_program("test", bytecode).unwrap();
     (Vm::new(runtime), loaded)
 }

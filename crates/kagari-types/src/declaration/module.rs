@@ -73,6 +73,8 @@ pub struct ModuleDecl<I = DefinitionPath> {
     pub functions: Vec<FnDecl<I>>,
     /// Registered templates remain addressable by identity without public exports.
     pub private_functions: BTreeSet<I>,
+    /// Full Markdown overview of this installed module.
+    pub module_documentation: String,
     pub documentation: BTreeMap<I, String>,
     /// Ordered callback slots owned by each native declaration. The compiler
     /// specializes these requirements; generated source does not select targets.
@@ -94,6 +96,7 @@ impl ModuleDecl {
             implementations: vec![],
             functions: vec![],
             private_functions: BTreeSet::new(),
+            module_documentation: String::new(),
             documentation: BTreeMap::new(),
             callable_requirements: BTreeMap::new(),
             concrete_results: BTreeMap::new(),

@@ -1,22 +1,24 @@
 //! Application-owned provider shared by source emission and an independent
 //! source-free embedding consumer. No runtime-private APIs are used.
-use kagari_runtime::{
-    error::RuntimeError,
-    native::{
-        binding::NativeResult,
-        builder::ModuleBuilder,
-        callable::{CallableHandle, StoredCallable},
-        context::CallContext,
-        declarations::{FunctionDecl, MethodDecl},
-        language::LanguageContracts,
-        module::NativeModule,
-        storage::{NativePayload, NativeStorage},
-        types::Type,
-        views::ValueHandle,
-    },
-    value::Value,
-};
 use std::{cell::Cell, rc::Rc};
+use {
+    kagari_runtime::{
+        error::RuntimeError,
+        native::{
+            binding::NativeResult,
+            builder::ModuleBuilder,
+            callable::{CallableHandle, StoredCallable},
+            context::CallContext,
+            declarations::{FunctionDecl, MethodDecl},
+            module::NativeModule,
+            storage::{NativePayload, NativeStorage},
+            types::Type,
+            views::ValueHandle,
+        },
+        value::Value,
+    },
+    kagari_stdlib::declarations::StandardDeclarations,
+};
 
 fn fill(
     cx: &mut CallContext<'_>,
@@ -45,8 +47,11 @@ fn fill(
 }
 
 pub fn module(drops: Rc<Cell<usize>>) -> NativeModule {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("external::fixture", &language);
+    let language = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new(
+        "external::fixture",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let function = module
         .define_function(FunctionDecl::new("from_fn"))
         .unwrap();

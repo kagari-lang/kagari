@@ -21,6 +21,7 @@ pub struct TypeBuilder<'module> {
     name: String,
     parameter_names: Vec<String>,
     parameters: Vec<GenericParam>,
+    documentation: Option<String>,
     storage: Option<NativeStorage>,
 }
 
@@ -35,8 +36,14 @@ impl<'module> TypeBuilder<'module> {
             name,
             parameter_names: vec![],
             parameters: vec![],
+            documentation: None,
             storage: None,
         }
+    }
+
+    /// Set full Markdown for the registered native type.
+    pub fn documentation(&mut self, text: impl Into<String>) {
+        self.documentation = Some(text.into());
     }
 
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
@@ -110,6 +117,12 @@ impl<'module> TypeBuilder<'module> {
             fields: vec![],
             variants: vec![],
         };
+        if let Some(text) = self.documentation {
+            self.module
+                .declaration
+                .documentation
+                .insert(self.id.clone(), text);
+        }
         self.module.storage.insert(self.id.clone(), storage);
         self.module.declaration.types.push(declaration.clone());
         self.module

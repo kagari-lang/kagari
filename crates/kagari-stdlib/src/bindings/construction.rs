@@ -1,15 +1,12 @@
 //! Synchronous base conversions, parsing and iterable construction.
-use crate::{
+use kagari_bytecode::instruction::BinaryOp;
+use kagari_contract::numeric::NumericOperation;
+use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
-    native::{
-        binding::NativeResult, context::CallContext, declarations::SelectedCall,
-        scalar::NativeScalar,
-    },
+    native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
     numeric,
     value::{EnumTag, Value},
 };
-use kagari_bytecode::instruction::BinaryOp;
-use kagari_contract::numeric::NumericOperation;
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType, surface::StandardEnum, ty::Ty};
 use std::{
     num::{IntErrorKind, ParseIntError},
@@ -43,11 +40,11 @@ pub(super) fn from_str(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         Ok(value) => (EnumTag::ResultOk, value),
         Err(error) => (
             EnumTag::ResultErr,
-            Value::Enum(cx.heap().alloc_enum(EnumTag::ParseError(error), vec![])?),
+            cx.enum_value(EnumTag::ParseError(error), vec![])?,
         ),
     };
     let _root = cx.heap().root_value(value.clone()).ok_or_else(invalid)?;
-    Ok(Value::Enum(cx.heap().alloc_enum(tag, vec![value])?))
+    cx.enum_value(tag, vec![value])
 }
 
 fn integer_error(error: ParseIntError) -> u8 {
@@ -159,8 +156,8 @@ fn for_each(
         }
         return Ok(());
     }
-    let iter = cx.selected(SelectedCall { slot: 0 })?;
-    let next = cx.selected(SelectedCall { slot: 1 })?;
+    let iter = cx.selected_at(0)?;
+    let next = cx.selected_at(1)?;
     let cursor = cx.call_values(iter, &[source])?;
     let _root = cx.heap().root_value(cursor.clone()).ok_or_else(invalid)?;
     loop {

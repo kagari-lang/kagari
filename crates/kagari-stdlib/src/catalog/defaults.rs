@@ -1,6 +1,6 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
-use crate::library::catalog::contracts::{applied_item, method, unit};
-use crate::library::catalog::{key, key::RegistrationTrait};
+use crate::catalog::contracts::{applied_item, method, unit};
+use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
 use kagari_types::{
     callable::CallableImplementation,

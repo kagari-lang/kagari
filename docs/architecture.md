@@ -149,10 +149,10 @@ the copied text to reconstruct navigation provenance. These mechanisms are
 implementation debt retired by LR02/LR03 below, not a supported source contract.
 Header collection binds LangRole to declaration IDs;
 signature completion validates installed origin, uniqueness, required roles,
-binders, parents and member types before body selection. Contract decodes a bounded,
-validated source-compiled trait product without a frontend. The regeneration
-example checks that product against checked source analysis.
-Rust library records under `kagari-contract::library` generate declaration views
+binders, parents and member types before body selection. The 24 core signatures
+now belong to explicit standard registrations; the old product remains only as a
+transitional test oracle scheduled for LR03 removal.
+Rust library records under `kagari-stdlib::catalog` generate declaration views
 that use the ordinary declaration parser and HIR lowering. Non-trivia syntax is
 checked against authoritative registrations before native storage, bindings and
 default metadata attach. Core traits retain role/shape validation. Artifacts carry
@@ -425,9 +425,10 @@ receives declaration records from its caller; it does not install an execution
 runtime to discover APIs. Runtime context operations needed by stdlib must remain
 generic checked operations; moving code cannot expose unchecked heap internals.
 
-Move the current `contract::library::catalog` recipes and library-owned namespace
-inventory, plus runtime's foundation bindings and bundled collection algorithms,
-to that owner. Split `library::namespaces` by consumer responsibility: public
+LR01 moved the declaration recipes, library-owned namespace inventory, native
+bindings and bundled collection algorithms to `kagari-stdlib`. Runtime construction
+is empty until modules are installed explicitly; Engine construction selects and
+installs standard modules. Its single mutable registration path remains LR02 work. Split `library::namespaces` by consumer responsibility: public
 library paths belong to stdlib, while executable ownership validation consumes
 checked declaration/representation bindings. Semantic language-role metadata
 belongs to types; primitive execution facts and executable role bindings belong
@@ -470,8 +471,9 @@ uses the installed declaration and the compiler's actual semantic requirements,
 not a previous generated product. Ordinary native modules use the same declaration
 and binding checks; only the narrow language-role requirements are additional.
 
-Module builders receive explicit provider declarations instead of obtaining
-`LanguageContracts::default()` from a hidden catalog. Engine publication validates
+Module builders now receive an explicit `DeclarationCatalog`. The opt-in
+`kagari-stdlib::declarations::StandardDeclarations` helper exposes standard
+references and a checked catalog; the generic runtime does not construct it. Engine publication validates
 the complete dependency closure and rejects duplicates or mismatches atomically.
 Analysis snapshots and runtime installation derive from the same registered module
 set, including bundled adapters such as MapIterator. Existing snapshots and loaded

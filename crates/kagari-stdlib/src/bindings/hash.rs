@@ -1,15 +1,12 @@
 //! Hash and equality callbacks run synchronously outside storage borrows.
-use crate::{
+use crate::bindings::option;
+use kagari_contract::standard::RuntimePrimitive;
+use kagari_runtime::{
     error::RuntimeError,
     gc::HeapObjectId,
-    native::{
-        binding::NativeResult, context::CallContext, declarations::SelectedCall,
-        foundation::option, scalar::NativeScalar,
-    },
+    native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
     value::Value,
 };
-use kagari_contract::standard::RuntimePrimitive;
-
 use std::slice;
 
 fn invalid() -> RuntimeError {
@@ -32,20 +29,20 @@ fn set(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
 
 fn builtin(cx: &CallContext<'_>) -> NativeResult<bool> {
     Ok(
-        cx.selected(SelectedCall { slot: 0 })?.primitive == Some(RuntimePrimitive::ValueHash)
-            && cx.selected(SelectedCall { slot: 1 })?.primitive == Some(RuntimePrimitive::ValueEq),
+        cx.selected_at(0)?.primitive() == Some(RuntimePrimitive::ValueHash)
+            && cx.selected_at(1)?.primitive() == Some(RuntimePrimitive::ValueEq),
     )
 }
 
 fn lookup(cx: &mut CallContext<'_>, key: &Value) -> NativeResult<(i64, i64)> {
     let collection = cx.argument(0)?;
     let _guard = cx.begin_key_lookup(0)?;
-    let hash_target = cx.selected(SelectedCall { slot: 0 })?;
+    let hash_target = cx.selected_at(0)?;
     let hash = cx.call_values(hash_target, slice::from_ref(key))?;
     let Value::I64(hash) = hash else {
         return Err(invalid());
     };
-    let equal = cx.selected(SelectedCall { slot: 1 })?;
+    let equal = cx.selected_at(1)?;
     let mut index = 0;
     while let Some((token, stored)) = cx.heap().custom_candidate(&collection, hash, index)? {
         cx.poll()?;
@@ -124,7 +121,7 @@ pub(super) fn map_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let collection = cx.argument(0)?;
     let key = cx.argument(1)?;
     let id = map(cx)?;
-    cx.heap().ensure_structure_mutable(id)?;
+    cx.ensure_collection_mutable(id)?;
     if builtin(cx)? {
         let result = option(cx, cx.heap().map_get(id, &key))?;
         cx.heap().map_remove(id, &key)?;
@@ -205,7 +202,7 @@ pub(super) fn set_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let collection = cx.argument(0)?;
     let key = cx.argument(1)?;
     let id = set(cx)?;
-    cx.heap().ensure_structure_mutable(id)?;
+    cx.ensure_collection_mutable(id)?;
     let result = if builtin(cx)? {
         cx.heap().set_remove(id, &key)?
     } else {

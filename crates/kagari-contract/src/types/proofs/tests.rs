@@ -148,7 +148,11 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
         receiver.clone(),
     );
     let catalog = ProofCatalog::new(vec![(&partial).into()], vec![], [], [], [], &cancel).unwrap();
-    assert!(catalog.overrides_valid(&cancel).unwrap());
+    assert!(
+        catalog
+            .overrides_valid(&Default::default(), &cancel)
+            .unwrap()
+    );
     assert!(
         !catalog
             .holds(
@@ -168,7 +172,11 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
         &cancel,
     )
     .unwrap();
-    assert!(!catalog.overrides_valid(&cancel).unwrap());
+    assert!(
+        !catalog
+            .overrides_valid(&Default::default(), &cancel)
+            .unwrap()
+    );
     let catalog = ProofCatalog::new(
         vec![(&partial).into(), (&eq).into(), (&hash).into()],
         vec![],
@@ -178,13 +186,17 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
         &cancel,
     )
     .unwrap();
-    assert!(catalog.overrides_valid(&cancel).unwrap());
+    assert!(
+        catalog
+            .overrides_valid(&Default::default(), &cancel)
+            .unwrap()
+    );
     let mut foreign = partial.clone();
     foreign.declaration.module = ModuleIdentity::single_file("foreign.kgr");
     assert!(
         !ProofCatalog::new(vec![(&foreign).into()], vec![], [], [], [], &cancel)
             .unwrap()
-            .overrides_valid(&cancel)
+            .overrides_valid(&Default::default(), &cancel)
             .unwrap()
     );
     assert!(

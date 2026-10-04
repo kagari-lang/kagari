@@ -7,11 +7,11 @@ use crate::{
     native::{api, render::declaration_source},
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
-use kagari_contract::library::{catalog as foundation_catalog, catalog};
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {

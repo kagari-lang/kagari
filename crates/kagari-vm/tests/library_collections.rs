@@ -1,6 +1,5 @@
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::{
     analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
 };
@@ -9,8 +8,7 @@ use kagari_runtime::{
     gc::RootedValue,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, foundation, language::LanguageContracts, module::NativeModule,
-        types::Type, views::ValueHandle,
+        declarations::FunctionDecl, module::NativeModule, types::Type, views::ValueHandle,
     },
     value::Value,
 };
@@ -20,6 +18,10 @@ use std::{
     cell::{Cell, RefCell},
     rc::Rc,
     sync::Arc,
+};
+use {
+    kagari_stdlib as foundation,
+    kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations},
 };
 
 mod library_mapping;
@@ -57,13 +59,17 @@ fn run(text: &str) -> Value {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let loaded = runtime
         .load_program("sort", program(text, &[&library]))
         .unwrap();
@@ -122,7 +128,12 @@ struct Probe {
 
 impl Probe {
     fn new() -> Self {
-        let mut module = ModuleBuilder::new("test::probe", &LanguageContracts::default());
+        let mut module = ModuleBuilder::new(
+            "test::probe",
+            &StandardDeclarations::default()
+                .catalog()
+                .expect("explicit standard providers"),
+        );
         let retained = Rc::new(RefCell::new(None));
         let calls = Rc::new(Cell::new(0));
         let keep = module.define_function(FunctionDecl::new("keep")).unwrap();
@@ -172,8 +183,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let source = r#"
@@ -187,6 +197,11 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("sort", program(source, &[&library, &probe.module]))
@@ -247,7 +262,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             .into_iter()
             .find(|module| {
                 module.declaration().identity
-                    == kagari_contract::library::namespaces::module("std", "collections")
+                    == kagari_stdlib::namespaces::module("std", "collections")
             })
             .unwrap();
         let source = format!(
@@ -260,6 +275,11 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         "#
         );
         let mut runtime = Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         probe.module.install(&mut runtime).unwrap();
         let loaded = runtime
             .load_program("sort", program(&source, &[&library, &probe.module]))
@@ -304,8 +324,7 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let mut sources = SourceDatabase::default();
@@ -344,8 +363,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let generated = declaration_source(

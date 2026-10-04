@@ -118,7 +118,7 @@ This decision supersedes AC02/NS01's handwritten core-trait authority and checke
 their passing checks describe the current implementation, not LR acceptance.
 This checkpoint records design and scope; LR implementation has not started.
 
-- [ ] **LR01: Give the standard library its own registration owner.** Populate
+- [x] **LR01: Give the standard library its own registration owner.** Populate
   `kagari-stdlib` with the existing contract library recipes, documentation,
   prelude/re-export inventory and runtime foundation/collection implementations.
   Provide consistent full-Markdown documentation APIs for modules, traits, types,
@@ -236,7 +236,7 @@ The authorized order is CR01 -> CR02 -> LR01 -> LR02 -> LR03. Existing library
 requirements, full docs/cache navigation, native safety and source-free artifact
 acceptance remain in scope.
 
-Execution ledger (CR01-CR02 complete; LR01 next): numerical evaluation,
+Execution ledger (CR01-CR02 and LR01 complete; LR02 next): numerical evaluation,
 collection/range semantics and offline host schemas now belong to `kagari-types`.
 Scoped types, generic constraints, substitution, identity traversal, declarations,
 symbolic defaults and narrow reserved language-role identities moved from contract.
@@ -284,6 +284,38 @@ formatting, structural checks (756 files, zero violations/exceptions) and
 `git diff --check`. The complete combined workspace matrix remains due at LR03.
 Handwritten role extraction and runtime library ownership remain assigned to
 LR01-LR03; they were not moved into types or HIR to hide a dependency.
+
+LR01 completes `kagari-stdlib` ownership of all 38 explicit trait registrations,
+concrete types, exports/prelude, Markdown documentation and Rust algorithms.
+Runtime construction has no implicit standard installation; SDK construction and
+low-level test/example producers explicitly install the modules. ModuleBuilder
+receives a checked DeclarationCatalog. Constructor ownership comes from supplied
+type bindings across HIR and executable proof checks, with only intrinsic scalar
+identity retained as a language fact. Checked context operations expose selected
+calls, enum allocation and sequence leases without widening heap internals.
+
+Module, trait, type, function, method and associated-type documentation APIs retain
+complete Markdown through completion and cross-module inheritance/overrides.
+Standard docs include behavior, mutation/failure rules and analyzed usage examples.
+The documentation inventory covers all 38 traits; enum-variant rendering now also
+preserves its registered docs and navigation. The old trait product remains only
+as a migration oracle, and the obsolete source splice/unused product files are
+still assigned to LR02/LR03, not active runtime declaration providers.
+
+LR01 validation passes strict workspace Clippy, formatting, structural checks
+(762 files, zero violations/exceptions), thirteen production dependency boundaries,
+ABI/contract build graphs and diff checks. The SDK passes 418 integration tests
+and the separate source/artifact/interpreter/native observable matrix. HIR passes
+414 unit checks and eight language-registration tests; contract/MIR/bytecode pass
+79 tests including the verifier doctests. Runtime unit/host checks, eighteen
+installation/builder cases, explicit ownership, all standard documentation examples
+and the role migration oracle pass. VM passes its 107 unit checks and integration
+coverage, including 71 native-boundary cases, seven prepared-backend cases and the
+collection/GC/cancellation/reload fixtures; one manual measurement remains ignored.
+Initial failures were producers relying on implicit installation, an accidentally
+aliased KGR fixture import, and enum docs omitted by the renderer. Those failures
+are closed by focused reruns; assertions and negative installation coverage remain.
+Final complete workspace and standalone feature/backend matrices remain LR03 work.
 
 ## Rust-style library namespaces (NS01, complete)
 

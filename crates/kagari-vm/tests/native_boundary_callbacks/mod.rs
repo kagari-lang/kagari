@@ -7,13 +7,13 @@ use kagari_runtime::{
         callable::{CallableHandle, RootedCallable, StoredCallable},
         context::CallContext,
         declarations::FunctionDecl,
-        language::LanguageContracts,
         storage::NativeStorage,
         types::Type,
         views::{SequenceHandle, ValueHandle},
     },
     value::Value,
 };
+use kagari_stdlib::declarations::StandardDeclarations;
 use std::{cell::RefCell, rc::Rc};
 
 fn call_repeatedly(
@@ -38,7 +38,12 @@ fn call_repeatedly(
 
 #[test]
 fn function_arguments_call_captured_script_closures_synchronously() {
-    let mut builder = ModuleBuilder::new("example::callbacks", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::callbacks",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let apply = builder
         .define_function(
             FunctionDecl::new("apply")
@@ -81,7 +86,12 @@ fn function_arguments_call_captured_script_closures_synchronously() {
 #[test]
 fn retained_host_callbacks_pin_their_capture_program_across_reload() {
     let held: Rc<RefCell<Option<RootedCallable>>> = Rc::new(RefCell::new(None));
-    let mut builder = ModuleBuilder::new("example::retained", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::retained",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let remember = builder
         .define_function(
             FunctionDecl::new("remember")
@@ -166,7 +176,12 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
 
 #[test]
 fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
-    let mut builder = ModuleBuilder::new("example::stored", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::stored",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut declaration = builder.define_type("Handler");
     declaration
         .native_storage(NativeStorage::payload::<StoredCallable>())
@@ -228,7 +243,12 @@ fn identity(_cx: &mut CallContext<'_>, value: ValueHandle<'_>) -> NativeResult<V
 
 #[test]
 fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
-    let mut builder = ModuleBuilder::new("example::generic", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::generic",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let function = builder
         .define_function(FunctionDecl::new("identity"))
         .unwrap();
@@ -288,8 +308,11 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
 
 #[test]
 fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
-    let language = LanguageContracts::default();
-    let mut builder = ModuleBuilder::new("example::fold", &language);
+    let language = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new(
+        "example::fold",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let fold = builder
         .define_function(
             FunctionDecl::new("fold")

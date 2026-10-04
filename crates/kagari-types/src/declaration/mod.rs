@@ -4,6 +4,7 @@ pub mod conversion;
 mod mapping;
 pub mod module;
 pub mod native;
+pub mod ownership;
 pub mod requirement;
 pub mod verify;
 use crate::{

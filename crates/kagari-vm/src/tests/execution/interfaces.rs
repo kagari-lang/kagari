@@ -1,5 +1,5 @@
 use super::*;
-use crate::executor::Executor;
+use crate::{executor::Executor, tests::common::standard_runtime};
 use kagari_bytecode::instruction::StructId;
 use kagari_contract::types::PublicItem;
 use kagari_runtime::module::LoadedModule;
@@ -181,7 +181,7 @@ fn interface_method_keeps_its_implementation_across_reload() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }";
     let first = compile_test_bytecode(source);
     let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let old = runtime.load_program("interface-reload", first).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
@@ -214,7 +214,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let old = runtime.load_program("interface-frames", old_code).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
@@ -267,7 +267,7 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("interface-dispatch-reload", old_code)
         .unwrap();
@@ -320,7 +320,7 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         fn use_closure(call: fn() -> i32) -> i32 { call() }
         fn main() -> i32 { read(7) }
     "#;
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("shared-reload", compile_test_bytecode(source))
         .unwrap();
@@ -451,7 +451,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     decoded
         .validate_for_loader(&ArtifactCompatibility::default())
         .unwrap();
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
         .load_program("interface-instruction", decoded.program)
         .unwrap();
@@ -508,7 +508,7 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
         .validate_for_loader(&ArtifactCompatibility::default())
         .unwrap();
 
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
         .load_program("interface-consumer", decoded.program)
         .unwrap();
@@ -556,7 +556,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
             .run()
             .unwrap()
     }
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let first = runtime
         .load_program("constraint-reload", compile_test_bytecode(source))
         .unwrap();
@@ -654,7 +654,7 @@ fn shared_closures_keep_type_metadata_without_retaining_caller_state() {
 }
 
 fn check_type_provenance_reload(source: &str) {
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("type-provenance", compile_test_bytecode(source))
         .unwrap();
@@ -844,7 +844,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         impl Capture for i32 {}
         fn make(source: Capture) -> fn() -> Item { source.capture(Item { value: 1 }) }
     "#;
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let old = runtime
         .load_program("closure-scope", compile_test_bytecode(source))
         .unwrap();

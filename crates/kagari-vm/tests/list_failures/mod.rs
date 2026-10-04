@@ -6,6 +6,11 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("failure", program(source, &[&probe.module]))

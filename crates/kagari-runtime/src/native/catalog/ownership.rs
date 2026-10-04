@@ -1,4 +1,5 @@
 //! Native catalog values and keys share an explicit checked identity context.
+use crate::native::types::TraitRef;
 use crate::{
     error::RuntimeError,
     native::{
@@ -15,7 +16,9 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ModuleDecl};
+use kagari_types::declaration::{
+    NativeDeclaration, TraitDef, TypeDef, module::ModuleDecl, ownership::ReceiverOwners,
+};
 use std::sync::Arc;
 
 fn conflict(cause: impl ToString) -> RuntimeError {
@@ -23,6 +26,55 @@ fn conflict(cause: impl ToString) -> RuntimeError {
 }
 
 impl DeclarationCatalog {
+    /// Validate a complete, explicitly supplied set of declaration providers.
+    pub fn from_declarations<'a>(
+        modules: impl IntoIterator<Item = &'a ModuleDecl>,
+    ) -> Result<Self, RuntimeError> {
+        let modules = modules.into_iter().collect::<Vec<_>>();
+        let catalog = Self::declared(modules.iter().copied())?;
+        let owners = catalog.receiver_owners(None)?;
+        for module in &modules {
+            module
+                .validate(&|receiver| owners.owner(receiver))
+                .map_err(conflict)?;
+        }
+        catalog.check_implementations(modules.iter().copied())?;
+        catalog.to_paths()?.validate_callable_contracts()?;
+        Ok(catalog)
+    }
+
+    pub(crate) fn receiver_owners(
+        &self,
+        extra: Option<&ModuleDecl>,
+    ) -> Result<ReceiverOwners, RuntimeError> {
+        let paths = self.to_paths()?;
+        let types = paths
+            .types
+            .iter()
+            .map(|(id, ty)| (id.module, ty))
+            .collect::<Vec<_>>();
+        ReceiverOwners::from_types(
+            types.iter().map(|(module, ty)| (module, *ty)).chain(
+                extra
+                    .into_iter()
+                    .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
+            ),
+        )
+        .map_err(conflict)
+    }
+
+    /// Resolve a checked trait by its portable declaration identity.
+    pub fn trait_reference(&self, declaration: &DefinitionPath) -> Result<TraitRef, RuntimeError> {
+        let contract = self
+            .traits
+            .get(declaration)
+            .ok_or_else(|| conflict("unknown native trait declaration"))?;
+        Ok(TraitRef {
+            id: declaration.clone(),
+            contract: Arc::new(self.paths(contract)?),
+        })
+    }
+
     pub fn from_modules(modules: &[&NativeModule]) -> Result<Self, RuntimeError> {
         let mut result = Self::default();
         for module in modules {
@@ -64,6 +116,7 @@ impl DeclarationCatalog {
     /// Installed catalogs retain only compact references and their own context.
     pub(crate) fn to_paths(&self) -> Result<DeclarationCatalog<DefinitionPath>, RuntimeError> {
         Ok(DeclarationCatalog {
+            documentation: self.documentation.clone(),
             types: Arc::new(self.types.map_values(|record| self.paths(record))?),
             traits: Arc::new(self.traits.map_values(|record| self.paths(record))?),
             declarations: Arc::new(self.declarations.map_values(|record| self.paths(record))?),
@@ -160,7 +213,14 @@ impl DeclarationCatalog {
             &mut self.implementations,
             &other.implementations,
             "conflicting native implementation contracts",
-        )
+        )?;
+        Arc::make_mut(&mut self.documentation).extend(
+            other
+                .documentation
+                .iter()
+                .map(|(id, text)| (id.clone(), text.clone())),
+        );
+        Ok(())
     }
 
     pub(crate) fn satisfied_by(&self, installed: &Self) -> Result<bool, RuntimeError> {
@@ -221,6 +281,7 @@ impl DeclarationCatalog<DefinitionPath> {
     fn scoped(self) -> Result<DeclarationCatalog, RuntimeError> {
         let context = self.types.context();
         Ok(DeclarationCatalog {
+            documentation: self.documentation.clone(),
             types: Arc::new(scope_values(&self.types, context)?),
             traits: Arc::new(scope_values(&self.traits, context)?),
             declarations: Arc::new(scope_values(&self.declarations, context)?),

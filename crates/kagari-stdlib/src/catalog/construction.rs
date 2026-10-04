@@ -1,7 +1,7 @@
 //! Foundational conversion, parsing and aggregation contracts. Algorithms are
 //! supplied by ordinary implementations, independently of declaration ownership.
-use crate::library::catalog::contracts;
-use crate::library::catalog::key::{self, RegistrationTrait};
+use crate::catalog::contracts;
+use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::associated_type_id;
 use kagari_types::{
     declaration::{conversion::ConversionAdapter, module::ModuleDecl},

@@ -1,6 +1,6 @@
 //! Inherent String methods belong to the language declaration owner.
-use crate::library::catalog::contracts;
-use crate::library::catalog::key::{self, RegistrationTrait};
+use crate::catalog::contracts;
+use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::DefinitionKind;
 use kagari_types::{
     callable::CallableImplementation,

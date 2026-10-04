@@ -2,13 +2,12 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionPath, associated_type_id},
 };
-use kagari_contract::{
-    library,
-    library::{catalog as foundation_catalog, catalog as language, namespaces},
-    types::{PublicItem, verify},
-};
+use kagari_contract::types::{PublicItem, verify};
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::{
+    catalog as foundation_catalog, catalog as language, identity as library, namespaces,
+};
 use kagari_types::{
     collection::CollectionAccess,
     language as identities,

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{native::render::declaration_source, tests::native::module};
-use kagari_contract::library::{catalog as foundation_catalog, catalog};
+use kagari_stdlib::{catalog as foundation_catalog, catalog};
 
 #[test]
 fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility() {

@@ -1,6 +1,6 @@
 use crate::{
     debug::{DebugSession, SourceBreakpoint},
-    tests::common::test_function_module,
+    tests::common::{standard_runtime, test_function_module},
     vm::Vm,
 };
 use kagari_abi::representation::ValueType;
@@ -11,12 +11,12 @@ use kagari_bytecode::{
     },
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_runtime::{Runtime, RuntimeConfig, host::HostFunction, value::Value};
+use kagari_runtime::{RuntimeConfig, host::HostFunction, value::Value};
 use kagari_types::host_interface::value_type::HostValueType;
 
 #[test]
 fn installed_host_reflection_and_debugger_operations_are_available() {
-    let mut host_runtime = Runtime::new(RuntimeConfig {
+    let mut host_runtime = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
     host_runtime
@@ -63,7 +63,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
         Value::I32(42)
     );
 
-    let mut reflection_runtime = Runtime::default();
+    let mut reflection_runtime = standard_runtime(Default::default());
     let reflection_module = reflection_runtime
         .load_program(
             "security_reflection_denied.kbc",
@@ -97,12 +97,12 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
             .return_value,
         Value::Str("i32".into())
     );
-    DebugSession::new(&Runtime::default()).unwrap();
+    DebugSession::new(&standard_runtime(Default::default())).unwrap();
 }
 
 #[test]
 fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
-    let mut metadata_only = Runtime::new(RuntimeConfig {
+    let mut metadata_only = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
     let reflection_module = metadata_only
@@ -150,7 +150,7 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
     let mut reflection_vm = Vm::new(metadata_only);
     reflection_vm.execute(&reflection_module, "main").unwrap();
 
-    let debug_runtime = Runtime::new(RuntimeConfig {
+    let debug_runtime = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
     let mut session = DebugSession::new(&debug_runtime).expect("attach should be allowed");

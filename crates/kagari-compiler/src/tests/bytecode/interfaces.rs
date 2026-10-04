@@ -4,12 +4,13 @@ use kagari_bytecode::{
     module::CallableTarget,
     program::verify_program,
 };
-use kagari_contract::{ids::FunctionRef, library::catalog as foundation_catalog};
+use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
     instruction::{CallTarget, Instruction},
     program as mir_program,
 };
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::ty::{Constraint, Ty};
 
 fn script_target(target: CallableTarget) -> FunctionRef {

@@ -7,7 +7,7 @@ use crate::{
     tests::test_analysis,
     types::{NominalType, TypeId},
 };
-use kagari_contract::{library, library::catalog as foundation_catalog};
+use kagari_stdlib::{catalog as foundation_catalog, identity as library};
 use kagari_types::{collection::CollectionAccess, language::Protocol};
 
 fn foundation_interface(name: &str) -> NominalType {
@@ -230,7 +230,7 @@ mod tests {
                 &foundation_catalog::shared()
                     .into_iter()
                     .find(|module| module.identity
-                        == kagari_contract::library::namespaces::module("std", "collections"))
+                        == kagari_stdlib::namespaces::module("std", "collections"))
                     .unwrap(),
                 &foundation_catalog::shared(),
             )

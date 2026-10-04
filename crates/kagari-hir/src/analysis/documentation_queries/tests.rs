@@ -1,8 +1,8 @@
 use crate::{
     declarations::DeclarationId, native::render::declaration_source, tests::test_analysis,
 };
-use kagari_contract::library::{catalog as foundation_catalog, catalog};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use kagari_types::{language as standard_traits, language::Protocol};
 use std::collections::HashSet;
 
@@ -256,7 +256,7 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
                     == &if name == "Iterator" {
                         standard_traits::identity(Protocol::Iterator).module
                     } else {
-                        kagari_contract::library::namespaces::type_owner(name)
+                        kagari_stdlib::namespaces::type_owner(name)
                     }
             })
             .unwrap();

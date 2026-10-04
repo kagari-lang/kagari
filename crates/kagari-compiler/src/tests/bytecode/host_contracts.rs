@@ -1,7 +1,7 @@
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::host_interface::value_type::HostValueType;
 
 #[test]

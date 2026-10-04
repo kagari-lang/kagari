@@ -354,9 +354,17 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     use kagari_vm::vm::Vm;
     let (engine, artifact, host, make) = fixture();
     let _context = context(false);
-    let mut vm = Vm::new(Runtime::new(RuntimeConfig {
-        ..Default::default()
-    }));
+    let mut vm = Vm::new({
+        let mut registered = Runtime::new(RuntimeConfig {
+            ..Default::default()
+        });
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    });
     let ty = vm
         .runtime_mut()
         .register_host_type(HostTypeRegistration::new(host.clone(), "Counter"))
@@ -454,7 +462,15 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
             .unwrap(),
         Value::I32(43)
     );
-    let mut foreign = Runtime::default();
+    let mut foreign = {
+        let mut registered = Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    };
     let foreign_type = foreign
         .register_host_type(HostTypeRegistration::new(host.clone(), "Counter"))
         .unwrap();
@@ -611,9 +627,17 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
     use kagari_vm::vm::Vm;
     let (_, artifact, host, make) = fixture();
     let _context = context(false);
-    let mut vm = Vm::new(Runtime::new(RuntimeConfig {
-        ..Default::default()
-    }));
+    let mut vm = Vm::new({
+        let mut registered = Runtime::new(RuntimeConfig {
+            ..Default::default()
+        });
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    });
     let ty = vm
         .runtime_mut()
         .register_host_type(HostTypeRegistration::new(host.clone(), "Counter"))
@@ -658,9 +682,17 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         if mismatch {
             registered.trait_implementations[0].associated_types[0].ty = HostValueType::I64;
         }
-        let mut runtime = Runtime::new(RuntimeConfig {
-            ..Default::default()
-        });
+        let mut runtime = {
+            let mut registered = Runtime::new(RuntimeConfig {
+                ..Default::default()
+            });
+            kagari_runtime::native::module::NativeModule::install_all(
+                &kagari_stdlib::modules().unwrap(),
+                &mut registered,
+            )
+            .unwrap();
+            registered
+        };
         runtime
             .register_host_type(HostTypeRegistration::new(registered.clone(), "Counter"))
             .unwrap();
@@ -767,7 +799,15 @@ fn interface_method_results_validate_nested_host_roots() {
             &Value::Tuple(vec![Value::HostRoot(root), Value::I32(42)]),
         )
         .unwrap();
-    let mut foreign = kagari_runtime::Runtime::default();
+    let mut foreign = {
+        let mut registered = kagari_runtime::Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    };
     let ty = foreign
         .register_host_type(HostTypeRegistration::new(host, "Counter"))
         .unwrap();

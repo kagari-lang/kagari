@@ -5,6 +5,7 @@ members = [
     "crates/kagari-abi",
     "crates/kagari-contract",
     "crates/kagari-types",
+    "crates/kagari-stdlib",
     "crates/kagari-cli",
     "crates/kagari-common",
     "crates/kagari-source",
@@ -30,6 +31,7 @@ kagari-codegen = { path = "crates/kagari-codegen" }
 kagari-abi = { path = "crates/kagari-abi" }
 kagari-contract = { path = "crates/kagari-contract" }
 kagari-types = { path = "crates/kagari-types" }
+kagari-stdlib = { path = "crates/kagari-stdlib" }
 kagari-common = { path = "crates/kagari-common" }
 kagari-source = { path = "crates/kagari-source" }
 kagari-embed = { path = "crates/kagari-embed", default-features = false }

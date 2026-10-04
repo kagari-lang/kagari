@@ -18,6 +18,7 @@ use kagari_contract::{
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
+    declaration::ownership::ReceiverOwners,
     ty::{
         GenericParam,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -65,6 +66,16 @@ pub(super) fn validate(
                 .map(|contract| (contract.declaration.clone(), &contract.abi)),
         )
     });
+    let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
+        module.abi.public_items.iter().filter_map(|item| {
+            if let PublicItem::Type(ty) = item {
+                Some((&module.identity, ty))
+            } else {
+                None
+            }
+        })
+    }))
+    .map_err(|_| TypeTransformError::InvalidContract)?;
     let catalog = ProofCatalog::new(
         tables,
         closure
@@ -78,7 +89,7 @@ pub(super) fn validate(
             .flat_map(|module| &module.abi.native_declarations),
         cancel,
     )?;
-    if !catalog.overrides_valid(cancel)? {
+    if !catalog.overrides_valid(&owners, cancel)? {
         return Ok(false);
     }
     for function in &caller.functions {

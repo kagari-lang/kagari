@@ -1,66 +1,56 @@
 //! Immutable language contracts are available independently of optional modules.
-use crate::native::{
+use crate::{catalog, identity};
+use kagari_runtime::native::{
     binding::NativeResult,
     catalog::DeclarationCatalog,
     types::{TraitRef, Type},
 };
-use kagari_contract::{library, library::catalog};
 use kagari_types::{
     collection::CollectionAccess, declaration::module::ModuleDecl, language, language::Protocol,
     surface::StandardEnum, ty::Ty,
 };
-use std::sync::Arc;
+use std::{cell::OnceCell, sync::Arc};
 
 #[derive(Debug, Clone)]
-pub struct LanguageContracts {
+pub struct StandardDeclarations {
     declarations: Vec<Arc<ModuleDecl>>,
+    providers: OnceCell<NativeResult<DeclarationCatalog>>,
 }
 
-impl Default for LanguageContracts {
+impl Default for StandardDeclarations {
     fn default() -> Self {
         Self {
             declarations: catalog::shared(),
+            providers: OnceCell::new(),
         }
     }
 }
 
-impl LanguageContracts {
+impl StandardDeclarations {
     pub fn declarations(&self) -> &[Arc<ModuleDecl>] {
         &self.declarations
     }
 
-    pub(crate) fn catalog(&self) -> NativeResult<DeclarationCatalog> {
-        DeclarationCatalog::declared(self.declarations.iter().map(Arc::as_ref))
+    pub fn catalog(&self) -> NativeResult<DeclarationCatalog> {
+        self.providers
+            .get_or_init(|| {
+                DeclarationCatalog::from_declarations(self.declarations.iter().map(Arc::as_ref))
+            })
+            .clone()
     }
 
     pub fn protocol(&self, protocol: Protocol) -> TraitRef {
-        TraitRef {
-            id: language::identity(protocol),
-            contract: Arc::new(
-                self.declarations
-                    .iter()
-                    .filter(|module| module.identity == language::identity(protocol).module)
-                    .flat_map(|module| &module.traits)
-                    .find(|contract| contract.name == protocol.name())
-                    .expect("language contract")
-                    .clone(),
-            ),
-        }
+        self.catalog()
+            .expect("checked standard providers")
+            .trait_reference(&language::identity(protocol))
+            .expect("declared standard protocol")
     }
 
     fn library_trait(&self, name: &str) -> TraitRef {
-        TraitRef {
-            id: library::trait_id(name),
-            contract: Arc::new(
-                self.declarations
-                    .iter()
-                    .filter(|module| module.identity == library::trait_id(name).module)
-                    .flat_map(|module| &module.traits)
-                    .find(|contract| contract.name == name)
-                    .expect("installed library trait")
-                    .clone(),
-            ),
-        }
+        self.catalog()
+            .expect("checked standard providers")
+            .trait_reference(&identity::trait_id(name))
+            .expect("declared standard library trait")
     }
 
     pub fn list(&self) -> TraitRef {
@@ -112,34 +102,40 @@ impl LanguageContracts {
     }
 
     pub fn vec(&self, item: Type) -> Type {
-        Type(Ty::Array(Box::new(item.0), CollectionAccess::Mutable))
+        Type::from_semantic(Ty::Array(
+            Box::new(item.abi().clone()),
+            CollectionAccess::Mutable,
+        ))
     }
 
     pub fn collection_cursor(&self, item: Type) -> Type {
-        Type(Ty::Iter(Box::new(item.0)))
+        Type::from_semantic(Ty::Iter(Box::new(item.abi().clone())))
     }
 
     pub fn hash_map(&self, key: Type, value: Type) -> Type {
-        Type(Ty::Map {
-            key: Box::new(key.0),
-            value: Box::new(value.0),
+        Type::from_semantic(Ty::Map {
+            key: Box::new(key.abi().clone()),
+            value: Box::new(value.abi().clone()),
             access: CollectionAccess::Mutable,
         })
     }
 
     pub fn hash_set(&self, item: Type) -> Type {
-        Type(Ty::Set(Box::new(item.0), CollectionAccess::Mutable))
+        Type::from_semantic(Ty::Set(
+            Box::new(item.abi().clone()),
+            CollectionAccess::Mutable,
+        ))
     }
 
     pub fn option(&self, item: Type) -> Type {
-        Type(Ty::StandardEnum {
+        Type::from_semantic(Ty::StandardEnum {
             kind: StandardEnum::Option,
-            args: vec![item.0],
+            args: vec![item.abi().clone()],
         })
     }
 
     pub fn ordering(&self) -> Type {
-        Type(Ty::StandardEnum {
+        Type::from_semantic(Ty::StandardEnum {
             kind: StandardEnum::Ordering,
             args: vec![],
         })

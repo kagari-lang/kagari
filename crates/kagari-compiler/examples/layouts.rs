@@ -6,16 +6,14 @@ use kagari_common::{
     identity::{DefinitionKind, ModuleIdentity, PackageId},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::{
-    library::{catalog as foundation_catalog, namespaces},
-    types::PublicItem,
-};
+use kagari_contract::types::PublicItem;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::{catalog as foundation_catalog, namespaces};
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeTypeConstructor},
     scalar::BuiltinType,

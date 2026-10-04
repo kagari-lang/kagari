@@ -8,13 +8,13 @@ use kagari_bytecode::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     host::{HostError, HostFunction},
     module::LoadedModule,
+    reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
@@ -204,7 +204,7 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     }
     let mut analysis = kagari_hir::analysis::AnalysisDatabase::default();
     analysis.set_native_modules(
-        kagari_runtime::native::foundation::modules()
+        kagari_stdlib::modules()
             .unwrap()
             .iter()
             .map(|module| Arc::new(module.to_declaration().unwrap()))
@@ -385,6 +385,11 @@ fn run(
 
         ..Default::default()
     });
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let host = Arc::new(Mutex::new(RecordingHost::default()));
     let capture = host.clone();
     let reject_call = case.reject_call;

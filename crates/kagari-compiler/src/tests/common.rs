@@ -1,6 +1,5 @@
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_bytecode::program::BytecodeProgram;
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::{
     CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
 };
@@ -12,6 +11,7 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::catalog as foundation_catalog;
 
 pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     let source = SourceFile::new("test.kg", text);

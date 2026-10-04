@@ -15,6 +15,11 @@ use std::{collections::BTreeMap, sync::Arc};
 pub struct Type(pub(crate) Ty);
 
 impl Type {
+    /// Author a portable semantic type; owning builders validate its scopes and shape.
+    pub fn from_semantic(ty: Ty) -> Self {
+        Self(ty)
+    }
+
     pub fn scalar(kind: BuiltinType) -> Self {
         Self(Ty::Builtin(kind))
     }

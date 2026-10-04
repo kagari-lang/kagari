@@ -350,6 +350,7 @@ dependencies = [
  "kagari-abi",
  "kagari-common",
  "kagari-contract",
+ "kagari-stdlib",
  "kagari-types",
  "serde",
  "smallvec",
@@ -425,6 +426,7 @@ dependencies = [
  "kagari-hir",
  "kagari-mir",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
  "smallvec",
@@ -438,6 +440,7 @@ dependencies = [
  "bincode",
  "kagari-abi",
  "kagari-common",
+ "kagari-stdlib",
  "kagari-types",
  "serde",
  "smallvec",
@@ -459,6 +462,7 @@ dependencies = [
  "kagari-mir",
  "kagari-runtime",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
  "kagari-vm",
@@ -473,6 +477,7 @@ dependencies = [
  "kagari-common",
  "kagari-contract",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
  "serde",
@@ -520,6 +525,7 @@ dependencies = [
  "kagari-contract",
  "kagari-hir",
  "kagari-mir",
+ "kagari-stdlib",
  "kagari-types",
  "thiserror",
 ]
@@ -530,6 +536,20 @@ version = "0.1.0"
 dependencies = [
  "kagari-common",
  "serde",
+]
+
+[[package]]
+name = "kagari-stdlib"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "kagari-bytecode",
+ "kagari-common",
+ "kagari-contract",
+ "kagari-hir",
+ "kagari-runtime",
+ "kagari-source",
+ "kagari-types",
 ]
 
 [[package]]
@@ -565,6 +585,7 @@ dependencies = [
  "kagari-mir",
  "kagari-runtime",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
 ]

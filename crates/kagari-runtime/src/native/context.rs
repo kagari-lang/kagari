@@ -1,4 +1,5 @@
 //! Synchronous native access borrows stable, already rooted caller slots.
+pub mod operations;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -7,12 +8,13 @@ use crate::{
         arguments::{ScopedSignature, TypeArgument, type_parameter},
         compatibility::TypeView,
     },
-    gc::{GcCollection, GcHeap, HeapObjectId, RootSet, custom_keys::KeyLookupGuard},
+    gc::{GcCollection, GcHeap, HeapObjectId, RootSet},
     module::{LoadedModule, RetainedRuntimeProgram},
     native::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
         callable::{CallableHandle, PreparedClosure},
+        context::operations::NativeKeyLookupGuard,
         declarations::SelectedCall,
         scalar::NativeScalar,
         sequence::{NativeElement, SequencePayload},
@@ -80,9 +82,9 @@ impl<'call> ArgumentView<'call> {
             .is_some_and(|slot| self.roots.is_some_and(|roots| roots.contains_slot(slot)))
     }
 
-    // Read immutable scalar data without an owning clone. The closure cannot
-    // retain a slot reference; callers must not reenter while it is borrowed.
-    pub(crate) fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
+    /// Read rooted immutable slot data without an owning clone. The closure cannot
+    /// retain a slot reference; it must not reenter while this borrow is active.
+    pub fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
         if let ArgumentSlots::Scalars(values) = self.slots {
             return values.get(index).map(read);
         }
@@ -166,11 +168,16 @@ impl<'call> CallContext<'call> {
         CallableHandle::from_argument(self, index)
     }
 
-    pub(crate) fn begin_key_lookup(&self, index: usize) -> NativeResult<KeyLookupGuard<'call>> {
+    /// Root a key and block structural mutation until its synchronous lookup ends.
+    pub fn begin_key_lookup(&self, index: usize) -> NativeResult<NativeKeyLookupGuard<'call>> {
         let roots = self.arguments.roots.ok_or_else(|| {
             RuntimeError::module_validation("key lookup requires rooted frame arguments")
         })?;
-        self.heap().begin_key_lookup(&self.argument(index)?, roots)
+        Ok(NativeKeyLookupGuard {
+            _guard: self
+                .heap()
+                .begin_key_lookup(&self.argument(index)?, roots)?,
+        })
     }
 
     fn sequence_id(&self, index: usize) -> NativeResult<HeapObjectId> {
@@ -320,7 +327,8 @@ impl<'call> CallContext<'call> {
             .parameter(self.runtime, self.owner, parameter)
     }
 
-    pub(crate) fn iter_operation(&self, index: usize, op: IterOp) -> NativeResult<Value> {
+    /// Apply a checked built-in iterator operation using the argument's declared scope.
+    pub fn iter_operation(&self, index: usize, op: IterOp) -> NativeResult<Value> {
         self.runtime.iter_operation_with_type(
             self.owner,
             &self.argument(index)?,
@@ -395,9 +403,14 @@ impl<'call> CallContext<'call> {
     }
 
     pub fn selected(&self, key: SelectedCall) -> NativeResult<&'call LinkedCallable> {
+        self.selected_at(key.slot)
+    }
+
+    /// Resolve a declared callback slot, checking that its selected target is ready.
+    pub fn selected_at(&self, slot: usize) -> NativeResult<&'call LinkedCallable> {
         self.function
             .selected
-            .get(key.slot)
+            .get(slot)
             .and_then(LinkedOperation::ready)
             .ok_or_else(|| RuntimeError::module_validation("native selected callable slot"))
     }

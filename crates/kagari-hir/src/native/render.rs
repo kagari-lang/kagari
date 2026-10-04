@@ -126,6 +126,13 @@ impl DeclarationView<'_> {
             if matches!(constructor, Some(NativeTypeConstructor::Enum(_))) {
                 output.text.push_str(" {\n");
                 for variant in &ty.variants {
+                    let mut owner = id.clone();
+                    owner.path.push(DefinitionPathSegment {
+                        kind: DefinitionKind::Variant,
+                        name: variant.name.clone(),
+                        occurrence: 0,
+                    });
+                    output.doc(&owner);
                     let start = output.text.len();
                     output.text.push_str("    ");
                     let name_span = output.name(&variant.name);
@@ -141,12 +148,6 @@ impl DeclarationView<'_> {
                         output.text.push(')');
                     }
                     output.text.push_str(",\n");
-                    let mut owner = id.clone();
-                    owner.path.push(DefinitionPathSegment {
-                        kind: DefinitionKind::Variant,
-                        name: variant.name.clone(),
-                        occurrence: 0,
-                    });
                     output.site(owner, start, name_span, vec![], payload);
                 }
                 output.text.push_str("}\n\n");

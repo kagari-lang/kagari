@@ -3,32 +3,26 @@
 Kagari declarations describe Kagari types, functions, traits and implementations.
 Rust entries implement those declarations. Registration is explicit: a Rust
 function's signature does not define a Kagari API, and no declaration attribute
-macro is involved. A bounded checked product of handwritten core trait source
-supplies the 24 language declarations to source-free consumers.
+macro is involved. `kagari-stdlib` owns all 38 standard trait registrations,
+including the 24 reserved language traits. Source-free runtime installation uses
+these same declarations and local Rust bindings without a binary declaration product.
 
-This page describes current implemented behavior. The pending
-[crate responsibility migration](../architecture.md#crate-responsibility-target-agreed-pending-implementation)
-first moves shared declarations and host schemas to `kagari-types`, restricts
-contract to executable facts and removes HIR's ABI/contract dependencies. The
-[agreed unified registration target](../architecture.md#unified-library-registration-agreed-target-pending-implementation)
-replaces the embedded core product and implicit foundation catalog with explicit
-standard-library registration. It also removes the current pre-parser
-`trait_source` exact-attribute/blank-line extraction and handwritten-core splicing.
-Complete generated modules use the ordinary parser/HIR, with syntax-based role
-recognition and explicit navigation ranges. CR01-CR02 precede library implementation
-in the [single execution plan](../implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed);
-library acceptance is tracked in
-[LR01-LR03](../implementation-roadmap.md#unified-library-registration-lr01-lr03-design-agreed).
+This page describes current implemented behavior. CR01-CR02 established shared
+semantic ownership and explicit analysis providers. LR01 moved concrete standard
+registrations and algorithms to their own crate. LR02-LR03 still replace the
+handwritten-core analysis splice with complete generated modules, cached navigation
+and syntax-based role recognition, then remove the unused trait product and oracle.
+The [single execution plan](../implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed)
+owns sequencing and acceptance.
 
 ## Ownership and installation
 
 The installed `core`/`alloc`/`std` foundation contains complete language contracts:
 operators, comparisons, hashing, Index, Fn, iteration, collection interfaces,
 formatting and error conversion. It also declares Option/Result/Ordering/Bound,
-range forms and the default Vec/HashMap/HashSet types. Their basic native
-operations are always available. Array literals construct Vec. The 24 core
-traits come from handwritten Kagari source and validated language roles. Their
-checked portable product remains usable without syntax/HIR or source parsing.
+range forms and the default Vec/HashMap/HashSet types. The SDK installs their basic native operations by default. Array literals
+construct Vec. Explicit registrations declare the core traits; validated language
+roles select their semantic duties. Installation remains independent of syntax/HIR.
 Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
 retain its definition identity. Native modules carry public alias targets, and
 installation verifies that the canonical declarations exist in their providers.
@@ -41,9 +35,10 @@ They promise neither insertion nor sorted order. LinkedHashMap/LinkedHashSet and
 other additional containers belong to optional modules; none are installed by
 the current bounded library proof.
 
-Runtime construction always installs the foundation and bundled algorithms,
-including source-free execution. All engine constructors expose the same foundation;
-there is no opt-out. The builder's `install(module)` adds an application module,
+`Runtime::new` constructs an empty native registry. Low-level consumers explicitly
+install `kagari_stdlib::modules()` with `NativeModule::install_all`, including for
+source-free execution. All engine constructors select and install the standard
+modules. The builder's `install(module)` adds an application module,
 and `with_native_modules` accepts application modules in addition to the foundation.
 Duplicate/conflicting foundation bindings are rejected. A finished module contains
 both portable declarations and runtime-local Rust entries/storage descriptors.
@@ -97,14 +92,15 @@ use kagari_runtime::native::{
     builder::ModuleBuilder,
     context::CallContext,
     declarations::FunctionDecl,
-    language::LanguageContracts,
     module::NativeModule,
     types::Type,
 };
 
+use kagari_stdlib::declarations::StandardDeclarations;
+
 fn module() -> NativeResult<NativeModule> {
-    let language = LanguageContracts::default();
-    let mut module = ModuleBuilder::new("demo::numbers", &language);
+    let standard = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new("demo::numbers", &standard.catalog()?);
     let maximum = module.define_function(FunctionDecl::new("maximum"))?;
     module.function(&maximum, |function| {
         function.parameter("left", Type::i32());
@@ -130,6 +126,16 @@ Unbound functions, foreign declaration handles and incompatible Rust conversions
 are rejected. The application fixture at
 `crates/kagari-embed/tests/support/native_provider.rs` demonstrates a generic
 factory and a non-sequence object with an inherent method and retained callback.
+
+Documentation registration preserves complete Markdown, blank paragraphs and
+fenced examples. `ModuleBuilder::documentation`, `TraitBuilder::documentation`
+and `TypeBuilder::documentation` set their overviews. `FunctionDecl::documentation`
+and `MethodDecl::documentation` attach item/member documentation.
+`TraitBuilder::associated_type_documentation` checks the declared member name.
+Trait implementations inherit the provider's method docs across module boundaries;
+`MethodsBuilder::documentation(name, text)` overrides a particular implementation.
+Finished `ModuleDecl` records retain module and member documentation independently
+of executable signatures and contract matching.
 
 ## Checked executable contracts
 
@@ -217,10 +223,10 @@ and documentation. It is not executable source, a second signature authority or
 an installation trigger. The compiler parses/lowers this view through ordinary
 declaration machinery and checks non-trivia correspondence with registration
 before attaching native storage, bindings and default metadata. Declaration
-locations and docs come from the same records used by compilation. Core traits
-and their docs originate in the handwritten
-`library/core/{ops,cmp,hash,fmt,iter,convert}.kgr` modules. Copied view fragments
-retain exact authored locations and snapshot-owned original text.
+locations and docs come from the same records used by compilation. Standard registrations now own all trait and module documentation. The current
+core analysis path still splices the six handwritten views and navigates to copied
+source ranges; LR02 replaces that temporary path with the uniform renderer and
+materialized declaration cache.
 Other generated views include library-owned types,
 inherent methods and trait impl methods, including MapIterator.next.
 

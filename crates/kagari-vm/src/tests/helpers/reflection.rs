@@ -1,5 +1,5 @@
 use super::*;
-use crate::tests::common;
+use crate::tests::{common, common::standard_runtime};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -64,7 +64,7 @@ fn runtime_reflection_helpers_use_declared_metadata() {
 
 #[test]
 fn declared_reflection_reads_are_available() {
-    let mut metadata_only = Runtime::new(RuntimeConfig {
+    let mut metadata_only = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
     let loaded = metadata_only
@@ -109,7 +109,7 @@ fn declared_reflection_reads_are_available() {
 
 #[test]
 fn declared_reflection_writes_are_available() {
-    let mut read_only = Runtime::new(RuntimeConfig {
+    let mut read_only = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
     let loaded = read_only

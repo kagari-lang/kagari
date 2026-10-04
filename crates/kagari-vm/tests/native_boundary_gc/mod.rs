@@ -241,6 +241,11 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
             mutable: true,
         });
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let program = module;
     let old = runtime.load_program("gc.kgr", program.clone()).unwrap();
     let mut vm = Vm::new(runtime);

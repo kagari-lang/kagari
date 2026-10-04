@@ -1,17 +1,14 @@
 use crate::{
     debug::{DebugSession, SourceBreakpoint},
-    tests::native_fixtures,
+    error::VmError,
+    tests::{common::standard_runtime, native_fixtures},
     vm::{JitExecutionStatus, Vm},
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
-use {crate::error::VmError, kagari_runtime::error::RuntimeErrorKind};
-
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_compiler::bytecode::lower_program_to_bytecode;
-use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
-use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
-};
+use kagari_runtime::{RuntimeConfig, error::RuntimeErrorKind, value::Value};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn fixture(dependency_source: &str) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
@@ -59,7 +56,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
         decoded.validate_for_loader(&Default::default()).unwrap();
         for program in [source, decoded.program] {
             for jit in [false, true] {
-                let mut runtime = Runtime::new(RuntimeConfig {
+                let mut runtime = standard_runtime(RuntimeConfig {
                     ..Default::default()
                 });
                 let loaded = runtime.load_program("root", program.clone()).unwrap();
@@ -90,7 +87,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
 
 #[test]
 fn cross_module_debug_frames_keep_their_member_identity() {
-    let mut runtime = Runtime::new(RuntimeConfig {
+    let mut runtime = standard_runtime(RuntimeConfig {
         ..Default::default()
     });
     let loaded = runtime

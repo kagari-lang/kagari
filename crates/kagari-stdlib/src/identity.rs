@@ -1,6 +1,5 @@
 //! Rust-authoritative mandatory library declarations and registration identities.
-pub mod catalog;
-pub mod namespaces;
+use crate::namespaces;
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use kagari_types::ty::{NominalTy, Ty};
 

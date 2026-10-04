@@ -1,6 +1,9 @@
 use crate::{
     debug::{DebugSession, SourceBreakpoint},
-    tests::{common::compile_test_bytecode, native_fixtures},
+    tests::{
+        common::{compile_test_bytecode, standard_runtime},
+        native_fixtures,
+    },
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
 use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
@@ -11,7 +14,7 @@ use kagari_runtime::{
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
         },
@@ -199,7 +202,7 @@ fn traps_release_frame_roots_and_call_depth() {
 fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_replaced() {
     let source = "fn main() -> i32 { val kept = [7]; kept.len(); 42 }";
     let module = compile_test_bytecode(source);
-    let mut runtime = Runtime::new(RuntimeConfig {
+    let mut runtime = standard_runtime(RuntimeConfig {
         ..Default::default()
     });
     let loaded = runtime.load_program("gc.kgr", module).unwrap();

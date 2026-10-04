@@ -11,3 +11,6 @@ bincode.workspace = true
 smallvec.workspace = true
 kagari-common.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+kagari-stdlib.workspace = true

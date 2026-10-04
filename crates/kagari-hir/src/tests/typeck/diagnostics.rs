@@ -1,6 +1,6 @@
 use super::*;
 use crate::typeck::scalar::ScalarValue;
-use kagari_contract::library::catalog as foundation_catalog;
+use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {

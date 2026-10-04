@@ -7,11 +7,11 @@ use crate::{
     typeck::{FunctionImplementation, signature_reuse::reuse_signatures},
     types::TypeId,
 };
-use kagari_contract::library::{catalog as foundation_catalog, catalog};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use kagari_types::scalar::BuiltinType;
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapshot {
@@ -36,10 +36,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
                         .into_iter()
                         .find(|module| {
                             module.identity
-                                == kagari_contract::library::namespaces::module(
-                                    "std",
-                                    "collections",
-                                )
+                                == kagari_stdlib::namespaces::module("std", "collections")
                         })
                         .unwrap(),
                     &foundation_catalog::shared(),

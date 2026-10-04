@@ -6,13 +6,12 @@ use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, runtime::KagariRuntime,
 };
 use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::module::NativeModule};
+use kagari_stdlib as foundation;
 
 #[cfg(feature = "source")]
 use kagari_hir::analysis::AnalysisDatabase;
 #[cfg(feature = "source")]
 use kagari_hir::native::render::{DeclarationSource, declaration_source};
-#[cfg(feature = "source")]
-use kagari_runtime::native::foundation;
 
 #[cfg(feature = "source")]
 use kagari_source::source_database::SourceDatabase;
@@ -28,7 +27,6 @@ pub struct EngineConfig {
 pub struct KagariEngine {
     config: EngineConfig,
     native_modules: Vec<NativeModule>,
-    #[cfg(feature = "source")]
     foundation: Vec<NativeModule>,
     #[cfg(feature = "source")]
     sources: RefCell<SourceDatabase>,
@@ -54,8 +52,8 @@ impl KagariEngine {
         native_modules: Vec<NativeModule>,
     ) -> Result<Self, RuntimeError> {
         let mut validation = Runtime::new(config.default_runtime.clone());
-        #[cfg(feature = "source")]
         let foundation = foundation::modules()?;
+        NativeModule::install_all(&foundation, &mut validation)?;
         for module in &native_modules {
             module.install(&mut validation)?;
         }
@@ -73,7 +71,6 @@ impl KagariEngine {
         Ok(Self {
             config,
             native_modules,
-            #[cfg(feature = "source")]
             foundation,
             #[cfg(feature = "source")]
             sources: RefCell::default(),
@@ -105,6 +102,8 @@ impl KagariEngine {
     pub fn runtime(&self, context: ExecutionContext) -> KagariRuntime {
         let config = self.config.default_runtime.clone();
         let mut runtime = Runtime::new(config);
+        NativeModule::install_all(&self.foundation, &mut runtime)
+            .expect("engine validated standard modules");
         for module in &self.native_modules {
             module
                 .install(&mut runtime)

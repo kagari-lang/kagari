@@ -88,6 +88,12 @@ pub struct MethodDecl {
 }
 
 impl MethodDecl {
+    /// Preserve complete Markdown, including examples and fenced code blocks.
+    pub fn documentation(mut self, text: impl Into<String>) -> Self {
+        self.signature.documentation = Some(text.into());
+        self
+    }
+
     pub fn instance(name: impl Into<String>) -> Self {
         Self {
             signature: FunctionDecl::new(name),

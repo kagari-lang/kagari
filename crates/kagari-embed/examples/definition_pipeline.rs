@@ -1,7 +1,10 @@
 //! Identity migration measurements; compile and allocator passes are separate.
 use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
-use kagari_runtime::{Runtime, module::VerifiedProgram, value::Value};
+use kagari_runtime::{
+    Runtime, module::VerifiedProgram, native::module::NativeModule, value::Value,
+};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as standard;
 use kagari_vm::vm::Vm;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -12,6 +15,7 @@ use std::{
     },
     time::Instant,
 };
+
 static COUNT: AtomicBool = AtomicBool::new(false);
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 static BYTES: AtomicUsize = AtomicUsize::new(0);
@@ -137,13 +141,13 @@ fn main() {
     });
     drop(measure("runtime_creation", Runtime::default));
     let (first_runtime, first) =
-        measure_setup("runtime_import", Runtime::default, |mut runtime| {
+        measure_setup("runtime_import", standard_runtime, |mut runtime| {
             let loaded = runtime
                 .load_verified_program("identity-benchmark", verified.clone())
                 .unwrap();
             (runtime, loaded)
         });
-    let mut second_runtime = Runtime::default();
+    let mut second_runtime = standard_runtime();
     let second = second_runtime
         .load_verified_program("identity-benchmark", verified)
         .unwrap();
@@ -157,4 +161,11 @@ fn main() {
         Value::I32(31)
     ));
     black_box((vm, second_runtime, first, second));
+}
+
+// Standard installation is explicit setup, outside the executable import measurement.
+fn standard_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&standard::modules().unwrap(), &mut runtime).unwrap();
+    runtime
 }

@@ -20,17 +20,22 @@ pub struct InherentMethodsBuilder {
     pub(crate) receiver: Type,
     pub(crate) receiver_codec: Option<Codec>,
     pub(crate) methods: BTreeMap<DefinitionPath, FnDecl>,
+    pub(crate) documentation: BTreeMap<DefinitionPath, String>,
     pub(crate) bindings: BTreeMap<DefinitionPath, NativeBinding>,
 }
 
 impl InherentMethodsBuilder {
-    pub fn define_method(&mut self, declaration: MethodDecl) -> NativeResult<FunctionRef> {
+    pub fn define_method(&mut self, mut declaration: MethodDecl) -> NativeResult<FunctionRef> {
+        let documentation = declaration.signature.documentation.take();
         let mut signature = declaration.lower(self.receiver.clone());
         let id = ModuleDecl::method_id(&self.owner, &signature.name);
         if self.methods.contains_key(&id) {
             return Err(RuntimeError::metadata_conflict(
                 "duplicate inherent method declaration",
             ));
+        }
+        if let Some(text) = documentation {
+            self.documentation.insert(id.clone(), text);
         }
         signature.implementation = CallableImplementation::Native(id.clone());
         self.methods.insert(id.clone(), signature);

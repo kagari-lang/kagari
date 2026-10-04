@@ -1,6 +1,6 @@
 //! Reproducible end-to-end interpreter samples; compilation/input creation are excluded.
 //! Run with --ignored --nocapture --test-threads=1. This is not a JIT benchmark.
-use kagari_contract::library::catalog as foundation_catalog;
+use kagari_stdlib::catalog as foundation_catalog;
 mod native_allocations_counter;
 use kagari_common::identity::DefinitionPath;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -31,6 +31,11 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(4096);
     let mut runtime = Runtime::new(config);
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let loaded = runtime.load_program("measure", bytecode).unwrap();
     let contract = loaded
         .bytecode

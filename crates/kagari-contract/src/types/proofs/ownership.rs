@@ -1,18 +1,21 @@
 use crate::{
     language::primitive as intrinsic,
-    library::namespaces,
     types::proofs::{Budget, ProofCatalog, implementation::Implementation},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
-    declaration::conversion::ConversionAdapter,
+    declaration::{conversion::ConversionAdapter, ownership::ReceiverOwners},
     language::Protocol,
     ty::{Ty, substitution::TypeTransformError},
 };
 use std::iter;
 
 impl ProofCatalog<'_> {
-    pub fn overrides_valid(&self, cancel: &CancellationToken) -> Result<bool, TypeTransformError> {
+    pub fn overrides_valid(
+        &self,
+        owners: &ReceiverOwners,
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
         let budget = Budget::new(cancel);
         for host in &self.hosts {
             for implementation in &host.trait_implementations {
@@ -31,7 +34,7 @@ impl ProofCatalog<'_> {
         }
         for table in &self.implementations {
             budget.step(0)?;
-            if !self.table_override_valid(table, &budget)? {
+            if !self.table_override_valid(table, owners, &budget)? {
                 return Ok(false);
             }
         }
@@ -74,6 +77,7 @@ impl ProofCatalog<'_> {
     fn table_override_valid(
         &self,
         table: &Implementation<'_>,
+        owners: &ReceiverOwners,
         budget: &Budget<'_>,
     ) -> Result<bool, TypeTransformError> {
         let Some(interface) = table.interface() else {
@@ -88,8 +92,7 @@ impl ProofCatalog<'_> {
                     nominal.declaration.module == table.declaration().module
                 }
                 Ty::Array(_, _) | Ty::Map { .. } | Ty::Set(_, _) => {
-                    namespaces::receiver_owner(table.receiver()).as_ref()
-                        == Some(&table.declaration().module)
+                    owners.owner(table.receiver()).as_ref() == Some(&table.declaration().module)
                 }
                 _ => false,
             });
@@ -128,7 +131,7 @@ impl ProofCatalog<'_> {
             return Ok(interface.declaration.module == *owner
                 || iter::once(table.receiver())
                     .chain(&interface.arguments)
-                    .any(|ty| namespaces::receiver_owner(ty).as_ref() == Some(owner)));
+                    .any(|ty| owners.owner(ty).as_ref() == Some(owner)));
         }
         let Some(kind) = kind else {
             return Ok(true);
@@ -142,8 +145,7 @@ impl ProofCatalog<'_> {
         let (Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal)) =
             table.receiver()
         else {
-            return Ok(namespaces::receiver_owner(table.receiver()).as_ref()
-                == Some(&table.declaration().module));
+            return Ok(owners.owner(table.receiver()).as_ref() == Some(&table.declaration().module));
         };
         if nominal.declaration.module != table.declaration().module {
             return Ok(false);

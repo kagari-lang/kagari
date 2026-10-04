@@ -3,8 +3,11 @@
 use std::{hint::black_box, sync::Arc, time::Instant};
 
 use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
-use kagari_runtime::{Runtime, module::VerifiedProgram, value::Value};
+use kagari_runtime::{
+    Runtime, module::VerifiedProgram, native::module::NativeModule, value::Value,
+};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as standard;
 use kagari_vm::vm::Vm;
 
 fn main() {
@@ -66,8 +69,8 @@ fn main() {
         .unwrap();
     let code_image_bytes = artifact.to_bytes().unwrap().len();
     let verified = VerifiedProgram::new(artifact.program).unwrap();
-    let mut first_runtime = Runtime::default();
-    let mut second_runtime = Runtime::default();
+    let mut first_runtime = standard_runtime();
+    let mut second_runtime = standard_runtime();
     let first_loaded = first_runtime
         .load_verified_program("baseline", verified.clone())
         .unwrap();
@@ -98,4 +101,11 @@ fn main() {
         start.elapsed().as_nanos() / u128::from(CALLS)
     );
     assert_eq!(checksum, i64::from(CALLS) * 31);
+}
+
+// Standard installation is explicit setup, outside the executable import measurement.
+fn standard_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&standard::modules().unwrap(), &mut runtime).unwrap();
+    runtime
 }

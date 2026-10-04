@@ -24,9 +24,13 @@ use std::sync::{
 };
 
 fn runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
-        ..Default::default()
-    })
+    let mut runtime = Runtime::new(RuntimeConfig::default());
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
+    runtime
 }
 
 fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
@@ -215,6 +219,11 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     );
     assert!(runtime.gc().array_snapshot(array).is_some());
     let mut other = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut other,
+    )
+    .unwrap();
     let other_owner = allocation_owner(&mut other);
     let foreign = Value::Tuple(vec![Value::Array(
         other

@@ -5,14 +5,13 @@ use crate::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         declarations::{FunctionDecl, MethodDecl},
-        foundation,
-        language::LanguageContracts,
         module::NativeModule,
         types::Type,
     },
     value::Value,
 };
 use kagari_common::identity::DefinitionPath;
+use kagari_stdlib::catalog as standard_catalog;
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
     assert_path_catalog_eq(&left.to_paths().unwrap(), &right.to_paths().unwrap());
@@ -30,7 +29,35 @@ fn assert_path_catalog_eq(
 
 #[test]
 fn reused_closures_preserve_exact_foundation_binding_requirements() {
-    let modules = foundation::modules().unwrap();
+    let declarations = standard_catalog::declarations();
+    let providers = DeclarationCatalog::from_declarations(&declarations).unwrap();
+    let modules = declarations
+        .into_iter()
+        .map(|declaration| {
+            let mut bindings = std::collections::BTreeMap::new();
+            for entry in declaration.native_declarations() {
+                let kagari_types::callable::CallableImplementation::Native(id) =
+                    entry.function.implementation
+                else {
+                    panic!("native template");
+                };
+                bindings.entry(id).or_insert_with(|| {
+                    NativeBinding::new(
+                        vec![Codec::Value; entry.function.params.len()],
+                        Codec::Value,
+                        |_| Ok(Value::Unit),
+                    )
+                });
+            }
+            NativeModule::checked(
+                declaration,
+                bindings.into_iter().collect(),
+                Default::default(),
+                &providers,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
     for module in &modules {
         for registration in module.bindings.iter() {
             let declarations = registration
@@ -56,13 +83,18 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
 
 #[test]
 fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
-    let language = LanguageContracts::default();
-    let mut provider = ModuleBuilder::new("test::provider", &language);
+    let providers = DeclarationCatalog::from_declarations(
+        standard_catalog::shared()
+            .iter()
+            .map(|module| module.as_ref()),
+    )
+    .unwrap();
+    let mut provider = ModuleBuilder::new("test::provider", &providers);
     let mut remote = provider.define_trait("Remote");
     remote.define_method(MethodDecl::instance("read")).unwrap();
     let remote = remote.finish().unwrap();
     let provider = provider.finish().unwrap();
-    let mut consumer = ModuleBuilder::new("test::consumer", &language)
+    let mut consumer = ModuleBuilder::new("test::consumer", &providers)
         .with_modules(&[&provider])
         .unwrap();
     let inspect = consumer
@@ -118,7 +150,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
 }
 
 fn application(names: &[&str]) -> NativeModule {
-    let mut module = ModuleBuilder::new("test::application", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new("test::application", &DeclarationCatalog::default());
     for name in names {
         let function = module
             .define_function(FunctionDecl::new(*name).returns(Type::i32()))
@@ -250,12 +282,16 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
     use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
     use std::collections::BTreeMap;
     use {
-        kagari_contract::library::namespaces,
+        kagari_stdlib::namespaces,
         kagari_types::{declaration::module::ModuleDecl, language, language::Protocol},
     };
 
-    let language = LanguageContracts::default();
-    let providers = language.catalog().unwrap();
+    let providers = DeclarationCatalog::from_declarations(
+        standard_catalog::shared()
+            .iter()
+            .map(|module| module.as_ref()),
+    )
+    .unwrap();
     let mut declaration = ModuleDecl::new(namespaces::module("test", "exports"));
     declaration
         .exports
@@ -291,7 +327,15 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
     let mut empty = Default::default();
     assert!(module.install_into(&mut empty).is_err());
     assert!(empty.catalog.traits.is_empty() && empty.catalog.types.is_empty());
-    module.install(&mut Runtime::default()).unwrap();
+    let mut runtime = Runtime::default();
+    for declaration in standard_catalog::shared() {
+        runtime
+            .native_entries
+            .catalog
+            .merge(&DeclarationCatalog::declared([declaration.as_ref()]).unwrap())
+            .unwrap();
+    }
+    module.install(&mut runtime).unwrap();
 
     for name in ["Hash", "Vec", "Some"] {
         let mut forged = declaration.clone();

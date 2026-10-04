@@ -3,11 +3,8 @@ use crate::{
     language::semantics::ProtocolSemantics, native::NativeBinding, tests::test_analysis,
     typeck::table::CallTarget, types::NominalType,
 };
-use kagari_contract::{
-    library,
-    library::{catalog as foundation_catalog, catalog},
-};
 use kagari_source::source::SourceFile;
+use kagari_stdlib::{catalog as foundation_catalog, catalog, identity as library};
 
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
@@ -307,10 +304,7 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         else {
             panic!("source-owned declaration");
         };
-        assert_eq!(
-            target.module,
-            kagari_contract::library::namespaces::type_owner("Vec")
-        );
+        assert_eq!(target.module, kagari_stdlib::namespaces::type_owner("Vec"));
         assert_eq!(
             matches!(target.item, Some(ExportItem::Function(_))),
             function
@@ -329,7 +323,7 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         let imported = analyzed.imported_functions.target(target).unwrap();
         assert_eq!(
             imported.declaration.module,
-            kagari_contract::library::namespaces::type_owner("Vec")
+            kagari_stdlib::namespaces::type_owner("Vec")
         );
         assert_eq!(imported.signature.name, "new");
         assert_eq!(call.type_arguments, [TypeId::Builtin(BuiltinType::I32)]);

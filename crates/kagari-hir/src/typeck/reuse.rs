@@ -130,11 +130,11 @@ fn environment(module: &LoweredModule, text: &str) -> String {
 mod tests {
     use super::*;
     use kagari_common::span::Span;
-    use kagari_contract::library::catalog as foundation_catalog;
     use kagari_source::{
         diagnostic::{Diagnostic, DiagnosticKind},
         source::SourceFile,
     };
+    use kagari_stdlib::catalog as foundation_catalog;
 
     #[test]
     fn environment_tokens_ignore_only_trivia() {

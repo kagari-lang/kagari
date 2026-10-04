@@ -1,6 +1,6 @@
 use crate::{analyze_source, typeck::table::CallTarget};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::source::SourceFile;
+use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn generic_type_binding_does_not_acquire_same_named_trait_permissions() {

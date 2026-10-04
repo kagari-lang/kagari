@@ -3,19 +3,12 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
-use kagari_contract::{
-    library::namespaces,
-    types::{PublicItem, TraitContract},
-};
+use kagari_contract::types::{PublicItem, TraitContract};
 use kagari_runtime::{
-    Runtime,
-    error::RuntimeErrorKind,
-    host::HostFunction,
-    module::VerifiedProgram,
-    native::{builder::ModuleBuilder, language::LanguageContracts},
-    session::ExecutionOptions,
-    value::Value,
+    Runtime, error::RuntimeErrorKind, host::HostFunction, module::VerifiedProgram,
+    native::builder::ModuleBuilder, session::ExecutionOptions, value::Value,
 };
+use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
     declaration::TraitDef,
@@ -88,7 +81,12 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
 
 #[test]
 fn storage_capabilities_require_exact_installation_without_native_calls() {
-    let mut builder = ModuleBuilder::new("example::storage", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::storage",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut interface = builder.define_trait("CustomStorage");
     interface.storage_view(CollectionAccess::ReadOnly);
     interface.finish().unwrap();
@@ -150,7 +148,7 @@ fn storage_capabilities_require_exact_installation_without_native_calls() {
 
 #[test]
 fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
-    let foundation = LanguageContracts::default();
+    let foundation = StandardDeclarations::default();
     for definition in foundation
         .declarations()
         .iter()
@@ -175,6 +173,16 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             modules: vec![module],
         };
         let mut runtime = Runtime::default();
+        assert!(
+            runtime
+                .load_program("uninstalled_core", program(base.clone()))
+                .is_err()
+        );
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         let active = runtime.load_program("core", program(base.clone())).unwrap();
         let mut forged = base.clone();
         let changed = forged
@@ -188,7 +196,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         let changed_name = changed.name.clone();
         changed.methods[0].name = "forged_method".into();
         // Portable structural validation accepts the declaration; installation binds
-        // reserved identities to the exact checked language product.
+        // reserved identities to the exact checked language registration.
         VerifiedProgram::new(program(forged.clone())).unwrap();
         assert!(
             runtime

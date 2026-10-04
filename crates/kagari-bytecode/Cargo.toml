@@ -13,3 +13,6 @@ serde.workspace = true
 smallvec.workspace = true
 bincode.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+kagari-stdlib.workspace = true

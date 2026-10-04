@@ -5,11 +5,13 @@ mod construction;
 mod construction_defaults;
 mod contracts;
 mod defaults;
+mod documentation;
 mod key;
 mod list_methods;
 mod partition;
+mod roles;
 mod strings;
-use crate::library::namespaces;
+use crate::namespaces;
 use kagari_common::identity::ModuleIdentity;
 use kagari_types::declaration::module::ModuleDecl;
 use std::sync::{Arc, OnceLock};
@@ -30,7 +32,12 @@ pub fn declarations() -> Vec<ModuleDecl> {
     construction_defaults::declare(&mut module);
     list_methods::configure_overrides(&mut module);
     strings::declare(&mut module);
-    partition::finish(module)
+    let mut modules = partition::finish(module);
+    for module in &mut modules {
+        documentation::complete(module);
+    }
+    documentation::inherit(&mut modules);
+    modules
 }
 
 pub fn shared() -> Vec<Arc<ModuleDecl>> {

@@ -8,7 +8,6 @@ pub mod host;
 pub mod ids;
 pub mod language;
 pub mod layout;
-pub mod library;
 pub mod native;
 pub mod native_import;
 pub mod numeric;

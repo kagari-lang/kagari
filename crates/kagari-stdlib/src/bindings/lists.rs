@@ -1,18 +1,17 @@
 //! Native list defaults share algorithms; Vec operates on its actual buffer.
 mod comparison;
 mod receivers;
-use crate::{
-    error::RuntimeError,
-    gc::HeapObjectId,
-    native::{
-        binding::NativeResult,
-        context::CallContext,
-        foundation::{
-            Entry,
-            lists::{comparison::Comparison, receivers::ReceiverCalls},
-        },
+use {
+    crate::bindings::{
+        Entry,
+        lists::{comparison::Comparison, receivers::ReceiverCalls},
     },
-    value::Value,
+    kagari_runtime::{
+        error::RuntimeError,
+        gc::HeapObjectId,
+        native::{binding::NativeResult, context::CallContext},
+        value::Value,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -76,7 +75,7 @@ fn run(cx: &mut CallContext<'_>, algorithm: Algorithm, copy: bool) -> NativeResu
         )?)
     };
     let target = match source {
-        Value::Array(id) if copy => cx.heap().clone_array(id)?,
+        Value::Array(id) if copy => cx.clone_sequence(id)?,
         Value::Array(id) => id,
         _ => operations.as_ref().ok_or_else(invalid)?.snapshot(cx)?,
     };
@@ -101,33 +100,32 @@ fn edit(
     algorithm: Algorithm,
     comparison: &mut Comparison<'_>,
 ) -> NativeResult<()> {
-    cx.heap()
-        .edit_sequence(target, |mut values| match algorithm {
-            Algorithm::Reverse => {
-                values.reverse();
-                Ok(())
-            }
-            Algorithm::Retain => values.retain(|value| comparison.keep(cx, value)),
-            Algorithm::Dedup => values.dedup_by(|a, b| comparison.equal(cx, a, b)),
-            Algorithm::Distinct => {
-                let mut seen: Vec<Value> = Vec::new();
-                values.retain(|value| {
-                    for previous in &seen {
-                        if comparison.equal(cx, value.clone(), previous.clone())? {
-                            return Ok(false);
-                        }
+    cx.edit_sequence(target, |cx, mut values| match algorithm {
+        Algorithm::Reverse => {
+            values.reverse();
+            Ok(())
+        }
+        Algorithm::Retain => values.retain(|value| comparison.keep(cx, value)),
+        Algorithm::Dedup => values.dedup_by(|a, b| comparison.equal(cx, a, b)),
+        Algorithm::Distinct => {
+            let mut seen: Vec<Value> = Vec::new();
+            values.retain(|value| {
+                for previous in &seen {
+                    if comparison.equal(cx, value.clone(), previous.clone())? {
+                        return Ok(false);
                     }
-                    seen.try_reserve(1)
-                        .map_err(|_| RuntimeError::resource_limit("distinct values"))?;
-                    seen.push(value);
-                    Ok(true)
-                })
-            }
-            Algorithm::Sort if comparison.sort_scalars(&mut values)? => Ok(()),
-            Algorithm::Sort | Algorithm::SortBy | Algorithm::SortByKey => {
-                values.sort_by(|a, b| comparison.order(cx, a, b))
-            }
-        })
+                }
+                seen.try_reserve(1)
+                    .map_err(|_| RuntimeError::resource_limit("distinct values"))?;
+                seen.push(value);
+                Ok(true)
+            })
+        }
+        Algorithm::Sort if comparison.sort_scalars(&mut values)? => Ok(()),
+        Algorithm::Sort | Algorithm::SortBy | Algorithm::SortByKey => {
+            values.sort_by(|a, b| comparison.order(cx, a, b))
+        }
+    })
 }
 
 fn edit_custom(

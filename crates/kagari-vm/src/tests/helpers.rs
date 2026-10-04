@@ -1,7 +1,8 @@
 use crate::{
     tests::common::{
         compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
-        load_bytecode_program_with_runtime, load_test_module, test_function_module,
+        load_bytecode_program_with_runtime, load_test_module, standard_runtime,
+        test_function_module,
     },
     vm::Vm,
 };
@@ -36,13 +37,13 @@ use kagari_types::host_interface::{
 use std::sync::{Arc, Mutex};
 
 fn host_runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
 
 fn reflection_runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }

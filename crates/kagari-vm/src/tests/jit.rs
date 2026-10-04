@@ -1,6 +1,6 @@
 use crate::{
     debug::DebugSession,
-    tests::{common, native_fixtures},
+    tests::{common, common::standard_runtime, native_fixtures},
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
 use kagari_abi::{native::BackendId, representation::ValueType};
@@ -42,7 +42,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             } else {
                 bytecode.clone()
             };
-            let mut runtime = Runtime::new(RuntimeConfig {
+            let mut runtime = standard_runtime(RuntimeConfig {
                 ..Default::default()
             });
             runtime
@@ -340,13 +340,13 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
 }
 
 fn debug_runtime(_module_name: &str) -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
 
 fn jit_runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }

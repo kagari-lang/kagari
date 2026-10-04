@@ -2,7 +2,7 @@ use crate::{
     debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
     error::VmError,
     tests::{
-        common::{compile_test_bytecode, load_test_module},
+        common::{compile_test_bytecode, load_test_module, standard_runtime},
         native_fixtures,
     },
     vm::Vm,
@@ -15,7 +15,7 @@ use kagari_runtime::{
 };
 
 fn debug_runtime(_module_name: &str) -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
@@ -60,7 +60,7 @@ fn missing_entry_is_rejected_before_execution() {
         } else {
             program
         };
-        let mut runtime = Runtime::default();
+        let mut runtime = standard_runtime(Default::default());
         let loaded = runtime.load_program("missing-entry.kgr", program).unwrap();
         let mut vm = Vm::new(runtime);
         for jit in [false, true] {
@@ -102,7 +102,7 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
         } else {
             program
         };
-        let mut runtime = Runtime::default();
+        let mut runtime = standard_runtime(Default::default());
         let loaded = runtime
             .load_program("ambiguous-entry.kgr", program)
             .unwrap();
@@ -142,7 +142,7 @@ fn interpreter_conformance_classifies_failure_paths() {
     assert!(matches!(missing, VmError::MissingFunction(ref name) if name == "missing"));
 
     let bytecode = compile_test_bytecode("fn main() -> i32 { 1 + 2 }");
-    let mut runtime = Runtime::new(RuntimeConfig {
+    let mut runtime = standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             max_call_depth: Some(0),
         },

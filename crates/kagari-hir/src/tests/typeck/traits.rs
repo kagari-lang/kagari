@@ -1,6 +1,6 @@
 use super::*;
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::diagnostic::DiagnosticKind;
+use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn trait_method_where_bounds_keep_self_and_associated_output_owners() {

@@ -28,6 +28,7 @@ pub struct TraitBuilder<'module> {
     parameter_names: Vec<String>,
     method_parameters: BTreeMap<DefinitionPath, Vec<String>>,
     requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
+    documentation: BTreeMap<DefinitionPath, String>,
     defaults: BTreeMap<DefinitionPath, NativeBinding>,
     concrete_results: BTreeMap<DefinitionPath, Ty>,
 }
@@ -52,9 +53,36 @@ impl<'module> TraitBuilder<'module> {
             parameter_names: vec![],
             method_parameters: BTreeMap::new(),
             requirements: BTreeMap::new(),
+            documentation: BTreeMap::new(),
             defaults: BTreeMap::new(),
             concrete_results: BTreeMap::new(),
         }
+    }
+
+    /// Set the complete trait-level Markdown documentation.
+    pub fn documentation(&mut self, text: impl Into<String>) {
+        self.documentation.insert(self.id.clone(), text.into());
+    }
+
+    /// Document an already declared associated type; names are checked against ownership.
+    pub fn associated_type_documentation(
+        &mut self,
+        name: &str,
+        text: impl Into<String>,
+    ) -> NativeResult<()> {
+        let id = associated_type_id(&self.id, name);
+        if !self
+            .declaration
+            .associated_types
+            .iter()
+            .any(|member| member.declaration == id)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "unknown associated type documentation target",
+            ));
+        }
+        self.documentation.insert(id, text.into());
+        Ok(())
     }
 
     /// Declare the access capability of an installed storage interface. Readonly
@@ -163,7 +191,7 @@ impl<'module> TraitBuilder<'module> {
         }))
     }
 
-    pub fn define_method(&mut self, declaration: MethodDecl) -> NativeResult<FunctionRef> {
+    pub fn define_method(&mut self, mut declaration: MethodDecl) -> NativeResult<FunctionRef> {
         if self
             .declaration
             .methods
@@ -176,6 +204,9 @@ impl<'module> TraitBuilder<'module> {
         }
         let receiver = self.receiver();
         let id = ModuleDecl::method_id(&self.id, &declaration.signature.name);
+        if let Some(text) = declaration.signature.documentation.take() {
+            self.documentation.insert(id.clone(), text);
+        }
         self.declaration.methods.push(declaration.lower(receiver));
         Ok(FunctionRef { id })
     }
@@ -257,6 +288,11 @@ impl<'module> TraitBuilder<'module> {
         self.module
             .providers
             .insert(self.id, self.declaration.clone())?;
+        Arc::make_mut(&mut self.module.providers.documentation).extend(self.documentation.clone());
+        self.module
+            .declaration
+            .documentation
+            .extend(self.documentation);
         self.module.declaration.traits.push(self.declaration);
         Ok(result)
     }

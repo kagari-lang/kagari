@@ -1,18 +1,17 @@
 //! Comparators and key selectors run synchronously, with no key-cache prepass.
-use crate::{
+use crate::bindings::lists::{Algorithm, invalid};
+use kagari_contract::standard::RuntimePrimitive;
+use kagari_runtime::{
     native::{
         binding::NativeResult,
         callable::CallableHandle,
         context::{CallContext, LinkedCallable},
-        declarations::SelectedCall,
-        foundation::lists::{Algorithm, invalid},
         scalar::NativeScalar,
         sequence_edit::SequenceEdit,
     },
     value::{EnumTag, Value},
     value_semantics,
 };
-use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::cmp::Ordering;
 
@@ -27,7 +26,7 @@ impl<'call> Comparison<'call> {
         Ok(Self {
             operation: algorithm
                 .comparison()
-                .then(|| cx.selected(SelectedCall { slot: 0 }))
+                .then(|| cx.selected_at(0))
                 .transpose()?,
             callback: matches!(
                 algorithm,
@@ -51,7 +50,7 @@ impl<'call> Comparison<'call> {
     pub(super) fn equal(&self, cx: &mut CallContext<'_>, a: Value, b: Value) -> NativeResult<bool> {
         cx.poll()?;
         let operation = self.operation.ok_or_else(invalid)?;
-        if operation.primitive == Some(RuntimePrimitive::ValueEq) {
+        if operation.primitive() == Some(RuntimePrimitive::ValueEq) {
             return value_semantics::script_equal(cx.heap(), &a, &b);
         }
         bool::decode(cx.call_values(operation, &[a, b])?)
@@ -82,7 +81,7 @@ impl<'call> Comparison<'call> {
             (a, b, None)
         };
         let operation = self.operation.ok_or_else(invalid)?;
-        if operation.primitive == Some(RuntimePrimitive::ValueCmp) {
+        if operation.primitive() == Some(RuntimePrimitive::ValueCmp) {
             return value_semantics::builtin_order(cx.heap(), &a, &b)?.ok_or_else(invalid);
         }
         let result = cx.call_values(operation, &[a, b])?;
@@ -91,11 +90,11 @@ impl<'call> Comparison<'call> {
 
     pub(super) fn sort_scalars(&self, values: &mut SequenceEdit<'_>) -> NativeResult<bool> {
         let operation = self.operation.ok_or_else(invalid)?;
-        if operation.primitive != Some(RuntimePrimitive::ValueCmp) {
+        if operation.primitive() != Some(RuntimePrimitive::ValueCmp) {
             return Ok(false);
         }
         macro_rules! scalars {
-            ($($kind:ident:$ty:ty),+) => { match operation.params[0] {
+            ($($kind:ident:$ty:ty),+) => { match operation.parameters()[0] {
                 $(Ty::Builtin(BuiltinType::$kind) => values.with_slice_mut::<$ty, _>(|items| { items.sort(); Ok(()) })?,)+
                 _ => return Ok(false),
             } };

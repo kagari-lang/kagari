@@ -23,7 +23,6 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         "types": source | compiling | execution | {"kagari-abi", "kagari-contract"},
         "abi": source | compiling | execution | {"kagari-contract", "kagari-common", "kagari-types"},
         "hir": compiling | execution | {"kagari-abi", "kagari-contract", "kagari-stdlib"},
-        "hir": compiling | execution | {"kagari-abi", "kagari-contract", "kagari-stdlib"},
         "contract": source | compiling | execution,
         "mir": source | execution | {"kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"},
         "bytecode": source | compiling,
@@ -33,6 +32,9 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         "codegen": source | execution | {"kagari-compiler", "kagari-codegen-cranelift"},
         "codegen-cranelift": source | execution | {"kagari-compiler"},
     }
+    for forbidden in constraints.values():
+        forbidden.add("kagari-stdlib")
+    constraints["stdlib"] = source | compiling | {"kagari-vm", "kagari-embed"}
     for crate, forbidden in constraints.items():
         graph = subprocess.check_output([
             "cargo", "tree", "--locked", "--offline", "-p", f"kagari-{crate}",

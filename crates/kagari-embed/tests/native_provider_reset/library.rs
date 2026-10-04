@@ -1,7 +1,7 @@
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
-use kagari_runtime::{native::foundation, value::Value};
+use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
 
 #[test]
 fn foundation_algorithms_are_available_from_normal_engine_construction() {
@@ -79,8 +79,7 @@ fn application_installation_cannot_replace_foundation_bindings() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     assert!(KagariEngine::builder().install(module).build().is_err());

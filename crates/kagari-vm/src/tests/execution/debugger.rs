@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::common::standard_runtime;
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 
 #[test]
@@ -220,5 +221,5 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
 
 #[test]
 fn debugger_attachment_needs_no_permission_flags() {
-    DebugSession::new(&Runtime::default()).unwrap();
+    DebugSession::new(&standard_runtime(Default::default())).unwrap();
 }

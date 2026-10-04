@@ -9,7 +9,6 @@ use crate::{
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
-use kagari_contract::library::namespaces;
 use kagari_types::{
     declaration::module::{ImplDecl, ModuleDecl},
     ty::{GenericParam, substitution::TypeSubstitution},
@@ -29,10 +28,14 @@ impl<'module> ImplementationBuilder<'module> {
         &mut self,
         configure: impl FnOnce(&mut InherentMethodsBuilder) -> NativeResult<T>,
     ) -> NativeResult<T> {
+        let owners = self
+            .module
+            .providers
+            .receiver_owners(Some(&self.module.declaration))?;
         if !self
             .module
             .declaration
-            .owns_inherent_receiver(&self.receiver.0, &namespaces::receiver_owner)
+            .owns_inherent_receiver(&self.receiver.0, &|receiver| owners.owner(receiver))
         {
             return Err(RuntimeError::metadata_conflict(
                 "inherent methods belong to the type's defining module",
@@ -63,6 +66,7 @@ impl<'module> ImplementationBuilder<'module> {
             owner,
             receiver: self.receiver.clone(),
             receiver_codec: self.receiver_codec.clone(),
+            documentation: BTreeMap::new(),
             methods: BTreeMap::new(),
             bindings: BTreeMap::new(),
         };
@@ -89,6 +93,10 @@ impl<'module> ImplementationBuilder<'module> {
             for_type: receiver,
             methods: signatures,
         });
+        self.module
+            .declaration
+            .documentation
+            .extend(methods.documentation);
         self.module.bindings.extend(methods.bindings);
         Ok(result)
     }
@@ -196,6 +204,7 @@ impl<'module> ImplementationBuilder<'module> {
         let mut methods = MethodsBuilder {
             applied,
             id,
+            documentation: BTreeMap::new(),
             receiver_codec: self.receiver_codec.clone(),
             bindings: BTreeMap::new(),
         };
@@ -220,6 +229,20 @@ impl<'module> ImplementationBuilder<'module> {
                 &identities,
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        for method in &methods.applied.contract.contract.methods {
+            let target = ModuleDecl::method_id(&methods.id, &method.name);
+            let source = ModuleDecl::method_id(&methods.applied.contract.id, &method.name);
+            if let Some(text) = methods
+                .documentation
+                .get(&method.name)
+                .or_else(|| self.module.providers.documentation.get(&source))
+            {
+                self.module
+                    .declaration
+                    .documentation
+                    .insert(target, text.clone());
+            }
+        }
         for (name, binding) in methods.bindings {
             self.module
                 .bindings
@@ -233,10 +256,29 @@ pub struct MethodsBuilder {
     applied: AppliedTrait,
     id: DefinitionPath,
     receiver_codec: Option<Codec>,
+    documentation: BTreeMap<String, String>,
     bindings: BTreeMap<String, NativeBinding>,
 }
 
 impl MethodsBuilder {
+    /// Override the inherited trait member's Markdown on this implementation.
+    pub fn documentation(&mut self, name: &str, text: impl Into<String>) -> NativeResult<()> {
+        if !self
+            .applied
+            .contract
+            .contract
+            .methods
+            .iter()
+            .any(|method| method.name == name)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "unknown implementation documentation target",
+            ));
+        }
+        self.documentation.insert(name.into(), text.into());
+        Ok(())
+    }
+
     pub fn associated_type(&mut self, name: &str, ty: Type) -> NativeResult<()> {
         self.applied = self.applied.clone().associated(name, ty)?;
         Ok(())

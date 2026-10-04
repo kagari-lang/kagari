@@ -4,23 +4,19 @@ mod construction;
 mod hash;
 mod lists;
 mod strings;
-use crate::{
+use crate::{catalog, collections, declarations::StandardDeclarations, namespaces};
+use kagari_contract::operations::IterOp;
+use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::HeapObjectId,
-    library::collections,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         context::CallContext,
-        language::LanguageContracts,
         module::NativeModule,
         scalar::NativeScalar,
     },
     value::{EnumTag, Value},
-};
-use kagari_contract::{
-    library::{catalog, namespaces},
-    operations::IterOp,
 };
 use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl};
 use std::{cell::OnceCell, collections::BTreeMap};
@@ -37,7 +33,7 @@ pub fn modules() -> NativeResult<Vec<NativeModule>> {
 }
 
 fn build() -> NativeResult<Vec<NativeModule>> {
-    let language = LanguageContracts::default();
+    let language = StandardDeclarations::default();
     catalog::declarations()
         .into_iter()
         .map(|declaration| build_module(declaration, &language))
@@ -46,7 +42,7 @@ fn build() -> NativeResult<Vec<NativeModule>> {
 
 fn build_module(
     declaration: ModuleDecl,
-    language: &LanguageContracts,
+    language: &StandardDeclarations,
 ) -> NativeResult<NativeModule> {
     let mut bindings = BTreeMap::new();
     for function in declaration.native_declarations() {
@@ -139,18 +135,12 @@ fn build_module(
             ),
         );
     }
-    if declaration.identity == namespaces::module("std", "collections") {
-        let mut builder = ModuleBuilder::foundation(declaration, language, bindings);
+    let collections_module = declaration.identity == namespaces::module("std", "collections");
+    let mut builder = ModuleBuilder::from_declaration(declaration, &language.catalog()?, bindings);
+    if collections_module {
         collections::register(&mut builder, language)?;
-        builder.finish()
-    } else {
-        NativeModule::checked(
-            declaration,
-            bindings.into_iter().collect(),
-            BTreeMap::new(),
-            &language.catalog()?,
-        )
     }
+    builder.finish()
 }
 
 fn invalid() -> RuntimeError {
@@ -192,9 +182,7 @@ pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult
     } else {
         EnumTag::OptionNone
     };
-    cx.heap()
-        .alloc_enum(tag, value.into_iter().collect())
-        .map(Value::Enum)
+    cx.enum_value(tag, value.into_iter().collect())
 }
 
 fn list_get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -225,7 +213,7 @@ fn list_push_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
-    cx.heap().ensure_structure_mutable(id)?;
+    cx.ensure_collection_mutable(id)?;
     let length = cx.heap().array_len(id).ok_or_else(invalid)?;
     let value = length
         .checked_sub(1)
@@ -251,7 +239,7 @@ fn list_insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     let index = index(cx, 1)?;
-    cx.heap().ensure_structure_mutable(id)?;
+    cx.ensure_collection_mutable(id)?;
     let result = option(cx, cx.heap().array_get(id, index))?;
     cx.heap().array_remove(id, index)?;
     Ok(result)

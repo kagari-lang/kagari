@@ -129,12 +129,20 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         ..Default::default()
     };
     let mut runtime = KagariRuntime::new(
-        Runtime::new(RuntimeConfig {
-            gc: GcHeapConfig {
-                collection_threshold: Some(1),
-            },
-            ..Default::default()
-        }),
+        {
+            let mut registered = Runtime::new(RuntimeConfig {
+                gc: GcHeapConfig {
+                    collection_threshold: Some(1),
+                },
+                ..Default::default()
+            });
+            kagari_runtime::native::module::NativeModule::install_all(
+                &kagari_stdlib::modules().unwrap(),
+                &mut registered,
+            )
+            .unwrap();
+            registered
+        },
         context.clone(),
     );
     let old = runtime

@@ -1,7 +1,7 @@
 use super::{contracts::analyze_contracts, *};
 use crate::hir::expr::ExprKind;
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::diagnostic::DiagnosticKind;
+use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn reflective_writes_share_target_context_and_recovery_member_comparison() {

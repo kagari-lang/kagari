@@ -1,6 +1,6 @@
 //! List algorithms are ordinary native defaults with concrete storage overrides.
-use crate::library::catalog::contracts;
-use crate::library::catalog::key::{self, RegistrationTrait};
+use crate::catalog::contracts;
+use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, associated_type_id};
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},

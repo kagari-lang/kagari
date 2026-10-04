@@ -1,7 +1,10 @@
 use crate::{
     error::VmError,
     reentry::reenter,
-    tests::{common::compile_test_bytecode, native_fixtures},
+    tests::{
+        common::{compile_test_bytecode, standard_runtime},
+        native_fixtures,
+    },
     vm::Vm,
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
@@ -18,7 +21,7 @@ use kagari_runtime::{
 use kagari_types::{host_interface::standard_log, scalar::BuiltinType, ty::Ty};
 
 fn runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             ..Default::default()
         },
@@ -161,7 +164,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     .id;
                 let token = CancellationToken::default();
                 let cancellation = token.clone();
-                let mut runtime = Runtime::new(RuntimeConfig {
+                let mut runtime = standard_runtime(RuntimeConfig {
                     limits: RuntimeLimits {
                         max_call_depth: if cancel { Some(256) } else { Some(1) },
                     },
@@ -250,7 +253,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         .id;
     let calls = Rc::new(Cell::new(0));
     let called = calls.clone();
-    let mut foreign = Runtime::default();
+    let mut foreign = standard_runtime(Default::default());
     let foreign_module = foreign
         .load_program(
             "foreign.kgr",

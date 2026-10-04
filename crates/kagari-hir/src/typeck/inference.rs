@@ -119,8 +119,8 @@ mod tests {
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
-    use kagari_contract::library;
     use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
+    use kagari_stdlib::identity as library;
     use kagari_types::scalar::BuiltinType;
     use std::sync::Arc;
 

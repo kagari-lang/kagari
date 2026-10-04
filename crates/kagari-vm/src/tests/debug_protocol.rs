@@ -1,16 +1,15 @@
-use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
-
 use crate::{
     debug::{DebugWatch, SourceBreakpoint},
     debug_protocol::{
         DebugAdapterEvent, DebugAdapterRequest, DebugAdapterResponse, DebugProtocolAdapter,
     },
-    tests::common::compile_test_bytecode,
+    tests::common::{compile_test_bytecode, standard_runtime},
     vm::Vm,
 };
+use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 
 fn debug_runtime(_module_name: &str) -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }

@@ -526,7 +526,15 @@ fn make()->(Test,HashSet<Key>) {
     };
     let mut config = kagari_runtime::RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
-    let mut runtime = kagari_runtime::Runtime::new(config);
+    let mut runtime = {
+        let mut registered = kagari_runtime::Runtime::new(config);
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    };
     let loaded = runtime
         .load_program("callback-cleanup", artifact.program)
         .unwrap();

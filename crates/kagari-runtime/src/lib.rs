@@ -22,9 +22,7 @@ use crate::{
     module::{
         LoadedModule, ModuleEpochRetention, ModuleInstance, ModuleKey, ModuleStore, VerifiedProgram,
     },
-    native::{
-        callable::PreparedClosure, foundation, module::NativeModule, registry::NativeRegistry,
-    },
+    native::{callable::PreparedClosure, registry::NativeRegistry},
     objects::method::{BoundReceiver, MethodSelection},
     reload::ModuleEpochAllocator,
     resource::{ResourceState, RuntimeLimits},
@@ -62,7 +60,6 @@ pub mod jit_abi;
 #[cfg(test)]
 #[path = "../tests/support/layouts.rs"]
 mod layout_fixtures;
-pub mod library;
 pub mod metadata;
 pub mod module;
 pub mod native;
@@ -144,7 +141,7 @@ impl Runtime {
 
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = Rc::new(ResourceState::new(config.limits));
-        let mut runtime = Self {
+        Self {
             gc: Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
@@ -155,13 +152,7 @@ impl Runtime {
             resources,
             epochs: ModuleEpochAllocator::default(),
             interpreter_caches: InterpreterCacheRegistry::default(),
-        };
-        NativeModule::install_all(
-            &foundation::modules().expect("checked language foundation"),
-            &mut runtime,
-        )
-        .expect("mandatory foundation installation");
-        runtime
+        }
     }
 
     pub fn is_quarantined(&self) -> bool {

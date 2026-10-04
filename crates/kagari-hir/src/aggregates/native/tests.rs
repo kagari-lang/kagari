@@ -7,11 +7,11 @@ use crate::{
     typeck::FunctionImplementation,
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_contract::library;
 use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::identity as library;
 use kagari_types::{
     collection::CollectionAccess, language::Protocol, scalar::BuiltinType, surface::StandardEnum,
 };

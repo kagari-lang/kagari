@@ -1,6 +1,6 @@
 //! Complete syntax/value contracts, explicitly expressed in Kagari's type model.
-use crate::language::product;
-use crate::library::catalog::key::{self, RegistrationTrait};
+use crate::catalog::roles;
+use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{
     DefinitionPath, associated_type_id,
     mapping::{DefinitionMapper, DefinitionRecord},
@@ -106,7 +106,7 @@ pub(super) fn applied_item(kind: RegistrationTrait, item: Ty) -> NominalTy {
 
 pub(super) fn declare(module: &mut ModuleDecl) {
     module.traits.extend(
-        product::declarations()
+        roles::declarations()
             .map_identities(&mut DefinitionMapper::new(
                 &mut |id: &DefinitionPath| {
                     let mut id = id.clone();

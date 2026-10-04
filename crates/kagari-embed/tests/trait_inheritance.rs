@@ -285,7 +285,15 @@ fn boxed() -> Child { Number {} }
 fn main() -> i32 { boxed().read() }
 "#;
     let artifact = compile(source).unwrap();
-    let mut vm = Vm::new(kagari_runtime::Runtime::default());
+    let mut vm = Vm::new({
+        let mut registered = kagari_runtime::Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    });
     let loaded = vm
         .runtime_mut()
         .load_program("inheritance", artifact.program)
@@ -343,7 +351,15 @@ fn main() -> i32 { boxed().read() }
             .name,
         "Read"
     );
-    let foreign = kagari_runtime::Runtime::default();
+    let foreign = {
+        let mut registered = kagari_runtime::Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut registered,
+        )
+        .unwrap();
+        registered
+    };
     assert!(foreign.resolve_interface_method(&value, &method).is_err());
     drop(root);
     vm.runtime().collect_garbage().unwrap();

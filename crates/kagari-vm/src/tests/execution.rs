@@ -1,7 +1,7 @@
 use crate::{
     debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
     error::VmError,
-    tests::common::{compile_test_bytecode, load_test_module},
+    tests::common::{compile_test_bytecode, load_test_module, standard_runtime},
     vm::Vm,
 };
 use kagari_abi::representation::ValueType;
@@ -153,13 +153,13 @@ fn reloadable_value_module(value: i32) -> BytecodeModule {
 }
 
 fn host_call_runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
 
 fn debug_runtime(_module_name: &str) -> Runtime {
-    Runtime::new(RuntimeConfig {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }

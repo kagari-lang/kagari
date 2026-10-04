@@ -11,7 +11,7 @@ use crate::{
     lower::{LoweredModule, lower_module_controlled},
     native::{
         NativeBinding, NativeTypeKind,
-        paths::{array_interfaces, module_path, receiver_owner},
+        paths::{array_interfaces, module_path},
         render::{DeclarationSource, declaration_source},
     },
 };
@@ -34,6 +34,7 @@ use kagari_types::{
         FnDecl, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
+        ownership::ReceiverOwners,
     },
     language,
     language::{Protocol, role::LangRole},
@@ -57,7 +58,12 @@ pub(crate) fn import_source(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    definition.validate(&|receiver| receiver_owner(receiver, providers))?;
+    let owners = ReceiverOwners::from_types(
+        providers
+            .iter()
+            .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
+    )?;
+    definition.validate(&|receiver| owners.owner(receiver))?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())

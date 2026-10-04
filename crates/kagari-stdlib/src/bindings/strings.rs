@@ -1,13 +1,11 @@
 //! Immutable UTF-8 operations implemented through ordinary foundation bindings.
-use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
-    native::{
-        binding::NativeResult,
-        context::CallContext,
-        foundation::{Entry, index, option},
-        scalar::NativeScalar,
+use {
+    crate::bindings::{Entry, index, option},
+    kagari_runtime::{
+        error::{RuntimeError, RuntimeErrorKind},
+        native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
+        value::Value,
     },
-    value::Value,
 };
 
 pub(super) fn entry(name: &str) -> Option<Entry> {

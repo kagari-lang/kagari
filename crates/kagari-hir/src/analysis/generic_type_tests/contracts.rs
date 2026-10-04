@@ -1,8 +1,8 @@
 //! Ordinary application declarations used to exercise inference and recovery.
 //! These bodies are test inputs, not a second implementation of library algorithms.
 use crate::{AnalysisResult, AnalyzedModule, analyze_source};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::source::SourceFile;
+use kagari_stdlib::catalog as foundation_catalog;
 
 const CONTRACTS: &str = r#"use std::collections::{HashMap, List, Map, Set};
 use std::hash::{Hash};

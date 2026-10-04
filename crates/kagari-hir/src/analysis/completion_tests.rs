@@ -1,5 +1,5 @@
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::source::SourceFile;
+use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn function_fallthrough_is_checked_only_when_reachable() {

@@ -4,11 +4,11 @@ use kagari_common::{
     identity::{DefinitionKind, ModuleIdentity, PackageId},
     span::Span,
 };
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::catalog as foundation_catalog;
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())

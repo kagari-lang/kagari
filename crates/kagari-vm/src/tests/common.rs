@@ -7,13 +7,14 @@ use kagari_bytecode::{
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
-use kagari_runtime::{Runtime, module::LoadedModule, native::foundation};
+use kagari_runtime::{Runtime, module::LoadedModule};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib as foundation;
 use kagari_types::host_interface::{HostInterface, standard_log};
 use std::sync::Arc;
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
-    load_bytecode_module_with_runtime(Runtime::default(), name, bytecode)
+    load_bytecode_module_with_runtime(standard_runtime(Default::default()), name, bytecode)
 }
 
 pub fn load_bytecode_module_with_runtime(
@@ -34,7 +35,7 @@ pub fn load_bytecode_module_with_runtime(
 }
 
 pub fn load_bytecode_program(name: &str, program: BytecodeProgram) -> (Runtime, LoadedModule) {
-    load_bytecode_program_with_runtime(Runtime::default(), name, program)
+    load_bytecode_program_with_runtime(standard_runtime(Default::default()), name, program)
 }
 
 pub fn load_bytecode_program_with_runtime(
@@ -171,4 +172,15 @@ pub fn point_function_module(
     let program = compile_test_bytecode("struct Point { var x: i32 }");
     module.structures = program.modules[program.root.index()].structures.clone();
     module
+}
+
+/// Explicit standard installation for script fixtures and their source-free products.
+pub fn standard_runtime(config: kagari_runtime::RuntimeConfig) -> Runtime {
+    let mut runtime = Runtime::new(config);
+    kagari_runtime::native::module::NativeModule::install_all(
+        &foundation::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
+    runtime
 }

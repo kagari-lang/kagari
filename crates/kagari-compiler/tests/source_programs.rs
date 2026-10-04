@@ -10,10 +10,7 @@ use kagari_compiler::{
         program::{SourceProgramError, lower_program_to_mir},
     },
 };
-use kagari_contract::{
-    library::catalog as foundation_catalog,
-    types::{ConcreteFunctionIdentity, PublicItem},
-};
+use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem};
 use kagari_hir::{
     analysis::AnalysisDatabase,
     program::{CheckedProgram, ProgramCheckError},
@@ -29,6 +26,7 @@ use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     scalar::BuiltinType,
     ty::{Constraint, Ty},

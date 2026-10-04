@@ -1,6 +1,6 @@
 use crate::{analyze_source, typeck::table::ConstraintTarget, types::TypeId};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 #[test]

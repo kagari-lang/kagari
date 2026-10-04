@@ -1,0 +1,17 @@
+[package]
+name = "kagari-stdlib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-common.workspace = true
+kagari-types.workspace = true
+kagari-contract.workspace = true
+kagari-runtime.workspace = true
+kagari-bytecode.workspace = true
+
+[dev-dependencies]
+bincode.workspace = true
+kagari-hir.workspace = true
+kagari-source.workspace = true

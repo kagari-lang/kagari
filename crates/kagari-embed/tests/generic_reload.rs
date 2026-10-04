@@ -50,7 +50,15 @@ fn make() -> Run {{
         );
         let mut config = RuntimeConfig::default();
         config.gc.collection_threshold = Some(1);
-        let mut runtime = Runtime::new(config);
+        let mut runtime = {
+            let mut registered = Runtime::new(config);
+            kagari_runtime::native::module::NativeModule::install_all(
+                &kagari_stdlib::modules().unwrap(),
+                &mut registered,
+            )
+            .unwrap();
+            registered
+        };
         let old = runtime.load_program("generic-reload", program).unwrap();
         let contract = old
             .bytecode

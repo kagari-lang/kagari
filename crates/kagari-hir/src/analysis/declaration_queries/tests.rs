@@ -4,11 +4,11 @@ use crate::{
     tests::test_analysis,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::catalog as foundation_catalog;
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnapshot {
     db.declarations(sources.snapshot(), &Default::default())
@@ -29,8 +29,7 @@ fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshot
         .unwrap()
         .iter()
         .find(|(_, module)| {
-            module.source.module_identity()
-                == &kagari_contract::library::namespaces::module("alloc", "vec")
+            module.source.module_identity() == &kagari_stdlib::namespaces::module("alloc", "vec")
         })
         .unwrap()
         .1

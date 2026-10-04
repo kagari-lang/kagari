@@ -27,7 +27,7 @@ use kagari_contract::{
     },
 };
 use kagari_types::{
-    declaration::TraitDef,
+    declaration::{TraitDef, ownership::ReceiverOwners},
     language::{Protocol, role::LangRole},
     ty::{
         GenericBound, GenericParam, NominalTy, Ty, inheritance as trait_inheritance,
@@ -216,6 +216,16 @@ fn linked_bounds_match(
             _ => None,
         })
         .collect();
+    let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
+        module.public_items.iter().filter_map(|item| {
+            if let PublicItem::Type(ty) = item {
+                Some((&module.identity, ty))
+            } else {
+                None
+            }
+        })
+    }))
+    .map_err(|_| LinkedValidationError::Contract)?;
     let catalog = ProofCatalog::new(
         tables
             .iter()
@@ -244,7 +254,8 @@ fn linked_bounds_match(
     if !shared::valid(module, closure, program, &catalog, &cancel)? {
         return Ok(false);
     }
-    if !catalog.overrides_valid(&cancel)? || !instruction_contracts_match(module, closure, program)
+    if !catalog.overrides_valid(&owners, &cancel)?
+        || !instruction_contracts_match(module, closure, program)
     {
         return Ok(false);
     }

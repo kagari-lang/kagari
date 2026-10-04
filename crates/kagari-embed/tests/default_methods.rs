@@ -1,5 +1,4 @@
 use kagari_bytecode::program::ModuleRef;
-use kagari_contract::library;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -8,6 +7,7 @@ use kagari_embed::{
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_stdlib::identity as library;
 use kagari_types::callable::CallableImplementation;
 
 fn execute(source: &str) {

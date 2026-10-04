@@ -1,7 +1,7 @@
 use super::*;
 use crate::{tests::test_analysis, typeck::table::CallTarget};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::diagnostic::DiagnosticKind;
+use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn body_constraints_use_later_arguments_and_local_uses() {

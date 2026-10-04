@@ -191,23 +191,31 @@ fn ordering_and_equality_bounds_are_required_at_the_method_call() {
 
 #[test]
 fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
-    use kagari_runtime::{
-        gc::RootedValue,
-        native::{
-            binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-            declarations::FunctionDecl, language::LanguageContracts, views::ValueHandle,
-        },
-    };
     use std::{
         cell::{Cell, RefCell},
         rc::Rc,
+    };
+    use {
+        kagari_runtime::{
+            gc::RootedValue,
+            native::{
+                binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+                declarations::FunctionDecl, views::ValueHandle,
+            },
+        },
+        kagari_stdlib::declarations::StandardDeclarations,
     };
     for (operation, retained_values) in [
         ("sort_by(|a,b| { visit(); a.cmp(b) })", vec![0, 1, 2, 3]),
         ("retain(|value| { visit(); value != 1 })", vec![0, 2, 3]),
     ] {
         let context = ExecutionContext::default();
-        let mut module = ModuleBuilder::new("test::cancellation", &LanguageContracts::default());
+        let mut module = ModuleBuilder::new(
+            "test::cancellation",
+            &StandardDeclarations::default()
+                .catalog()
+                .expect("explicit standard providers"),
+        );
         let calls = Rc::new(Cell::new(0));
         let count = calls.clone();
         let token = context.cancellation.clone();

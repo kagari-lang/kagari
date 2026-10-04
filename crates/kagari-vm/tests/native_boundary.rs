@@ -10,8 +10,6 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
-        foundation,
-        language::LanguageContracts,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
         types::Type,
@@ -23,6 +21,8 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::ty::Ty;
 use kagari_vm::{error::VmError, vm::Vm};
 use std::{cell::Cell, ops::Bound, rc::Rc, sync::Arc};
+use {kagari_stdlib as foundation, kagari_stdlib::declarations::StandardDeclarations};
+
 mod native_boundary_artifacts;
 mod native_boundary_callbacks;
 mod native_boundary_control;
@@ -67,6 +67,11 @@ fn compile(
 ) -> (Vm, kagari_runtime::module::LoadedModule) {
     let program = compile_program(text, module);
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     if let Some(module) = module {
         module.install(&mut runtime).unwrap();
     }
@@ -76,7 +81,12 @@ fn compile(
 
 #[test]
 fn scalar_function_executes_through_the_checked_registration() {
-    let mut module = ModuleBuilder::new("example::math", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::math",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let add = module
         .define_function(
             FunctionDecl::new("add")
@@ -104,7 +114,12 @@ fn scalar_function_executes_through_the_checked_registration() {
 
 #[test]
 fn raw_result_contract_failure_releases_the_execution_scope() {
-    let mut module = ModuleBuilder::new("example::bad", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::bad",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let function = module
         .define_function(FunctionDecl::new("broken").returns(Type::i32()))
         .unwrap();
@@ -181,7 +196,12 @@ use std::hash::{Hash};
 #[test]
 fn selected_script_callbacks_return_directly_to_a_rust_loop() {
     use kagari_runtime::native::declarations::{CallableRequirement, MethodDecl};
-    let mut module = ModuleBuilder::new("example::calls", &LanguageContracts::default());
+    let mut module = ModuleBuilder::new(
+        "example::calls",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut step = module.define_trait("Step");
     step.define_method(
         MethodDecl::instance("step")
@@ -272,7 +292,12 @@ impl Drop for TracedCounter {
 fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
     let dropped = Rc::new(Cell::new(0));
     let factory_dropped = dropped.clone();
-    let mut builder = ModuleBuilder::new("example::objects", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::objects",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut declaration = builder.define_type("Counter");
     declaration.type_parameter("T").unwrap();
     declaration
@@ -353,7 +378,12 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
 
 #[test]
 fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
-    let mut builder = ModuleBuilder::new("example::buffers", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::buffers",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let mut declaration = builder.define_type("Buffer");
     let item = declaration.type_parameter("T").unwrap();
     declaration.sequence_storage(&item).unwrap();
@@ -436,8 +466,11 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
 
 #[test]
 fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage() {
-    let language = LanguageContracts::default();
-    let mut builder = ModuleBuilder::new("example::arrays", &language);
+    let language = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new(
+        "example::arrays",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let array = language.vec(Type::i32());
     let probe = builder
         .define_function(
@@ -521,8 +554,11 @@ fn transform_sequence(
 
 #[test]
 fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
-    let language = LanguageContracts::default();
-    let mut builder = ModuleBuilder::new("example::views", &language);
+    let language = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new(
+        "example::views",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let len = builder
         .define_function(
             FunctionDecl::new("len")
@@ -679,8 +715,11 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
 #[test]
 fn every_scalar_layout_is_selected_from_the_declared_array_element() {
     use kagari_types::scalar::BuiltinType;
-    let language = LanguageContracts::default();
-    let mut builder = ModuleBuilder::new("example::scalar_arrays", &language);
+    let language = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new(
+        "example::scalar_arrays",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let calls = Rc::new(Cell::new(0));
     let mut expressions = Vec::new();
     macro_rules! check {
@@ -750,7 +789,12 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
 
 #[test]
 fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
-    let mut builder = ModuleBuilder::new("example::hash_gc", &LanguageContracts::default());
+    let mut builder = ModuleBuilder::new(
+        "example::hash_gc",
+        &StandardDeclarations::default()
+            .catalog()
+            .expect("explicit standard providers"),
+    );
     let collect = builder
         .define_function(FunctionDecl::new("collect").returns(Type::i64()))
         .unwrap();
@@ -875,8 +919,11 @@ use std::hash::{Hash};
 #[test]
 fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     use std::cell::RefCell;
-    let language = LanguageContracts::default();
-    let mut builder = ModuleBuilder::new("example::cursors", &language);
+    let language = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new(
+        "example::cursors",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let hold = builder
         .define_function(FunctionDecl::new("hold").returns(language.collection_cursor(Type::i32())))
         .unwrap();
@@ -927,8 +974,11 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
 
 #[test]
 fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
-    let language = LanguageContracts::default();
-    let mut builder = ModuleBuilder::new("example::provided", &language);
+    let language = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new(
+        "example::provided",
+        &language.catalog().expect("explicit standard providers"),
+    );
     let mut declaration = builder.define_type("Counter");
     declaration
         .native_storage(NativeStorage::payload::<TracedCounter>())

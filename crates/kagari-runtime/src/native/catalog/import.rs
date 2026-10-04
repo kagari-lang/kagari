@@ -41,6 +41,7 @@ impl CatalogImports {
         catalog: &DeclarationCatalog,
     ) -> Result<DeclarationCatalog, RuntimeError> {
         Ok(DeclarationCatalog {
+            documentation: catalog.documentation.clone(),
             types: imported(&catalog.types, &self.context, &mut self.types)?,
             traits: imported(&catalog.traits, &self.context, &mut self.traits)?,
             declarations: imported(&catalog.declarations, &self.context, &mut self.declarations)?,
@@ -106,6 +107,7 @@ impl CatalogScopes {
         catalog: &DeclarationCatalog<DefinitionPath>,
     ) -> Result<DeclarationCatalog, RuntimeError> {
         Ok(DeclarationCatalog {
+            documentation: catalog.documentation.clone(),
             types: shared(&catalog.types, &mut self.types, |source| {
                 scope_values(source, &self.context)
             })?,

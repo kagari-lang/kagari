@@ -9,7 +9,7 @@ mod typeck;
 pub(crate) mod native;
 
 use crate::analysis::AnalysisDatabase;
-use kagari_contract::library::catalog;
+use kagari_stdlib::catalog;
 
 pub(crate) fn test_analysis() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();

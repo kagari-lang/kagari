@@ -10,6 +10,11 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
         None,
     );
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let baseline = runtime.load_program("main", program.clone()).unwrap();
     let mut vm = Vm::new(runtime);
     let Value::Tuple(values) = vm.execute(&baseline, "containers").unwrap().return_value else {

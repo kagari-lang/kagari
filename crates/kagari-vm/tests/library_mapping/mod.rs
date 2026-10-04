@@ -1,15 +1,14 @@
 use super::{Probe, program, run};
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    native::foundation,
     value::{EnumTag, Value},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, language, language::Protocol};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
+use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
 
 #[test]
 fn map_is_lazy_and_aliases_share_cursor_progress_and_gc_captures() {
@@ -61,8 +60,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let probe = Probe::new();
@@ -71,6 +69,11 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
         fn main() { val values = [1,2]; keep(values); for item in map(values, |item| item) { values.push(item); } }
     "#;
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
@@ -93,8 +96,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let probe = Probe::new();
@@ -105,6 +107,11 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         }
     "#;
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
@@ -134,13 +141,17 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = None;
     let mut runtime = Runtime::new(config);
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let loaded = runtime.load_program("map", program("use std::collections::map; fn make() -> Iterator<Item = i32> { map([42], |item| item) }", &[&library])).unwrap();
     let mut vm = Vm::new(runtime);
     let iterator = vm.execute(&loaded, "make").unwrap().return_value;
@@ -167,8 +178,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let source = r#"
@@ -181,6 +191,11 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         }
     "#;
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let loaded = runtime
         .load_program("map", program(source, &[&library]))
         .unwrap();
@@ -200,12 +215,16 @@ fn retained_map_uses_its_original_callback_after_reload() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let source = "use std::collections::map; fn make() -> Iterator<Item = i32> { val offset = [1]; map([10,20], |item| item + offset[0]) }";
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let old = runtime
         .load_program("map", program(source, &[&library]))
         .unwrap();
@@ -262,8 +281,7 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity
-                == kagari_contract::library::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
     let generated = declaration_source(

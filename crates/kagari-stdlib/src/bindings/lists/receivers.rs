@@ -1,15 +1,16 @@
 //! Prepare custom receiver operations once and traverse through its iterator.
-use crate::{
-    gc::HeapObjectId,
-    native::{
-        binding::NativeResult,
-        context::{CallContext, LinkedCallable},
-        declarations::SelectedCall,
-        foundation::lists::invalid,
-    },
-    value::{EnumTag, Value},
-};
 use std::slice;
+use {
+    crate::bindings::lists::invalid,
+    kagari_runtime::{
+        gc::HeapObjectId,
+        native::{
+            binding::NativeResult,
+            context::{CallContext, LinkedCallable},
+        },
+        value::{EnumTag, Value},
+    },
+};
 
 pub(super) struct ReceiverCalls<'call> {
     iter: &'call LinkedCallable,
@@ -24,25 +25,14 @@ impl<'call> ReceiverCalls<'call> {
         mutable: bool,
     ) -> NativeResult<Self> {
         Ok(Self {
-            iter: cx.selected(SelectedCall { slot: start })?,
-            next: cx.selected(SelectedCall { slot: start + 1 })?,
-            write: mutable
-                .then(|| cx.selected(SelectedCall { slot: start + 2 }))
-                .transpose()?,
+            iter: cx.selected_at(start)?,
+            next: cx.selected_at(start + 1)?,
+            write: mutable.then(|| cx.selected_at(start + 2)).transpose()?,
         })
     }
 
     pub(super) fn snapshot(&self, cx: &mut CallContext<'_>) -> NativeResult<HeapObjectId> {
-        let owner = self.next.owner(cx.owner)?;
-        let result_type = match &self.next.scoped_signature {
-            Some(signature) => signature.result.clone(),
-            None => cx
-                .runtime
-                .resolve_type_arguments(&owner, slice::from_ref(&self.next.result))?
-                .pop()
-                .ok_or_else(invalid)?,
-        };
-        let item = result_type.parameter(cx.runtime, &owner, 0)?;
+        let item = cx.selected_result_parameter(self.next, 0)?;
         let result = cx.allocate_sequence(item, vec![])?;
         let _result = cx.heap().root_value(result.clone()).ok_or_else(invalid)?;
         let Value::Array(id) = result else {

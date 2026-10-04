@@ -14,7 +14,6 @@ use crate::{
         catalog::DeclarationCatalog,
         declarations::{FunctionBuilder, FunctionDecl, normalize_bounds},
         functions::NativeFunction,
-        language::LanguageContracts,
         module::NativeModule,
         storage::NativeStorage,
         types::{FunctionRef, Receiver},
@@ -37,35 +36,33 @@ pub struct ModuleBuilder {
 }
 
 impl ModuleBuilder {
-    pub(crate) fn foundation(
+    /// Build an explicit declaration set with its Rust entries and providers.
+    pub fn from_declaration(
         declaration: ModuleDecl,
-        language: &LanguageContracts,
+        providers: &DeclarationCatalog,
         bindings: BTreeMap<DefinitionPath, NativeBinding>,
     ) -> Self {
         Self {
             declaration,
-            providers: language.catalog().expect("foundation providers"),
+            providers: providers.clone(),
             bindings,
             storage: BTreeMap::new(),
             function_parameters: BTreeMap::new(),
         }
     }
-    pub fn new(identity: &str, language: &LanguageContracts) -> Self {
+
+    pub fn new(identity: &str, providers: &DeclarationCatalog) -> Self {
         let mut path = identity.split("::");
-        let package = PackageId(path.next().unwrap_or_default().into());
         let identity = ModuleIdentity {
-            package,
+            package: PackageId(path.next().unwrap_or_default().into()),
             path: path.map(str::to_owned).collect(),
         };
-        Self {
-            declaration: ModuleDecl::new(identity),
-            providers: language
-                .catalog()
-                .expect("compiler-owned language contracts"),
-            bindings: BTreeMap::new(),
-            storage: BTreeMap::new(),
-            function_parameters: BTreeMap::new(),
-        }
+        Self::from_declaration(ModuleDecl::new(identity), providers, BTreeMap::new())
+    }
+
+    /// Set the complete Markdown overview emitted as module documentation.
+    pub fn documentation(&mut self, text: impl Into<String>) {
+        self.declaration.module_documentation = text.into();
     }
 
     pub fn with_modules(mut self, modules: &[&NativeModule]) -> NativeResult<Self> {

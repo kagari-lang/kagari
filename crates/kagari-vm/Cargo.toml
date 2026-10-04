@@ -13,6 +13,7 @@ kagari-bytecode.workspace = true
 kagari-runtime.workspace = true
 
 [dev-dependencies]
+kagari-stdlib.workspace = true
 kagari-source.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
 kagari-mir.workspace = true

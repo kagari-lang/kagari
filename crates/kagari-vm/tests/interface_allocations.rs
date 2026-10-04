@@ -4,8 +4,9 @@ mod native_allocations_counter;
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{Runtime, module::LoadedModule, native::foundation, value::Value};
+use kagari_runtime::{Runtime, module::LoadedModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib as foundation;
 use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
@@ -50,6 +51,11 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             }
         )));
         let mut runtime = Runtime::default();
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         let loaded = runtime.load_program("interface-width", program).unwrap();
         let contract = loaded
             .bytecode
@@ -279,6 +285,11 @@ fn load(source: &str) -> (Vm, LoadedModule) {
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let program = lower_program_to_bytecode(&mir).unwrap();
     let mut runtime = Runtime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
     let loaded = runtime.load_program("interface-cache", program).unwrap();
     (Vm::new(runtime), loaded)
 }

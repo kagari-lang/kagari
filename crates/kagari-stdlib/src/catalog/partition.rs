@@ -1,5 +1,5 @@
 //! Publish assembled records under their canonical owners without duplicate declarations.
-use crate::library::{catalog::assembly_identity, namespaces};
+use crate::{catalog::assembly_identity, namespaces};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{

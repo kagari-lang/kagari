@@ -1,15 +1,16 @@
 use super::*;
+use crate::tests::common::standard_runtime;
 use kagari_bytecode::{
     instruction::StructId,
-    program::{BytecodeProgram, ModuleRef},
+    program::{BytecodeProgram, ModuleRef, verify_program},
 };
-use {kagari_bytecode::program::verify_program, kagari_runtime::error::RuntimeErrorKind};
+use kagari_runtime::error::RuntimeErrorKind;
 
 #[test]
 fn foreign_loaded_module_is_rejected_before_execution() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { 7 }");
-    let mut first = Runtime::default();
-    let mut second = Runtime::default();
+    let mut first = standard_runtime(Default::default());
+    let mut second = standard_runtime(Default::default());
     let foreign = first.load_program("same", bytecode.clone()).unwrap();
     let local = second.load_program("same", bytecode).unwrap();
     assert_eq!(foreign.key(), local.key());
@@ -55,7 +56,7 @@ fn rejects_unverified_bytecode_before_publication() {
         vec![ValueType::I32],
     )]);
     bytecode.function_table.clear();
-    let mut runtime = Runtime::new(RuntimeConfig {
+    let mut runtime = standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             ..RuntimeLimits::default()
         },
@@ -110,7 +111,7 @@ fn rejects_unsupported_bytecode_before_publication() {
         ValueType::Unit,
         vec![],
     )]);
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     for (name, bytecode) in [
         ("register_call.kbc", register_call),
         ("dynamic_call.kbc", dynamic_call),
@@ -146,7 +147,7 @@ fn unsupported_dynamic_invocation_is_rejected() {
         ValueType::Unit,
         vec![],
     )]);
-    let mut runtime = Runtime::new(RuntimeConfig {
+    let mut runtime = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
     let error = runtime
@@ -217,7 +218,7 @@ fn middle() -> i32 { leaf() }
 fn main() -> i32 { middle() }
 "#,
     );
-    let mut runtime = Runtime::new(RuntimeConfig {
+    let mut runtime = standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             max_call_depth: Some(2),
         },
@@ -346,7 +347,7 @@ fn main() -> Point {
 
 #[test]
 fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
         .load_program(
             "module-slot-invariant",
@@ -379,7 +380,7 @@ fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
 
 #[test]
 fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
-    let mut runtime = Runtime::default();
+    let mut runtime = standard_runtime(Default::default());
     let first_loaded = runtime
         .load_program(
             "hot_reload.kgr",

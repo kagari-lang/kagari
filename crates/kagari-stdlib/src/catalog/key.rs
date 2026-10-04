@@ -5,7 +5,7 @@ use kagari_common::identity::{
     table::DefinitionTable,
 };
 use {
-    crate::library::catalog::assembly_identity,
+    crate::catalog::assembly_identity,
     kagari_types::ty::{NominalTy, Ty},
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

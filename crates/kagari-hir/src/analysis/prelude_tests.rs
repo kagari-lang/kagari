@@ -4,11 +4,11 @@ use crate::{
     hir::expr::ExprKind, resolver::resolved::ResolvedName, tests::test_analysis,
     typeck::table::CallTarget,
 };
-use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 const HELPERS: [(&str, BuiltinFunction); 5] = [

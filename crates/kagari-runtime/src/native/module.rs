@@ -1,5 +1,4 @@
 //! Checked declarations and local Rust entries form one installable module.
-use kagari_contract::library::namespaces;
 #[cfg(test)]
 mod tests;
 use crate::{
@@ -47,8 +46,9 @@ impl NativeModule {
         storage: BTreeMap<DefinitionPath, NativeStorage>,
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
+        let owners = providers.receiver_owners(Some(&declaration))?;
         declaration
-            .validate(&namespaces::receiver_owner)
+            .validate(&|receiver| owners.owner(receiver))
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let mut entries = BTreeMap::new();
         for declaration in declaration.native_declarations() {
@@ -170,7 +170,7 @@ impl NativeModule {
                 .collect::<Vec<_>>(),
         );
         declaration
-            .validate(&namespaces::receiver_owner)
+            .validate(&|receiver| owners.owner(receiver))
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let mut indexed_storage = DefinitionMap::new(owned.types.context().clone());
         for (id, storage) in storage {

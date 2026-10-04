@@ -8,10 +8,13 @@ use crate::{
 use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
 use kagari_contract::{
     host, layout,
-    library::namespaces,
     types::{PublicItem, verify},
 };
-use kagari_types::{declaration::TypeDefKind, language::Protocol, ty::Ty};
+use kagari_types::{
+    declaration::{TypeDefKind, ownership::ReceiverOwners},
+    language::Protocol,
+    ty::Ty,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -186,6 +189,16 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
         if !reachable.contains(&ModuleRef::new(index)) {
             closure.push(module);
         }
+        let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
+            module.public_items.iter().filter_map(|item| {
+                if let PublicItem::Type(ty) = item {
+                    Some((&module.identity, ty))
+                } else {
+                    None
+                }
+            })
+        }))
+        .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
         for item in &module.public_items {
             let PublicItem::InterfaceTable(table) = item else {
                 continue;
@@ -196,7 +209,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             if let Some(kind) = Protocol::from_id(&instance.declaration)
                 && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
                     || instance.declaration.module != table.declaration.module
-                        && namespaces::receiver_owner(&table.for_type).as_ref()
+                        && owners.owner(&table.for_type).as_ref()
                             != Some(&table.declaration.module)
                         && kind != Protocol::From
                         && !matches!(

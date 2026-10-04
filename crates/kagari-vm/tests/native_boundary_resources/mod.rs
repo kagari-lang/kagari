@@ -6,11 +6,12 @@ use kagari_runtime::{
     module::LoadedModule,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, language::LanguageContracts, views::ValueHandle,
+        declarations::FunctionDecl, views::ValueHandle,
     },
     resource::RuntimeLimits,
     value::Value,
 };
+use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 use std::{cell::RefCell, rc::Rc};
@@ -25,7 +26,12 @@ impl MutationFixture {
     fn new(source: &str, policy: RuntimeLimits) -> Self {
         let retained: Rc<RefCell<Option<RootedValue>>> = Rc::default();
         let keep = retained.clone();
-        let mut module = ModuleBuilder::new("test::roots", &LanguageContracts::default());
+        let mut module = ModuleBuilder::new(
+            "test::roots",
+            &StandardDeclarations::default()
+                .catalog()
+                .expect("explicit standard providers"),
+        );
         let function = module.define_function(FunctionDecl::new("retain")).unwrap();
         module
             .function(&function, |function| {
@@ -53,6 +59,11 @@ impl MutationFixture {
             limits: policy,
             ..Default::default()
         });
+        kagari_runtime::native::module::NativeModule::install_all(
+            &kagari_stdlib::modules().unwrap(),
+            &mut runtime,
+        )
+        .unwrap();
         module.install(&mut runtime).unwrap();
         let loaded = runtime.load_program("removal", program).unwrap();
         let vm = Vm::new(runtime);
