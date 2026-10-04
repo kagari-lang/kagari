@@ -2,7 +2,7 @@ use super::*;
 use kagari_common::identity::ModuleIdentity;
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    declaration::{FnDecl, Param, module::ModuleDecl},
+    declaration::{AssociatedTypeDef, FnDecl, Param, module::ModuleDecl},
     scalar::BuiltinType,
 };
 use std::{collections::BTreeMap, slice};
@@ -182,4 +182,138 @@ fn malformed_applications_and_erased_self_positions_are_rejected() {
     bad.methods[0].return_type = Ty::SelfType(call.interface.declaration.clone());
     let catalog = ProofCatalog::new(vec![], vec![], [], [], [], &cancel).unwrap();
     assert!(!call.check(&bad, &catalog, &[], &[], &cancel).unwrap());
+}
+
+#[test]
+fn partial_associated_outputs_require_scoped_receiver_evidence() {
+    let (mut call, mut contract) = fixture();
+    let cancel = CancellationToken::default();
+    let residual =
+        kagari_common::identity::associated_type_id(&call.interface.declaration, "Residual");
+    contract.associated_types.push(AssociatedTypeDef {
+        declaration: residual.clone(),
+        generic_params: vec![],
+        parameter_bounds: vec![],
+        bounds: vec![],
+    });
+    contract.methods[0].return_type = Ty::Projection {
+        receiver: Box::new(Ty::SelfType(call.interface.declaration.clone())),
+        interface: Box::new(call.interface.clone()),
+        member: residual.clone(),
+        arguments: vec![],
+    };
+    assert!(call.signature(&contract, &cancel).is_err());
+    let parameter = GenericParam {
+        owner: ModuleDecl::new(ModuleIdentity::single_file("caller.kgr"))
+            .definition(DefinitionKind::Function, "forward"),
+        position: 0,
+    };
+    call.receiver = Some(parameter.as_type());
+    let signature = call.signature(&contract, &cancel).unwrap();
+    assert_eq!(
+        signature.result,
+        Ty::Projection {
+            receiver: Box::new(parameter.as_type()),
+            interface: Box::new(call.interface.clone()),
+            member: residual,
+            arguments: vec![],
+        }
+    );
+    let evidence = GenericBound {
+        ty: parameter.as_type(),
+        constraints: vec![Constraint::Trait(call.interface.clone())],
+    };
+    let catalog = ProofCatalog::new(
+        vec![],
+        vec![],
+        [],
+        [(call.interface.declaration.clone(), &contract)],
+        [],
+        &cancel,
+    )
+    .unwrap();
+    assert!(
+        call.check(
+            &contract,
+            &catalog,
+            slice::from_ref(&parameter),
+            slice::from_ref(&evidence),
+            &cancel
+        )
+        .unwrap()
+    );
+    assert!(
+        !call
+            .check(
+                &contract,
+                &catalog,
+                &[],
+                slice::from_ref(&evidence),
+                &cancel
+            )
+            .unwrap()
+    );
+    assert!(
+        !call
+            .check(
+                &contract,
+                &catalog,
+                slice::from_ref(&parameter),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+    call.interface.associated_types.insert(
+        ModuleDecl::new(ModuleIdentity::single_file("forged.kgr"))
+            .definition(DefinitionKind::AssociatedType, "Residual"),
+        Ty::Builtin(BuiltinType::I32),
+    );
+    assert!(call.signature(&contract, &cancel).is_err());
+}
+
+#[test]
+fn static_constraint_calls_do_not_invent_a_receiver_argument() {
+    let (mut call, mut contract) = fixture();
+    let cancel = CancellationToken::default();
+    contract.methods[0].params.remove(0);
+    contract.methods[0].return_type = Ty::SelfType(call.interface.declaration.clone());
+    assert!(call.signature(&contract, &cancel).is_err());
+    let parameter = GenericParam {
+        owner: ModuleDecl::new(ModuleIdentity::single_file("caller.kgr"))
+            .definition(DefinitionKind::Function, "forward"),
+        position: 0,
+    };
+    call.receiver = Some(parameter.as_type());
+    let signature = call.signature(&contract, &cancel).unwrap();
+    assert_eq!(signature.params.len(), 1);
+    assert_eq!(signature.result, parameter.as_type());
+    let evidence = GenericBound {
+        ty: parameter.as_type(),
+        constraints: vec![Constraint::Trait(call.interface.clone())],
+    };
+    let catalog = ProofCatalog::new(
+        vec![],
+        vec![],
+        [],
+        [(call.interface.declaration.clone(), &contract)],
+        [],
+        &cancel,
+    )
+    .unwrap();
+    assert!(
+        call.check(
+            &contract,
+            &catalog,
+            slice::from_ref(&parameter),
+            slice::from_ref(&evidence),
+            &cancel
+        )
+        .unwrap()
+    );
+    assert!(
+        !call
+            .check(&contract, &catalog, &[parameter], &[], &cancel)
+            .unwrap()
+    );
 }

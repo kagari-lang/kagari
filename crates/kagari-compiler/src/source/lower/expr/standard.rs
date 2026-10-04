@@ -61,6 +61,10 @@ impl FunctionLowerer<'_, '_> {
             self.function.debug.source_span,
         )?;
         let dst = self.alloc_temp(self.value_type(&member)?);
+        self.function
+            .semantic
+            .registers
+            .insert(dst.temp.index(), self.semantic_type(&member)?);
         self.emit(Instruction::ReadEnumPayload {
             dst,
             value,

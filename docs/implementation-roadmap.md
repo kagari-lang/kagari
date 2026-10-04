@@ -887,7 +887,7 @@ actual validation and any remaining blockers or limitations.
 
 ## Other queued designs
 
-### Nominal enums and propagation (EN01-EN05, active)
+### Nominal enums and propagation (EN01-EN05, complete)
 
 The [execution design](enum-propagation-plan.md) replaces the closed StandardEnum
 type/execution inventory with ordinary nominal enum declarations and layouts,
@@ -898,8 +898,9 @@ It supersedes their exclusion of generic enum/protocol migration for this active
 track; current specifications still describe implemented behavior until replaced.
 
 Status: the user activated the continuous EN01-EN05 goal on 2026-10-04.
-EN01-EN04 are complete; EN05 is in progress. Ordinary enums and checked protocol
-propagation pass focused behavior and structural checks. Final integration is pending.
+EN01-EN05 are complete. Final integration was accepted on 2026-10-05. Ordinary
+source/library/native enums and checked protocol propagation pass the complete
+behavioral, feature, backend and structural matrix.
 Commit each accepted phase once, using `Roadmap-Step: EN01` through `EN05`.
 The execution design and its index links enter the first implementation checkpoint.
 
@@ -921,7 +922,7 @@ The execution design and its index links enter the first implementation checkpoi
   calls/associated outputs. Support checked local source/native custom carriers
   and generic bounds; preserve inference, effect ordering and Err provenance.
   Remove direct compiler Option/Result propagation policy and audit From's role.
-- [ ] **EN05: Remove remnants and complete integration.** Update affected executable
+- [x] **EN05: Remove remnants and complete integration.** Update affected executable
   fixtures at one schema checkpoint, current docs and dependency/role inventories.
   Pass the design's complete behavioral, standalone-feature and backend matrix
   plus all repository final checks, resolving every carried failure.
@@ -1037,6 +1038,72 @@ pass. Initial callback selection, unresolved ABI encoding, owner partitioning,
 projection normalization and fixture diagnostics were repaired here. No EN04
 build/test failure is carried. EN05 owns the complete workspace/feature/backend
 matrix and coherent disposable fixture regeneration.
+
+EN05 expands the existing disposable feature artifact and its shared provider
+with registered native Carrier<T> propagation and standard Option/Result/ControlFlow
+residuals. The same serialized bytes exercise selected calls in artifact-only,
+source-only, native-only and combined standalone consumers, with forced collection
+and root/depth cleanup. The emitter and consumer use the same public provider.
+Production searches find no StandardEnum/StandardVariant/StdEnum/MapResultError or
+native enum constructor inventories. Remaining current embedding/syntax docs now
+describe generic nominal layouts, scoped native allocation and checked propagation.
+The first full workspace run found two compiler fixture failures: the public type
+inventory now includes ControlFlow, and the old origin opcode test assumed the
+interim EN03 lowering. The inventory is updated. ForwardEnumOrigin has no production
+emitter after EN04; EN05 removes that obsolete MIR/bytecode/verifier/VM route and
+replaces its test with source-free converted-origin behavior. Existing provenance
+and malformed selected-call coverage stays intact. Reproduction: `cargo test
+--workspace`; the final EN05 acceptance below includes these repairs and the full rerun.
+
+The final reload case exposed incomplete shared-call support for
+`A: Try<Output = i32>, R: FromResidual<A::Residual>` inside a captured default
+closure. HIR and portable substitution now retain sibling associated constraints
+on abstract projections. Shared lowering binds Self, supplies static as well as
+receiver operations, and records semantic enum-field registers. Executable calls
+permit partial outputs only with an explicit scoped receiver and verified bound
+evidence; boxed calls still require complete outputs and a receiver member.
+Checked call bounds normalize concrete projections before proof comparison.
+Runtime projection evaluation consumes outputs from the already selected,
+generation-pinned implementation table. Type-only scopes retain these immutable
+output/layout facts and their lexical owners without keeping operation groups.
+Static calls keep their actual parameter list. Reproduction: `cargo test -p
+kagari-embed --test generic_reload --test try_protocols`; acceptance includes both
+Continue and residual returns across reload, forced GC and complete root/value
+cleanup. Contract tests reject missing scope/evidence and foreign output members.
+
+The full workspace run also found an obsolete installation-access fixture: it
+carried isolated core traits without the nominal enum owners/layouts required by
+their signatures. The fixture now carries the registered declaration dependency
+closure, ordinary types and enum templates, while retaining its reserved-role-only
+trait inventory and every installed/forged/missing/private/reload assertion.
+Reproduction: `cargo test -p kagari-runtime --test installation_access`.
+
+EN05 was accepted on 2026-10-05. No build/test failure or structural debt is
+carried. Final validation:
+
+- `cargo test --workspace --no-fail-fast`: all unit, integration and doc tests pass;
+  the rerun includes the repaired installation fixture, captured generic Try
+  closures, all standalone language examples and 416 HIR tests.
+- `uv run python scripts/check_features.py`: all 13 production crate boundaries
+  and ABI/contract build graphs pass; independent artifact-only/source/native/
+  combined consumers pass 9/10/11/12 tests respectively. The fixture was regenerated
+  once as a disposable coherent product. Actual supported native execution and
+  checked interpreter fallback are distinguished by the existing assertions.
+- `cargo test -p kagari-cli --features jit`: all 5 tests pass.
+- `cargo clippy --workspace --all-targets -- -D warnings` and
+  `cargo fmt --all -- --check`: pass.
+- `uv run --locked scripts/check_structure.py`: 772 Rust files, zero violations
+  and zero documented exceptions. Changed imports, ownership, scope metadata,
+  cross-target fixture sharing and effective LOC were reviewed.
+- Changed documentation file links resolve; `git diff --check` passes. Current
+  production searches contain no closed enum inventory, dedicated error-conversion
+  opcode or obsolete origin-transfer instruction.
+
+The EN01-EN05 goal is complete, with one accepted commit per phase. Library policy
+stays in registered implementations; executable consumers retain checked nominal
+layouts, scoped signatures, selected calls and generation-pinned facts. Separate
+crate metadata, dynamic Try interfaces and broader backend expansion remain outside
+this completed track.
 
 ### Other proposals
 

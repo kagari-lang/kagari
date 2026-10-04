@@ -253,11 +253,6 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         lhs: Register,
         rhs: Option<Register>,
     },
-    ForwardEnumOrigin {
-        dst: Register,
-        original: Register,
-        value: Register,
-    },
     Iter {
         dst: Register,
         value: Option<Register>,

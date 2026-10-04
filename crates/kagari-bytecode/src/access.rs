@@ -631,9 +631,6 @@ pub(super) fn verify(
                     }
                     produced = Some((*dst, Fact::typed(output)));
                 }
-                I::ForwardEnumOrigin { dst, value, .. } => {
-                    produced = Some((*dst, get(*value).unwrap_or_default()));
-                }
                 I::SetPath { path, value, .. } => {
                     let record = &module.paths[path.index()];
                     let ty = module
@@ -744,35 +741,35 @@ pub(super) fn verify(
                                 .map_err(|_| invalid())?;
                             let params = signature.params;
                             let output = signature.result;
-                            if let Some(required) = &contract.receiver {
-                                if !flows(&facts[0], required) {
-                                    return Err(invalid());
-                                }
-                            } else if let Some(Ty::Trait(actual)) = &facts[0].ty {
-                                let modules: Vec<_> = program.map_or_else(
-                                    || vec![module],
-                                    |program| program.modules.iter().collect(),
-                                );
-                                if !trait_bounds::interface_views(
-                                    actual,
-                                    &Ty::Trait(actual.clone()),
-                                    &modules,
+                            if contract.receiver.is_none() {
+                                if let Some(Ty::Trait(actual)) = &facts[0].ty {
+                                    let modules: Vec<_> = program.map_or_else(
+                                        || vec![module],
+                                        |program| program.modules.iter().collect(),
+                                    );
+                                    if !trait_bounds::interface_views(
+                                        actual,
+                                        &Ty::Trait(actual.clone()),
+                                        &modules,
+                                    )
+                                    .is_some_and(|parents| parents.contains(interface))
+                                    {
+                                        return Err(invalid());
+                                    }
+                                } else if abi::trait_contract(
+                                    &owner.identity,
+                                    &owner.public_items,
+                                    &owner.trait_contracts,
+                                    &interface.declaration,
                                 )
-                                .is_some_and(|parents| parents.contains(interface))
+                                .is_some_and(|declaration| declaration.storage_access.is_some())
                                 {
                                     return Err(invalid());
                                 }
-                            } else if abi::trait_contract(
-                                &owner.identity,
-                                &owner.public_items,
-                                &owner.trait_contracts,
-                                &interface.declaration,
-                            )
-                            .is_some_and(|declaration| declaration.storage_access.is_some())
-                            {
-                                return Err(invalid());
                             }
-                            for (value, expected) in facts.iter().skip(1).zip(params.iter().skip(1))
+                            let skip = usize::from(contract.receiver.is_none());
+                            for (value, expected) in
+                                facts.iter().skip(skip).zip(params.iter().skip(skip))
                             {
                                 if !flows(value, expected) {
                                     return Err(invalid());

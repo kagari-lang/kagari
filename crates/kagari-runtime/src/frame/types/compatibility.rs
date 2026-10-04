@@ -45,16 +45,39 @@ impl<'a> TypeView<'a> {
     }
 
     pub(crate) fn normalized(mut self) -> Option<Self> {
-        while let Ty::Parameter { owner, position } = self.ty {
-            self = if let Some(application) = self.application
-                && application.declaration == owner
-            {
-                *application.arguments.get(*position)?
-            } else {
-                self.environment?
-                    .argument(owner, *position)?
-                    .view(self.owner)
-            };
+        loop {
+            match self.ty {
+                Ty::Parameter { owner, position } => {
+                    self = if let Some(application) = self.application
+                        && application.declaration == owner
+                    {
+                        *application.arguments.get(*position)?
+                    } else {
+                        self.environment?
+                            .argument(owner, *position)?
+                            .view(self.owner)
+                    };
+                }
+                Ty::Projection {
+                    receiver,
+                    interface,
+                    member,
+                    arguments,
+                } if arguments.is_empty() => {
+                    let environment = self.environment?;
+                    let receiver = environment.resolve(receiver).ok()?;
+                    let Ty::Trait(interface) = environment
+                        .resolve(&Ty::Trait(interface.as_ref().clone()))
+                        .ok()?
+                    else {
+                        return None;
+                    };
+                    let (ty, owner) =
+                        environment.associated_output(&receiver, &interface, *member)?;
+                    self = Self::new(ty, owner, None);
+                }
+                _ => break,
+            }
         }
         Some(self)
     }

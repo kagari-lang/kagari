@@ -281,8 +281,8 @@ type arguments remain scoped to the executing generation.
 
 A variant's `reports_failure` fact is explicit checked declaration/layout metadata.
 The library sets it on Result::Err, which has exactly one payload field. Construction
-captures optional diagnostic origin; generic `ForwardEnumOrigin` copies that
-sidecar after checked enum construction. Source enums and ordinary native enum
+captures optional diagnostic origin; checked native library methods copy that
+sidecar after validated enum construction. Source enums and ordinary native enum
 builders leave the fact false. Equality, hashing and payload access ignore it.
 
 Try and FromResidual are ordinary registered traits; their standard bodies live

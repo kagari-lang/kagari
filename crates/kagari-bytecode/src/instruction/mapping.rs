@@ -149,15 +149,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 lhs: *(lhs),
                 rhs: *(rhs),
             },
-            Self::ForwardEnumOrigin {
-                dst,
-                original,
-                value,
-            } => BytecodeInstruction::ForwardEnumOrigin {
-                dst: *(dst),
-                original: *(original),
-                value: *(value),
-            },
             Self::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
                 dst: *(dst),
                 value: *(value),
@@ -463,7 +454,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 lhs: _,
                 rhs: _,
             } => {}
-            Self::ForwardEnumOrigin { .. } => {}
             Self::Iter {
                 dst: _,
                 value: _,

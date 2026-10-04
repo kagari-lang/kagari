@@ -31,7 +31,7 @@ does not acquire conversion frames. If the conversion itself traps, that trap ha
 its own execution stack, including the conversion call.
 
 The heap stores optional origin beside ordinary nominal enum values. A generic
-ForwardEnumOrigin operation copies this metadata after validating the target enum
+Checked native library methods copy this metadata after validating the target enum
 construction; it does not reinterpret a payload or resolve a standard type name.
 Unmarked source/native enum variants capture no origin and do not become CLI
 failures automatically. Reporting policy is checked against carried declarations.

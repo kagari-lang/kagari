@@ -24,6 +24,7 @@ impl InstancePlanner<'_> {
         &mut self,
         method: &DefinitionPath,
         interface: &NominalType,
+        receiver: &TypeId,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<Vec<OperationWitness>, MirLoweringError> {
@@ -33,12 +34,13 @@ impl InstancePlanner<'_> {
             .catalog
             .trait_(&interface.declaration)
             .ok_or_else(invalid)?;
-        let substitution: TypeSubstitution = signature
+        let mut substitution: TypeSubstitution = signature
             .generic_params
             .iter()
             .cloned()
             .zip(interface.arguments.iter().chain(arguments).cloned())
             .collect();
+        substitution.insert_receiver(trait_.id.clone(), receiver.clone());
         let mut bounds = trait_.bounds.clone();
         for (ty, constraints) in &signature.bounds {
             bounds
@@ -46,6 +48,28 @@ impl InstancePlanner<'_> {
                 .or_default()
                 .extend(constraints.iter().cloned());
         }
+        let bounds = bounds
+            .into_iter()
+            .map(|(ty, targets)| {
+                (
+                    ty.with_associated_types(interface),
+                    targets
+                        .into_iter()
+                        .map(|target| match target {
+                            ConstraintTarget::Trait(required) => {
+                                let TypeId::Trait(required) =
+                                    TypeId::Trait(required).with_associated_types(interface)
+                                else {
+                                    unreachable!()
+                                };
+                                ConstraintTarget::Trait(required)
+                            }
+                            target => target,
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
         self.bound_operations(&bounds, &substitution, span)
     }
 
@@ -74,13 +98,6 @@ impl InstancePlanner<'_> {
                         .trait_(&interface.declaration)
                         .ok_or_else(invalid)?;
                     for operation in &contract.methods {
-                        if operation
-                            .params
-                            .first()
-                            .is_none_or(|param| param.name != "self")
-                        {
-                            continue;
-                        }
                         let required = NativeCallableRequirement {
                             receiver: lower_type(&receiver),
                             interface: lower_nominal_type(&interface),

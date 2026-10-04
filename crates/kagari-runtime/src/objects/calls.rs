@@ -23,7 +23,7 @@ use kagari_contract::{
         witness::{OperationWitness, SharedMethodWitness},
     },
     types as abi,
-    types::ConcreteFunctionIdentity,
+    types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_types::{
     callable::CallableImplementation, declaration::requirement::NativeCallableRequirement, ty::Ty,
@@ -246,7 +246,57 @@ impl Runtime {
                             })
                         })
                         .ok_or_else(invalid)? as u32;
+                    // The callable is already selected and proved. Read outputs
+                    // from its pinned implementation table; never search for a
+                    // different implementation while resolving a projection.
+                    let mut associated_interface = selected.requirement.interface.clone();
+                    for table in &owner.bytecode.interface_tables {
+                        if !table.methods.iter().any(|method| {
+                            method.method == selected.requirement.member && method.target == target
+                        }) {
+                            continue;
+                        }
+                        let Some(template) =
+                            owner
+                                .bytecode
+                                .public_items
+                                .iter()
+                                .find_map(|item| match item {
+                                    PublicItem::InterfaceTable(template)
+                                        if template.declaration == table.declaration =>
+                                    {
+                                        Some(template)
+                                    }
+                                    _ => None,
+                                })
+                        else {
+                            continue;
+                        };
+                        let Some(applied) = template.instantiate_scoped(
+                            &table.arguments,
+                            &[],
+                            Some(owner.definitions()),
+                        ) else {
+                            continue;
+                        };
+                        let Ty::Trait(interface) = applied.trait_type else {
+                            continue;
+                        };
+                        if applied.for_type == selected.requirement.receiver
+                            && interface.declaration == associated_interface.declaration
+                            && interface.arguments == associated_interface.arguments
+                            && selected
+                                .requirement
+                                .interface
+                                .associated_types
+                                .iter()
+                                .all(|(id, ty)| interface.associated_types.get(id) == Some(ty))
+                        {
+                            associated_interface = interface;
+                        }
+                    }
                     Rc::new(BoundOperation {
+                        associated_interface,
                         receiver_operations: Weak::new(),
                         application: OnceCell::new(),
                         generic: None,

@@ -1,19 +1,19 @@
 # Nominal enums and protocol-based propagation
 
-Status: active execution design. The user activated the continuous EN01-EN05 goal
-on 2026-10-04, with one accepted checkpoint commit per phase.
+Status: complete. The user activated the continuous EN01-EN05 goal on 2026-10-04.
+Final integration was accepted on 2026-10-05, with one checkpoint commit per phase.
 CR01-CR02 and LR01-LR03 remain complete.
-The [roadmap](implementation-roadmap.md#nominal-enums-and-propagation-en01-en05-active)
+The [roadmap](implementation-roadmap.md#nominal-enums-and-propagation-en01-en05-complete)
 owns phase order, activation, checkboxes and the execution ledger. This document
 owns the detailed implementation contract and acceptance criteria for EN01-EN05.
 
 ## Problem and intended behavior
 
-Standard-library declarations now use the same Engine installation and generated
-KGR pipeline as application native declarations. However, seven library enums
-still use a closed `StandardEnum` inventory, a distinct semantic type and dedicated
-execution operations. HIR and compiler lowering directly recognize Option/Result
-to implement `?`. Moving these declarations into the compiler would preserve that
+At activation, standard-library declarations already used the same Engine
+installation and generated KGR pipeline as application native declarations.
+Seven library enums still used a closed `StandardEnum` inventory, a distinct
+semantic type and dedicated execution operations. HIR and compiler lowering directly recognized Option/Result
+to implement `?`. Moving those declarations into the compiler would preserve that
 coupling rather than resolve it.
 
 The target is one nominal enum model for source, standard-library and application

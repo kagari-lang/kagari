@@ -89,20 +89,6 @@ impl<'a> Executor<'a> {
                 let value = numeric::fixed_integer(operation, lhs, rhs)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
-            BytecodeInstruction::ForwardEnumOrigin {
-                dst,
-                original,
-                value,
-            } => {
-                let frame = self.current_frame()?;
-                let forwarded = self.runtime.forward_enum_origin(
-                    frame.loaded(),
-                    &frame.read_register(original)?,
-                    &frame.read_register(value)?,
-                )?;
-                drop(frame);
-                self.current_frame_mut()?.write_register(dst, forwarded)?;
-            }
             BytecodeInstruction::Iter { dst, value, ty, op } => {
                 let source = self
                     .current_frame()?
@@ -524,16 +510,18 @@ impl<'a> Executor<'a> {
                 self.push_frame(module, id, &arg_values, dst)
             }
             CallTarget::InterfaceMethod { contract, .. } => {
-                let receiver = arg_values
-                    .first()
-                    .ok_or(VmError::TypeMismatch("interface method receiver"))?;
+                let receiver = arg_values.first().unwrap_or(&Value::Unit);
                 let resolved = self
                     .runtime
                     .resolve_interface_call(&*self.current_frame()?, &contract, receiver)
                     .map_err(VmError::RuntimeError)?;
-                let arguments = iter::once(resolved.receiver().clone())
-                    .chain(arg_values.into_iter().skip(1))
-                    .collect::<Vec<_>>();
+                let arguments = if contract.receiver.is_some() {
+                    arg_values
+                } else {
+                    iter::once(resolved.receiver().clone())
+                        .chain(arg_values.into_iter().skip(1))
+                        .collect::<Vec<_>>()
+                };
                 self.stack
                     .push_interface_method(self.runtime, resolved, &arguments, dst)
                     .map_err(VmError::RuntimeError)

@@ -799,15 +799,6 @@ fn lower_instruction(
             lhs: lower_value(*lhs),
             rhs: rhs.map(lower_value),
         },
-        Instruction::ForwardEnumOrigin {
-            dst,
-            original,
-            value,
-        } => BytecodeInstruction::ForwardEnumOrigin {
-            dst: lower_value(*dst),
-            original: lower_value(*original),
-            value: lower_value(*value),
-        },
         Instruction::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
             dst: lower_value(*dst),
             value: value.map(lower_value),

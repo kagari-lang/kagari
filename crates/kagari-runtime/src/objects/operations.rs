@@ -168,6 +168,7 @@ impl Runtime {
                         .as_ref(),
                 };
                 operations.push(BoundOperation {
+                    associated_interface: interface.clone(),
                     receiver_operations: Weak::new(),
                     application: OnceCell::new(),
                     generic: Some(BoundGenericMethod {

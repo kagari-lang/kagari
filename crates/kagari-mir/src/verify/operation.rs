@@ -488,15 +488,6 @@ pub(super) fn verify(
                 "interface receiver",
             )?;
         }
-        Instruction::ForwardEnumOrigin {
-            dst,
-            original,
-            value,
-        } => {
-            context.expect(original.ty, ValueType::HeapObject, "origin carrier")?;
-            context.expect(value.ty, ValueType::HeapObject, "enum value")?;
-            context.expect(dst.ty, ValueType::HeapObject, "forwarded enum")?;
-        }
         Instruction::Iter { dst, value, ty, op } => {
             let (input, output) = op
                 .contract(ty)

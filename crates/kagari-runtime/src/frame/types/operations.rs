@@ -1,5 +1,5 @@
 //! Shared receiver selections and call-local witnesses retain their supplying group.
-use crate::frame::types::BoundOperation;
+use crate::{frame::types::BoundOperation, module::LoadedModule};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
@@ -104,6 +104,67 @@ pub(crate) struct OperationBindings {
 }
 
 impl OperationBindings {
+    pub(crate) fn associated_interfaces(
+        &self,
+    ) -> Vec<(Ty<DefinitionId>, NominalTy<DefinitionId>, LoadedModule)> {
+        self.segments
+            .iter()
+            .flat_map(|segment| match segment {
+                OperationSegment::Selected(operation) => vec![(
+                    operation.requirement.receiver.clone(),
+                    operation.associated_interface.clone(),
+                    operation.owner.clone(),
+                )],
+                OperationSegment::Receiver(group) => group
+                    .entries
+                    .iter()
+                    .map(|operation| {
+                        (
+                            operation.requirement.receiver.clone(),
+                            operation.associated_interface.clone(),
+                            operation.owner.clone(),
+                        )
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+    pub(crate) fn associated_output(
+        &self,
+        receiver: &Ty<DefinitionId>,
+        interface: &NominalTy<DefinitionId>,
+        member: DefinitionId,
+    ) -> Option<(&Ty<DefinitionId>, &LoadedModule)> {
+        fn output<'a>(
+            operation: &'a BoundOperation,
+            receiver: &Ty<DefinitionId>,
+            interface: &NominalTy<DefinitionId>,
+            member: DefinitionId,
+        ) -> Option<(&'a Ty<DefinitionId>, &'a LoadedModule)> {
+            let applied = &operation.associated_interface;
+            (operation.requirement.receiver == *receiver
+                && applied.declaration == interface.declaration
+                && applied.arguments == interface.arguments
+                && interface
+                    .associated_types
+                    .iter()
+                    .all(|(id, ty)| applied.associated_types.get(id) == Some(ty)))
+            .then(|| {
+                applied
+                    .associated_types
+                    .get(&member)
+                    .map(|ty| (ty, &operation.owner))
+            })
+            .flatten()
+        }
+        self.segments.iter().find_map(|segment| match segment {
+            OperationSegment::Selected(operation) => output(operation, receiver, interface, member),
+            OperationSegment::Receiver(group) => group
+                .entries
+                .iter()
+                .find_map(|operation| output(operation, receiver, interface, member)),
+        })
+    }
     pub(crate) fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }

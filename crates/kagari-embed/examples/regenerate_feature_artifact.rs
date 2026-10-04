@@ -8,6 +8,8 @@ use std::{fs, path::Path};
 mod native_enums;
 #[path = "../tests/support/native_provider.rs"]
 mod provider;
+#[path = "../tests/support/try_carrier.rs"]
+mod try_carrier;
 
 fn main() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -20,6 +22,7 @@ fn main() {
         .install(provider::module(Default::default()))
         .unwrap();
     builder.install(native_enums::module().unwrap()).unwrap();
+    builder.install(try_carrier::module().unwrap()).unwrap();
     let artifact = builder
         .build()
         .unwrap()

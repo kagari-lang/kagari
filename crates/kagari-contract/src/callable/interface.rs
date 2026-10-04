@@ -103,11 +103,17 @@ impl InterfaceCallContract {
                 .associated_types
                 .iter()
                 .any(|member| !member.generic_params.is_empty())
-            || interface.associated_types.len() != contract.associated_types.len()
-            || contract
-                .associated_types
-                .iter()
-                .any(|member| !interface.associated_types.contains_key(&member.declaration))
+            || interface.associated_types.keys().any(|id| {
+                !contract
+                    .associated_types
+                    .iter()
+                    .any(|member| member.declaration == *id)
+            })
+            || (self.receiver.is_none()
+                && contract
+                    .associated_types
+                    .iter()
+                    .any(|member| !interface.associated_types.contains_key(&member.declaration)))
         {
             return Err(invalid);
         }
@@ -115,11 +121,11 @@ impl InterfaceCallContract {
             .methods
             .get(self.method_slot as usize)
             .ok_or(invalid)?;
+        let has_receiver = method.params.first().is_some_and(|parameter| {
+            parameter.name == "self" && parameter.ty == Ty::SelfType(interface.declaration.clone())
+        });
         if method.generic_params.len() != self.arguments.len()
-            || method
-                .params
-                .first()
-                .is_none_or(|parameter| parameter.ty != Ty::SelfType(interface.declaration.clone()))
+            || (self.receiver.is_none() && !has_receiver)
         {
             return Err(invalid);
         }
@@ -138,12 +144,16 @@ impl InterfaceCallContract {
         let apply = |ty: &Ty| {
             resolve_associated_outputs(&substitution.apply(ty, cancel)?, interface, cancel)
         };
-        let mut params = vec![
-            self.receiver
-                .clone()
-                .unwrap_or_else(|| Ty::Trait(interface.clone())),
-        ];
-        for parameter in method.params.iter().skip(1) {
+        let mut params = if has_receiver {
+            vec![
+                self.receiver
+                    .clone()
+                    .unwrap_or_else(|| Ty::Trait(interface.clone())),
+            ]
+        } else {
+            vec![]
+        };
+        for parameter in method.params.iter().skip(usize::from(has_receiver)) {
             params.push(apply(&parameter.ty)?);
         }
         let mut bounds = substitution.apply_bounds(&contract.bounds, cancel)?;
@@ -181,7 +191,7 @@ impl InterfaceCallContract {
         assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
-        let signature = self.signature(contract, cancel)?;
+        let mut signature = self.signature(contract, cancel)?;
         if !types_in_scope(
             self.arguments
                 .iter()
@@ -192,7 +202,18 @@ impl InterfaceCallContract {
         ) {
             return Ok(false);
         }
-        for bound in &signature.bounds {
+        for bound in &mut signature.bounds {
+            bound.ty = catalog.normalize(&bound.ty, cancel)?;
+            for constraint in &mut bound.constraints {
+                if let Constraint::Trait(interface) = constraint {
+                    let Ty::Trait(resolved) =
+                        catalog.normalize(&Ty::Trait(interface.clone()), cancel)?
+                    else {
+                        unreachable!()
+                    };
+                    *interface = resolved;
+                }
+            }
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(false);
             }

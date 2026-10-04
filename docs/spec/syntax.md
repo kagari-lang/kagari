@@ -1135,13 +1135,14 @@ and constraint solving to 128 rounds. Exceeding either limit reports a structure
 compile-limit diagnostic; it never publishes unchecked code. Analysis cancellation
 is checked during constraint collection and solving.
 
-## Option/Result propagation
+## Propagation
 
 `expr?` is a postfix operator, at the same parsing level as calls, member access
 and indexing. It unwraps success or returns failure from the nearest function or
-closure. It applies only to the built-in Option and Result types; see the
-[standard-type contract](builtins.md#option-and-result) for type checking and
-error conversion rules. There is no exception-handler syntax.
+closure. It checks the operand's installed Try protocol and the return type's
+FromResidual bound. Option, Result, ControlFlow and eligible source/native custom
+carriers use the same operator; see [propagation protocols](builtins.md#propagation-protocols)
+for associated output/residual types and error conversion rules. There is no exception-handler syntax.
 
 ## Interpolated strings
 

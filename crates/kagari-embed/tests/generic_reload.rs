@@ -111,3 +111,107 @@ fn make() -> Run {{
         );
     }
 }
+
+#[test]
+fn retained_generic_try_calls_keep_the_selected_carrier_generation() {
+    let source = r#"
+use core::ops::{Try, FromResidual, ControlFlow};
+use core::convert::Infallible;
+enum Carrier { Value(i32), Stopped }
+impl FromResidual<Option<Infallible>> for Carrier {
+    fn from_residual(value:Option<Infallible>)->Self {Carrier::Stopped}
+}
+impl Try for Carrier {
+    type Output = i32;
+    type Residual = Option<Infallible>;
+    fn from_output(value:i32)->Self {Carrier::Value(value)}
+    fn branch(self)->ControlFlow<Option<Infallible>,i32> {
+        match self { Carrier::Value(value) => ControlFlow::Continue(value), Carrier::Stopped => ControlFlow::Break(None) }
+    }
+}
+trait Keep {
+    fn keep<A: Try<Output = i32>, R: FromResidual<A::Residual>>(self, value:A, wrap:fn(i32)->R)->fn()->R { || wrap(value?) }
+}
+impl Keep for i32 {}
+trait Run { fn run(self)->i32; }
+struct Saved { val callback:fn()->Option<i32> }
+impl Run for Saved { fn run(self)->i32 { match (self.callback)() {Some(value)=>value,None=>0} } }
+fn make()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Value(20),|value| Some(value+22))}}
+fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Stopped,|value| Some(value+22))}}
+"#;
+    let engine = KagariEngine::default();
+    let program = prepare(&engine, source);
+    let replacement = prepare(
+        &engine,
+        &source.replace(
+            "ControlFlow::Continue(value)",
+            "ControlFlow::Continue(value + 1)",
+        ),
+    );
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = Runtime::new(config);
+    kagari_runtime::native::module::NativeModule::install_all(
+        &kagari_stdlib::modules().unwrap(),
+        &mut runtime,
+    )
+    .unwrap();
+    let old = runtime.load_program("try-reload", program).unwrap();
+    let contract = old
+        .bytecode
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Run")
+        .unwrap();
+    let run = ModuleDecl::method_id(
+        &old.definitions()
+            .resolve(contract.declaration)
+            .unwrap()
+            .to_path(),
+        "run",
+    );
+    let old_key = old.key();
+    let mut vm = Vm::new(runtime);
+    let saved = vm.execute(&old, "make").unwrap().return_value;
+    let root = vm.runtime().root_value(saved.clone()).unwrap();
+    let stopped = vm.execute(&old, "make_stopped").unwrap().return_value;
+    let stopped_root = vm.runtime().root_value(stopped.clone()).unwrap();
+    let current = vm.reload_program(&old, "try-reload", replacement).unwrap();
+    drop(old);
+    vm.runtime().collect_garbage().unwrap();
+    assert!(
+        vm.runtime()
+            .modules()
+            .retention_counts(old_key)
+            .runtime_values
+            > 0
+    );
+    let fresh = vm.execute(&current, "make").unwrap().return_value;
+    let fresh_root = vm.runtime().root_value(fresh.clone()).unwrap();
+    let fresh_stopped = vm.execute(&current, "make_stopped").unwrap().return_value;
+    let fresh_stopped_root = vm.runtime().root_value(fresh_stopped.clone()).unwrap();
+    assert_eq!(
+        vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
+        Value::I32(42)
+    );
+    assert_eq!(
+        vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
+        Value::I32(43)
+    );
+    for value in [&stopped, &fresh_stopped] {
+        assert_eq!(
+            vm.invoke_interface_method(value, &run, &[]).unwrap(),
+            Value::I32(0)
+        );
+    }
+    drop((root, fresh_root, stopped_root, fresh_stopped_root));
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(old_key)
+            .runtime_values,
+        0
+    );
+}

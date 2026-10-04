@@ -3,7 +3,10 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
-use kagari_contract::types::{PublicItem, TraitContract};
+use kagari_contract::{
+    layout::{EnumLayout, EnumVariantLayout},
+    types::{PublicItem, TraitContract},
+};
 use kagari_runtime::{
     Runtime, error::RuntimeErrorKind, host::HostFunction, module::VerifiedProgram,
     native::builder::ModuleBuilder, session::ExecutionOptions, value::Value,
@@ -11,10 +14,11 @@ use kagari_runtime::{
 use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::TraitDef,
+    declaration::{TraitDef, TypeDefKind, module::ModuleDecl},
     host_interface::{HostFunctionDeclaration, value_type::HostValueType},
     language::Protocol,
 };
+use std::collections::BTreeSet;
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {
@@ -149,13 +153,50 @@ fn storage_capabilities_require_exact_installation_without_native_calls() {
 #[test]
 fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let foundation = StandardDeclarations::default();
-    for definition in foundation
-        .declarations()
+    // Nominal carrier outputs must travel with their declaration owners even
+    // when the program has no calls. Use the registered dependency closure.
+    let declarations = foundation.declarations();
+    let modules = declarations
         .iter()
-        .filter(|module| namespaces::is_language_module(&module.identity))
-    {
-        let base = BytecodeModule {
+        .map(|definition| BytecodeModule {
             identity: definition.identity.clone(),
+            enumerations: definition
+                .types
+                .iter()
+                .filter(|ty| ty.kind == TypeDefKind::Enum)
+                .map(|ty| {
+                    let declaration = definition.definition(DefinitionKind::Enum, &ty.name);
+                    EnumLayout {
+                        declaration: declaration.clone(),
+                        arguments: ty
+                            .generic_params
+                            .iter()
+                            .map(|parameter| parameter.as_type())
+                            .collect(),
+                        variants: ty
+                            .variants
+                            .iter()
+                            .map(|variant| EnumVariantLayout {
+                                declaration: ModuleDecl::variant_id(&declaration, &variant.name),
+                                payload: variant.payload.clone(),
+                                reports_failure: variant.reports_failure,
+                            })
+                            .collect(),
+                    }
+                })
+                .collect(),
+            dependencies: definition
+                .dependencies
+                .iter()
+                .map(|dependency| {
+                    ModuleRef::new(
+                        declarations
+                            .iter()
+                            .position(|owner| &owner.identity == dependency)
+                            .unwrap(),
+                    )
+                })
+                .collect(),
             public_items: definition
                 .traits
                 .iter()
@@ -165,12 +206,50 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
                 })
                 .cloned()
                 .map(PublicItem::Trait)
+                .chain(definition.types.iter().cloned().map(PublicItem::Type))
                 .collect(),
             ..Default::default()
-        };
-        let program = |module| BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![module],
+        })
+        .collect::<Vec<_>>();
+    for (index, definition) in declarations
+        .iter()
+        .enumerate()
+        .filter(|(_, module)| namespaces::is_language_module(&module.identity))
+    {
+        let base = modules[index].clone();
+        let program = |module| {
+            let mut modules = modules.clone();
+            modules[index] = module;
+            let mut included = BTreeSet::new();
+            let mut pending = vec![index];
+            while let Some(index) = pending.pop() {
+                if included.insert(index) {
+                    pending.extend(
+                        modules[index]
+                            .dependencies
+                            .iter()
+                            .map(|owner| owner.index()),
+                    );
+                }
+            }
+            let order = included.into_iter().collect::<Vec<_>>();
+            let reference =
+                |index| ModuleRef::new(order.iter().position(|owner| *owner == index).unwrap());
+            BytecodeProgram {
+                root: reference(index),
+                modules: order
+                    .iter()
+                    .map(|index| {
+                        let mut module = modules[*index].clone();
+                        module.dependencies = module
+                            .dependencies
+                            .iter()
+                            .map(|owner| reference(owner.index()))
+                            .collect();
+                        module
+                    })
+                    .collect(),
+            }
         };
         let mut runtime = Runtime::default();
         assert!(

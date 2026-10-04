@@ -54,3 +54,35 @@ fn library_and_object() -> i32 {
     for item in map(shared, |value| value) { sum += item; }
     sum
 }
+
+use external::try_carrier::Carrier;
+use core::ops::ControlFlow;
+struct FeaturePayload { val values: Vec<i32> }
+fn carry<T>(value: Carrier<T>) -> Carrier<T> { Carrier::Data(value?) }
+fn stop_carrier(value: Carrier<i32>) -> Carrier<String> { value?; Carrier::Data("unreachable") }
+fn native_propagation_values() -> i32 {
+    val value = FeaturePayload { values: [42] };
+    val passed = carry(Carrier::Data(value));
+    match stop_carrier(Carrier::Stop) {
+        Carrier::Stop => match passed { Carrier::Data(item) => item.values[0usize], Carrier::Stop => 0 },
+        Carrier::Data(_) => 0
+    }
+}
+fn convert_residual(value: Result<i32, i32>) -> Result<String, i64> { value?; Ok("unreachable") }
+fn flow_residual(value: ControlFlow<i32, i32>) -> ControlFlow<i32, String> { value?; ControlFlow::Continue("unreachable") }
+fn option_residual(value: Option<i32>) -> Option<String> { value?; Some("unreachable") }
+fn standard_residual_values() -> i32 {
+    match convert_residual(Err(42)) {
+        Err(error) => match flow_residual(ControlFlow::Break(42)) {
+            ControlFlow::Break(value) => match option_residual(None) {
+                None => if error == 42i64 { value } else { 0 },
+                Some(_) => 0
+            },
+            ControlFlow::Continue(_) => 0
+        },
+        Ok(_) => 0
+    }
+}
+
+fn origin_residual() -> Result<i32, i32> { Err(42) }
+fn converted_error_origin() -> Result<String, i64> { convert_residual(origin_residual()) }

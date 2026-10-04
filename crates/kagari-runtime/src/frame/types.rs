@@ -17,7 +17,10 @@ use kagari_contract::{callable::generic::GenericBody, standard::RuntimePrimitive
 use kagari_types::{
     callable::Signature,
     declaration::requirement::NativeCallableRequirement,
-    ty::{GenericParam, NominalTy, Ty, substitution::substitute_parameters},
+    ty::{
+        GenericParam, NominalTy, Ty,
+        substitution::{normalize_projections, substitute_parameters},
+    },
 };
 use std::{
     cell::OnceCell,
@@ -30,6 +33,7 @@ pub(crate) struct BoundOperation {
     pub(crate) application: OnceCell<Rc<MethodApplication>>,
     pub(crate) generic: Option<BoundGenericMethod>,
     pub(crate) requirement: NativeCallableRequirement<DefinitionId>,
+    pub(crate) associated_interface: NominalTy<DefinitionId>,
     pub(crate) slot: u32,
     pub(crate) primitive: Option<RuntimePrimitive>,
     pub(crate) owner: LoadedModule,
@@ -53,6 +57,7 @@ pub struct TypeEnvironment {
     parameters: Rc<[GenericParam<DefinitionId>]>,
     arguments: Rc<[TypeArgument]>,
     parent: Option<Rc<TypeEnvironment>>,
+    associated_interfaces: Vec<(Ty<DefinitionId>, NominalTy<DefinitionId>, LoadedModule)>,
     pub(crate) operations: OperationBindings,
 }
 
@@ -80,6 +85,7 @@ impl TypeEnvironment {
             parameters: parameters.into(),
             arguments: arguments.into(),
             parent: None,
+            associated_interfaces: vec![],
             operations: OperationBindings::default(),
         })
     }
@@ -87,6 +93,12 @@ impl TypeEnvironment {
     /// Layout metadata cannot keep unrelated executable selections or module state alive.
     pub(crate) fn types_only(&self) -> Self {
         Self {
+            associated_interfaces: self
+                .associated_interfaces
+                .iter()
+                .cloned()
+                .chain(self.operations.associated_interfaces())
+                .collect(),
             definitions: self.definitions.clone(),
             parameters: self.parameters.clone(),
             arguments: self.arguments.clone(),
@@ -163,10 +175,54 @@ impl TypeEnvironment {
             &Default::default(),
         )
         .map_err(|_| RuntimeError::module_validation("generic type substitution"))?;
+        let result = normalize_projections(
+            &result,
+            &|interface, receiver, member, arguments| {
+                Ok(arguments
+                    .is_empty()
+                    .then(|| {
+                        self.associated_output(receiver, interface, *member)
+                            .map(|(ty, _)| ty.clone())
+                    })
+                    .flatten())
+            },
+            &Default::default(),
+        )
+        .map_err(|_| RuntimeError::module_validation("generic associated output"))?;
         if !result.is_concrete() {
             return Err(RuntimeError::module_validation("unbound generic type"));
         }
         Ok(result)
+    }
+
+    pub(crate) fn associated_output(
+        &self,
+        receiver: &Ty<DefinitionId>,
+        interface: &NominalTy<DefinitionId>,
+        member: DefinitionId,
+    ) -> Option<(&Ty<DefinitionId>, &LoadedModule)> {
+        self.associated_interfaces
+            .iter()
+            .find_map(|(ty, applied, owner)| {
+                (ty == receiver
+                    && applied.declaration == interface.declaration
+                    && applied.arguments == interface.arguments
+                    && interface
+                        .associated_types
+                        .iter()
+                        .all(|(id, ty)| applied.associated_types.get(id) == Some(ty)))
+                .then(|| applied.associated_types.get(&member).map(|ty| (ty, owner)))
+                .flatten()
+            })
+            .or_else(|| {
+                self.operations
+                    .associated_output(receiver, interface, member)
+            })
+            .or_else(|| {
+                self.parent
+                    .as_ref()
+                    .and_then(|parent| parent.associated_output(receiver, interface, member))
+            })
     }
 
     pub(crate) fn resolve_requirement(

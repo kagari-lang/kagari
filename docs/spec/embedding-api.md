@@ -295,7 +295,7 @@ For qualified enum constructors, name resolution retains the resolved owner and
 member name; imported owners refer to the same checked import/type bindings used
 by signatures. `TypeTable::enum_constructor` records nominal enum/variant identities
 for both the callee and construction expression. Unit variants can be referenced
-as `Event::Empty` or called without arguments. Payload variants check argument
+as `Event::Empty`; calling a unit variant with parentheses is rejected. Payload variants check argument
 count and types; argument errors retain the target and enum result type. Unknown
 variants retain their known enum owner and report a diagnostic. Arguments are
 still checked when the member is absent. Navigation on the qualified callee uses
@@ -304,14 +304,23 @@ unresolved arguments do not navigate to the enclosing constructor. Body reuse
 remaps expression keys while preserving nominal targets. These facts are available
 in independent function queries as well as full analysis.
 
-IR now consumes those facts to emit enum construction with nominal layout operands;
-linking encodes module-local enum and variant slots. Unit and concrete payload
-variants execute in the interpreter and existing JIT fallback. Generic enum
-instantiation remains R07 work. `LoadedModule::enum_variant` returns a verified
-`EnumVariantRef` that retains its executable generation. Host allocation uses
-`Runtime::alloc_enum(EnumTag, fields)`; arbitrary enum/variant string allocation
-has been removed. Standard Option/Result use dedicated tags, so a declared enum
-with the same display name cannot enter their built-in dispatch.
+IR consumes these facts to emit generic enum operations with nominal layouts;
+linking encodes module-local enum and variant slots. Source, standard and registered
+native enums share checked generic instantiation, ordered tuple fields and pinned
+layouts. Unsupported enum operations use the existing JIT fallback before entry.
+`LoadedModule::enum_variant` returns a verified `EnumVariantRef` retaining its
+generation. Registered native bodies use scoped type arguments and
+`CallContext::allocate_enum`; host construction uses
+`Runtime::make_enum_member(owner, applied_type, member, fields)`. Both validate
+identity, installed generation, substituted payload types and live nested handles.
+A same-named user enum has its own nominal identity and cannot become a core type.
+
+`TypeTable::propagation` records checked Try.branch and FromResidual.from_residual
+calls, signatures, the enclosing return type and actual ControlFlow member IDs.
+Lowering consumes those facts and evaluates the operand once. Generic bounded
+projections are normalized after substitution; cached body queries preserve the
+nominal method/member identities while remapping expression keys. Standard
+Option/Result/ControlFlow policy is implemented by registered library bodies.
 
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
 revision, but rejects a local binding from a different analysis. An unchanged cached

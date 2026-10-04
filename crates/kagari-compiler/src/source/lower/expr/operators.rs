@@ -228,7 +228,7 @@ impl FunctionLowerer<'_, '_> {
             if local_parameters.len() != method_arguments.len() {
                 return Err(MirLoweringError::MissingBinding("dynamic method arguments"));
             }
-            let substitution: TypeSubstitution = contract
+            let mut substitution: TypeSubstitution = contract
                 .generic_params
                 .iter()
                 .cloned()
@@ -240,6 +240,7 @@ impl FunctionLowerer<'_, '_> {
                         .zip(method_arguments.iter().cloned()),
                 )
                 .collect();
+            substitution.insert_receiver(contract.id.clone(), ty.clone());
             let result = self.planner.catalog.normalize_type(
                 &signature
                     .return_type
@@ -254,6 +255,7 @@ impl FunctionLowerer<'_, '_> {
             let operations = self.planner.method_operations(
                 method,
                 &interface,
+                &ty,
                 &method_arguments,
                 self.function.debug.source_span,
             )?;

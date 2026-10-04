@@ -36,12 +36,25 @@ products are rejected before execution without a migration reader.
 Ordinary nominal enum nodes and layouts now cover source, standard and registered
 native enums. Layouts carry full declaration/member identities, applied arguments,
 ordered payload types and the explicit variant reporting fact. Generic enum
-instructions validate those layouts; ForwardEnumOrigin carries optional diagnostic
-metadata between already-constructed enum values. Linked validation checks nominal
+instructions validate those layouts. Library-authored native methods transfer
+optional diagnostic metadata between checked live enum values. Linked validation checks nominal
 kind and arity from declarations or validated private layouts. Fixed standard tags,
 standard type nodes and MapResultError are removed. This unpublished replacement
 keeps the current format/ABI identifiers; affected development fixtures are
 regenerated at the final coherent checkpoint, with no previous-schema reader.
+Try/FromResidual lowering contributes ordinary checked calls and ControlFlow
+operations. Native Result conversion includes a bound From callback; implicit
+identity/lossless adapters carry their source interface as part of the instance
+identity. Selected or forwarded static trait members retain checked signatures,
+scopes and supplying generations. The loader validates those proofs and installed
+contracts without rerunning propagation inference.
+Shared constraint calls may retain abstract associated outputs when the caller
+provides verified scope and bound evidence. Boxed interface calls require complete
+outputs and an instance member. Static constraint members use their declared
+parameters without an invented receiver value. Runtime associated projections
+read the pinned implementation table of the already selected callable; immutable
+type scopes preserve those output facts and their layout owners through collection
+and reload without retaining unrelated executable operation groups.
 Historical milestones below describe earlier development snapshots.
 
 One native import table carries source identity, concrete type arguments, binding

@@ -19,6 +19,8 @@ use std::{cell::Cell, fs, path::Path, rc::Rc, sync::OnceLock};
 mod native_enums;
 #[path = "support/native_provider.rs"]
 mod provider;
+#[path = "support/try_carrier.rs"]
+mod try_carrier;
 // A structurally consistent forgery must still fail installed-contract linking.
 #[path = "native_provider_reset/contracts.rs"]
 mod contracts;
@@ -29,6 +31,7 @@ fn engine(config: EngineConfig, drops: Rc<Cell<usize>>) -> KagariEngine {
         builder.config(config);
         builder.install(provider::module(drops)).unwrap();
         builder.install(native_enums::module().unwrap()).unwrap();
+        builder.install(try_carrier::module().unwrap()).unwrap();
         builder.build().unwrap()
     }
 }
@@ -127,6 +130,35 @@ fn source_free_native_enums_retain_nested_payloads() {
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    }
+}
+
+#[test]
+fn source_free_try_carriers_execute_with_selected_residual_calls() {
+    let prepared =
+        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
+            .unwrap();
+    let mut config = EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let mut runtime = engine(config, Default::default()).runtime(Default::default());
+    let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+    for entry in ["native_propagation_values", "standard_residual_values"] {
+        for _ in 0..3 {
+            assert_eq!(
+                runtime
+                    .execute(&loaded, entry, &[], &Default::default())
+                    .unwrap()
+                    .return_value,
+                Value::I32(42)
+            );
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                runtime.runtime().resources().counters().current_call_depth,
+                0
+            );
+            runtime.runtime().collect_garbage().unwrap();
+            assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        }
     }
 }
 
@@ -403,4 +435,39 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     let mut runtime = engine(Default::default(), Default::default()).runtime(Default::default());
     assert!(runtime.load_program(&program, Default::default()).is_err());
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn source_free_converted_residual_keeps_its_original_failure_origin() {
+    let prepared =
+        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
+            .unwrap();
+    let mut config = EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let mut runtime = engine(config, Default::default()).runtime(Default::default());
+    let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+    let report = runtime
+        .execute(&loaded, "converted_error_origin", &[], &Default::default())
+        .unwrap();
+    let failure = report
+        .failure
+        .expect("a returned Err is successful execution with a failure preview");
+    assert_eq!(failure.message, "42");
+    assert_eq!(
+        failure
+            .trace
+            .frames
+            .iter()
+            .map(|frame| frame.function_name.as_str())
+            .collect::<Vec<_>>(),
+        ["origin_residual", "converted_error_origin"]
+    );
+    assert!(
+        failure.trace.frames[0]
+            .source_uri
+            .ends_with("feature-artifact.kgr")
+    );
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
 }

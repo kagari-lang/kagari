@@ -763,7 +763,7 @@ they do not justify adding all library traits to a language-role enum. In partic
 the bracket bridge may refer to native-authored List without duplicating its
 definition. String methods remain ordinary library implementations. IndexMut is not introduced.
 
-The active [nominal enum and propagation design](enum-propagation-plan.md)
+The completed [nominal enum and propagation design](enum-propagation-plan.md)
 has replaced closed enum representation with ordinary library declarations and
 pinned layouts. `?` checks Try::Output/Residual and the enclosing FromResidual
 obligation in HIR; lowering consumes its checked calls and ControlFlow members.

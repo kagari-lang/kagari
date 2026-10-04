@@ -325,7 +325,7 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
                 arguments,
             } => {
                 let receiver = self.visit(receiver, depth + 1, replace)?;
-                let interface = self.nominal(interface, depth, replace)?;
+                let mut interface = self.nominal(interface, depth, replace)?;
                 let arguments = self.many(arguments, depth + 1, replace)?;
                 if self.outputs.is_some() || self.lookup.is_some() {
                     if arguments.is_empty() {
@@ -341,9 +341,11 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
                         }
                         if let Some(outputs) = self.outputs
                             && interface.declaration == outputs.declaration
-                            && let Some(output) = outputs.associated_types.get(member)
                         {
-                            return self.visit(output, depth + 1, replace);
+                            if let Some(output) = outputs.associated_types.get(member) {
+                                return self.visit(output, depth + 1, replace);
+                            }
+                            interface = self.nominal(outputs, depth, replace)?;
                         }
                     }
                     if let Some(lookup) = self.lookup

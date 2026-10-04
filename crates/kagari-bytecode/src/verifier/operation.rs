@@ -386,15 +386,6 @@ pub(super) fn verify_instruction(
                 _ => return Err(invalid()),
             }
         }
-        BytecodeInstruction::ForwardEnumOrigin {
-            dst,
-            original,
-            value,
-        } => {
-            expect_register_ty(function, *original, ValueType::HeapObject, "origin carrier")?;
-            expect_register_ty(function, *value, ValueType::HeapObject, "enum value")?;
-            expect_register_ty(function, *dst, ValueType::HeapObject, "forwarded enum")?;
-        }
         BytecodeInstruction::Iter { dst, value, ty, op } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {
                 function: function.id,

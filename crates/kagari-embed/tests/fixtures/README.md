@@ -13,6 +13,12 @@ an external native object retaining a callback, and lazy map.
 numeric Sum, FromStr, derived TryInto and primitive From. It also checks all twelve
 String methods and String-key sorting through a List result. Source-free execution
 forces GC and checks root/object/depth cleanup.
+`native_enum_values` exercises nested native-authored enums and pinned payload
+layouts. `native_propagation_values` exercises a registered Carrier<T>'s Try and
+FromResidual callbacks with a source-defined nested payload. `standard_residual_values`
+exercises Option, converted Result errors and ControlFlow breaks. Their already-checked
+selected calls execute in every feature combination, including consumers with no
+frontend dependency.
 Native preparation explicitly falls back before entry for unsupported library calls;
 the scalar entry must still execute actual native code.
 

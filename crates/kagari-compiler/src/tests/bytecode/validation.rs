@@ -442,39 +442,6 @@ fn verifier_rejects_malformed_debug_metadata() {
 }
 
 #[test]
-fn forwarded_enum_origin_rejects_invalid_contracts_and_registers() {
-    let module = common::bytecode_ok(
-        r#"fn main()->Result<i32,String>{val r:Result<i32,String> = Err("error");Ok(r?)}"#,
-    );
-    verify_program(&module).unwrap();
-    let root = module.root.index();
-    for mutation in 0..4 {
-        let mut invalid = module.clone();
-        let instruction = invalid.modules[root]
-            .functions
-            .iter_mut()
-            .flat_map(|f| &mut f.instructions)
-            .find(|i| matches!(i, BytecodeInstruction::ForwardEnumOrigin { .. }))
-            .unwrap();
-        let BytecodeInstruction::ForwardEnumOrigin {
-            original,
-            value,
-            dst,
-        } = instruction
-        else {
-            unreachable!()
-        };
-        match mutation {
-            0 => *original = Register::new(usize::MAX),
-            1 => *value = Register::new(usize::MAX),
-            2 => *dst = Register::new(usize::MAX),
-            _ => *value = Register::new(0),
-        }
-        assert!(verify_program(&invalid).is_err(), "mutation {mutation}");
-    }
-}
-
-#[test]
 fn ranges_reject_forged_shapes_endpoints_and_bounds() {
     use kagari_types::range::RangeKind;
     use kagari_types::{scalar::BuiltinType, ty::Ty};

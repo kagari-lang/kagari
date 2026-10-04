@@ -75,8 +75,10 @@ fn source_enum_carriers_implement_the_same_protocol() {
         fn pass(value: Carrier<i32, String>) -> Carrier<i32, String> { Carrier::Value(value? + 22) }
         fn stop(value: Carrier<i32, String>) -> Carrier<String, String> { value?; Carrier::Value("unused") }
         fn main() -> i32 {
+            val callback = || { val value: Carrier<i32, String> = Carrier::Failure("stopped"); value?; Carrier::Value("unused") };
+            val callback_result = match callback() { Carrier::Failure(error) => error == "stopped", Carrier::Value(_) => false };
             val first = match pass(Carrier::Value(20)) { Carrier::Value(value) => value, Carrier::Failure(_) => 0 };
-            match stop(Carrier::Failure("stopped")) { Carrier::Failure(error) => if error == "stopped" { first } else { 0 }, Carrier::Value(_) => 0 }
+            match stop(Carrier::Failure("stopped")) { Carrier::Failure(error) => if error == "stopped" && callback_result { first } else { 0 }, Carrier::Value(_) => 0 }
         }
     "#,
     );

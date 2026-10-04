@@ -101,15 +101,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 lhs: *(lhs),
                 rhs: *(rhs),
             },
-            Self::ForwardEnumOrigin {
-                dst,
-                original,
-                value,
-            } => Instruction::ForwardEnumOrigin {
-                dst: *(dst),
-                original: *(original),
-                value: *(value),
-            },
             Self::Iter { dst, value, ty, op } => Instruction::Iter {
                 dst: *(dst),
                 value: *(value),
@@ -385,7 +376,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 lhs: _,
                 rhs: _,
             } => {}
-            Self::ForwardEnumOrigin { .. } => {}
             Self::Iter {
                 dst: _,
                 value: _,

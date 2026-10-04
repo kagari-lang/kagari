@@ -65,11 +65,6 @@ pub enum Instruction<I = DefinitionPath> {
         lhs: MirValue,
         rhs: Option<MirValue>,
     },
-    ForwardEnumOrigin {
-        dst: MirValue,
-        original: MirValue,
-        value: MirValue,
-    },
     Iter {
         dst: MirValue,
         value: Option<MirValue>,
@@ -369,7 +364,6 @@ impl<I: DefinitionReference> Instruction<I> {
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
 
-            Self::ForwardEnumOrigin { .. } => EffectSet::allocation(),
             Self::Iter { .. } => EffectSet::allocation().union(EffectSet::aggregate_write()),
 
             Self::ReadAggregateField { .. }

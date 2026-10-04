@@ -312,7 +312,7 @@ impl FunctionLowerer<'_, '_> {
                 let slot = method_contract.slot;
                 let operations = self
                     .planner
-                    .method_operations(&method, &interface, &arguments, span)?;
+                    .method_operations(&method, &interface, &ty, &arguments, span)?;
                 (
                     TypeckCallTarget::TraitMethod {
                         method,
