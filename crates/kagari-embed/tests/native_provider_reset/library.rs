@@ -1,3 +1,4 @@
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{native::foundation, value::Value};
 use kagari_source::source::SourceFile;
@@ -6,10 +7,7 @@ use kagari_source::source::SourceFile;
 fn foundation_algorithms_are_available_from_normal_engine_construction() {
     let engine = KagariEngine::new(Default::default());
     let sources = engine.native_declaration_sources();
-    assert_eq!(
-        sources.len(),
-        kagari_contract::library::catalog::shared().len()
-    );
+    assert_eq!(sources.len(), foundation_catalog::shared().len());
     let program = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -40,7 +38,7 @@ fn explicit_empty_application_modules_keep_the_foundation() {
     let engine = KagariEngine::with_native_modules(Default::default(), vec![]).unwrap();
     assert_eq!(
         engine.native_declaration_sources().len(),
-        kagari_contract::library::catalog::shared().len()
+        foundation_catalog::shared().len()
     );
     assert!(
         engine

@@ -5,7 +5,7 @@ use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
 };
 use kagari_contract::types::PublicItem;
-use kagari_hir::types::abi::lower_type;
+use kagari_hir::types::semantic::lower_type;
 use kagari_types::{
     scalar::BuiltinType,
     surface::StandardEnum as StandardEnumKind,

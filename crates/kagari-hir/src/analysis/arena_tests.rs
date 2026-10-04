@@ -1,7 +1,8 @@
 use super::*;
-use crate::analysis::ownership;
-use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName};
-
+use crate::{
+    analysis::ownership, hir::stmt::StmtKind, resolver::resolved::ResolvedName,
+    tests::test_analysis,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapshot {
@@ -18,7 +19,7 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     let right_id = sources
         .set("right.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let left = snapshot.file(left_id).unwrap().result().facts();
     let right = snapshot.file(right_id).unwrap().result().facts();
     assert_ne!(
@@ -81,7 +82,7 @@ fn edits_retire_local_ids_while_unchanged_queries_share_the_lowering() {
     let id = sources
         .set("edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let again = analyze(&mut db, &sources);
     assert!(Arc::ptr_eq(old.file(id).unwrap(), again.file(id).unwrap()));
@@ -112,7 +113,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
         .set("stages.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let old_source = sources.snapshot();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let old_arena = old
         .file(id)
@@ -156,7 +157,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
             .type_ref(ty)
             .is_some()
     );
-    let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
+    let fresh = analyze(&mut test_analysis(), &sources);
     let latest = analyze(&mut db, &sources);
     ownership::paths(
         latest.file(id).unwrap().signatures().as_ref(),

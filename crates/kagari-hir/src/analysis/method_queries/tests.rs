@@ -1,8 +1,6 @@
-use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
-use {
-    kagari_common::identity::DefinitionKind,
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
-};
+use crate::{declarations::DeclarationId, tests::test_analysis};
+use kagari_common::identity::DefinitionKind;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
 fn source_methods_defaults_and_overrides_keep_their_own_declarations() {
@@ -28,7 +26,7 @@ fn generic<T: Read>(value: T) { value. }
     let id = sources
         .set("methods.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();
@@ -100,7 +98,7 @@ fn floats(value: Box<f64>) { value. }
     let id = sources
         .set("bounds.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();

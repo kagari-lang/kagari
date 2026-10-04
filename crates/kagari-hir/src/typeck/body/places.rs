@@ -56,13 +56,13 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self
                     .resolve_readable_place_type(*base, env)
                     .unwrap_or(TypeId::Error);
-                let context =
-                    array_bridge::list_item(&base_ty).map(|_| TypeId::Builtin(BuiltinType::USize));
+                let context = array_bridge::list_item(&base_ty, self.declarations)
+                    .map(|_| TypeId::Builtin(BuiltinType::USize));
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
-                if let Some(item) = array_bridge::list_item(&base_ty) {
+                if let Some(item) = array_bridge::list_item(&base_ty, self.declarations) {
                     self.type_table.insert_place(place_id, item.clone());
                     self.checked_index_type(*index, &base_ty, &index_ty, *index);
-                    return (array_bridge::writable_list(&base_ty)
+                    return (array_bridge::writable_list(&base_ty, self.declarations)
                         && index_ty == TypeId::Builtin(BuiltinType::USize))
                     .then(|| item.clone());
                 }
@@ -139,8 +139,8 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self
                     .resolve_readable_place_type(*base, env)
                     .unwrap_or(TypeId::Error);
-                let context =
-                    array_bridge::list_item(&base_ty).map(|_| TypeId::Builtin(BuiltinType::USize));
+                let context = array_bridge::list_item(&base_ty, self.declarations)
+                    .map(|_| TypeId::Builtin(BuiltinType::USize));
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
                 if !matches!(base_ty, TypeId::Array(_, _) | TypeId::Tuple(_))
                     && let Some(requested) =
@@ -223,8 +223,8 @@ impl<'a> BodyChecker<'a> {
                 let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
-                if array_bridge::list_item(&base_ty).is_some()
-                    && !array_bridge::writable_list(&base_ty)
+                if array_bridge::list_item(&base_ty, self.declarations).is_some()
+                    && !array_bridge::writable_list(&base_ty, self.declarations)
                     || base_ty.collection_access() == Some(CollectionAccess::ReadOnly)
                 {
                     "read-only collection cannot be modified; writable collection access is required".to_string()
@@ -389,7 +389,7 @@ impl<'a> BodyChecker<'a> {
         // A tuple still needs a valid constant index to select a member.
         result.or_else(|| match receiver {
             TypeId::Array(element, _) => Some((**element).clone()),
-            _ => array_bridge::list_item(receiver).cloned(),
+            _ => array_bridge::list_item(receiver, self.declarations).cloned(),
         })
     }
 
@@ -427,7 +427,7 @@ impl<'a> BodyChecker<'a> {
                 if self.type_table.expr_type(index_expr)?
                     == TypeId::Builtin(BuiltinType::USize) =>
             {
-                array_bridge::list_item(receiver).cloned()
+                array_bridge::list_item(receiver, self.declarations).cloned()
             }
             TypeId::Array(element, _) => Some((**element).clone()),
             TypeId::Tuple(elements) => self

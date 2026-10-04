@@ -4,7 +4,7 @@ use kagari_common::{
 };
 use kagari_contract::{
     library,
-    library::{catalog as language, namespaces},
+    library::{catalog as foundation_catalog, catalog as language, namespaces},
     types::{PublicItem, verify},
 };
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
@@ -84,7 +84,11 @@ fn portable_language_catalog_has_complete_contracts() {
     }
     let generated = modules
         .iter()
-        .map(|module| declaration_source(module).unwrap().text)
+        .map(|module| {
+            declaration_source(module, &foundation_catalog::shared())
+                .unwrap()
+                .text
+        })
         .collect::<Vec<_>>()
         .join("\n");
     assert!(generated.contains("type Iter: Iterator<Item ="));
@@ -95,7 +99,7 @@ fn portable_language_catalog_has_complete_contracts() {
 }
 
 #[test]
-fn language_records_are_available_without_native_modules() {
+fn explicitly_installed_language_records_are_available() {
     let mut sources = SourceDatabase::default();
     sources
         .set(
@@ -105,7 +109,7 @@ fn language_records_are_available_without_native_modules() {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![]);
+    analysis.set_native_modules(language::shared());
     let snapshot = analysis
         .declarations(sources.snapshot(), &CancellationToken::default())
         .unwrap();
@@ -188,7 +192,7 @@ fn diagnostics(text: &str) -> Vec<String> {
         .set("contracts.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![]);
+    analysis.set_native_modules(language::shared());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &CancellationToken::default())
         .unwrap();
@@ -309,14 +313,14 @@ fn list_method_navigation_uses_language_owned_declarations() {
         .into_iter()
         .find(|module| module.identity == namespaces::module("std", "collections"))
         .unwrap();
-    let generated = declaration_source(&module).unwrap();
+    let generated = declaration_source(&module, &foundation_catalog::shared()).unwrap();
     let source = "use std::collections::{List};\nfn main() { val values: List<i32> = [2,1]; values.sorted_by_key(|value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("list-navigation.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![]);
+    analysis.set_native_modules(language::shared());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -340,6 +344,7 @@ fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
             .into_iter()
             .find(|module| module.identity == namespaces::type_owner("String"))
             .unwrap(),
+        &foundation_catalog::shared(),
     )
     .unwrap();
     let source = "fn main() { val text = \"é🙂\"; text.slice(0usize, 2usize); text. }";
@@ -348,7 +353,7 @@ fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
         .set("string-navigation.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![]);
+    analysis.set_native_modules(language::shared());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

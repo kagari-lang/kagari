@@ -1,8 +1,6 @@
 use crate::{
-    callable::generic::GenericBody,
-    native_import::protocol::{adapter_arguments, adapter_contract},
-    representation::semantic_representation,
-    types::ConcreteFunctionIdentity,
+    callable::generic::GenericBody, native_import::protocol::adapter_arguments,
+    representation::semantic_representation, types::ConcreteFunctionIdentity,
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
@@ -11,6 +9,7 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{requirement::NativeCallableRequirement, verify::concrete_type_valid},
+    language::adapter::adapter_contract,
     ty::Ty,
 };
 use std::collections::BTreeMap;

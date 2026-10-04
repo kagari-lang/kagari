@@ -1,14 +1,14 @@
 use crate::{
-    analysis::AnalysisDatabase,
     declarations::DeclarationId,
     hir::{expr::ExprKind, stmt::StmtKind},
     host::HostDeclarations,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    tests::native as fixture,
+    tests::{native as fixture, test_analysis},
     typeck::{FunctionImplementation, table::CallTarget},
     types::TypeId,
 };
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source::SourceFile,
@@ -278,7 +278,7 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
         }],
         HostValueType::I32,
     );
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     database.set_host_declarations(
         HostDeclarations::new(HostInterface {
             paths: Vec::new(),
@@ -413,7 +413,7 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
     let root = sources
         .set("method-owners.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
@@ -462,7 +462,7 @@ fn run(callback: fn(i32) -> bool) {
     let root = sources
         .set("applied-contracts.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
@@ -532,7 +532,11 @@ fn lexical_values_shadow_associated_native_and_script_owners() {
         let text = format!(
             "struct Item {{}} impl Item {{ pub fn make() -> Item {{ Item {{}} }} }} fn bad({owner}: i32) {{ {call}; }}"
         );
-        let analysis = crate::analyze_source(&SourceFile::new("shadow-owners.kgr", text));
+        let analysis = crate::analyze_source(
+            &SourceFile::new("shadow-owners.kgr", text),
+            foundation_catalog::shared(),
+        )
+        .expect("installed declaration analysis");
         assert!(analysis.clone().into_codegen().is_err(), "{owner}");
         let facts = analysis.facts();
         let (id, _) = facts

@@ -1,5 +1,7 @@
 use super::*;
-use crate::{analysis::ownership, declarations::DeclarationId, hir::expr::ExprKind};
+use crate::{
+    analysis::ownership, declarations::DeclarationId, hir::expr::ExprKind, tests::test_analysis,
+};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -19,7 +21,7 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
     let file = sources
         .set("variants.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(
         analysis.result().diagnostics().is_empty(),
@@ -97,7 +99,7 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
     let file = sources
         .set("shadowed-variants.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(
         analysis.result().diagnostics().is_empty(),
@@ -157,7 +159,7 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
     let file = sources
         .set("explicit-navigation.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     assert!(old.check_program(file, &Default::default()).is_err());
     let changed = text.replace("Data(false)", "Data(1)");
@@ -249,7 +251,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     let file = sources
         .set("constructors.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.facts();
@@ -365,7 +367,7 @@ fn source_facades_and_lexical_shadowing_do_not_confuse_constructor_owners() {
     insert("facade", "pub use pkg::left::Event;");
     let text = "use pkg::facade; use pkg::right; use pkg::left::Event; fn a() -> Event { facade::Event::Data(1) } fn b() -> right::Event { right::Event::Data(\"ok\") } fn hidden(Event: i32) { Event::Data(1) }";
     let root = insert("root", text);
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(root).unwrap();
     let a = analysis
         .definition_at(text.find("facade::Event::Data").unwrap() + "facade::Event::".len())
@@ -403,7 +405,7 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
     let file = sources
         .set("cache.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_old_facts = old
         .file(file)
@@ -447,7 +449,7 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .unwrap();
     assert_eq!(reused.reused_bodies(), 1);
     assert!(reused.type_table().enum_constructor(old_expr).is_none());
-    let fresh = AnalysisDatabase::default()
+    let fresh = test_analysis()
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();

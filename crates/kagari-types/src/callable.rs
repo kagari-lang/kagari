@@ -90,3 +90,15 @@ impl<I: DefinitionReference> CallableImplementation<I> {
 }
 
 mod mapping;
+
+/// Parameter and result semantics, independent of an executable target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct Signature<I = DefinitionPath> {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub params: Vec<Ty<I>>,
+    pub result: Ty<I>,
+}

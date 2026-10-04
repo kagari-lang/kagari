@@ -16,7 +16,7 @@ use kagari_hir::{
     typeck::{FunctionImplementation, GenericBounds, scalar::ScalarValue, table::ConstraintTarget},
     types::{
         GenericParameterType, TypeId,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_types::{

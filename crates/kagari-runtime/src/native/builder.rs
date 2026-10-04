@@ -21,8 +21,10 @@ use crate::{
     },
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
-use kagari_contract::native_import::NativeSignature;
-use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl};
+use kagari_types::{
+    callable::{CallableImplementation, Signature},
+    declaration::module::ModuleDecl,
+};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -147,7 +149,7 @@ impl ModuleBuilder {
             .ok_or_else(|| {
                 RuntimeError::metadata_conflict("unknown native function declaration")
             })?;
-        let signature = NativeSignature {
+        let signature = Signature {
             params: declaration
                 .function
                 .params

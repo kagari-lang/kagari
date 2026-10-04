@@ -1,9 +1,12 @@
 use super::*;
 use crate::{
-    language::semantics::ProtocolSemantics, native::NativeBinding, typeck::table::CallTarget,
-    types::NominalType,
+    language::semantics::ProtocolSemantics, native::NativeBinding, tests::test_analysis,
+    typeck::table::CallTarget, types::NominalType,
 };
-use kagari_contract::{library, library::catalog};
+use kagari_contract::{
+    library,
+    library::{catalog as foundation_catalog, catalog},
+};
 use kagari_source::source::SourceFile;
 
 fn foundation_interface(name: &str) -> NominalType {
@@ -26,7 +29,8 @@ fn main() -> usize {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source)
+    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed declarations");
     let typed = &analyzed.typed;
@@ -64,7 +68,8 @@ fn main(value: HashMap<String, i32>) -> usize {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source)
+    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed declarations");
     let typed = &analyzed.typed;
@@ -82,7 +87,6 @@ fn main(value: HashMap<String, i32>) -> usize {
 #[test]
 fn exposes_installed_standard_declarations_and_checked_signatures() {
     use crate::{
-        analysis::AnalysisDatabase,
         declarations::DeclarationId,
         native::NativeTypeKind,
         typeck::{FunctionImplementation, table::ConstraintTarget},
@@ -97,7 +101,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     let root = sources
         .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let authoring_facts = snapshot
@@ -228,7 +232,8 @@ fn unique(value: HashSet<String>) -> HashSet<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
-    let analyzed = crate::analyze_source(&source)
+    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed declarations");
     let typed = &analyzed.typed;
@@ -282,7 +287,8 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         fn qualified() -> Vec<i32> { foundation::Vec::new() }
     "#,
     );
-    let analyzed = crate::analyze_source(&source)
+    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("checked constructor imports");
     let lowered = &analyzed.lowered;
@@ -356,7 +362,8 @@ fn popped(values: Vec<i32>) -> Option<i32> {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source)
+    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed method declarations");
     let lowered = &analyzed.lowered;
@@ -425,14 +432,16 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
 }
 "#,
     );
-    crate::analyze_source(&lowered.source)
+    crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("hash-key constrained generics should type check");
 
     let lowered = common::lower_ok(
         "use std::collections::{HashMap};\nfn bad(values: HashMap<f64, i32>) -> usize { values.len() }",
     );
-    let diagnostics = crate::analyze_source(&lowered.source)
+    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("f64 map keys should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -446,7 +455,8 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
     let lowered = common::lower_ok(
         "use std::collections::{HashMap};\nfn bad<K, V>(values: HashMap<K, V>) -> usize { values.len() }",
     );
-    let diagnostics = crate::analyze_source(&lowered.source)
+    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -461,7 +471,8 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
 #[test]
 fn rejects_standard_library_invalid_arity_and_argument_types() {
     let lowered = common::lower_ok("fn bad() { Vec::push([1]); }");
-    let diagnostics = crate::analyze_source(&lowered.source)
+    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("standard call arity should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -481,7 +492,8 @@ fn bad(values: HashMap<String, i32>) -> bool {
 }
 "#,
     );
-    let diagnostics = crate::analyze_source(&lowered.source)
+    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("standard method key type should reject");
     assert!(diagnostics.iter().any(|diagnostic| {

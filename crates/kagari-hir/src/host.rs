@@ -15,11 +15,11 @@ use kagari_common::{
     identity::{DefinitionPath, ModuleIdentity},
     span::Span,
 };
-use kagari_contract::host::satisfies_standard_constraint;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError,
+        constraints::satisfies_standard_constraint,
         path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::{
             HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,

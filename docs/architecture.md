@@ -68,6 +68,17 @@ against explicitly supplied records. Module declaration validation also receives
 an explicit receiver-ownership lookup; the existing bundled provider supplies
 canonical ownership during the remaining registration migration.
 
+HIR depends only on source, syntax, types and common among workspace crates.
+`AnalysisDatabase::default()` has no installed library. Callers supply the complete
+registration closure with `set_native_modules`; `analyze_source` takes the same
+explicit provider vector, and `native::render::declaration_source` takes its
+provider slice. Installed package aliases, an explicitly marked prelude and array
+interfaces come from these records. Language-role validation compares checked
+signatures with the supplied registration declarations. The SDK and independent
+producers currently install the bundled foundation explicitly; LR moves its
+concrete authoring owner into stdlib. Older snapshots retain their declarations
+when the current database replaces its registration inputs.
+
 ## Compilation Pipeline
 
 ```text
@@ -154,8 +165,9 @@ See [native declarations](spec/standard-declarations.md) for the registration AP
 The next migration separates shared semantic models from executable contracts,
 then completes unified library registration. This target supersedes AC01-AC05's
 combined semantic/executable contract ownership. CR01 established the shared
-semantic owner reflected in the workspace table above; HIR dependency enforcement
-and library registration remain pending. [CR01-CR02 and LR01-LR03](implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed)
+semantic owner reflected in the workspace table above. CR02 removes HIR's ABI
+and contract dependencies and requires callers to supply declaration providers;
+library registration remains pending. [CR01-CR02 and LR01-LR03](implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed)
 own sequencing and acceptance under the active continuous goal.
 
 | Crate | Target responsibility |

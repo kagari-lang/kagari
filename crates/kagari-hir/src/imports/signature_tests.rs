@@ -1,5 +1,5 @@
 use super::tests::{analyze, insert};
-use crate::{analysis::AnalysisDatabase, typeck::table::CallTarget, types::TypeId};
+use crate::{tests::test_analysis, typeck::table::CallTarget, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -128,7 +128,7 @@ fn facade_signature_changes_invalidate_unchanged_transitive_callers() {
     let text = "use pkg::facade::value; fn main() -> i32 { val x = value(); x }";
     let root = insert(&mut db, "root", text);
     let unrelated = insert(&mut db, "unrelated", "fn other() -> i32 { 9 }");
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();

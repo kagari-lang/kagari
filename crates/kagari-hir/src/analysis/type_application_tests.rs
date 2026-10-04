@@ -1,6 +1,10 @@
 use super::*;
-use crate::hir::{expr::ExprKind, ty::TypeKind};
+use crate::{
+    hir::{expr::ExprKind, ty::TypeKind},
+    tests::test_analysis,
+};
 use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
 
@@ -16,7 +20,7 @@ fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
     let id = sources
         .set("native-types.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -54,7 +58,7 @@ fn native_collection_constructors_infer_items_through_source_aliases() {
     let id = sources
         .set("conversion-aliases.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -105,7 +109,7 @@ fn source_bindings_shadow_native_types_and_the_standard_namespace() {
         let id = sources
             .set("shadow.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = snapshot(&mut test_analysis(), &sources);
         let offset = text.find("value: ").unwrap() + "value: ".len();
         let file = snapshot.file(id).unwrap();
         assert!(file.result().diagnostics().is_empty(), "{text}");
@@ -130,7 +134,7 @@ fn source_bindings_shadow_native_types_and_the_standard_namespace() {
         let id = sources
             .set("namespace-shadow.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = snapshot(&mut test_analysis(), &sources);
         let offset = text.find("value: ").unwrap() + "value: ".len();
         assert_eq!(
             snapshot.file(id).unwrap().type_at(offset),
@@ -178,7 +182,7 @@ fn nested_namespace_types_keep_distinct_declaration_identities() {
         .unwrap();
     let text = "use pkg::facade as library; fn inspect(a: library::left::Same, b: library::right::Same) {}";
     let id = sources.set("main", text.into(), SourceLayer::Base).unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -214,7 +218,7 @@ fn explicit_empty_applications_are_not_erased_to_bare_types() {
         let file = sources
             .set("empty.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let analysis = snapshot(&mut AnalysisDatabase::default(), &sources);
+        let analysis = snapshot(&mut test_analysis(), &sources);
         let file = analysis.file(file).unwrap();
         let authoring_facts = file.to_unverified(&Default::default()).unwrap();
         let facts = authoring_facts.facts();
@@ -256,7 +260,7 @@ fn annotation_navigation_uses_type_names_not_application_punctuation() {
     let id = sources
         .set("type-punctuation.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     assert!(file.result().diagnostics().is_empty());
 
@@ -290,7 +294,8 @@ fn explicit_bindings_shadow_all_standard_type_constructors() {
         ] {
             let text = format!("{declaration} fn bad(x: {name}<{args}>) {{}}");
             let source = SourceFile::new("shadow.kgr", &text);
-            let analysis = crate::analyze_source(&source);
+            let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+                .expect("installed declaration analysis");
             let facts = analysis.facts();
             let function = facts
                 .typed
@@ -306,7 +311,7 @@ fn explicit_bindings_shadow_all_standard_type_constructors() {
         let id = sources
             .set("binder.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let analysis = snapshot(&mut AnalysisDatabase::default(), &sources);
+        let analysis = snapshot(&mut test_analysis(), &sources);
         let file = analysis.file(id).unwrap();
         let application = text.find("x: ").unwrap() + 3;
         assert_eq!(file.type_at(application), Some(TypeId::Error));
@@ -351,7 +356,7 @@ fn invalid_imported_application_retains_base_and_all_argument_facts() {
         .unwrap();
     let text = "use pkg::facade::Map; use pkg::facade::Point; fn bad(x: Map<Missing, Point>) {} fn good(p: Point) -> Point { p }";
     let root = sources.set("main", text.into(), SourceLayer::Base).unwrap();
-    let analysis = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot(&mut test_analysis(), &sources);
     let file = analysis.file(root).unwrap();
     let start = text.find("Map<").unwrap();
     let base = file.definition_at(start).unwrap();
@@ -373,7 +378,7 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
     let id = sources
         .set("edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = snapshot(&mut db, &sources);
     let edit = text.replace("fn before() {}", "fn before() { val n = 1; }");
     sources
@@ -385,7 +390,7 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
     let target = file.definition_at(edit.find("T<>").unwrap()).unwrap();
     assert_eq!(target.location.range.start, edit.find("bad<T").unwrap() + 4);
     assert_eq!(file.type_at(edit.find("T<>").unwrap()), Some(TypeId::Error));
-    let fresh = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let fresh = snapshot(&mut test_analysis(), &sources);
     file.to_unverified(&Default::default())
         .unwrap()
         .facts()

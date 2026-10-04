@@ -180,6 +180,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         .cloned()
         .collect();
     let prelude = entry(&mut modules, &namespaces::prelude());
+    prelude.prelude = true;
     // Syntax and implicit implementations need the complete installed foundation,
     // independently of which declaration names the prelude brings into scope.
     prelude.dependencies.extend(foundation_owners);

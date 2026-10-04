@@ -22,6 +22,8 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         "common": source | compiling | execution | {"kagari-types", "kagari-abi", "kagari-contract"},
         "types": source | compiling | execution | {"kagari-abi", "kagari-contract"},
         "abi": source | compiling | execution | {"kagari-contract", "kagari-common", "kagari-types"},
+        "hir": compiling | execution | {"kagari-abi", "kagari-contract", "kagari-stdlib"},
+        "hir": compiling | execution | {"kagari-abi", "kagari-contract", "kagari-stdlib"},
         "contract": source | compiling | execution,
         "mir": source | execution | {"kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"},
         "bytecode": source | compiling,

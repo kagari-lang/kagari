@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::test_analysis;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
 
@@ -12,7 +13,7 @@ fn body_edits_reuse_other_bodies_but_signatures_invalidate_them() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let token = CancellationToken::default();
     let first = db.snapshot(sources.snapshot(), &token).unwrap();
     assert_eq!(
@@ -57,7 +58,7 @@ fn broken_body_preserves_neighbor_and_member_receiver() {
     let file = sources
         .set("a.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &CancellationToken::default())
         .unwrap();
     let facts = snapshot.file(file).unwrap();
@@ -106,7 +107,7 @@ fn snapshots_reuse_unchanged_files_and_cancellation_does_not_publish() {
     let b = sources
         .set("b.kgr", "fn b() -> i32 { 2 }".into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = db
         .snapshot(sources.snapshot(), &CancellationToken::default())
         .unwrap();

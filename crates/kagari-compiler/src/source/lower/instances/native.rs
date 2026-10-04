@@ -5,13 +5,11 @@ use crate::source::{
 };
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::{
-    callable::generic::GenericBody,
-    native_import::{NativeImport, NativeSignature},
-    types::ConcreteFunctionIdentity,
+    callable::generic::GenericBody, native_import::NativeImport, types::ConcreteFunctionIdentity,
 };
-use kagari_hir::types::{TypeId, abi::lower_type};
+use kagari_hir::types::{TypeId, semantic::lower_type};
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
     ty::{GenericParam, substitution::TypeSubstitution},
 };
 
@@ -119,7 +117,7 @@ impl InstancePlanner<'_> {
                 parameters,
                 bounds: requirements.clone(),
             }),
-            signature: NativeSignature {
+            signature: Signature {
                 params: declared
                     .function
                     .params

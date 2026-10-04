@@ -6,7 +6,10 @@ use kagari_common::{
     identity::{DefinitionKind, ModuleIdentity, PackageId},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::{library::namespaces, types::PublicItem};
+use kagari_contract::{
+    library::{catalog as foundation_catalog, namespaces},
+    types::PublicItem,
+};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
 use kagari_source::{
@@ -48,7 +51,12 @@ fn main() {
     });
     storage.validate(&namespaces::receiver_owner).unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(storage)]);
+    analysis.set_native_modules(
+        foundation_catalog::shared()
+            .into_iter()
+            .chain([Arc::new(storage)])
+            .collect(),
+    );
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

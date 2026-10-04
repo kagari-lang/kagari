@@ -11,7 +11,7 @@ use kagari_contract::{
     callable::witness::{OperationWitness, SharedMethodWitness},
     effects::EffectSet,
     native_import::{
-        NativeImport, NativeSignature,
+        NativeImport,
         callables::{NativeCallableApplication, NativeCallableOrigin},
     },
     types::ConcreteFunctionIdentity,
@@ -22,11 +22,11 @@ use kagari_hir::{
     typeck::FunctionImplementation,
     types::{
         TypeId, TypeSubstitution as HirSubstitution,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
     declaration::{NativeDeclaration, requirement::NativeCallableRequirement},
     language::Protocol,
     ty::substitution::TypeSubstitution,
@@ -320,7 +320,7 @@ impl InstancePlanner<'_> {
                     ),
                 )
             };
-            let applied = NativeSignature {
+            let applied = Signature {
                 params: signature
                     .params
                     .iter()

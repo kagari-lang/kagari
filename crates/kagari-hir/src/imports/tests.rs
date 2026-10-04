@@ -1,6 +1,7 @@
 use super::*;
-use crate::analysis::{AnalysisDatabase, AnalysisSnapshot};
+use crate::{analysis::AnalysisSnapshot, tests::test_analysis};
 use kagari_common::identity::PackageId;
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::host_interface::value_type::HostValueType;
 
@@ -18,7 +19,7 @@ pub(super) fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId 
 }
 
 pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
-    AnalysisDatabase::default()
+    test_analysis()
         .snapshot(db.snapshot(), &Default::default())
         .unwrap()
 }
@@ -26,7 +27,7 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
 fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
     let mut expected = names.iter().map(|name| identity(name)).collect::<Vec<_>>();
     expected.extend(
-        kagari_contract::library::catalog::shared()
+        foundation_catalog::shared()
             .into_iter()
             .map(|module| module.identity.clone()),
     );
@@ -40,7 +41,7 @@ fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
     let text =
         "// 中文😀\r\nmod child { pub fn value() -> i32 { 42 } pub fn call() -> i32 { value() } }";
     let root = insert(&mut db, "root", text);
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
@@ -240,7 +241,7 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         "root",
         "use demo::*; fn main() -> i32 { echo(42) }",
     );
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     analysis.set_host_declarations(
         HostDeclarations::new(HostInterface {
             paths: vec![],
@@ -396,7 +397,7 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
     insert(&mut db, "library", "pub fn value() -> i32 { 1 }");
     let text = "use pkg::library::value; fn good() -> i32 { 42 }";
     let root = insert(&mut db, "root", text);
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
@@ -491,7 +492,7 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
     let mut db = SourceDatabase::default();
     let text = "use pkg::editor::value; fn good() -> i32 { 42 }";
     let root = insert(&mut db, "root", text);
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     let missing = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
@@ -561,7 +562,7 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
     insert(&mut db, "api", "pub fn child() -> i32 { 1 }");
     insert(&mut db, "api::child", "");
     let root = insert(&mut db, "root", "use pkg::api; use pkg::api::child;");
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     analysis.set_host_declarations(
         HostDeclarations::new(kagari_types::host_interface::HostInterface {
             paths: vec![],
@@ -611,7 +612,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
             .reachable_order(&identity("m0"), &Default::default())
             .unwrap()
             .len(),
-        1024 + kagari_contract::library::catalog::shared().len()
+        1024 + foundation_catalog::shared().len()
     );
     let cancel = CancellationToken::default();
     cancel.cancel();

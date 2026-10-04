@@ -1,5 +1,5 @@
 use super::*;
-use crate::{declarations::DeclarationId, hir::ids::HirOwner};
+use crate::{declarations::DeclarationId, hir::ids::HirOwner, tests::test_analysis};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
@@ -16,7 +16,7 @@ fn payload_errors_preserve_later_types_and_neighbor_queries() {
     let file = sources
         .set("payload.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let signatures = db
         .signatures(sources.snapshot(), &Default::default())
         .unwrap();
@@ -79,7 +79,7 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let file = sources
         .set("edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_old_facts = old
         .file(file)
@@ -103,7 +103,7 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
     // Recheck user sources without query caches against the same immutable
     // installed source universe; its declaration locations must compare exactly.
-    let mut fresh_db = AnalysisDatabase::default();
+    let mut fresh_db = test_analysis();
     fresh_db
         .native_files
         .set(db.native_files.get().unwrap().clone())
@@ -153,7 +153,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         "use pkg::left; use pkg::right; enum Both { Left(left::Event), Right(right::Event) } fn keep() -> i32 { 7 }",
     );
     let unrelated = insert("unrelated", "pub enum Hidden { A }");
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let old_root = old.file(root).unwrap();
     assert!(

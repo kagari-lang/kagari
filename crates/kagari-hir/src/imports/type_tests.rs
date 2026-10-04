@@ -1,8 +1,5 @@
 use super::tests::{analyze, insert};
-use crate::{
-    analysis::{AnalysisDatabase, ownership},
-    types::TypeId,
-};
+use crate::{analysis::ownership, tests::test_analysis, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -236,7 +233,7 @@ fn transitive_type_visibility_changes_invalidate_signatures_and_old_targets_rema
     let facade = insert(&mut db, "facade", "pub use pkg::types::Data;");
     let text = "use pkg::facade::Data; fn pass(x: Data) -> Data { x } fn good() -> i32 { 42 }";
     let root = insert(&mut db, "root", text);
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
@@ -281,7 +278,7 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
     insert(&mut db, "facade", "pub use pkg::types::Data;");
     let text = "use pkg::facade::Data; fn pass(x: Data) -> Data { x } fn good() -> i32 { 42 }";
     let root = insert(&mut db, "root", text);
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();

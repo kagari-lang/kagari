@@ -1,9 +1,8 @@
 //! O1 architecture baseline; run with default source/native features.
 //! `cargo run -p kagari-embed --example architecture_baseline`
 //! Timings include the counting allocator's atomic bookkeeping overhead.
+use kagari_contract::library::catalog as foundation_catalog;
 mod memory;
-
-use std::{hint::black_box, time::Instant};
 
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
@@ -16,8 +15,8 @@ use kagari_mir::{ids::InstanceId, verify::verify_mir};
 use kagari_runtime::{jit_abi::native_helper_symbols, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_vm::vm::JitExecutionStatus;
-
 use memory::{CountingAllocator, live_bytes};
+use std::{hint::black_box, time::Instant};
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
@@ -99,9 +98,13 @@ fn main() {
         "cold_engine_source_to_artifact",
         21,
     );
-    let checked = analyze_source(&SourceFile::new("baseline.kgr", SOURCE))
-        .into_codegen()
-        .unwrap();
+    let checked = analyze_source(
+        &SourceFile::new("baseline.kgr", SOURCE),
+        foundation_catalog::shared(),
+    )
+    .expect("installed declaration analysis")
+    .into_codegen()
+    .unwrap();
     let mir = lower_to_mir(&checked, &Default::default()).unwrap();
     let mut analysis_times = Vec::new();
     for _ in 0..101 {

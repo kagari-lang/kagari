@@ -7,6 +7,7 @@ use crate::{
     native::{api, render::declaration_source},
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
+use kagari_contract::library::{catalog as foundation_catalog, catalog};
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
@@ -19,7 +20,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let lowered = modules
         .iter()
         .map(|module| {
-            let mut generated = declaration_source(module).unwrap();
+            let mut generated = declaration_source(module, &foundation_catalog::shared()).unwrap();
             mutate_source(&mut generated.text);
             api::import_source(module, &modules, &generated, Default::default(), &cancel)
                 .unwrap()
@@ -68,7 +69,12 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     for module in &prepared {
         diagnostics.extend(module.names.diagnostics.iter().cloned());
         diagnostics.extend(module.signatures.diagnostics().iter().cloned());
-        validate_shapes(&module.declarations, &aggregates, &mut diagnostics);
+        validate_shapes(
+            &module.declarations,
+            &aggregates,
+            &module.lowered.registered_traits,
+            &mut diagnostics,
+        );
     }
     diagnostics
 }
@@ -158,7 +164,8 @@ fn application_traits_cannot_claim_roles() {
         "memory://application-role.kgr",
         "#[lang = \"add\"] trait Add<Rhs> { type Output; fn add(self, rhs: Rhs) -> Self::Output; }",
     );
-    let result = crate::analyze_source(&source);
+    let result = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis");
     assert!(
         result.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.kind,

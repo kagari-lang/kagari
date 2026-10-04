@@ -51,7 +51,7 @@ commit per completed phase, in order: CR01, CR02, LR01, LR02 and LR03.
   encoding/checks with the records they protect, without introducing a metadata
   product, compatibility facade or empty forwarding crate. Migrate affected
   producers/consumers directly and record necessary intermediate errors here.
-- [ ] **CR02: Enforce semantic and execution boundaries across consumers.**
+- [x] **CR02: Enforce semantic and execution boundaries across consumers.**
   Remove HIR's unused direct ABI dependency and all contract references. HIR uses
   source, syntax, types and common; inference variables, unknown/error states,
   resolution and trait selection remain in HIR. Replace declaration fields that
@@ -236,7 +236,7 @@ The authorized order is CR01 -> CR02 -> LR01 -> LR02 -> LR03. Existing library
 requirements, full docs/cache navigation, native safety and source-free artifact
 acceptance remain in scope.
 
-Execution ledger (CR01 complete; CR02 next): numerical evaluation,
+Execution ledger (CR01-CR02 complete; LR01 next): numerical evaluation,
 collection/range semantics and offline host schemas now belong to `kagari-types`.
 Scoped types, generic constraints, substitution, identity traversal, declarations,
 symbolic defaults and narrow reserved language-role identities moved from contract.
@@ -260,6 +260,30 @@ KGR fixtures; all were restored and the six resulting Hash failures resolved.
 That concrete cross-crate failure justified a full `cargo test --workspace` run:
 1640 passed, one ignored. All intermediate import/call/test errors are closed.
 The standalone feature/backend matrix remains due at CR02/LR03 as specified.
+
+CR02 implementation now moves logical callable signatures, protocol adapter
+signature checks and intrinsic host-schema constraints into types. HIR's production
+dependencies contain only source, syntax, types and common. Analysis ingestion,
+one-source analysis and declaration rendering receive explicit providers;
+one-source analysis returns registration failures through `AnalysisError`, the
+current Engine and independent test/example producers choose their foundation.
+Prelude selection, installed package spellings, array-interface context and
+language-shape validation use those supplied records rather than contract's
+catalog. Import catalog construction now has a focused owning module.
+
+CR02 validation passes: 421 HIR unit/integration tests plus the new invalid
+registration error regression; 118 types/contract/MIR/bytecode tests; compiler,
+runtime and embedding suites, including the source/artifact/interpreter/native
+observable matrix; and 207 VM tests with one manual performance test ignored.
+The first combined execution run exposed three VM fixture failures from installing
+the same standard module twice. Those explicit producers now replace the matching
+foundation record; all three pass in the complete VM rerun. No carried failures
+remain. All four standalone SDK feature/backend consumers pass, along with twelve
+production boundaries, ABI/contract build graphs, strict workspace Clippy,
+formatting, structural checks (756 files, zero violations/exceptions) and
+`git diff --check`. The complete combined workspace matrix remains due at LR03.
+Handwritten role extraction and runtime library ownership remain assigned to
+LR01-LR03; they were not moved into types or HIR to hide a dependency.
 
 ## Rust-style library namespaces (NS01, complete)
 

@@ -4,7 +4,6 @@ use crate::{
     callable::witness::SharedMethodWitness,
     effects::EffectSet,
     native_import::{
-        NativeSignature,
         callables::{NativeCallableApplication, NativeCallableOrigin},
         result::NativeResultAdapter,
     },
@@ -15,7 +14,7 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPathSegment},
 };
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
     declaration::requirement::NativeCallableRequirement,
     ty::{
         GenericBound, GenericParam, Ty,
@@ -229,7 +228,7 @@ impl ProofCatalog<'_> {
                 name: member.name.clone(),
                 occurrence: 0,
             });
-            let signature = NativeSignature {
+            let signature = Signature {
                 params: method
                     .params
                     .iter()

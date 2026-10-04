@@ -1,4 +1,5 @@
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
@@ -8,7 +9,7 @@ fn compile(text: &str) {
         .set("foundation.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![]);
+    analysis.set_native_modules(foundation_catalog::shared().into_iter().chain([]).collect());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

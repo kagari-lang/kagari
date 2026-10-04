@@ -1,7 +1,7 @@
 use crate::{
-    analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
+    declarations::DeclarationId, native::render::declaration_source, tests::test_analysis,
 };
-use kagari_contract::library::catalog;
+use kagari_contract::library::{catalog as foundation_catalog, catalog};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{language as standard_traits, language::Protocol};
 use std::collections::HashSet;
@@ -9,12 +9,12 @@ use std::collections::HashSet;
 #[test]
 fn installed_declaration_inventory_preserves_every_named_source_site() {
     let sources = SourceDatabase::default();
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     let installed_modules = catalog::shared();
-    let independent = AnalysisDatabase::default()
+    let independent = test_analysis()
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     drop(database);
@@ -22,7 +22,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
     let mut identities = HashSet::new();
     let mut count = 0;
     for installed in &installed_modules {
-        let generated = declaration_source(installed).unwrap();
+        let generated = declaration_source(installed, &foundation_catalog::shared()).unwrap();
         let file = snapshot
             .files()
             .find(|file| file.source().name() == generated.uri)
@@ -121,7 +121,7 @@ impl Items for Values {
     let id = sources
         .set("items.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();
@@ -168,7 +168,7 @@ fn documentation_uses_declaration_identity_and_survives_edits() {
     let file = sources
         .set("docs.kgr", original.into(), SourceLayer::Base)
         .unwrap();
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     let first = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -215,7 +215,7 @@ fn same_named_declarations_and_inline_modules_keep_their_own_documentation() {
     let file = sources
         .set("nested.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     let mut docs = snapshot
@@ -243,7 +243,7 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();

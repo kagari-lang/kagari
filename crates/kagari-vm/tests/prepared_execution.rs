@@ -1,9 +1,16 @@
-use std::{ffi::c_void, rc::Rc};
-
+use kagari_abi::{
+    native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+    native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
+};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
+};
+use kagari_contract::{
+    ids::FunctionRef,
+    library::catalog as foundation_catalog,
+    native::{ExecutableFunctionArtifact, NativeCompilationProduct},
 };
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
@@ -15,23 +22,14 @@ use kagari_vm::{
     error::VmError,
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-use {
-    kagari_abi::{
-        native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-        native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
-    },
-    kagari_contract::{
-        ids::FunctionRef,
-        native::{ExecutableFunctionArtifact, NativeCompilationProduct},
-    },
-};
+use std::{ffi::c_void, rc::Rc};
 
 fn compile(source: &str, optimize: bool) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kgr", source.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
@@ -246,4 +244,10 @@ fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
             .status,
         JitExecutionStatus::Native
     );
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

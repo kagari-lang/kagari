@@ -6,9 +6,8 @@ use crate::{
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
-use kagari_contract::native_import::NativeSignature;
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication},
+    callable::{CallableImplementation, NativeDefaultApplication, Signature},
     declaration::module::ModuleDecl,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
@@ -153,7 +152,7 @@ impl TraitBuilder<'_> {
                 .transpose()
                 .map_err(invalid)?;
             binding.check(
-                &NativeSignature {
+                &Signature {
                     params: template
                         .params
                         .iter()

@@ -5,8 +5,11 @@ use crate::{
     verify::ValidatedMirModule,
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::{native_import::NativeSignature, types::proofs::ProofCatalog};
-use kagari_types::{callable::CallableImplementation, ty::substitution::TypeTransformError};
+use kagari_contract::types::proofs::ProofCatalog;
+use kagari_types::{
+    callable::{CallableImplementation, Signature},
+    ty::substitution::TypeTransformError,
+};
 
 pub(super) fn valid(
     caller: &MirModule,
@@ -44,7 +47,7 @@ pub(super) fn valid(
                     let Some(result) = target.semantic.result.clone() else {
                         return Ok(false);
                     };
-                    (body, NativeSignature { params, result })
+                    (body, Signature { params, result })
                 }
                 CallableImplementation::Native(binding) => {
                     let Some(import) = caller.native_targets.iter().find(|import| {

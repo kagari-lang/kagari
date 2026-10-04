@@ -20,6 +20,7 @@ const MAGIC: [u8; 4] = *b"KHI\0";
 const VERSION: u16 = 12;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
+pub mod constraints;
 mod decode_limits;
 pub mod path;
 

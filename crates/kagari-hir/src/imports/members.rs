@@ -3,7 +3,8 @@
 use crate::{
     hir::item::storage::ExportItem,
     imports::{
-        ImportTarget, SourceCatalog, SourceCatalogEntry, SourceImport, canonical_namespace_target,
+        ImportTarget, SourceImport, canonical_namespace_target,
+        catalog::{SourceCatalog, SourceCatalogEntry},
     },
 };
 use kagari_common::identity::ModuleIdentity;

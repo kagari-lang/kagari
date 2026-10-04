@@ -11,6 +11,7 @@ use kagari_types::{
 };
 
 pub(crate) mod api;
+pub(crate) mod paths;
 pub mod render;
 
 /// Installed entry identity, checked host catalog index or symbolic default mapping.

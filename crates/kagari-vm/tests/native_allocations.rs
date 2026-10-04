@@ -1,10 +1,7 @@
 //! Allocation accounting isolates prepared native invocation from frame setup and compilation.
-use std::sync::Arc;
-mod native_allocations_counter;
-
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::ids::FunctionRef;
+use kagari_contract::{ids::FunctionRef, library::catalog as foundation_catalog};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
@@ -24,7 +21,9 @@ use kagari_runtime::{
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use native_allocations_counter::{Counts, measured, verify_counter};
-use std::{hint::black_box, time::Duration};
+use std::{hint::black_box, sync::Arc, time::Duration};
+
+mod native_allocations_counter;
 
 fn module() -> NativeModule {
     let language = LanguageContracts::default();
@@ -77,7 +76,12 @@ fn load() -> (Runtime, LoadedModule) {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(module.to_declaration().unwrap())]);
+    analysis.set_native_modules(
+        foundation_catalog::shared()
+            .into_iter()
+            .chain([Arc::new(module.to_declaration().unwrap())])
+            .collect(),
+    );
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

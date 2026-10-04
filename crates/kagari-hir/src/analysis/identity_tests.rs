@@ -1,9 +1,10 @@
 use super::*;
-use crate::declarations::DeclarationId;
+use crate::{declarations::DeclarationId, tests::test_analysis};
 use kagari_common::{
     identity::{DefinitionKind, ModuleIdentity, PackageId},
     span::Span,
 };
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -27,7 +28,12 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
             Span::new(0, text.len()),
         );
     }
-    assert!(crate::analyze_source(&source).into_codegen().is_ok());
+    assert!(
+        crate::analyze_source(&source, foundation_catalog::shared())
+            .expect("installed declaration analysis")
+            .into_codegen()
+            .is_ok()
+    );
     source = SourceFile::inline_module(
         &source,
         "overflow",
@@ -35,7 +41,8 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
         SourceFile::new("child.kgr", "").id(),
         Span::new(0, text.len()),
     );
-    let analyzed = crate::analyze_source(&source);
+    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis");
     assert!(analyzed.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
         DiagnosticKind::CompileLimitExceeded {
@@ -66,7 +73,8 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     sources.set("source.kgr", "use core::option::Option as Maybe; fn identity(value: Maybe<i32>) -> Maybe<i32> { value }".into(), SourceLayer::Overlay).unwrap();
     let files = sources.snapshot();
     let source = files.file(id).unwrap();
-    let result = crate::analyze_source(source);
+    let result = crate::analyze_source(source, foundation_catalog::shared())
+        .expect("installed declaration analysis");
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -96,7 +104,7 @@ fn named_declarations_point_to_identifier_tokens() {
     let id = sources
         .set("declaration-names.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let analyzed = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let analyzed = snapshot(&mut test_analysis(), &sources);
     let file = analyzed.file(id).unwrap();
     for (name, source, name_offset) in [
         ("C", "const C", 6),
@@ -145,7 +153,7 @@ fn declaration_site_navigation_excludes_synthetic_module_span() {
     let id = sources
         .set("declaration-sites.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     for (name, source, name_offset) in [
         ("top", "const top", 6),
@@ -173,7 +181,7 @@ fn semantic_diagnostic_budget_invalidates_cached_results_without_changing_old_sn
     let id = sources
         .set("diagnostic-budget.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let original = snapshot(&mut db, &sources);
     assert!(original.file(id).unwrap().result().diagnostics().len() >= 2);
 
@@ -219,7 +227,7 @@ fn scope_queries_and_navigation_share_resolver_shadowing_and_match_bindings() {
     let file = sources
         .set("scope.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(
         analysis.result().diagnostics().is_empty(),
@@ -281,7 +289,7 @@ fn assignment_navigation_resolves_the_retained_target_and_broken_neighbors_survi
     let file = sources
         .set("target.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(!analysis.result().diagnostics().is_empty());
     assert!(
@@ -312,7 +320,7 @@ fn r04_recovery_keeps_semantic_targets_but_rejects_codegen() {
     let id = sources
         .set("r04-acceptance.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     let incomplete = text.find("p.;").unwrap() + 2;
     let good_receiver = text.rfind("p.x").unwrap();
@@ -345,7 +353,7 @@ fn function_scopes_do_not_inherit_module_declarations_as_local_bindings() {
     let file = sources
         .set("init-scope.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(
         analysis
@@ -384,7 +392,7 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
     sources
         .set("b.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = snapshot(&mut db, &sources);
     let function_a = first
         .file(a)
@@ -419,7 +427,7 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         .definitions();
     assert_eq!(binding.body, *owner);
     assert!(definitions.resolve(binding.body).is_ok());
-    let independent = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let independent = snapshot(&mut test_analysis(), &sources);
     assert!(independent.definitions().resolve(binding.body).is_err());
     assert_eq!(
         first.definitions().resolve(binding.body).unwrap().to_path(),
@@ -466,7 +474,7 @@ fn trait_call_navigation_consumes_checked_method_target_even_with_bad_arguments(
     let file = sources
         .set("method.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(!analysis.result().diagnostics().is_empty());
     let method = analysis
@@ -492,7 +500,7 @@ fn field_navigation_distinguishes_owners_and_retains_rejected_write_targets() {
     let file = sources
         .set("fields.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(!analysis.result().diagnostics().is_empty());
     let readonly = analysis
@@ -540,7 +548,7 @@ fn erroneous_field_type_keeps_its_identity_without_unknown_member_cascades() {
     let file = sources
         .set("field-type.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert_eq!(
         analysis.result().diagnostics().len(),
@@ -568,7 +576,7 @@ fn named_field_identity_survives_slot_reordering_and_remains_module_owned() {
     let b = sources
         .set("field-b.kgr", first_text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = snapshot(&mut db, &sources);
     let x = first
         .file(a)
@@ -605,7 +613,7 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
     let file = sources
         .set("types.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(!analysis.result().diagnostics().is_empty());
     let missing = text.find("Missing").unwrap();
@@ -644,7 +652,7 @@ fn generic_parameter_identity_is_owner_and_position_based() {
     let file = sources
         .set("generic.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = snapshot(&mut db, &sources);
     let analysis = first.file(file).unwrap();
     assert!(
@@ -703,7 +711,7 @@ fn bound_navigation_retains_valid_references_beside_unknown_constraints() {
     let file = sources
         .set("bounds.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert_eq!(
         analysis.result().diagnostics().len(),
@@ -759,7 +767,7 @@ fn same_spelled_nominal_types_in_different_modules_are_distinct() {
     let right = sources
         .set("right.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let left = snapshot.file(left).unwrap();
     let right = snapshot.file(right).unwrap();
     assert!(
@@ -802,7 +810,7 @@ fn generic_type_equality_and_hash_use_owner_and_position() {
     let file = sources
         .set("generic-types.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     let original = snapshot(&mut database, &sources);
     let analysis = original.file(file).unwrap();
     let first = analysis
@@ -835,7 +843,7 @@ fn implicit_self_types_belong_to_their_trait() {
     let file = sources
         .set("self-types.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(
         analysis.result().diagnostics().is_empty(),
@@ -878,7 +886,7 @@ fn inherited_generic_parameters_keep_the_trait_or_impl_owner() {
     let file = sources
         .set("owners.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(
         analysis.result().diagnostics().is_empty(),
@@ -934,7 +942,7 @@ fn implicit_receiver_keeps_impl_type_context_when_method_shadows_a_generic() {
     let file = sources
         .set("impl-context.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = snapshot(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     assert!(
         analysis.result().diagnostics().is_empty(),
@@ -962,7 +970,8 @@ fn implicit_receiver_keeps_impl_type_context_when_method_shadows_a_generic() {
 fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let text = "struct Same { val n: i32 } fn Same() -> i32 { 1 } fn Same() -> i32 { 2 } trait A { fn get(self) -> i32; } trait B { fn get(self) -> i32; } impl A for Same { fn get(self) -> i32 { self.n } }";
     let source = SourceFile::new("definitions.kgr", text);
-    let result = crate::analyze_source(&source);
+    let result = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis");
     assert!(!result.diagnostics().is_empty());
     let facts = result.facts();
     let declarations = facts
@@ -1006,7 +1015,7 @@ fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
 
 #[test]
 fn checked_analysis_retains_compact_named_and_generic_metadata() {
-    use crate::types::abi::lower_type;
+    use crate::types::semantic::lower_type;
     use kagari_common::identity::mapping::DefinitionMappingError;
     use kagari_types::ty::Ty;
 
@@ -1014,8 +1023,14 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
         "compact.kgr",
         "struct Player { var hp: i32 } fn identity<T>(value: T) -> T { value }",
     );
-    let first = crate::analyze_source(&source).into_codegen().unwrap();
-    let second = crate::analyze_source(&source).into_codegen().unwrap();
+    let first = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
+        .into_codegen()
+        .unwrap();
+    let second = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
+        .into_codegen()
+        .unwrap();
     let function = first
         .typed
         .functions
@@ -1117,7 +1132,7 @@ fn published_cache_scopes_retain_prefixes_and_reject_foreign_queries() {
     let file = sources
         .set("cache-scopes.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     let first = snapshot(&mut database, &sources);
     let analysis = first.file(file).unwrap().clone();
     let signature = first.signature_snapshot().file(file).unwrap().clone();
@@ -1151,7 +1166,7 @@ fn published_cache_scopes_retain_prefixes_and_reject_foreign_queries() {
     validate(signature.signatures().as_ref(), signature.definitions());
     validate(body.type_table(), body.definitions());
     assert!(Arc::ptr_eq(analysis.signatures(), signature.signatures()));
-    let mut independent = AnalysisDatabase::default();
+    let mut independent = test_analysis();
     assert!(
         independent
             .body(sources.snapshot(), &owner, &Default::default())

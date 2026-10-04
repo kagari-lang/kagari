@@ -1,5 +1,6 @@
-use crate::analysis::ownership::recover_invalid_identity;
+use crate::analysis::error::AnalysisError;
 use crate::{
+    analysis::ownership::recover_invalid_identity,
     hir::ids::BodySelection,
     imports::{functions::ImportedFunctions, types::ImportedTypes},
     language::items as language_items,
@@ -17,31 +18,30 @@ use crate::{
     },
 };
 use analysis::AnalysisDatabase;
-
 use declarations::Declarations;
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::{
+        DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS,
+        map::DefinitionContext,
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        metadata::DefinitionMetadata,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
+    span::Span,
+};
+use kagari_source::{
+    diagnostic::{Diagnostic, DiagnosticKind, Severity},
+    source::SourceFile,
+    source_database::SourceSnapshot,
+};
 use kagari_syntax::parser::Parse;
+use kagari_types::declaration::module::ModuleDecl;
 use smallvec::SmallVec;
 use std::{ops::Deref, sync::Arc};
 use typeck::associated_consts;
-use {
-    kagari_common::{
-        cancellation::{CancellationToken, Cancelled},
-        identity::{
-            DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS,
-            map::DefinitionContext,
-            mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-            metadata::DefinitionMetadata,
-            reference::DefinitionReference,
-            table::{DefinitionId, DefinitionTable},
-        },
-        span::Span,
-    },
-    kagari_source::{
-        diagnostic::{Diagnostic, DiagnosticKind, Severity},
-        source::SourceFile,
-        source_database::SourceSnapshot,
-    },
-};
+
 pub mod aggregates;
 pub mod analysis;
 pub mod builtin;
@@ -196,7 +196,12 @@ impl PreparedAnalysis {
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<AnalysisResult<typeck::ModuleSignatures>>>, Cancelled> {
         let mut diagnostics = DiagnosticBuffer::new();
-        language_items::validate_shapes(&self.declarations, aggregates, &mut diagnostics);
+        language_items::validate_shapes(
+            &self.declarations,
+            aggregates,
+            &self.lowered.registered_traits,
+            &mut diagnostics,
+        );
         associated_consts::validate(
             &self.lowered,
             &self.declarations,
@@ -419,21 +424,25 @@ fn analyze_prepared(
     }
 }
 
-pub fn analyze_source(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
+/// Analyze a source using only the declarations explicitly installed by its caller.
+pub fn analyze_source(
+    source: &SourceFile,
+    providers: Vec<Arc<ModuleDecl>>,
+) -> Result<AnalysisResult<AnalyzedModule>, AnalysisError> {
     if !source.module_identity().within_path_limit() {
-        return recover_invalid_identity(source);
+        return Ok(recover_invalid_identity(source));
     }
-    let snapshot = AnalysisDatabase::default()
-        .snapshot(
-            SourceSnapshot::single_file(Arc::new(source.clone())),
-            &Default::default(),
-        )
-        .expect("language declarations must prepare for uncancelled analysis");
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(providers);
+    let snapshot = database.snapshot(
+        SourceSnapshot::single_file(Arc::new(source.clone())),
+        &Default::default(),
+    )?;
     snapshot
         .file(source.id())
         .expect("requested source belongs to its snapshot")
         .to_unverified(&CancellationToken::default())
-        .expect("checked source metadata must project for authoring")
+        .map_err(AnalysisError::from)
 }
 
 pub(crate) struct AnalysisPolicy {

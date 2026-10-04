@@ -4,10 +4,7 @@ use crate::source::{
     types::raise_type,
 };
 use kagari_common::{identity::DefinitionPath, span::Span};
-use kagari_contract::{
-    native_import::{NativeImport, NativeSignature},
-    types::ConcreteFunctionIdentity,
-};
+use kagari_contract::{native_import::NativeImport, types::ConcreteFunctionIdentity};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     callable::AppliedCallSignature,
@@ -15,10 +12,10 @@ use kagari_hir::{
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, table::CallTarget},
-    types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, abi::lower_type},
+    types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, semantic::lower_type},
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
-use kagari_types::ty::substitution::TypeSubstitution;
+use kagari_types::{callable::Signature, ty::substitution::TypeSubstitution};
 use std::slice;
 
 pub(super) struct NativeApplication<'a> {
@@ -111,7 +108,7 @@ impl FunctionLowerer<'_, '_> {
             },
             binding,
             host: None,
-            signature: NativeSignature {
+            signature: Signature {
                 params: params.iter().map(lower_type).collect(),
                 result: lower_type(&result[0]),
             },
@@ -237,7 +234,7 @@ impl FunctionLowerer<'_, '_> {
                 },
                 binding: binding.clone(),
                 host: None,
-                signature: NativeSignature {
+                signature: Signature {
                     params: params.iter().map(lower_type).collect(),
                     result: lower_type(result),
                 },
@@ -322,7 +319,7 @@ impl FunctionLowerer<'_, '_> {
                 },
                 binding: binding.clone(),
                 host: None,
-                signature: NativeSignature {
+                signature: Signature {
                     params: params.iter().map(lower_type).collect(),
                     result: lower_type(&result),
                 },

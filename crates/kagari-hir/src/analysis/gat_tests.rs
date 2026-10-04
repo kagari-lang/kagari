@@ -1,4 +1,6 @@
 use super::*;
+use crate::tests::test_analysis;
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 #[test]
@@ -13,7 +15,8 @@ fn make<T: Family>(x: T) -> T::Item<i32> { x.make(42) }
 fn main() -> i32 { make(Number {}) }
 "#,
     );
-    let result = crate::analyze_source(&source);
+    let result = crate::analyze_source(&source, foundation_catalog::shared())
+        .expect("installed declaration analysis");
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -41,7 +44,7 @@ fn constructor_binders_and_cached_queries_follow_the_latest_signature() {
     let file = sources
         .set("gat-cache.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

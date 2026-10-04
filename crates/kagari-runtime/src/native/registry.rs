@@ -30,13 +30,13 @@ use kagari_common::{
 use kagari_contract::{
     callable::witness::OperationWitness,
     native_import::{
-        NativeImport, NativeSignature,
+        NativeImport,
         callables::{NativeCallableApplication, NativeCallableOrigin},
     },
     standard::RuntimePrimitive,
 };
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
     declaration::{NativeDeclaration, verify::validate_native_declarations},
     language::Protocol,
     ty::Ty,
@@ -155,7 +155,7 @@ impl NativeRegistry {
                 return Err(invalid());
             }
             registration.binding.check(
-                &NativeSignature {
+                &Signature {
                     params: declaration
                         .function
                         .params

@@ -1,24 +1,24 @@
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_bytecode::program::BytecodeProgram;
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::{
     CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
 };
-
-use kagari_bytecode::program::BytecodeProgram;
-use kagari_source::{
-    source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
-};
-
 use kagari_mir::{
     program::{VerifiedMirProgram, verify_program},
     verify::VerifiedMirModule,
+};
+use kagari_source::{
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
 };
 
 pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     let source = SourceFile::new("test.kg", text);
 
     Box::new(
-        analyze_source(&source)
+        analyze_source(&source, foundation_catalog::shared())
+            .expect("installed declaration analysis")
             .into_codegen()
             .expect("analysis should succeed"),
     )
@@ -29,7 +29,7 @@ pub fn program_ok(text: &str) -> CheckedProgram {
     let root = sources
         .set("test.kg", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot should succeed");
     snapshot
@@ -65,4 +65,10 @@ pub fn bytecode_with_edited_root(
     let verified =
         verify_program(root, members, &Default::default()).expect("edited program should verify");
     lower_program_to_bytecode(&verified).expect("edited program bytecode lowering should succeed")
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

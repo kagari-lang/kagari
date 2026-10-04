@@ -1,15 +1,15 @@
 //! Call-site adaptation for ordinary shared script and native entries.
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_common::span::Span;
-use kagari_contract::native_import::NativeSignature;
 use kagari_hir::{
     callable::AppliedCallSignature,
     declarations::DeclarationId,
     resolver::resolved::ResolvedName,
     typeck::table::CallTarget as CheckedCallTarget,
-    types::{TypeId, abi::lower_type},
+    types::{TypeId, semantic::lower_type},
 };
 use kagari_mir::instruction::CallTarget;
+use kagari_types::callable::Signature;
 use std::slice;
 
 impl FunctionLowerer<'_, '_> {
@@ -54,7 +54,7 @@ impl FunctionLowerer<'_, '_> {
                 span,
             )?
             .remove(0);
-        let signature = NativeSignature {
+        let signature = Signature {
             params: params.iter().map(lower_type).collect(),
             result: lower_type(&result),
         };

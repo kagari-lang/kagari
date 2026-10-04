@@ -3,14 +3,11 @@ use {
     crate::{
         callable::interface::InterfaceCallContract,
         effects::EffectSet,
-        native_import::{
-            NativeSignature,
-            callables::{NativeCallableApplication, NativeCallableOrigin},
-        },
+        native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
         types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
     },
     kagari_types::{
-        callable::CallableImplementation,
+        callable::{CallableImplementation, Signature},
         declaration::{
             TraitDef,
             module::ModuleDecl,
@@ -234,7 +231,7 @@ pub fn requirement_signature(
     requirement: &NativeCallableRequirement,
     contract: &TraitDef,
     cancel: &CancellationToken,
-) -> Result<NativeSignature, TypeTransformError> {
+) -> Result<Signature, TypeTransformError> {
     let slot = contract
         .methods
         .iter()
@@ -258,7 +255,7 @@ pub fn requirement_signature(
         arguments: requirement.arguments.clone(),
     };
     let signature = call.signature(contract, cancel)?;
-    Ok(NativeSignature {
+    Ok(Signature {
         params: signature.params,
         result: signature.result,
     })
@@ -270,7 +267,7 @@ pub fn requirement_signature_in_scope(
     parameters: &[GenericParam],
     assumptions: &[GenericBound],
     cancel: &CancellationToken,
-) -> Result<Option<NativeSignature>, TypeTransformError> {
+) -> Result<Option<Signature>, TypeTransformError> {
     let Some(contract) = catalog.trait_contract(&requirement.interface.declaration) else {
         return Ok(None);
     };

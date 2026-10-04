@@ -1,6 +1,7 @@
 use super::collect_module_abi;
 use kagari_common::identity::associated_type_id;
 use kagari_contract::{
+    library::catalog as foundation_catalog,
     types as abi,
     types::{PublicItem, verify},
 };
@@ -27,7 +28,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
     sources
         .set("native-abi.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let mut count = 0;
@@ -96,7 +97,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     let root = sources
         .set("trait-abi.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let root = snapshot
@@ -205,7 +206,7 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
             SourceLayer::Base,
         )
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     for declared in snapshot.declaration_snapshot().files() {
@@ -231,4 +232,10 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
         }
         verify::validate(&abi.public_items, identity, &Default::default()).unwrap();
     }
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

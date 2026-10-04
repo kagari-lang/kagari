@@ -5,7 +5,6 @@ use crate::{
         generic::GenericBody,
         witness::{OperationWitness, required_operations},
     },
-    native_import::NativeSignature,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
 use kagari_common::{
@@ -13,7 +12,7 @@ use kagari_common::{
     identity::{DefinitionPath, reference::DefinitionReference},
 };
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
     declaration::verify::types_in_scope,
     ty::{
         GenericBound, GenericParam, Ty,
@@ -32,7 +31,7 @@ pub struct SharedCall<I = DefinitionPath> {
     pub implementation: CallableImplementation<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<Ty<I>>,
-    pub signature: NativeSignature<I>,
+    pub signature: Signature<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub operations: Vec<OperationWitness<I>>,
 }
@@ -71,7 +70,7 @@ impl SharedCall {
     pub fn check(
         &self,
         body: &GenericBody,
-        signature: &NativeSignature,
+        signature: &Signature,
         catalog: &ProofCatalog<'_>,
         parameters: &[GenericParam],
         assumptions: &[GenericBound],

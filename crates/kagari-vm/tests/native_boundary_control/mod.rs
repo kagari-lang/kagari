@@ -6,6 +6,7 @@ use kagari_bytecode::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -63,7 +64,12 @@ fn compile_test_bytecode(text: &str) -> BytecodeProgram {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(native.to_declaration().unwrap())]);
+    analysis.set_native_modules(
+        foundation_catalog::shared()
+            .into_iter()
+            .chain([Arc::new(native.to_declaration().unwrap())])
+            .collect(),
+    );
     analysis.set_host_declarations(
         HostDeclarations::new(HostInterface {
             paths: vec![],

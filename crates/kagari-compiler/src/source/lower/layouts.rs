@@ -9,7 +9,7 @@ use kagari_hir::{
     AnalyzedModule,
     types::{
         NominalType, TypeId, TypeSubstitution,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_mir::function::MirFunction;

@@ -1,14 +1,13 @@
 use super::*;
 use crate::{
     analysis::AnalysisSnapshot, declarations::DeclarationId, resolver::resolved::ResolvedName,
+    tests::test_analysis,
 };
-
-use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::{
-        diagnostic::DiagnosticKind,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_contract::library::catalog as foundation_catalog;
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
 };
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnapshot {
@@ -22,7 +21,7 @@ fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshot
     sources
         .set("main.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = query(&mut db, &sources);
     let module = db
         .native_files
@@ -71,7 +70,7 @@ fn native_declarations_are_shared_across_user_revisions_and_retained_by_snapshot
 #[test]
 fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
     let sources = SourceDatabase::default();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let cancelled = CancellationToken::default();
     cancelled.cancel();
     assert!(matches!(
@@ -102,7 +101,7 @@ fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluatio
     let id = sources
         .set("headers.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let declarations = query(&mut db, &sources);
     let file = declarations.file(id).unwrap();
     assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
@@ -167,7 +166,7 @@ fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
     let dependency = insert("dep", "pub struct Data { val value: i32 }");
     let root = insert("root", "use pkg::dep::Data; fn pass(x: Data) -> Data { x }");
     let unrelated = insert("other", "fn other() -> i32 { 42 }");
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = query(&mut db, &sources);
     assert!(first.file(root).unwrap().diagnostics().is_empty());
     let old = first
@@ -204,7 +203,7 @@ fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
     );
     assert_eq!(first.declaration(&old.id), Some(&old));
     assert_ne!(second.declaration(&old.id).unwrap().location, old.location);
-    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    let fresh = query(&mut test_analysis(), &sources);
     assert_eq!(
         second.file(root).unwrap().diagnostics(),
         fresh.file(root).unwrap().diagnostics()
@@ -225,7 +224,7 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old_source = sources.snapshot();
     let old = query(&mut db, &sources);
     sources
@@ -279,7 +278,7 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -334,4 +333,44 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
             .iter()
             .all(|d| !matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. }))
     );
+}
+
+#[test]
+fn default_analysis_has_no_implicit_native_catalog() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .set(
+            "main.kgr",
+            "fn value(x: Option<i32>) -> Option<i32> { x }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut database = AnalysisDatabase::default();
+    let root = sources.snapshot().files().next().unwrap().id();
+    let declarations = query(&mut database, &sources);
+    assert_eq!(declarations.files().count(), 1);
+    let analyzed = database
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        !analyzed
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    database.set_native_modules(foundation_catalog::shared());
+    let installed = database
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        installed
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    assert_eq!(declarations.files().count(), 1);
 }

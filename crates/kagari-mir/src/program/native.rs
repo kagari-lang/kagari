@@ -10,14 +10,14 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
 };
 use kagari_contract::{
-    native_import::{NativeSignature, callables::NativeCallableOrigin},
+    native_import::callables::NativeCallableOrigin,
     types::{
         ConcreteFunctionIdentity, PublicItem,
         proofs::{ProofCatalog, implementation::Implementation},
     },
 };
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
     ty::{
         GenericParam,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -294,7 +294,7 @@ fn native_slots_valid(
                 name: method.name.clone(),
                 occurrence: 0,
             });
-            let signature = NativeSignature {
+            let signature = Signature {
                 params: method
                     .params
                     .iter()
@@ -359,7 +359,7 @@ fn native_slots_valid(
                 {
                     substitution.bind(&parameter.owner, parameter.position, argument);
                 }
-                let actual = NativeSignature {
+                let actual = Signature {
                     params: target
                         .signature
                         .params

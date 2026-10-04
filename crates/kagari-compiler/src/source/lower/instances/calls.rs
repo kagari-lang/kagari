@@ -1,21 +1,19 @@
 //! Plan ordinary calls into canonical shared entries when caller types are symbolic.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{identity::DefinitionPath, span::Span};
-use kagari_contract::{
-    callable::shared::SharedCall, native_import::NativeSignature, types::ConcreteFunctionIdentity,
-};
+use kagari_contract::{callable::shared::SharedCall, types::ConcreteFunctionIdentity};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
-    types::{GenericParameterType, TypeId, TypeSubstitution, abi::lower_type},
+    types::{GenericParameterType, TypeId, TypeSubstitution, semantic::lower_type},
 };
-use kagari_types::callable::CallableImplementation;
+use kagari_types::callable::{CallableImplementation, Signature};
 
 impl InstancePlanner<'_> {
     pub(crate) fn shared_call(
         &mut self,
         declaration: &DefinitionPath,
         arguments: &[TypeId],
-        signature: NativeSignature,
+        signature: Signature,
         span: Span,
     ) -> Result<SharedCall, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("shared function declaration");

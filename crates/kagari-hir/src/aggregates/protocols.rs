@@ -3,17 +3,20 @@ use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
     types::{
         NominalType, TypeId, TypeSubstitution,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::native_import::{NativeSignature, protocol::adapter_contract};
-use kagari_types::{declaration::requirement::NativeCallableRequirement, language::Protocol};
+use kagari_types::{
+    callable::Signature,
+    declaration::requirement::NativeCallableRequirement,
+    language::{Protocol, adapter::adapter_contract},
+};
 
 pub struct ImplicitProtocolApplication {
     pub kind: Protocol,
     pub requirement: NativeCallableRequirement,
-    pub signature: NativeSignature,
+    pub signature: Signature,
 }
 
 impl AggregateCatalog {
@@ -71,7 +74,7 @@ impl AggregateCatalog {
                 ),
             )
         };
-        let signature = NativeSignature {
+        let signature = Signature {
             params: method
                 .params
                 .iter()

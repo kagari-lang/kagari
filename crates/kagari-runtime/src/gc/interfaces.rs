@@ -9,8 +9,10 @@ use crate::{
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::native_import::NativeSignature;
-use kagari_types::ty::{GenericParam, NominalTy, Ty};
+use kagari_types::{
+    callable::Signature,
+    ty::{GenericParam, NominalTy, Ty},
+};
 use std::{cell::OnceCell, rc::Rc};
 
 #[derive(Debug, Clone)]
@@ -60,7 +62,7 @@ pub(crate) struct InterfaceValueSnapshot {
 
 #[derive(Debug)]
 pub(crate) struct MethodApplication {
-    pub(crate) signature: NativeSignature<DefinitionId>,
+    pub(crate) signature: Signature<DefinitionId>,
     pub(crate) scoped_signature: Option<ScopedSignature>,
     pub(crate) environment: Option<Rc<TypeEnvironment>>,
     pub(crate) result_adapter: Option<InterfaceResultBinding>,

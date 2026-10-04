@@ -13,10 +13,9 @@ use crate::{
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
-use kagari_contract::{
-    callable::generic::GenericBody, native_import::NativeSignature, standard::RuntimePrimitive,
-};
+use kagari_contract::{callable::generic::GenericBody, standard::RuntimePrimitive};
 use kagari_types::{
+    callable::Signature,
     declaration::requirement::NativeCallableRequirement,
     ty::{GenericParam, NominalTy, Ty, substitution::substitute_parameters},
 };
@@ -35,7 +34,7 @@ pub(crate) struct BoundOperation {
     pub(crate) primitive: Option<RuntimePrimitive>,
     pub(crate) owner: LoadedModule,
     pub(crate) target: CallableTarget,
-    pub(crate) signature: NativeSignature<DefinitionId>,
+    pub(crate) signature: Signature<DefinitionId>,
     pub(crate) retention: Rc<RetainedRuntimeProgram>,
 }
 

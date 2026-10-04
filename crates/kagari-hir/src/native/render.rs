@@ -1,15 +1,16 @@
 //! Native declaration views combined with authoritative handwritten core traits.
-use kagari_contract::library::catalog;
 mod core;
 use crate::{
     language::source::module_source,
-    native::render::core::{core_text, record_sites},
+    native::{
+        paths::module_path,
+        render::core::{core_text, record_sites},
+    },
 };
 use kagari_common::{
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, associated_type_id},
     span::Span,
 };
-use kagari_contract::library::namespaces;
 use kagari_types::{
     collection::CollectionAccess,
     declaration::{
@@ -17,6 +18,7 @@ use kagari_types::{
         module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
     },
+    language,
     language::{Protocol, role::LangRole},
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
@@ -45,11 +47,7 @@ pub struct DeclarationSource {
     pub sites: BTreeMap<DefinitionPath, NativeDeclarationSite>,
 }
 
-pub fn declaration_source(module: &ModuleDecl) -> Result<DeclarationSource, DeclarationError> {
-    declaration_source_with_providers(module, &catalog::shared())
-}
-
-pub(crate) fn declaration_source_with_providers(
+pub fn declaration_source(
     module: &ModuleDecl,
     providers: &[Arc<ModuleDecl>],
 ) -> Result<DeclarationSource, DeclarationError> {
@@ -84,12 +82,12 @@ impl DeclarationView<'_> {
                 .join("::");
             output.text.push_str(&format!(
                 "pub use {}::{} as {};\n",
-                namespaces::source_module(&target.module),
+                module_path(&target.module, self.providers),
                 path,
                 name
             ));
         }
-        if namespaces::is_language_module(&self.identity) {
+        if language::is_language_module(&self.identity) {
             let (_, source) = module_source(&self.identity.path[0]);
             for line in source.lines().filter(|line| line.starts_with("use ")) {
                 output.text.push_str(line);
@@ -175,7 +173,7 @@ impl DeclarationView<'_> {
         }
         for item in &self.traits {
             let id = self.definition(DefinitionKind::Trait, &item.name);
-            if namespaces::is_language_module(&self.identity)
+            if language::is_language_module(&self.identity)
                 && let Some(role) = Protocol::from_id(&id).and_then(LangRole::from_protocol)
             {
                 output.text.push_str(&core_text(role));
@@ -288,7 +286,7 @@ impl DeclarationView<'_> {
             text: output.text,
             sites: output.sites,
         };
-        if namespaces::is_language_module(&self.identity) {
+        if language::is_language_module(&self.identity) {
             record_sites(&mut source, self);
         }
         Ok(source)
@@ -448,7 +446,7 @@ impl DeclarationView<'_> {
         };
         Ok(format!(
             "{}::{}",
-            namespaces::source_module(&provider.identity),
+            module_path(&provider.identity, self.providers),
             ty.name
         ))
     }
@@ -464,7 +462,7 @@ impl DeclarationView<'_> {
         } else {
             format!(
                 "{}::{}",
-                namespaces::source_module(&ty.declaration.module),
+                module_path(&ty.declaration.module, self.providers),
                 name.name
             )
         };

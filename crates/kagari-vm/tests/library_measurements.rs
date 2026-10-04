@@ -1,5 +1,6 @@
 //! Reproducible end-to-end interpreter samples; compilation/input creation are excluded.
 //! Run with --ignored --nocapture --test-threads=1. This is not a JIT benchmark.
+use kagari_contract::library::catalog as foundation_catalog;
 mod native_allocations_counter;
 use kagari_common::identity::DefinitionPath;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -20,7 +21,7 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = analysis_database();
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -186,4 +187,10 @@ fn compare_rust_native_and_script_stable_sorting() {
     }
     drop(root);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

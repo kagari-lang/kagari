@@ -1,14 +1,13 @@
 use super::*;
-use crate::analysis::ownership;
 use crate::{
+    analysis::ownership,
     declarations::DeclarationId,
     resolver::resolved::ResolvedName,
+    tests::test_analysis,
     typeck::table::{CallTarget, ConstraintTarget},
 };
-use {
-    kagari_common::identity::DefinitionPath,
-    kagari_source::source_database::{SourceDatabase, SourceLayer},
-};
+use kagari_common::identity::DefinitionPath;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 const SOURCE: &str = "trait Get { fn get(self) -> i32; } struct Point { val n: i32 } impl Get for Point { fn get(self) -> i32 { self.n } } fn read<T: Get>(p: T) -> i32 { p.get() } fn main() -> i32 { read(Point { n: 7 }) }";
 
@@ -61,7 +60,7 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
     let right = sources
         .set("right.kgr", SOURCE.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let a = snapshot.file(left).unwrap();
     let b = snapshot.file(right).unwrap();
     for file in [a, b] {
@@ -143,7 +142,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
     let file = sources
         .set("reorder.kgr", SOURCE.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_before = old
         .file(file)
@@ -224,7 +223,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
     let file = sources
         .set("cache.kgr", SOURCE.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_before = old
         .file(file)
@@ -287,7 +286,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         old_call.1.receiver.unwrap().arena(),
         new_call.receiver.unwrap().arena()
     );
-    let fresh = AnalysisDatabase::default()
+    let fresh = test_analysis()
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();

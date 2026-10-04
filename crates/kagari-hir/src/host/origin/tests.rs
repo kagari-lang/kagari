@@ -1,9 +1,9 @@
 use super::*;
 use crate::{
-    analysis::AnalysisDatabase,
     callable::CallableSignature,
     host::{HostDeclarations, tests::declaration},
     native::NativeBinding,
+    tests::test_analysis,
     typeck::FunctionImplementation,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -135,7 +135,7 @@ fn origin_changes_are_snapshot_owned_and_never_change_native_authority() {
         .set("origin-query.kgr", text.into(), SourceLayer::Base)
         .unwrap();
 
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     database.set_host_declarations(old.clone());
     let first = database
         .snapshot(sources.snapshot(), &Default::default())

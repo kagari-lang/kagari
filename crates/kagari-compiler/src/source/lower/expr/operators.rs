@@ -19,7 +19,7 @@ use kagari_hir::{
     typeck::table::CallTarget as HirCallTarget,
     types::{
         NominalType, TypeId, TypeSubstitution,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_mir::instruction::{

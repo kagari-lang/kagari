@@ -24,7 +24,7 @@ use kagari_hir::{
     typeck::table::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
     types::{
         TypeId,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_mir::instruction::{

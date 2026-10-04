@@ -5,6 +5,7 @@ pub mod source;
 use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, runtime::KagariRuntime,
 };
+use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::module::NativeModule};
 
 #[cfg(feature = "source")]
 use kagari_hir::analysis::AnalysisDatabase;
@@ -12,7 +13,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_hir::native::render::{DeclarationSource, declaration_source};
 #[cfg(feature = "source")]
 use kagari_runtime::native::foundation;
-use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::module::NativeModule};
+
 #[cfg(feature = "source")]
 use kagari_source::source_database::SourceDatabase;
 #[cfg(feature = "source")]
@@ -83,12 +84,16 @@ impl KagariEngine {
 
     #[cfg(feature = "source")]
     pub fn native_declaration_sources(&self) -> Vec<DeclarationSource> {
-        self.foundation
+        let providers = self
+            .foundation
             .iter()
             .chain(&self.native_modules)
+            .map(|module| Arc::new(module.to_declaration().expect("checked module identities")))
+            .collect::<Vec<_>>();
+        providers
+            .iter()
             .map(|module| {
-                declaration_source(&module.to_declaration().expect("checked module identities"))
-                    .expect("checked module presentation")
+                declaration_source(module, &providers).expect("checked module presentation")
             })
             .collect()
     }

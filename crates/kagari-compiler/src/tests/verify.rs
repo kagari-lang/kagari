@@ -10,7 +10,7 @@ use kagari_bytecode::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{contracts::ContractError, effects::EffectSet, operations::BinaryOp};
-use kagari_hir::types::abi::lower_type;
+use kagari_hir::types::semantic::lower_type;
 use kagari_mir::{
     function::{MirModule, MirTemp},
     ids::{BlockId, InstanceId, LocalId, TempId},

@@ -9,7 +9,7 @@ use kagari_hir::{
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
     language::semantics::ProtocolSemantics,
     resolver::resolved::ResolvedName,
-    types::{TypeId, abi::lower_nominal_type},
+    types::{TypeId, semantic::lower_nominal_type},
 };
 use kagari_mir::{
     ids::LocalId,
@@ -197,19 +197,26 @@ impl FunctionLowerer<'_, '_> {
                         self.function.debug.source_span,
                     )?
                     .remove(0);
-                if let Some(item) = array_bridge::list_item(&receiver) {
+                if let Some(item) = array_bridge::list_item(&receiver, &self.analyzed.declarations)
+                {
                     let mut read = Protocol::Index.nominal();
                     read.arguments.push(TypeId::Builtin(BuiltinType::USize));
                     read.associated_types.insert(
                         identity::associated_type_id(&read.declaration, "Output"),
                         item.clone(),
                     );
-                    let write = if array_bridge::writable_list(&receiver) {
-                        let write = array_bridge::list_interface(item.clone(), true);
-                        Some(lower_nominal_type(&write))
-                    } else {
-                        None
-                    };
+                    let write =
+                        if array_bridge::writable_list(&receiver, &self.analyzed.declarations) {
+                            let write = array_bridge::list_interface(
+                                item.clone(),
+                                true,
+                                &self.analyzed.declarations,
+                            )
+                            .expect("checked writable array interface");
+                            Some(lower_nominal_type(&write))
+                        } else {
+                            None
+                        };
                     let index = self.lower_expr(index)?;
                     if self.current_block_terminated() {
                         return Ok(None);

@@ -4,11 +4,12 @@ use crate::{
     analysis::ownership,
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
-    tests::native as fixture,
+    tests::{native as fixture, test_analysis},
     typeck::table::CallTarget,
     types::NominalType,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -29,8 +30,17 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 }
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    if db.native_modules.is_empty() {
-        db.set_native_modules(vec![fixture::module()]);
+    if !db
+        .native_modules
+        .iter()
+        .any(|module| module.identity == fixture::module().identity)
+    {
+        db.set_native_modules(
+            foundation_catalog::shared()
+                .into_iter()
+                .chain([fixture::module()])
+                .collect(),
+        );
     }
     db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
@@ -44,7 +54,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         "root",
         "use demo::native::NativeRead; trait Local { fn required(self) -> i32; fn map(self) -> i32 { 1 } fn join(self) -> i32 { 2 } } struct Point {} impl Local for Point { fn required(self) -> i32 { 3 } fn join(self) -> i32 { 4 } }",
     );
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -90,7 +100,9 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         let source = snapshot.source(method.declaration.location.file).unwrap();
         assert_eq!(
             source.name(),
-            declaration_source(&fixture::module()).unwrap().uri
+            declaration_source(&fixture::module(), &foundation_catalog::shared())
+                .unwrap()
+                .uri
         );
         let range = method.declaration.location.range;
         assert_eq!(&source.text()[range.start..range.end], name);
@@ -131,7 +143,7 @@ fn native_defaults_do_not_create_script_implementation_bodies() {
         "root",
         "use demo::native::NativeRead; struct Values {} impl NativeRead for Values {}",
     );
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -167,7 +179,7 @@ fn installed_non_overridable_default_rejects_a_script_replacement() {
         "root",
         "use demo::native::NativeRead; struct Values {} impl NativeRead for Values { fn fixed(self) -> i32 { 7 } }",
     );
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();
     assert!(file.result().diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind,
@@ -182,7 +194,7 @@ fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
     let mut sources = SourceDatabase::default();
     let text = "trait Action { fn act(self) -> i32; } struct Point {} impl Action for Point {}";
     let root = insert(&mut sources, "root", text);
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     sources
         .set(
@@ -227,7 +239,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
         "root",
         "use std::hash::Hash; trait Reader<T: Eq + Hash> { fn read<U>(self, value: U) -> U where U: Missing + Eq + Hash; }",
     );
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();
     assert_eq!(file.result().diagnostics().len(), 1);
     assert_eq!(
@@ -284,7 +296,7 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
     insert(&mut sources, "facade", "pub use pkg::left::View;");
     let text = "use pkg::facade::View as L; use pkg::right::View as R; fn left(x: L) -> i32 { x.read(7) } fn right(x: R) -> String { x.read(\"ok\") } fn copy(x: L) -> L { x.copy() } fn bad(x: L) -> i32 { x.read(true) }";
     let root = insert(&mut sources, "root", text);
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(root).unwrap();
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.facts();
@@ -373,7 +385,7 @@ fn invalid_method_parameter_does_not_discard_later_parameters_or_cascade_errors(
     );
     let text = "use pkg::lib::View; fn bad(x: View) -> i32 { x.read(true, \"wrong\") } fn good(x: i32) -> i32 { x }";
     let root = insert(&mut sources, "root", text);
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();
     let authoring_method = file.to_unverified(&Default::default()).unwrap();
     let method = &authoring_method
@@ -412,7 +424,7 @@ fn ambiguous_methods_have_no_call_target_and_duplicate_bounds_do_not_create_ambi
         );
         let mut sources = SourceDatabase::default();
         let file = insert(&mut sources, "root", &text);
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let file = snapshot.file(file).unwrap();
         assert!(
             file.result()
@@ -451,7 +463,7 @@ fn ambiguous_methods_have_no_call_target_and_duplicate_bounds_do_not_create_ambi
         "root",
         "trait Left { fn get(self) -> i32; } fn read<T: Left + Left>(x: T) -> i32 { x.get() }",
     );
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     assert!(
         snapshot
             .file(file)
@@ -470,7 +482,7 @@ fn duplicate_trait_and_impl_methods_are_diagnosed_before_codegen() {
     ] {
         let mut sources = SourceDatabase::default();
         let file = insert(&mut sources, "root", text);
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let file = snapshot.file(file).unwrap();
         assert!(
             file.result()
@@ -489,7 +501,7 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
     insert(&mut sources, "lib", library);
     let text = "use pkg::lib::View; fn read(x: View) -> i32 { x.read() } fn helper() {}";
     let root = insert(&mut sources, "root", text);
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_before = old
         .file(root)
@@ -565,7 +577,7 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
             .iter()
             .any(|d| d.kind.code() == "KG_TYPE_RETURN_TYPE_MISMATCH")
     );
-    let fresh = AnalysisDatabase::default()
+    let fresh = test_analysis()
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();

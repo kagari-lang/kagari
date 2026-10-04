@@ -1,5 +1,7 @@
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
+use kagari_contract::library::catalog as foundation_catalog;
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_types::host_interface::value_type::HostValueType;
 
 #[test]
@@ -380,7 +382,7 @@ fn host_trait_bounds_use_imported_script_implementations() {
             .unwrap();
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
-    let snapshot = kagari_hir::analysis::AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot
@@ -451,4 +453,10 @@ fn program_rejects_conflicting_host_types_before_linking() {
         verify_program(&program(conflict)),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

@@ -1,19 +1,9 @@
 //! Checked native applications. Declarations own signatures; IDs select installed entries.
-use {
-    crate::{
-        callable::{generic::GenericBody, witness::OperationWitness},
-        native_import::{linked::matches_declaration, result::NativeResultAdapter},
-        types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
-    },
-    kagari_types::{
-        declaration::{
-            NativeDeclaration,
-            verify::{native_bounds_valid, types_in_scope},
-        },
-        ty::{GenericBound, Ty, substitution::TypeTransformError},
-    },
+use crate::{
+    callable::{generic::GenericBody, witness::OperationWitness},
+    native_import::{linked::matches_declaration, result::NativeResultAdapter},
+    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
-
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -21,7 +11,15 @@ use kagari_common::{
         reference::DefinitionReference,
     },
 };
-use kagari_types::host_interface::HostFunctionDeclaration;
+use kagari_types::{
+    callable::Signature,
+    declaration::{
+        NativeDeclaration,
+        verify::{native_bounds_valid, types_in_scope},
+    },
+    host_interface::HostFunctionDeclaration,
+    ty::{GenericBound, Ty, substitution::TypeTransformError},
+};
 use serde::{Deserialize, Serialize};
 
 pub mod callables;
@@ -47,17 +45,6 @@ pub fn binding_id(module: &ModuleIdentity, name: &str) -> DefinitionPath {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct NativeSignature<I = DefinitionPath> {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub params: Vec<Ty<I>>,
-    pub result: Ty<I>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
 pub struct NativeImport<I = DefinitionPath> {
     /// Convert a validated Rust body result using this preselected interface table.
     pub result_adapter: Option<NativeResultAdapter<I>>,
@@ -65,7 +52,7 @@ pub struct NativeImport<I = DefinitionPath> {
     pub generic: Option<GenericBody<I>>,
     pub instance: ConcreteFunctionIdentity<I>,
     pub binding: I,
-    pub signature: NativeSignature<I>,
+    pub signature: Signature<I>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub requirements: Vec<GenericBound<I>>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -84,7 +71,7 @@ impl NativeImport {
                 arguments: vec![],
             },
             binding: declaration.id.clone(),
-            signature: NativeSignature {
+            signature: Signature {
                 params: declaration
                     .params
                     .iter()

@@ -66,6 +66,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ModuleDecl<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(ModuleDecl {
+            prelude: self.prelude,
             identity: self.identity.clone(),
             package_alias: self.package_alias.clone(),
             dependencies: self.dependencies.clone(),

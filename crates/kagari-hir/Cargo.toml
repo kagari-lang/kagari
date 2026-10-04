@@ -7,10 +7,11 @@ license.workspace = true
 [dependencies]
 kagari-types.workspace = true
 kagari-source.workspace = true
-kagari-abi.workspace = true
-kagari-contract.workspace = true
 kagari-common.workspace = true
 kagari-syntax.workspace = true
 serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+kagari-contract.workspace = true

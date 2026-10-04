@@ -1,4 +1,5 @@
 use super::{Probe, program, run};
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -265,14 +266,24 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
                 == kagari_contract::library::namespaces::module("std", "collections")
         })
         .unwrap();
-    let generated = declaration_source(&library.to_declaration().unwrap()).unwrap();
+    let generated = declaration_source(
+        &library.to_declaration().unwrap(),
+        &foundation_catalog::shared(),
+    )
+    .unwrap();
     let text = "use std::collections::map; fn main() { val cursor = map([1], |x| x); cursor. }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("completion.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(library.to_declaration().unwrap())]);
+    analysis.set_native_modules(
+        foundation_catalog::shared()
+            .into_iter()
+            .filter(|installed| installed.identity != library.declaration().identity)
+            .chain([Arc::new(library.to_declaration().unwrap())])
+            .collect(),
+    );
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

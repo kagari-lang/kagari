@@ -17,7 +17,7 @@ use kagari_hir::{
     },
     resolver::resolved::ResolvedName,
     typeck::TypedFunction,
-    types::{TypeId, abi::lower_type},
+    types::{TypeId, semantic::lower_type},
 };
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},

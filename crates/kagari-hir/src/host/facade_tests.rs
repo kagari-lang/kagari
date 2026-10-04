@@ -1,11 +1,9 @@
 use super::*;
-use crate::analysis::AnalysisDatabase;
-use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::{
-        identity::FileId,
-        source_database::{SourceDatabase, SourceLayer},
-    },
+use crate::tests::test_analysis;
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::{
+    identity::FileId,
+    source_database::{SourceDatabase, SourceLayer},
 };
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
@@ -37,7 +35,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     );
     let text = "use pkg::relay::call as invoke; use pkg::relay::service as api; use pkg::relay; fn main() -> i32 { invoke(api::echo(relay::call(relay::service::echo(1)))) }";
     let root = insert(&mut sources, "root", text);
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let declaration = super::tests::declaration();
     db.set_host_declarations(
         HostDeclarations::new(HostInterface {
@@ -115,7 +113,7 @@ fn host_facades_do_not_override_local_shadowing_or_duplicate_export_errors() {
         insert(&mut sources, "facade", facade);
         let text = "use pkg::facade::invoke; fn bad() { val invoke = 1; invoke(2); } fn good() -> i32 { 7 }";
         let root = insert(&mut sources, "root", text);
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         db.set_host_declarations(
             HostDeclarations::new(HostInterface {
                 paths: vec![],

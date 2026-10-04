@@ -6,8 +6,8 @@ use crate::{
         stmt::StmtKind,
     },
     resolver::{collect::resolve_names, resolved::ResolvedName},
+    tests::test_analysis,
 };
-
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
@@ -17,7 +17,7 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
     let id = sources
         .set("owners.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();

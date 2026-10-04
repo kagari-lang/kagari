@@ -1,5 +1,5 @@
 use super::tests::{analyze, insert};
-use crate::{analysis::AnalysisDatabase, types::TypeId};
+use crate::{tests::test_analysis, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -240,7 +240,7 @@ fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
         "unrelated",
         "struct Data { var count: bool } fn unrelated() -> i32 { 0 }",
     );
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();

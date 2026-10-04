@@ -1,4 +1,4 @@
-use kagari_contract::library::namespaces;
+use kagari_contract::library::{catalog as foundation_catalog, namespaces};
 use kagari_hir::native::render::declaration_source;
 use kagari_runtime::{
     Runtime,
@@ -39,9 +39,12 @@ fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
     module.bind(function, add).unwrap();
     let module = module.finish().unwrap();
     module.install(&mut Runtime::default()).unwrap();
-    let text = declaration_source(&module.to_declaration().unwrap())
-        .unwrap()
-        .text;
+    let text = declaration_source(
+        &module.to_declaration().unwrap(),
+        &foundation_catalog::shared(),
+    )
+    .unwrap()
+    .text;
     assert!(
         text.contains("fn add(left: i32, right: i32) -> i32"),
         "{text}"
@@ -225,10 +228,13 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
     module.install(&mut runtime).unwrap();
     assert!(module.install(&mut runtime).is_err());
     assert!(
-        declaration_source(&module.to_declaration().unwrap())
-            .unwrap()
-            .text
-            .contains("type Output = usize")
+        declaration_source(
+            &module.to_declaration().unwrap(),
+            &foundation_catalog::shared()
+        )
+        .unwrap()
+        .text
+        .contains("type Output = usize")
     );
 }
 

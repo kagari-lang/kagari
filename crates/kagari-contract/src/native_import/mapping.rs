@@ -1,5 +1,5 @@
 //! Contextual identity traversal of the owning metadata records.
-use crate::native_import::{NativeImport, NativeSignature};
+use crate::native_import::NativeImport;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -9,34 +9,6 @@ use kagari_common::{
         reference::DefinitionReference,
     },
 };
-
-impl<I: DefinitionReference> DefinitionRecord<I> for NativeSignature<I> {
-    type Rebind<J: DefinitionReference> = NativeSignature<J>;
-
-    fn map_identities<J: DefinitionReference>(
-        &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(NativeSignature {
-            params: map_sequence(&self.params, |value| (value).map_identities(mapper))?,
-            result: self.result.map_identities(mapper)?,
-        })
-    }
-
-    fn visit_definitions(
-        &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        for value0 in &self.params {
-            (value0).visit_definitions(visit, cancel)?;
-        }
-        self.result.visit_definitions(visit, cancel)?;
-        Ok(())
-    }
-}
 
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeImport<I> {
     type Rebind<J: DefinitionReference> = NativeImport<J>;

@@ -4,7 +4,7 @@ use kagari_bytecode::{
     module::CallableTarget,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::types::PublicItem;
+use kagari_contract::{library::catalog as foundation_catalog, types::PublicItem};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::{
     source::SourceFile,
@@ -21,7 +21,7 @@ fn main() {
     let root = sources
         .set(source.name(), source.text().into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot");
     let checked = snapshot
@@ -73,4 +73,10 @@ fn main() {
         .expect("decoded artifact")
         .validate_for_loader(&ArtifactCompatibility::default())
         .expect("loadable artifact");
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

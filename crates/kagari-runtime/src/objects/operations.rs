@@ -10,11 +10,10 @@ use crate::{
     objects::calls,
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_contract::{
-    callable::witness::OperationWitness, native_import::NativeSignature, types as abi,
-    types::PublicItem,
+use kagari_contract::{callable::witness::OperationWitness, types as abi, types::PublicItem};
+use kagari_types::{
+    callable::Signature, declaration::requirement::NativeCallableRequirement, ty::Ty,
 };
-use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{
     cell::OnceCell,
     rc::{Rc, Weak},
@@ -185,7 +184,7 @@ impl Runtime {
                     primitive: None,
                     owner: owner.clone(),
                     target: slot.target,
-                    signature: NativeSignature {
+                    signature: Signature {
                         params: method
                             .params
                             .iter()

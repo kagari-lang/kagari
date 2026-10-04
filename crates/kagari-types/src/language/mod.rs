@@ -6,6 +6,7 @@ use kagari_common::identity::{
     ModuleIdentity, PackageId, reference::DefinitionReference, table::DefinitionTable,
 };
 
+pub mod adapter;
 pub mod role;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -172,4 +173,11 @@ impl Protocol {
     pub fn equality_protocol(self) -> bool {
         matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
     }
+}
+
+/// Only canonical reserved-role owners can provide language foundation source.
+pub fn is_language_module(module: &ModuleIdentity) -> bool {
+    Protocol::ALL
+        .into_iter()
+        .any(|kind| identity(kind).module == *module)
 }

@@ -8,15 +8,17 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
     callable::generic::GenericBody,
-    native_import::NativeSignature,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
-use kagari_types::{callable::CallableImplementation, ty::substitution::TypeTransformError};
+use kagari_types::{
+    callable::{CallableImplementation, Signature},
+    ty::substitution::TypeTransformError,
+};
 
 pub(crate) struct SharedEntry<'a> {
     pub identity: &'a ConcreteFunctionIdentity,
     pub body: &'a GenericBody,
-    pub signature: NativeSignature,
+    pub signature: Signature,
     pub implementation: CallableImplementation,
 }
 
@@ -28,7 +30,7 @@ pub(crate) fn entry(module: &BytecodeModule, target: CallableTarget) -> Option<S
             SharedEntry {
                 identity: function.identity.as_ref()?,
                 body: semantic.generic.as_ref()?,
-                signature: NativeSignature {
+                signature: Signature {
                     params: (0..function.metadata.params.len())
                         .map(|index| semantic.params.get(&index).cloned())
                         .collect::<Option<_>>()?,

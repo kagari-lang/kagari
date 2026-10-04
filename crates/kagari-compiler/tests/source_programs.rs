@@ -10,7 +10,10 @@ use kagari_compiler::{
         program::{SourceProgramError, lower_program_to_mir},
     },
 };
-use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem};
+use kagari_contract::{
+    library::catalog as foundation_catalog,
+    types::{ConcreteFunctionIdentity, PublicItem},
+};
 use kagari_hir::{
     analysis::AnalysisDatabase,
     program::{CheckedProgram, ProgramCheckError},
@@ -45,7 +48,7 @@ fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 }
 
 fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
-    AnalysisDatabase::default()
+    analysis_database()
         .snapshot(db.snapshot(), &Default::default())
         .unwrap()
         .check_program(root, &Default::default())
@@ -552,7 +555,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
         "root",
         "use pkg::dependency::value; fn main() -> i32 { value() }",
     );
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis = analysis_database();
     let old = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
@@ -740,4 +743,10 @@ fn portable_inline_module_origins_keep_physical_offsets() {
             .iter()
             .any(|entry| entry.source_offset == value && entry.line == Some(3))
     );
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

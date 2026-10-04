@@ -7,3 +7,12 @@ mod resolver;
 mod typeck;
 
 pub(crate) mod native;
+
+use crate::analysis::AnalysisDatabase;
+use kagari_contract::library::catalog;
+
+pub(crate) fn test_analysis() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(catalog::shared());
+    database
+}

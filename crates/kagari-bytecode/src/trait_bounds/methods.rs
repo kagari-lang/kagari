@@ -1,12 +1,9 @@
 //! Validate entry argument mappings and signatures in each interface slot.
 use crate::module::{BytecodeModule, CallableTarget};
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::{
-    native_import::NativeSignature,
-    types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
-};
+use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog};
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
     declaration::verify::types_in_scope,
     ty::{
         Ty,
@@ -48,7 +45,7 @@ pub(super) fn valid(
                     (
                         identity,
                         semantic.generic.as_ref(),
-                        NativeSignature { params, result },
+                        Signature { params, result },
                     )
                 }
                 CallableTarget::Native(target) => {
@@ -94,7 +91,7 @@ pub(super) fn valid(
             let normalize = |ty: &Ty, substitution: &TypeSubstitution| {
                 catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
             };
-            let expected = NativeSignature {
+            let expected = Signature {
                 params: method
                     .params
                     .iter()
@@ -102,7 +99,7 @@ pub(super) fn valid(
                     .collect::<Result<_, _>>()?,
                 result: normalize(&method.return_type, &applied)?,
             };
-            let actual = NativeSignature {
+            let actual = Signature {
                 params: signature
                     .params
                     .iter()

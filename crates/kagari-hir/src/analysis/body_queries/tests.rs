@@ -1,5 +1,5 @@
 use super::*;
-use crate::{analysis::ownership, declarations::DeclarationId};
+use crate::{analysis::ownership, declarations::DeclarationId, tests::test_analysis};
 use kagari_common::identity::DefinitionPath;
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -54,7 +54,7 @@ fn unrelated_applied_bound_errors_stay_in_the_signature_snapshot() {
     let file = sources
         .set("application.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let good = owner(&mut db, &sources, file, "good");
     let result = query(&mut db, &sources, &good);
     assert_eq!(result.checked_bodies(), 1);
@@ -85,7 +85,7 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
     let id = sources
         .set("single.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let good = owner(&mut db, &sources, id, "good");
     let result = query(&mut db, &sources, &good);
     assert_eq!(result.checked_bodies(), 1);
@@ -143,7 +143,7 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     let id = sources
         .set("reuse.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let good = owner(&mut db, &sources, id, "good");
     let first = query(&mut db, &sources, &good);
     let old_local = first
@@ -165,7 +165,7 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     assert!(second.diagnostics().is_empty());
     assert!(second.declarations().get(&old_local.id).is_none());
     assert_eq!(first.declarations().get(&old_local.id), Some(&old_local));
-    let fresh = query(&mut AnalysisDatabase::default(), &sources, &good);
+    let fresh = query(&mut test_analysis(), &sources, &good);
     ownership::paths(
         second.type_table(),
         second.definitions(),
@@ -199,7 +199,7 @@ fn incomplete_member_query_keeps_receiver_and_constants_report_prerequisite_fail
     let id = sources
         .set("member.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let member = owner(&mut db, &sources, id, "member");
     let result = query(&mut db, &sources, &member);
     assert!(matches!(
@@ -242,7 +242,7 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
     let root = sources
         .set("mem://root", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let dep_owner = owner(&mut db, &sources, dependency, "value");
     let root_owner = owner(&mut db, &sources, root, "value");
     assert_ne!(dep_owner, root_owner);
@@ -268,7 +268,7 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
         Some(TypeId::Builtin(BuiltinType::Bool))
     );
     assert!(!second.diagnostics().is_empty());
-    let fresh = query(&mut AnalysisDatabase::default(), &sources, &root_owner);
+    let fresh = query(&mut test_analysis(), &sources, &root_owner);
     ownership::paths(
         second.type_table(),
         second.definitions(),
@@ -290,7 +290,7 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
     let id = sources
         .set("methods.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -341,7 +341,7 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
         let result = query(&mut db, &sources, &method);
         assert_eq!(result.checked_bodies(), 0);
         assert_eq!(result.reused_bodies(), 1);
-        let fresh = query(&mut AnalysisDatabase::default(), &sources, &method);
+        let fresh = query(&mut test_analysis(), &sources, &method);
         ownership::paths(
             result.type_table(),
             result.definitions(),
@@ -368,7 +368,7 @@ fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let value = owner(&mut db, &sources, id, "value");
     let old_source = sources.snapshot();
     let old = query(&mut db, &sources, &value);
@@ -414,7 +414,7 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
         let file = sources
             .set("place-member.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         let edit = owner(&mut db, &sources, file, "edit");
         let original = query(&mut db, &sources, &edit);
         let cached = query(&mut db, &sources, &edit);
@@ -467,7 +467,7 @@ fn associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot() 
     let file = sources
         .set("associated-edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let main = owner(&mut db, &sources, file, "main");
     let first = query(&mut db, &sources, &main);
     assert!(first.diagnostics().is_empty(), "{:?}", first.diagnostics());
@@ -490,6 +490,6 @@ fn associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot() 
         Some(TypeId::Builtin(BuiltinType::Bool))
     );
     assert!(first.diagnostics().is_empty());
-    let fresh = query(&mut AnalysisDatabase::default(), &sources, &main);
+    let fresh = query(&mut test_analysis(), &sources, &main);
     assert_eq!(second.diagnostics(), fresh.diagnostics());
 }

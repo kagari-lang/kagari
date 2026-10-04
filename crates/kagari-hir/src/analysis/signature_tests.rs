@@ -1,5 +1,5 @@
 use super::*;
-use crate::analysis::ownership;
+use crate::{analysis::ownership, tests::test_analysis};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -8,7 +8,7 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
-    let fresh = snapshot(&mut AnalysisDatabase::default(), sources);
+    let fresh = snapshot(&mut test_analysis(), sources);
     let fresh = fresh.file(file.source().id()).unwrap();
     ownership::paths(
         file.signatures().as_ref(),
@@ -70,7 +70,7 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
     let id = sources
         .set("signatures.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = snapshot(&mut db, &sources);
     assert!(!first.file(id).unwrap().signatures_reused());
     assert!(
@@ -121,7 +121,7 @@ fn erroneous_signatures_reuse_with_rebased_diagnostics_and_fresh_body_errors() {
     let id = sources
         .set("errors.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = snapshot(&mut db, &sources);
     assert!(
         !first
@@ -157,7 +157,7 @@ fn cancelled_or_older_queries_cannot_replace_signature_cache() {
         )
         .unwrap();
     let old_source = sources.snapshot();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     snapshot(&mut db, &sources);
     sources
         .set(

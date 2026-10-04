@@ -3,10 +3,11 @@ use crate::{
     analysis::ownership,
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
+    tests::test_analysis,
     typeck::{FunctionImplementation, signature_reuse::reuse_signatures},
     types::TypeId,
 };
-use kagari_contract::library::catalog;
+use kagari_contract::library::{catalog as foundation_catalog, catalog};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -24,7 +25,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     sources
         .set("root.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
-    let signatures = query(&mut AnalysisDatabase::default(), &sources);
+    let signatures = query(&mut test_analysis(), &sources);
     let file = signatures
         .files
         .values()
@@ -41,6 +42,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
                                 )
                         })
                         .unwrap(),
+                    &foundation_catalog::shared(),
                 )
                 .unwrap()
                 .uri
@@ -101,7 +103,7 @@ fn signature_navigation_uses_checked_type_targets_before_body_analysis() {
     let id = sources
         .set("signature-targets.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let signatures = query(&mut db, &sources);
     let file = signatures.file(id).unwrap();
     assert_eq!(file.diagnostics().len(), 1);
@@ -154,7 +156,7 @@ fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
     let id = sources
         .set("applications.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let original = query(&mut db, &sources);
     let file = original.file(id).unwrap();
     assert_eq!(file.diagnostics().len(), 4, "{:?}", file.diagnostics());
@@ -175,7 +177,7 @@ fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
         .unwrap();
     let changed = query(&mut db, &sources);
     assert!(changed.file(id).unwrap().reused());
-    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    let fresh = query(&mut test_analysis(), &sources);
     assert_eq!(
         changed.file(id).unwrap().diagnostics(),
         fresh.file(id).unwrap().diagnostics()
@@ -244,7 +246,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let original = query(&mut db, &sources);
     assert!(original.file(id).unwrap().diagnostics().is_empty());
     let imported = original
@@ -278,7 +280,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
         "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"
     );
     assert!(original.file(id).unwrap().diagnostics().is_empty());
-    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    let fresh = query(&mut test_analysis(), &sources);
     assert_eq!(
         changed.file(id).unwrap().diagnostics(),
         fresh.file(id).unwrap().diagnostics()
@@ -312,7 +314,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
         );
         let mut sources = SourceDatabase::default();
         let id = sources.set("bounds.kgr", text, SourceLayer::Base).unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         let snapshot = query(&mut db, &sources);
         let file = snapshot.file(id).unwrap();
         assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
@@ -371,7 +373,7 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
     let id = sources
         .set("bound-edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = query(&mut db, &sources);
     let original = old
         .file(id)
@@ -436,7 +438,7 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
             .iter()
             .any(|d| d.kind.code() == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")
     );
-    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    let fresh = query(&mut test_analysis(), &sources);
     ownership::paths(
         changed.file(id).unwrap().signatures().as_ref(),
         changed.file(id).unwrap().definitions(),
@@ -471,7 +473,7 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
     let id = sources
         .set("signatures.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -533,7 +535,7 @@ fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
     let id = sources
         .set("edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let first = query(&mut db, &sources);
     let edit = text.replace("missing;", "val note: String = \"中文😀\";");
     sources
@@ -541,7 +543,7 @@ fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
         .unwrap();
     let second = query(&mut db, &sources);
     assert!(second.file(id).unwrap().reused());
-    let fresh = query(&mut AnalysisDatabase::default(), &sources);
+    let fresh = query(&mut test_analysis(), &sources);
     ownership::paths(
         second.file(id).unwrap().signatures().as_ref(),
         second.file(id).unwrap().definitions(),
@@ -608,7 +610,7 @@ fn older_or_cancelled_signature_queries_do_not_replace_newer_caches() {
         )
         .unwrap();
     let old_source = sources.snapshot();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     query(&mut db, &sources);
     sources
         .set(

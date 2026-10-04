@@ -4,15 +4,15 @@ use {
     crate::{
         effects::EffectSet,
         native_import::{
-            NativeSignature,
             callables::{NativeCallableApplication, NativeCallableOrigin},
-            protocol::{adapter_arguments, adapter_contract},
+            protocol::adapter_arguments,
         },
         types::proofs::ProofCatalog,
     },
     kagari_types::{
-        callable::CallableImplementation,
+        callable::{CallableImplementation, Signature},
         declaration::requirement::NativeCallableRequirement,
+        language::adapter::adapter_contract,
         ty::substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -22,7 +22,7 @@ impl ProofCatalog<'_> {
         &self,
         required: &NativeCallableRequirement,
         cancel: &CancellationToken,
-    ) -> Result<Option<NativeSignature>, TypeTransformError> {
+    ) -> Result<Option<Signature>, TypeTransformError> {
         let Some((_, expected)) = adapter_contract(required) else {
             return Ok(None);
         };
@@ -64,7 +64,7 @@ impl ProofCatalog<'_> {
             }
         }
         let normalize = |ty| self.normalize(&substitution.apply(ty, cancel)?, cancel);
-        let applied = NativeSignature {
+        let applied = Signature {
             params: method
                 .params
                 .iter()

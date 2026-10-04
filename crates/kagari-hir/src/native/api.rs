@@ -11,7 +11,8 @@ use crate::{
     lower::{LoweredModule, lower_module_controlled},
     native::{
         NativeBinding, NativeTypeKind,
-        render::{DeclarationSource, declaration_source_with_providers},
+        paths::{array_interfaces, module_path, receiver_owner},
+        render::{DeclarationSource, declaration_source},
     },
 };
 use kagari_common::{
@@ -19,7 +20,6 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
     span::Span,
 };
-use kagari_contract::library::namespaces;
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
@@ -35,6 +35,7 @@ use kagari_types::{
         module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
     },
+    language,
     language::{Protocol, role::LangRole},
 };
 use std::{collections::HashSet, sync::Arc};
@@ -45,7 +46,7 @@ pub(crate) fn import(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    let generated = declaration_source_with_providers(definition, providers)?;
+    let generated = declaration_source(definition, providers)?;
     import_source(definition, providers, &generated, limits, cancel)
 }
 
@@ -56,7 +57,7 @@ pub(crate) fn import_source(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    definition.validate(&namespaces::receiver_owner)?;
+    definition.validate(&|receiver| receiver_owner(receiver, providers))?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())
@@ -69,13 +70,13 @@ pub(crate) fn import_source(
         .file(id)
         .expect("native declaration source")
         .clone();
-    if namespaces::is_language_module(&definition.identity) {
+    if language::is_language_module(&definition.identity) {
         let (uri, authored_source) = module_source(&definition.identity.path[0]);
         let original = Arc::new(SourceFile::new(uri, authored_source));
         let view = Arc::make_mut(&mut source);
         for role in LangRole::ALL
             .into_iter()
-            .filter(|role| namespaces::trait_owner(role.protocol().name()) == definition.identity)
+            .filter(|role| language::identity(role.protocol()).module == definition.identity)
         {
             let text = trait_source(role);
             if let Some(start) = view.text().find(text) {
@@ -102,8 +103,20 @@ pub(crate) fn import_source(
     validate_view(definition, providers, &parsed, limits, cancel)?;
     let mut lowered = lower_module_controlled(source, &parsed.syntax(), cancel);
     lowered.registered_native_api = true;
-    lowered.language_foundation = namespaces::is_language_module(&definition.identity);
+    lowered.language_foundation = language::is_language_module(&definition.identity);
     lowered.native_package_alias = definition.package_alias.clone();
+    lowered.native_prelude = definition.prelude;
+    lowered.native_array_interfaces = array_interfaces(providers)?;
+    lowered.registered_traits = definition
+        .traits
+        .iter()
+        .map(|contract| {
+            (
+                definition.definition(DefinitionKind::Trait, &contract.name),
+                contract.clone(),
+            )
+        })
+        .collect();
     lowered.registered_declarations = definition.native_declarations();
     attach_types(definition, &mut lowered)?;
     attach_functions(definition, &mut lowered)?;
@@ -121,7 +134,7 @@ fn validate_view(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationError> {
-    let expected = declaration_source_with_providers(definition, providers)?;
+    let expected = declaration_source(definition, providers)?;
     let expected = parse_declarations(
         &SourceFile::new(&expected.uri, &expected.text),
         limits,
@@ -133,7 +146,7 @@ fn validate_view(
             .syntax()
             .items()
             .filter(|item| {
-                if !namespaces::is_language_module(&definition.identity) {
+                if !language::is_language_module(&definition.identity) {
                     return true;
                 }
                 let Item::TraitDef(item) = item else {
@@ -310,7 +323,7 @@ fn attach_dependencies(
         for ty in &provider.types {
             let alias = format!(
                 "{}::{}",
-                namespaces::source_module(&provider.identity),
+                module_path(&provider.identity, providers),
                 ty.name
             );
             if !referenced.contains(alias.as_str()) {
@@ -347,7 +360,7 @@ fn attach_dependencies(
         let path = format!("{}::{}", id.module, id.path[0].name);
         let alias = format!(
             "{}::{}",
-            namespaces::source_module(&id.module),
+            module_path(&id.module, providers),
             id.path[0].name
         );
         lowered.module.imports.push(Import {

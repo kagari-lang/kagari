@@ -387,10 +387,13 @@ pub(super) fn resolve_type_in(
                 TypeId::Tuple(elements)
             }
         }
-        TypeKind::Array(element) => TypeId::Trait(array_bridge::list_interface(
+        TypeKind::Array(element) => array_bridge::list_interface(
             resolve_type_in(module, *element, context, table, cancel),
             false,
-        )),
+            context.declarations,
+        )
+        .map(TypeId::Trait)
+        .unwrap_or(TypeId::Error),
         TypeKind::Function { params, result } => TypeId::Function {
             params: params
                 .iter()

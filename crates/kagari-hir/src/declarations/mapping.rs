@@ -83,6 +83,11 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(Declarations {
+            array_interfaces: self
+                .array_interfaces
+                .iter()
+                .map(|(access, id)| Ok((*access, mapper.reference(id)?)))
+                .collect::<Result<_, DefinitionMappingError>>()?,
             language_items: self
                 .language_items
                 .iter()
@@ -135,6 +140,10 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for id in self.array_interfaces.values() {
+            check_cancel(cancel)?;
+            visit(id)?;
+        }
         for id in self.language_items.values() {
             check_cancel(cancel)?;
             visit(id)?;

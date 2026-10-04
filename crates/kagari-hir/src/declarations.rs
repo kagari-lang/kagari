@@ -1,5 +1,5 @@
 //! Declaration and binding identities owned by one semantic analysis.
-use kagari_types::language::role::LangRole;
+use kagari_types::{collection::CollectionAccess, language::role::LangRole};
 
 use crate::{
     hir::{
@@ -68,6 +68,7 @@ pub struct Declaration<I: DefinitionReference = DefinitionPath> {
 #[derive(Debug, Clone)]
 pub struct Declarations<I: DefinitionReference = DefinitionPath> {
     pub(crate) language_items: BTreeMap<LangRole, I>,
+    pub(crate) array_interfaces: BTreeMap<CollectionAccess, I>,
     pub(crate) imported_types: ImportedTypes<I>,
     pub(crate) names: Arc<NameTable>,
     pub(crate) hosts: Arc<HostDeclarations>,
@@ -116,6 +117,7 @@ impl Declarations {
             cancel,
             result: Self {
                 language_items: BTreeMap::new(),
+                array_interfaces: names.imports.array_interfaces.clone(),
                 imported_types: Default::default(),
                 names: names.items.clone(),
                 hosts: names.hosts.clone(),

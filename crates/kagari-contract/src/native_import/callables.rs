@@ -1,16 +1,15 @@
 //! Declared native dependencies and their concrete checked trait-member targets.
 use crate::{
     effects::EffectSet,
-    native_import::NativeSignature,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionPath, associated_type_id, reference::DefinitionReference},
 };
-use kagari_types::declaration::requirement::NativeCallableRequirement;
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, Signature},
+    declaration::requirement::NativeCallableRequirement,
     language::Protocol,
     ty::{Ty, substitution::TypeTransformError},
 };
@@ -80,7 +79,7 @@ pub struct NativeCallableApplication<I = DefinitionPath> {
     pub requirement: NativeCallableRequirement<I>,
     pub instance: ConcreteFunctionIdentity<I>,
     pub implementation: CallableImplementation<I>,
-    pub signature: NativeSignature<I>,
+    pub signature: Signature<I>,
     /// A common conservative callback boundary, checked independently of claims.
     pub effects: EffectSet,
 }

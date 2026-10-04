@@ -1,7 +1,7 @@
 //! Regenerate the checked executable declaration product from handwritten core source.
 use bincode::serialize;
 use kagari_compiler::source::lower::module_contract;
-use kagari_contract::types::PublicItem;
+use kagari_contract::{library::catalog as foundation_catalog, types::PublicItem};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
 use kagari_types::{language, language::role::LangRole};
@@ -12,7 +12,7 @@ fn main() {
         "memory://language-product.kgr",
         "fn main() {}",
     ));
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(SourceSnapshot::single_file(source), &Default::default())
         .unwrap();
     let mut contracts = BTreeMap::new();
@@ -65,4 +65,10 @@ fn main() {
     } else {
         fs::write(output, bytes).unwrap();
     }
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

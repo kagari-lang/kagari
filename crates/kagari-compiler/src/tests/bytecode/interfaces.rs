@@ -4,7 +4,8 @@ use kagari_bytecode::{
     module::CallableTarget,
     program::verify_program,
 };
-use kagari_contract::ids::FunctionRef;
+use kagari_contract::{ids::FunctionRef, library::catalog as foundation_catalog};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
     instruction::{CallTarget, Instruction},
     program as mir_program,
@@ -337,7 +338,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
             root = Some(revision);
         }
     }
-    let snapshot = kagari_hir::analysis::AnalysisDatabase::default()
+    let snapshot = analysis_database()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot
@@ -526,4 +527,10 @@ fn private_interface_tables_must_match_their_trait_contract() {
             "{corruption}"
         );
     }
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared());
+    database
 }

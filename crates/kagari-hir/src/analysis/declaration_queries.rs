@@ -9,31 +9,29 @@ use crate::{
     native::api as native_api,
     resolver::resolved::DeclarationNames,
 };
-use kagari_contract::library::catalog;
 
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{reference::DefinitionReference, table::DefinitionId},
+    span::Span,
+};
+use kagari_source::{
+    diagnostic::Diagnostic,
+    identity::{FileId, Revision},
+    source::SourceFile,
+    source_database::SourceSnapshot,
+};
 use kagari_syntax::{
     ast::{
         item::{Item, SourceFile as AstSourceFile},
         traits::AstNode,
     },
-    parser::{self, Parse},
+    parser,
+    parser::Parse,
 };
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     sync::Arc,
-};
-use {
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{reference::DefinitionReference, table::DefinitionId},
-        span::Span,
-    },
-    kagari_source::{
-        diagnostic::Diagnostic,
-        identity::{FileId, Revision},
-        source::SourceFile,
-        source_database::SourceSnapshot,
-    },
 };
 
 #[cfg(test)]
@@ -162,20 +160,10 @@ impl AnalysisDatabase {
         let native_files = match self.native_files.get() {
             Some(files) => files,
             None => {
-                let mut modules = catalog::shared();
-                for module in &self.native_modules {
-                    if let Some(existing) = modules
-                        .iter_mut()
-                        .find(|existing| existing.identity == module.identity)
-                    {
-                        *existing = module.clone();
-                    } else {
-                        modules.push(module.clone());
-                    }
-                }
+                let modules = &self.native_modules;
                 let prepared = modules
                     .iter()
-                    .map(|module| native_api::import(module, &modules, self.parse_limits, cancel))
+                    .map(|module| native_api::import(module, modules, self.parse_limits, cancel))
                     .collect::<Result<Vec<_>, _>>();
                 cancel.check()?;
                 self.native_files

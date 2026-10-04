@@ -1,18 +1,16 @@
-use kagari_hir::native::render::declaration_source;
-use std::sync::Arc;
-mod library_mapping;
-mod list_failures;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, declarations::DeclarationId};
+use kagari_contract::library::catalog as foundation_catalog;
+use kagari_hir::{
+    analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
+};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     gc::RootedValue,
-    native::foundation,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, language::LanguageContracts, module::NativeModule, types::Type,
-        views::ValueHandle,
+        declarations::FunctionDecl, foundation, language::LanguageContracts, module::NativeModule,
+        types::Type, views::ValueHandle,
     },
     value::Value,
 };
@@ -21,7 +19,11 @@ use kagari_vm::vm::Vm;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::Arc,
 };
+
+mod library_mapping;
+mod list_failures;
 
 fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
@@ -320,7 +322,13 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(library.to_declaration().unwrap())]);
+    analysis.set_native_modules(
+        foundation_catalog::shared()
+            .into_iter()
+            .filter(|installed| installed.identity != library.declaration().identity)
+            .chain([Arc::new(library.to_declaration().unwrap())])
+            .collect(),
+    );
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -340,14 +348,24 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
                 == kagari_contract::library::namespaces::module("std", "collections")
         })
         .unwrap();
-    let generated = declaration_source(&library.to_declaration().unwrap()).unwrap();
+    let generated = declaration_source(
+        &library.to_declaration().unwrap(),
+        &foundation_catalog::shared(),
+    )
+    .unwrap();
     let text = "use std::collections::map; fn main() { val values = map([2,1], |value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("tooling.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(library.to_declaration().unwrap())]);
+    analysis.set_native_modules(
+        foundation_catalog::shared()
+            .into_iter()
+            .filter(|installed| installed.identity != library.declaration().identity)
+            .chain([Arc::new(library.to_declaration().unwrap())])
+            .collect(),
+    );
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

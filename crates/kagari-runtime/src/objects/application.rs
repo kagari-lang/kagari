@@ -8,7 +8,7 @@ use crate::{
     },
     gc::interfaces::MethodApplication,
 };
-use kagari_contract::native_import::NativeSignature;
+use kagari_types::callable::Signature;
 use std::{rc::Rc, slice};
 
 impl Runtime {
@@ -88,7 +88,7 @@ impl Runtime {
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("interface return type"))?;
-        let signature = NativeSignature {
+        let signature = Signature {
             params: params
                 .iter()
                 .map(|argument| argument.ty().clone())

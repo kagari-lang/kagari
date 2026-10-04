@@ -129,12 +129,11 @@ fn environment(module: &LoweredModule, text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use {
-        kagari_common::span::Span,
-        kagari_source::{
-            diagnostic::{Diagnostic, DiagnosticKind},
-            source::SourceFile,
-        },
+    use kagari_common::span::Span;
+    use kagari_contract::library::catalog as foundation_catalog;
+    use kagari_source::{
+        diagnostic::{Diagnostic, DiagnosticKind},
+        source::SourceFile,
     };
 
     #[test]
@@ -160,7 +159,8 @@ mod tests {
             "reuse.kgr",
             "const global: i32 = 0; fn one() -> i32 { 1 } fn two() -> i32 { 2 }",
         );
-        let analysis = crate::analyze_source(&source);
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+            .expect("installed declaration analysis");
         assert!(analysis.diagnostics().is_empty());
         let facts = analysis.facts();
         let one = facts

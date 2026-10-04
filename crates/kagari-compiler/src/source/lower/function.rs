@@ -14,7 +14,7 @@ use kagari_hir::{
     typeck::{FunctionImplementation, TypedFunction},
     types::{
         TypeId,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_mir::{

@@ -8,7 +8,7 @@ use kagari_contract::native_import::NativeImport;
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     native::NativeBinding,
-    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution, abi::lower_type},
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution, semantic::lower_type},
 };
 
 impl InstancePlanner<'_> {

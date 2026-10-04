@@ -115,7 +115,7 @@ pub(crate) fn infer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{analysis::AnalysisDatabase, types::NominalType};
+    use crate::{tests::test_analysis, types::NominalType};
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
@@ -136,7 +136,7 @@ mod tests {
     fn collection_context_infers_slots_across_native_and_declared_views() {
         let source = Arc::new(SourceFile::new("memory://views.kgr", "fn main() {}"));
         let id = source.id();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = test_analysis()
             .snapshot(SourceSnapshot::single_file(source), &Default::default())
             .unwrap();
         let facts = snapshot

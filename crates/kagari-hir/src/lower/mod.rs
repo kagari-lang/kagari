@@ -7,7 +7,7 @@ use crate::{
     native::{NativeBinding, NativeTypeKind},
     source_map::SourceMap,
 };
-use kagari_common::{cancellation::CancellationToken, span::Span};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, span::Span};
 use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{
@@ -22,10 +22,10 @@ use kagari_syntax::{
 use kagari_types::{
     callable::MethodPolicy,
     collection::CollectionAccess,
-    declaration::{NativeDeclaration, conversion::ConversionAdapter},
+    declaration::{NativeDeclaration, TraitDef, conversion::ConversionAdapter},
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -44,6 +44,9 @@ pub struct LoweredModule {
     pub(crate) registered_native_api: bool,
     pub(crate) language_foundation: bool,
     pub(crate) native_package_alias: Option<String>,
+    pub(crate) native_prelude: bool,
+    pub(crate) native_array_interfaces: BTreeMap<CollectionAccess, DefinitionPath>,
+    pub(crate) registered_traits: BTreeMap<DefinitionPath, TraitDef>,
     pub(crate) registered_declarations: Vec<NativeDeclaration>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
@@ -151,6 +154,9 @@ pub(crate) fn lower_module_controlled(
         registered_native_api: false,
         language_foundation: false,
         native_package_alias: None,
+        native_prelude: false,
+        native_array_interfaces: BTreeMap::new(),
+        registered_traits: BTreeMap::new(),
         registered_declarations: vec![],
         native_types: HashMap::new(),
         native_enums: HashMap::new(),

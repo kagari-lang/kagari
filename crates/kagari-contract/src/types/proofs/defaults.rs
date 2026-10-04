@@ -1,15 +1,12 @@
 //! Check default applications against actual registered templates and trait facts.
 use kagari_common::cancellation::CancellationToken;
 
-use crate::{
-    native_import::NativeSignature,
-    types::{
-        ConcreteFunctionIdentity,
-        proofs::{Budget, ProofCatalog},
-    },
+use crate::types::{
+    ConcreteFunctionIdentity,
+    proofs::{Budget, ProofCatalog},
 };
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication},
+    callable::{CallableImplementation, NativeDefaultApplication, Signature},
     declaration::verify::types_in_scope,
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty,
@@ -21,7 +18,7 @@ use std::collections::BTreeMap;
 pub struct ResolvedNativeDefault {
     pub instance: ConcreteFunctionIdentity,
     pub implementation: CallableImplementation,
-    pub signature: NativeSignature,
+    pub signature: Signature,
 }
 
 impl ProofCatalog<'_> {
@@ -167,7 +164,7 @@ impl ProofCatalog<'_> {
             }
         }
         let normalize = |ty| self.normalize(&substitution.apply(ty, cancel)?, cancel);
-        let signature = NativeSignature {
+        let signature = Signature {
             params: template
                 .function
                 .params

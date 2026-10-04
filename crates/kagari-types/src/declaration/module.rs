@@ -55,6 +55,8 @@ pub struct ImplDecl<I = DefinitionPath> {
 /// Method binders retain their own identities; associated type families remain deferred.
 #[derive(Debug, Clone)]
 pub struct ModuleDecl<I = DefinitionPath> {
+    /// Explicit source prelude supplied by this registration closure.
+    pub prelude: bool,
     pub identity: ModuleIdentity,
     /// Installed script package spelling, independent of the canonical package ID.
     pub package_alias: Option<String>,
@@ -81,6 +83,7 @@ pub struct ModuleDecl<I = DefinitionPath> {
 impl ModuleDecl {
     pub fn new(identity: ModuleIdentity) -> Self {
         Self {
+            prelude: false,
             package_alias: None,
             identity,
             dependencies: BTreeSet::new(),

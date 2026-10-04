@@ -1,13 +1,13 @@
 //! Source query regressions, including native implementations and protocol views.
-use crate::native::render::declaration_source;
-
 use crate::{
     analysis::ownership,
     declarations::DeclarationId,
     language::semantics::ProtocolSemantics,
+    native::render::declaration_source,
+    tests::test_analysis,
     types::{NominalType, TypeId},
 };
-use kagari_contract::library;
+use kagari_contract::{library, library::catalog as foundation_catalog};
 use kagari_types::{collection::CollectionAccess, language::Protocol};
 
 fn foundation_interface(name: &str) -> NominalType {
@@ -21,7 +21,6 @@ fn foundation_interface(name: &str) -> NominalType {
 mod tests {
 
     use super::*;
-    use crate::analysis::AnalysisDatabase;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
@@ -42,7 +41,7 @@ mod tests {
             let file = sources
                 .set("ranges.kgr", source.into(), SourceLayer::Base)
                 .unwrap();
-            let snapshot = AnalysisDatabase::default()
+            let snapshot = test_analysis()
                 .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let analysis = snapshot.file(file).unwrap();
@@ -80,7 +79,7 @@ mod tests {
         let file = sources
             .set("iterator.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = test_analysis()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
@@ -165,7 +164,7 @@ mod tests {
         let root = sources
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = test_analysis()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let authoring_catalog = snapshot
@@ -228,11 +227,12 @@ mod tests {
                 .unwrap()
                 .name(),
             declaration_source(
-                &kagari_contract::library::catalog::shared()
+                &foundation_catalog::shared()
                     .into_iter()
                     .find(|module| module.identity
                         == kagari_contract::library::namespaces::module("std", "collections"))
-                    .unwrap()
+                    .unwrap(),
+                &foundation_catalog::shared(),
             )
             .unwrap()
             .uri
@@ -251,7 +251,7 @@ mod tests {
         let file = sources
             .set("main.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = test_analysis()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
@@ -311,7 +311,7 @@ mod tests {
         let file = sources
             .set("main.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         let old = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -338,7 +338,6 @@ mod tests {
 #[cfg(test)]
 mod trait_tests {
     use super::*;
-    use crate::analysis::AnalysisDatabase;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
@@ -367,9 +366,12 @@ mod trait_tests {
                     .source(api.declaration.location.file)
                     .unwrap()
                     .name(),
-                declaration_source(&crate::tests::native::module())
-                    .unwrap()
-                    .uri
+                declaration_source(
+                    &crate::tests::native::module(),
+                    &foundation_catalog::shared()
+                )
+                .unwrap()
+                .uri
             );
             let signature = analysis.call_signature_at(offset).unwrap();
             assert_eq!(
@@ -397,7 +399,7 @@ mod trait_tests {
         let file = sources
             .set("traits.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -451,7 +453,6 @@ mod trait_tests {
 #[cfg(test)]
 mod interpolation_queries {
     use super::*;
-    use crate::analysis::AnalysisDatabase;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
@@ -462,7 +463,7 @@ mod interpolation_queries {
         let file = sources
             .set("queries.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         let old = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -524,8 +525,13 @@ mod interpolation_queries {
             let file = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
-            let mut db = AnalysisDatabase::default();
-            db.set_native_modules(vec![crate::tests::native::text_items_module()]);
+            let mut db = test_analysis();
+            db.set_native_modules(
+                foundation_catalog::shared()
+                    .into_iter()
+                    .chain([crate::tests::native::text_items_module()])
+                    .collect(),
+            );
             let snapshot = db
                 .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
@@ -555,7 +561,7 @@ mod interpolation_queries {
 #[cfg(test)]
 mod collection_access_tests {
     use super::{foundation_interface, *};
-    use crate::{analysis::AnalysisDatabase, resolver::resolved::ResolvedName};
+    use crate::resolver::resolved::ResolvedName;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
@@ -564,7 +570,7 @@ mod collection_access_tests {
         let root = sources
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = test_analysis()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let authoring_catalog = snapshot
@@ -677,7 +683,7 @@ mod collection_access_tests {
         let file = sources
             .set("constructors.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = test_analysis()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(file).unwrap();
@@ -720,7 +726,7 @@ mod collection_access_tests {
             let id = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
-            let snapshot = AnalysisDatabase::default()
+            let snapshot = test_analysis()
                 .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let diagnostics = snapshot.file(id).unwrap().result().diagnostics();
@@ -777,7 +783,7 @@ mod collection_access_tests {
             let id = sources
                 .set("list-completion.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
-            let snapshot = AnalysisDatabase::default()
+            let snapshot = test_analysis()
                 .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let diagnostics = snapshot.file(id).unwrap().result().diagnostics();

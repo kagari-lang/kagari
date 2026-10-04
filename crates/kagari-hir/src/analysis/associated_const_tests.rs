@@ -1,5 +1,5 @@
 use super::*;
-use crate::{declarations::DeclarationId, typeck::scalar::ScalarValue};
+use crate::{declarations::DeclarationId, tests::test_analysis, typeck::scalar::ScalarValue};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
 
@@ -10,7 +10,7 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
     let file = sources
         .set("cache.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let snapshot = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

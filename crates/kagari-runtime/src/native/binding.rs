@@ -15,8 +15,8 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::{DefinitionPath, table::DefinitionId};
-use kagari_contract::native_import::NativeSignature;
 use kagari_types::{
+    callable::Signature,
     collection::CollectionAccess,
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
@@ -135,7 +135,7 @@ impl NativeBinding {
 
     pub(crate) fn check(
         &self,
-        signature: &NativeSignature,
+        signature: &Signature,
         catalog: &DeclarationCatalog,
     ) -> NativeResult<()> {
         if self.arguments.len() != signature.params.len()
@@ -157,7 +157,7 @@ impl NativeBinding {
 #[derive(Debug, Clone)]
 pub struct LinkedNativeFunction {
     pub(crate) binding: NativeBinding,
-    pub(crate) signature: NativeSignature<DefinitionId>,
+    pub(crate) signature: Signature<DefinitionId>,
     pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,
@@ -180,7 +180,7 @@ impl LinkedNativeFunction {
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("native return type"))?;
-        let signature = NativeSignature {
+        let signature = Signature {
             params: params
                 .iter()
                 .map(|argument| argument.ty().clone())

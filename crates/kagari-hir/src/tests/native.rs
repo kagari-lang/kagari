@@ -1,8 +1,11 @@
 //! Application-owned declaration fixtures; no runtime or bundled-library implementation.
-use crate::analysis::AnalysisDatabase;
-use crate::native::render::declaration_source;
+use crate::{analysis::AnalysisDatabase, native::render::declaration_source, tests::test_analysis};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, associated_type_id};
-use kagari_contract::{language::primitive, library, library::namespaces};
+use kagari_contract::{
+    language::primitive,
+    library,
+    library::{catalog as foundation_catalog, namespaces},
+};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
     collection::CollectionAccess,
@@ -124,15 +127,20 @@ pub(crate) fn module() -> Arc<ModuleDecl> {
 }
 
 pub(crate) fn database() -> AnalysisDatabase {
-    let mut database = AnalysisDatabase::default();
-    database.set_native_modules(vec![module()]);
+    let mut database = test_analysis();
+    database.set_native_modules(
+        library::catalog::shared()
+            .into_iter()
+            .chain([module()])
+            .collect(),
+    );
     database
 }
 
 #[test]
 fn native_fixture_source_is_a_valid_offline_declaration() {
     for module in [module(), text_items_module()] {
-        let generated = declaration_source(&module).unwrap();
+        let generated = declaration_source(&module, &foundation_catalog::shared()).unwrap();
         let source = kagari_source::source::SourceFile::new(&generated.uri, &generated.text);
         let parsed = kagari_syntax::parser::parse_declarations(
             &source,

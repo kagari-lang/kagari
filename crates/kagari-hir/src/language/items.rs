@@ -1,5 +1,4 @@
 //! Header-time role collection. Roles identify ordinary traits, not a second trait model.
-use kagari_contract::library::catalog;
 #[cfg(test)]
 mod tests;
 use crate::{
@@ -10,14 +9,14 @@ use crate::{
     lower::{AttributeValue, LoweredModule},
     resolver::resolved::ResolvedName,
     typeck::table::ConstraintTarget,
-    types::abi::{lower_nominal_type, lower_type},
+    types::semantic::{lower_nominal_type, lower_type},
 };
 use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     literal::decode_string_literal,
 };
-use kagari_types::{language, language::role::LangRole, ty::Constraint};
+use kagari_types::{declaration::TraitDef, language, language::role::LangRole, ty::Constraint};
 use std::collections::{BTreeMap, btree_map::Entry};
 
 pub(crate) fn collect(
@@ -107,16 +106,17 @@ pub(crate) fn collect(
 pub(crate) fn validate_shapes(
     declarations: &Declarations,
     aggregates: &AggregateCatalog,
+    expected: &BTreeMap<DefinitionPath, TraitDef>,
     diagnostics: &mut DiagnosticBuffer,
 ) {
-    let products = catalog::shared();
     for (role, id) in &declarations.language_items {
-        let expected = products
-            .iter()
-            .filter(|module| module.identity == id.module)
-            .flat_map(|module| &module.traits)
-            .find(|item| item.name == role.protocol().name())
-            .expect("required checked language product");
+        let Some(expected) = expected.get(id) else {
+            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
+                role: role.name().into(),
+                reason: "missing installed language declaration".into(),
+            }));
+            continue;
+        };
         let owner_generic_count = expected.generic_params.len();
         let valid = aggregates.trait_(id).is_some_and(|actual| {
             actual.storage_access == expected.storage_access

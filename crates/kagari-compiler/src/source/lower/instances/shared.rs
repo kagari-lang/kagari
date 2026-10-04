@@ -11,7 +11,7 @@ use kagari_hir::{
     typeck::{GenericBounds, TypedFunction, table::ConstraintTarget},
     types::{
         GenericParameterType, NominalType, TypeId, TypeSubstitution,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::GenericParam};

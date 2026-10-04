@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     declarations::DeclarationId,
     resolver::{resolved::ResolvedName, table::NameResolution},
+    tests::test_analysis,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
@@ -25,7 +26,7 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
             let file = sources
                 .set("collision.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
-            let mut db = AnalysisDatabase::default();
+            let mut db = test_analysis();
             let headers = db
                 .declarations(sources.snapshot(), &Default::default())
                 .unwrap();
@@ -134,7 +135,7 @@ fn introducing_and_removing_a_type_collision_invalidates_cached_targets() {
     let file = sources
         .set("edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

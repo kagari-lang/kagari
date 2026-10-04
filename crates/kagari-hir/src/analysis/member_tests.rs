@@ -1,5 +1,5 @@
 use super::*;
-use crate::declarations::DeclarationId;
+use crate::{declarations::DeclarationId, tests::test_analysis};
 use kagari_common::{identity::DefinitionKind, span::Span};
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -19,7 +19,7 @@ fn member_queries_use_cst_name_ranges_with_trailing_trivia() {
     let id = sources
         .set("member-trivia.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let snapshot = analyze(&mut db, &sources);
     let file = snapshot.file(id).unwrap();
     assert!(
@@ -46,7 +46,7 @@ fn missing_member_names_do_not_claim_their_recovery_spans() {
     let id = sources
         .set("missing-member-names.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let header = snapshot.declaration_snapshot().file(id).unwrap();
     let authoring_facts = snapshot
         .file(id)
@@ -80,7 +80,7 @@ fn struct_initializer_labels_follow_checked_field_targets_after_errors() {
     let id = sources
         .set("initializer-labels.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     let authoring_fields = file.to_unverified(&Default::default()).unwrap();
     let fields = &authoring_fields.facts().lowered.module.structs[0].fields;
@@ -118,7 +118,7 @@ fn members_keep_module_ownership_and_exact_declaration_locations() {
     let right = sources
         .set("right.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let headers = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -195,7 +195,7 @@ fn variant_reordering_preserves_nominal_identity_and_retires_raw_ids() {
     let file = sources
         .set("state.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let old_file = old.file(file).unwrap();
     let authoring_old_facts = old_file.to_unverified(&Default::default()).unwrap();
@@ -238,7 +238,7 @@ fn duplicate_variants_remain_queryable_but_cannot_reach_codegen() {
     let file = sources
         .set("duplicate.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let headers = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -287,7 +287,7 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
     let file = sources
         .set("field.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_old_facts = old
         .file(file)
@@ -317,7 +317,7 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
         old_facts.typed.type_table.field_type(old_field)
     );
     assert!(new_facts.typed.type_table.field_type(new_field).is_some());
-    let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
+    let fresh = analyze(&mut test_analysis(), &sources);
     let authoring_fresh = fresh
         .file(file)
         .unwrap()
@@ -338,7 +338,7 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
     let id = sources
         .set("reflection-members.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
 
     let first = db
         .snapshot(sources.snapshot(), &Default::default())
@@ -419,7 +419,7 @@ fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
         let id = sources
             .set("partial-member.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let snapshot = AnalysisDatabase::default()
+        let snapshot = test_analysis()
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(id).unwrap();
@@ -469,7 +469,7 @@ fn unresolved_assignment_receivers_preserve_independent_index_facts() {
         let id = sources
             .set("index-recovery.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let file = snapshot.file(id).unwrap();
         assert!(file.result().clone().into_codegen().is_err());
         assert_eq!(
@@ -523,7 +523,7 @@ fn readonly_assignments_retain_target_and_contextual_initializer_types() {
         let id = sources
             .set("readonly-recovery.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let file = snapshot.file(id).unwrap();
         assert!(file.result().clone().into_codegen().is_err());
         assert_eq!(
@@ -569,7 +569,7 @@ fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
         let id = sources
             .set("index-members.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let file = snapshot.file(id).unwrap();
         assert!(!file.result().diagnostics().is_empty(), "{index}");
         assert!(snapshot.check_program(id, &Default::default()).is_err());
@@ -615,7 +615,7 @@ fn invalid_write_indexes_preserve_target_context_and_projected_members() {
             let id = sources
                 .set("write-index.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
-            let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+            let snapshot = analyze(&mut test_analysis(), &sources);
             let file = snapshot.file(id).unwrap();
             assert!(!file.result().diagnostics().is_empty());
             assert!(snapshot.check_program(id, &Default::default()).is_err());
@@ -655,7 +655,7 @@ fn assignment_diagnostics_consume_existing_facts_without_rechecking_receivers() 
         let id = sources
             .set("assignment-diagnostics.kgr", text, SourceLayer::Base)
             .unwrap();
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let file = snapshot.file(id).unwrap();
         let diagnostics = file.result().diagnostics();
         assert_eq!(
@@ -684,7 +684,7 @@ fn field_navigation_targets_only_member_names() {
     let id = sources
         .set("member-names.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),

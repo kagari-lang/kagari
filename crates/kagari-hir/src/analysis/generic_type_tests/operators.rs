@@ -1,7 +1,7 @@
-use super::contracts::analyze_contracts;
-use super::*;
-
-use {crate::hir::expr::ExprKind, kagari_source::diagnostic::DiagnosticKind};
+use super::{contracts::analyze_contracts, *};
+use crate::hir::expr::ExprKind;
+use kagari_contract::library::catalog as foundation_catalog;
+use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
 fn reflective_writes_share_target_context_and_recovery_member_comparison() {
@@ -33,7 +33,8 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: Vec<Marker<i32>> = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source);
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+            .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -162,7 +163,8 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
                 "trait View {{}} fn bad(view: View) {{ val result = {expression}; result; }} fn good() -> i32 {{ 42 }}"
             ),
         );
-        let analysis = crate::analyze_source(&source);
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+            .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().len(),
             1 + usize::from(mismatch),
@@ -216,7 +218,11 @@ fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
         ("fn bad() { -missing; }", false, false),
         ("fn bad() { -(1, missing); }", false, true),
     ] {
-        let analysis = crate::analyze_source(&SourceFile::new("unary-bounds.kgr", source));
+        let analysis = crate::analyze_source(
+            &SourceFile::new("unary-bounds.kgr", source),
+            foundation_catalog::shared(),
+        )
+        .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -289,7 +295,8 @@ fn binary_rhs_uses_left_type_without_overriding_explicit_constructor_arguments()
             "binary-context.kgr",
             format!("enum Token<T> {{ Empty }} fn main() -> bool {{ {body} }}"),
         );
-        let analysis = crate::analyze_source(&source);
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+            .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -337,7 +344,8 @@ fn preceding_array_elements_and_completing_branches_supply_constructor_context()
             "sequence-context.kgr",
             format!("enum Token<T> {{ Empty }} fn main() {{ {body} }}"),
         );
-        let analysis = crate::analyze_source(&source);
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+            .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,

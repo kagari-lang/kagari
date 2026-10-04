@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    analysis::AnalysisDatabase, callable::CallableSignature, declarations::DeclarationId,
-    hir::expr::ExprKind, native::NativeBinding, typeck::FunctionImplementation,
+    callable::CallableSignature, declarations::DeclarationId, hir::expr::ExprKind,
+    native::NativeBinding, tests::test_analysis, typeck::FunctionImplementation,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
@@ -57,7 +57,7 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         let root = sources
             .set("mem://method", text.clone(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         let hosts = HostDeclarations::new(declarations.clone()).unwrap();
         let method_id = hosts.method(&declarations.types[0].id, "add").unwrap();
         let callable = hosts.callable(method_id).unwrap();
@@ -150,7 +150,7 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
     let root = sources
         .set("mem://root", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     db.set_host_declarations(HostDeclarations::new(interface()).unwrap());
 
     let old = db
@@ -263,7 +263,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
         let root = sources
             .set("mem://recovery", text.clone(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
@@ -329,7 +329,7 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
         let root = sources
             .set("mem://root", text.clone(), SourceLayer::Base)
             .unwrap();
-        let mut db = AnalysisDatabase::default();
+        let mut db = test_analysis();
         db.set_host_declarations(HostDeclarations::new(interface()).unwrap());
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
@@ -382,7 +382,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     let root = sources
         .set("mem://field", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
 
     let old = db
@@ -490,7 +490,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     let root = sources
         .set("mem://write", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
 
     let old = db
@@ -613,7 +613,7 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     let root = sources
         .set("mem://mixed", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
     let snapshot = db
         .snapshot(sources.snapshot(), &Default::default())

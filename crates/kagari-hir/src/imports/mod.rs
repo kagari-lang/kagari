@@ -2,32 +2,28 @@
 
 use crate::{
     hir::{
-        ids::{EnumId, ModuleId},
+        ids::ModuleId,
         item::{
             function::FunctionKind,
             storage::{ExportItem, Visibility},
         },
-        ty::TypeKind,
     },
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
+    imports::catalog::SourceCatalog,
     lower::LoweredModule,
-    native::NativeTypeKind,
     resolver::resolved::ResolvedName,
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::ModuleIdentity,
+    identity::{DefinitionPath, ModuleIdentity},
     span::Span,
 };
-use kagari_contract::library::namespaces;
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::{FileId, Revision},
-    source::SourceFile,
 };
-use kagari_types::surface::StandardEnum;
+use kagari_types::collection::CollectionAccess;
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry},
     sync::Arc,
 };
@@ -35,6 +31,7 @@ use std::{
 #[cfg(test)]
 mod aggregate_tests;
 mod bindings;
+mod catalog;
 pub mod functions;
 mod members;
 #[cfg(test)]
@@ -84,11 +81,13 @@ pub struct ModuleImports {
     bindings: HashMap<ResolvedName, ImportTarget>,
     pub(crate) module_aliases: HashMap<ModuleId, usize>,
     namespace_entries: HashMap<ModuleIdentity, usize>,
+    pub(crate) array_interfaces: BTreeMap<CollectionAccess, DefinitionPath>,
 }
 
 impl ModuleImports {
     pub(crate) fn same_bindings(&self, other: &Self) -> bool {
-        self.diagnostics.is_empty()
+        self.array_interfaces == other.array_interfaces
+            && self.diagnostics.is_empty()
             && other.diagnostics.is_empty()
             && self.bindings.len() == other.bindings.len()
             && self
@@ -307,7 +306,10 @@ fn resolve_imports(
     hosts: &HostDeclarations,
     cancel: &CancellationToken,
 ) -> Result<ModuleImports, Cancelled> {
-    let mut result = ModuleImports::default();
+    let mut result = ModuleImports {
+        array_interfaces: catalog.array_interfaces.clone(),
+        ..Default::default()
+    };
     let local_items = module
         .module
         .functions
@@ -525,22 +527,17 @@ fn resolve_imports(
     }
     add_language_prelude(module, catalog, &local_items, &mut result, cancel)?;
     if !module.registered_native_api {
-        // Like Rust's extern prelude, installed standard packages are available
+        // Like Rust's extern prelude, installed packages are available
         // through qualified paths without importing their member names.
         for entries in catalog.paths.values() {
             let [entry] = entries.as_slice() else {
                 continue;
             };
             let identity = entry.source.module_identity();
-            if !entry.installed
-                || !matches!(
-                    identity.package.0.as_str(),
-                    "kagari-core" | "kagari-alloc" | "std"
-                )
-            {
+            if !entry.installed {
                 continue;
             }
-            let alias = namespaces::source_module(identity);
+            let alias = catalog.module_path(identity);
             let package = alias.split("::").next().expect("source package");
             if local_items.contains(package)
                 || result
@@ -653,14 +650,24 @@ fn add_language_prelude(
     imports: &mut ModuleImports,
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
-    let core = namespaces::prelude();
     if module.registered_native_api {
         return Ok(());
     }
-    let Some(entries) = catalog.paths.get(&core.to_string()) else {
-        return Ok(());
-    };
+    let entries = catalog
+        .paths
+        .values()
+        .flatten()
+        .filter(|entry| entry.prelude)
+        .collect::<Vec<_>>();
     let [entry] = entries.as_slice() else {
+        if entries.len() > 1 {
+            imports.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
+                    name: "installed prelude".into(),
+                })
+                .with_span(Span::default()),
+            );
+        }
         return Ok(());
     };
     for (name, members) in entry.members.iter() {
@@ -941,242 +948,6 @@ fn source_module_accessible(
     true
 }
 
-struct SourceCatalog<'a> {
-    paths: BTreeMap<String, Vec<SourceCatalogEntry<'a>>>,
-    package_aliases: BTreeMap<String, BTreeSet<String>>,
-}
-
-struct SourceCatalogEntry<'a> {
-    source: &'a SourceFile,
-    installed: bool,
-    glob_enums: HashSet<EnumId>,
-    members: Arc<BTreeMap<String, Vec<CatalogMember>>>,
-    reexports: BTreeMap<usize, ImportTarget>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CatalogMember {
-    item: ExportItem,
-    visibility: Visibility,
-}
-
-impl<'a> SourceCatalog<'a> {
-    fn source_path<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        if let Some((alias, member)) = path.split_once("::")
-            && let Some(packages) = self.package_aliases.get(alias)
-            && packages.len() == 1
-        {
-            let package = packages.first().expect("one installed package alias");
-            return Cow::Owned(format!("{package}::{member}"));
-        }
-        Cow::Borrowed(path)
-    }
-
-    fn new(
-        sources: impl IntoIterator<Item = &'a LoweredModule>,
-        imports: Option<&BTreeMap<ModuleIdentity, ModuleImports>>,
-        cancel: &CancellationToken,
-    ) -> Result<Self, Cancelled> {
-        let mut paths = BTreeMap::<_, Vec<_>>::new();
-        let mut package_aliases = BTreeMap::<String, BTreeSet<String>>::new();
-        for module in sources {
-            cancel.check()?;
-            if let Some(alias) = &module.native_package_alias {
-                package_aliases
-                    .entry(alias.clone())
-                    .or_default()
-                    .insert(module.source.module_identity().package.0.clone());
-            }
-            let mut members = BTreeMap::<_, Vec<_>>::new();
-            let mut add = |name: &str, item, visibility| {
-                members
-                    .entry(name.to_owned())
-                    .or_insert_with(Vec::new)
-                    .push(CatalogMember { item, visibility });
-            };
-            for item in module
-                .module
-                .functions
-                .iter()
-                .filter(|item| item.kind == FunctionKind::User)
-            {
-                cancel.check()?;
-                add(&item.name, ExportItem::Function(item.id), item.visibility);
-            }
-            for item in &module.module.consts {
-                cancel.check()?;
-                add(&item.name, ExportItem::Const(item.id), item.visibility);
-            }
-            for item in &module.module.modules {
-                cancel.check()?;
-                add(&item.name, ExportItem::Module(item.id), item.visibility);
-            }
-            for item in &module.module.opaque_types {
-                cancel.check()?;
-                add(&item.name, ExportItem::OpaqueType(item.id), item.visibility);
-            }
-            for item in &module.module.structs {
-                cancel.check()?;
-                add(&item.name, ExportItem::Struct(item.id), item.visibility);
-            }
-            for item in &module.module.enums {
-                cancel.check()?;
-                add(&item.name, ExportItem::Enum(item.id), item.visibility);
-                for variant in &item.variants {
-                    cancel.check()?;
-                    add(
-                        &format!("{}::{}", item.name, variant.name),
-                        ExportItem::Variant(variant.id),
-                        item.visibility,
-                    );
-                }
-            }
-            for item in &module.module.traits {
-                cancel.check()?;
-                add(&item.name, ExportItem::Trait(item.id), item.visibility);
-            }
-            // Direct registration exports have no source import node. Respect
-            // their explicit module aliases alongside qualified enum members.
-            for export in &module.module.exports {
-                if let ExportItem::Variant(_) = export.item {
-                    cancel.check()?;
-                    add(&export.name, export.item, Visibility::Public);
-                }
-            }
-            for implementation in &module.module.impls {
-                cancel.check()?;
-                if implementation.trait_ref.is_some() {
-                    continue;
-                }
-                let Some(reference) = implementation.for_type else {
-                    continue;
-                };
-                let owner = match &module.module.type_ref(reference).kind {
-                    TypeKind::Named(name) | TypeKind::Generic { name, .. } => name,
-                    _ => continue,
-                };
-                let owner_visibility = module
-                    .module
-                    .structs
-                    .iter()
-                    .find(|item| &item.name == owner)
-                    .map(|item| item.visibility)
-                    .or_else(|| {
-                        module
-                            .module
-                            .enums
-                            .iter()
-                            .find(|item| &item.name == owner)
-                            .map(|item| item.visibility)
-                    })
-                    .or_else(|| {
-                        module
-                            .module
-                            .opaque_types
-                            .iter()
-                            .find(|item| &item.name == owner)
-                            .map(|item| item.visibility)
-                    });
-                for method in &implementation.methods {
-                    let Some(function) = module
-                        .module
-                        .functions
-                        .iter()
-                        .find(|item| item.id == method.function)
-                    else {
-                        continue;
-                    };
-                    add(
-                        &format!("{owner}::{}", method.name),
-                        ExportItem::Function(method.function),
-                        match (owner_visibility, function.visibility) {
-                            (Some(Visibility::Private), _) | (_, Visibility::Private) => {
-                                Visibility::Private
-                            }
-                            (Some(Visibility::PublicSuper), _) | (_, Visibility::PublicSuper) => {
-                                Visibility::PublicSuper
-                            }
-                            _ => Visibility::Public,
-                        },
-                    );
-                }
-            }
-            for (index, item) in module.module.imports.iter().enumerate() {
-                cancel.check()?;
-                if !item.glob {
-                    add(&item.alias, ExportItem::Import(index), item.visibility);
-                }
-            }
-            let resolved_imports = imports.and_then(|all| all.get(module.source.module_identity()));
-            if let Some(imports) = resolved_imports {
-                for (index, import) in imports.entries.iter().enumerate() {
-                    cancel.check()?;
-                    if index >= module.module.imports.len()
-                        && !import.internal_namespace
-                        && import.target.is_some()
-                        && !members.contains_key(&import.alias)
-                    {
-                        members.insert(
-                            import.alias.clone(),
-                            vec![CatalogMember {
-                                item: ExportItem::Import(index),
-                                visibility: import.visibility,
-                            }],
-                        );
-                    }
-                }
-            }
-            paths
-                .entry(module.source.module_identity().to_string())
-                .or_default()
-                .push(SourceCatalogEntry {
-                    source: &module.source,
-                    installed: module.registered_native_api,
-                    glob_enums: module
-                        .module
-                        .enums
-                        .iter()
-                        .filter_map(|item| {
-                            (module.native_enums.get(&item.id).cloned()
-                                == Some(NativeTypeKind::Enum(StandardEnum::Ordering)))
-                            .then_some(item.id)
-                        })
-                        .collect(),
-                    members: Arc::new(members),
-                    reexports: resolved_imports.map_or_else(BTreeMap::new, |imports| {
-                        imports
-                            .entries
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(index, entry)| {
-                                entry.target.clone().map(|target| (index, target))
-                            })
-                            .collect()
-                    }),
-                });
-        }
-        Ok(Self {
-            paths,
-            package_aliases,
-        })
-    }
-
-    fn same_members(&self, other: &Self) -> bool {
-        self.package_aliases == other.package_aliases
-            && self.paths.len() == other.paths.len()
-            && self.paths.iter().all(|(path, entries)| {
-                other.paths.get(path).is_some_and(|old| {
-                    entries.len() == old.len()
-                        && entries.iter().zip(old).all(|(a, b)| {
-                            a.members == b.members
-                                && a.reexports == b.reexports
-                                && a.glob_enums == b.glob_enums
-                        })
-                })
-            })
-    }
-}
-
 fn normalize_import_path(path: &str, current: &ModuleIdentity) -> String {
     let mut segments = path.split("::").peekable();
     let mut base = current.path.clone();
@@ -1201,32 +972,4 @@ fn normalize_import_path(path: &str, current: &ModuleIdentity) -> String {
     }
     base.extend(segments.map(str::to_owned));
     format!("{}::{}", current.package.0, base.join("::"))
-}
-
-impl SourceCatalogEntry<'_> {
-    fn target(&self, item: Option<ExportItem>, importer: &ModuleIdentity) -> SourceImport {
-        SourceImport {
-            module: self.source.module_identity().clone(),
-            file: self.source.id(),
-            revision: self.source.revision(),
-            item,
-            members: Arc::new(
-                self.members
-                    .iter()
-                    .filter_map(|(name, members)| {
-                        let visible = members
-                            .iter()
-                            .filter(|member| {
-                                member
-                                    .visibility
-                                    .allows(self.source.module_identity(), importer)
-                            })
-                            .map(|member| member.item)
-                            .collect::<Vec<_>>();
-                        (!visible.is_empty()).then(|| (name.clone(), visible))
-                    })
-                    .collect(),
-            ),
-        }
-    }
 }

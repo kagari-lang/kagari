@@ -16,7 +16,7 @@ use kagari_hir::{
     hir::ids::{ExprId, FunctionId},
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, TypedFunction, scalar::ScalarValue},
-    types::{NominalType, TypeId, TypeSubstitution, abi::lower_type},
+    types::{NominalType, TypeId, TypeSubstitution, semantic::lower_type},
 };
 use kagari_mir::{ids::InstanceId, passes::PassOptions};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};

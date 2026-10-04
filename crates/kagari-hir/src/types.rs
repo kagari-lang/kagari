@@ -1,4 +1,4 @@
-pub mod abi;
+pub mod semantic;
 
 use crate::{
     native::enum_display_name,

@@ -10,7 +10,7 @@ use kagari_contract::{
 };
 use kagari_hir::{
     typeck::{GenericBounds, table::ConstraintTarget},
-    types::abi::lower_type,
+    types::semantic::lower_type,
 };
 use kagari_types::ty::{Constraint, Ty, substitution::TypeSubstitution};
 

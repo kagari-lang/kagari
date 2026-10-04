@@ -3,8 +3,7 @@ use crate::source::lower::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
-    callable::interface::InterfaceCallContract,
-    native_import::{NativeImport, NativeSignature},
+    callable::interface::InterfaceCallContract, native_import::NativeImport,
     standard::RuntimePrimitive,
 };
 use kagari_hir::{
@@ -18,13 +17,13 @@ use kagari_hir::{
     typeck::{scalar::ScalarValue, table::CallTarget as TypeckCallTarget},
     types::{
         NominalType, TypeId,
-        abi::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type},
     },
 };
 use kagari_mir::instruction::{
     CallTarget, Instruction, MirValue, RuntimeHelper, SourceFunctionContract, ValueBuffer,
 };
-use kagari_types::{host_interface, language::Protocol};
+use kagari_types::{callable::Signature, host_interface, language::Protocol};
 use smallvec::SmallVec;
 use std::{ops::ControlFlow, slice};
 
@@ -457,7 +456,7 @@ impl FunctionLowerer<'_, '_> {
                             ),
                         )
                     };
-                    let signature = NativeSignature {
+                    let signature = Signature {
                         params: method_contract
                             .params
                             .iter()

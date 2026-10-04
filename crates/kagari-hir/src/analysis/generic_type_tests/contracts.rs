@@ -1,6 +1,7 @@
 //! Ordinary application declarations used to exercise inference and recovery.
 //! These bodies are test inputs, not a second implementation of library algorithms.
 use crate::{AnalysisResult, AnalyzedModule, analyze_source};
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::source::SourceFile;
 
 const CONTRACTS: &str = r#"use std::collections::{HashMap, List, Map, Set};
@@ -26,8 +27,9 @@ fn put_map<K: Eq + Hash,V>(values: HashMap<K,V>, key: K, value: V) { values.inse
 "#;
 
 pub(super) fn analyze_contracts(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
-    analyze_source(&SourceFile::new(
-        source.name(),
-        format!("{CONTRACTS}\n{}", source.text()),
-    ))
+    analyze_source(
+        &SourceFile::new(source.name(), format!("{CONTRACTS}\n{}", source.text())),
+        foundation_catalog::shared(),
+    )
+    .expect("installed declaration analysis")
 }

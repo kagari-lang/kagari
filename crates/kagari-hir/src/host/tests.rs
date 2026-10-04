@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    analysis::AnalysisDatabase, callable::CallableSignature, native::NativeBinding,
+    callable::CallableSignature, native::NativeBinding, tests::test_analysis,
     typeck::FunctionImplementation,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -112,7 +112,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     let file = sources
         .set("host.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut database = AnalysisDatabase::default();
+    let mut database = test_analysis();
     let original = HostDeclarations::new(HostInterface {
         paths: vec![],
         types: Vec::new(),
@@ -209,7 +209,7 @@ fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
         let file = sources
             .set("bad.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let mut database = AnalysisDatabase::default();
+        let mut database = test_analysis();
         database.set_host_declarations(
             HostDeclarations::new(HostInterface {
                 paths: vec![],

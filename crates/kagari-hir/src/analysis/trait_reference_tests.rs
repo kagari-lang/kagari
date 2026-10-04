@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     hir::{ids::HirOwner, ty::TypeKind},
+    tests::test_analysis,
     typeck::table::{ConstraintTarget, TypeTarget},
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -22,7 +23,7 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
     let file = sources
         .set("impl.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let signatures = db
         .signatures(sources.snapshot(), &Default::default())
         .unwrap();
@@ -101,7 +102,7 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
         let file = sources
             .set("bad.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let analysis = snapshot.file(file).unwrap();
         assert!(
             analysis.result().diagnostics().iter().any(|d| matches!(
@@ -118,7 +119,7 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
     let file = sources
         .set("valid.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let facts = snapshot.file(file).unwrap().result();
     assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
     let function = facts
@@ -166,7 +167,7 @@ fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() 
         let file = sources
             .set("root", text.clone(), SourceLayer::Base)
             .unwrap();
-        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let snapshot = analyze(&mut test_analysis(), &sources);
         let analysis = snapshot.file(file).unwrap();
         let bad = text.find("T: Protocol>").unwrap() + 3;
         let good = text.find("T: Protocol<i32>").unwrap() + 3;
@@ -218,7 +219,7 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
         .unwrap();
     let text = "use pkg::library::Stream; fn identity<S: Stream>(source: S, item: S::Item) -> S::Item { item }";
     let root = sources.set("root", text.into(), SourceLayer::Base).unwrap();
-    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -281,7 +282,7 @@ fn imported_trait_headers_keep_distinct_executable_identities() {
     insert("facade", "pub use pkg::left::View;");
     let text = "use pkg::facade::View as L; use pkg::right as r; struct Point {} impl L for Point {} impl r::View for Point {} fn bound<T: L>(x: T) {} fn good(x: i32) -> i32 { x }";
     let root = insert("root", text);
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let signatures = db
         .signatures(sources.snapshot(), &Default::default())
         .unwrap();
@@ -335,7 +336,7 @@ fn imported_applied_trait_methods_validate_and_resolve_bound_calls() {
             root = Some(file);
         }
     }
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let snapshot = analyze(&mut db, &sources);
     let root = root.unwrap();
     let analysis = snapshot.file(root).unwrap();
@@ -439,7 +440,7 @@ fn imported_trait_parameter_bounds_reject_invalid_implementations() {
             root = Some(file);
         }
     }
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let snapshot = analyze(&mut db, &sources);
     let analysis = snapshot.file(root.unwrap()).unwrap();
     assert!(
@@ -480,7 +481,7 @@ fn imported_generic_method_accepts_interface_calls() {
             root = Some(file);
         }
     }
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let snapshot = analyze(&mut db, &sources);
     let analysis = snapshot.file(root.unwrap()).unwrap();
     assert!(
@@ -497,7 +498,7 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
     let file = sources
         .set("cache.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_old_facts = old
         .file(file)
@@ -520,7 +521,7 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
     let authoring_facts = new_file.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.facts();
     assert!(facts.typed.type_table.type_ref(old_ref).is_none());
-    let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
+    let fresh = analyze(&mut test_analysis(), &sources);
     let authoring_fresh = fresh
         .file(file)
         .unwrap()
@@ -569,7 +570,7 @@ fn untouched()->i32 {1}
     let file = sources
         .set("callables.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = AnalysisDatabase::default();
+    let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     assert!(old.file(file).unwrap().result().diagnostics().is_empty());
     let definition = old
@@ -584,7 +585,7 @@ fn untouched()->i32 {1}
         )
         .unwrap();
     let updated = analyze(&mut db, &sources);
-    let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
+    let fresh = analyze(&mut test_analysis(), &sources);
     let authoring_facts = updated
         .file(file)
         .unwrap()

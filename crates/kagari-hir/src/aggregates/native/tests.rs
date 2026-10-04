@@ -1,8 +1,9 @@
 use crate::{
     aggregates::AggregateCatalog,
-    analysis::{AnalysisDatabase, AnalysisSnapshot},
+    analysis::AnalysisSnapshot,
     language::{semantics as traits, semantics::ProtocolSemantics},
     native::{NativeBinding, NativeTypeKind},
+    tests::test_analysis,
     typeck::FunctionImplementation,
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -28,7 +29,7 @@ fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
     let root = sources
         .set("native-contracts.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    let snapshot = test_analysis()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     (snapshot, root)
@@ -251,7 +252,7 @@ fn main() {}
 
 #[test]
 fn every_native_signature_retains_resolved_public_types() {
-    let signatures = AnalysisDatabase::default()
+    let signatures = test_analysis()
         .signatures(SourceDatabase::default().snapshot(), &Default::default())
         .unwrap();
     let mut count = 0;

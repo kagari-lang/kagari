@@ -1,4 +1,5 @@
 use super::*;
+use kagari_contract::library::catalog as foundation_catalog;
 use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
@@ -6,7 +7,8 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
     let lowered = common::lower_ok(
         "trait Sequence { type Item; fn size(self) -> usize where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
     );
-    let analyzed = crate::analyze_source(&lowered.source)
+    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("Self bounds in their declaring trait context");
     let typed = analyzed.typed;
@@ -61,7 +63,8 @@ where T: Display
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&lowered.source)
+    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("type checker should succeed");
     let typed = analyzed.typed;
@@ -128,7 +131,8 @@ fn use_mapper(value: Mapper) -> (i32, String) {
 }
 "#,
     );
-    crate::analyze_source(&lowered.source)
+    crate::analyze_source(&lowered.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("method arguments are inferred independently through the same interface");
 }
@@ -164,7 +168,8 @@ struct Player {
 impl Display for Player {}
 "#,
     );
-    let diagnostics = crate::analyze_source(&missing_method.source)
+    let diagnostics = crate::analyze_source(&missing_method.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -193,7 +198,8 @@ impl Display for Player {
 }
 "#,
     );
-    let diagnostics = crate::analyze_source(&wrong_return.source)
+    let diagnostics = crate::analyze_source(&wrong_return.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -281,13 +287,15 @@ fn forward<K: Ord>(receiver: Transform, value: K) -> K { receiver.apply(value) }
 fn call(receiver: Transform) -> i32 { forward(receiver, 42) }
 "#,
     );
-    crate::analyze_source(&valid.source)
+    crate::analyze_source(&valid.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("generic interface call forwards a statically proven bound");
     let invalid = common::lower_ok(
         "trait Transform { fn apply<K: Ord>(self, value: K) -> K; } struct Unordered {} fn call(receiver: Transform) { receiver.apply(Unordered {}); }",
     );
-    let diagnostics = crate::analyze_source(&invalid.source)
+    let diagnostics = crate::analyze_source(&invalid.source, foundation_catalog::shared())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("interface calls must not bypass method-local bounds");
     assert!(diagnostics.iter().any(|diagnostic| matches!(
