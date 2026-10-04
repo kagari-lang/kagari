@@ -436,6 +436,7 @@ dependencies = [
  "kagari-mir",
  "kagari-runtime",
  "kagari-source",
+ "kagari-stdlib",
  "thiserror",
 ]
 
@@ -577,7 +578,6 @@ dependencies = [
 name = "kagari-stdlib"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "kagari-bytecode",
  "kagari-common",
  "kagari-contract",

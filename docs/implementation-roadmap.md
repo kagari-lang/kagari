@@ -26,8 +26,8 @@ have not been measured.
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
 
-This is the first pending implementation work. Complete CR01 and CR02 before
-LR01-LR03 below. The [agreed crate target](architecture.md#crate-responsibility-target-agreed-pending-implementation)
+CR01 and CR02 establish the semantic/executable boundaries before LR01-LR03
+integrates the library registration flow. The [agreed crate target](architecture.md#crate-responsibility-target)
 separates shared declaration/type semantics from executable contracts and physical
 ABI. It extends the earlier library-only proposal explicitly; it does not mark
 the completed AC01-AC05 architecture as failed or reopen unrelated features.
@@ -98,7 +98,7 @@ crates, new MIR stages or merged compiler/runtime crates are in scope.
 ## Unified library registration (LR01-LR03, design agreed)
 
 After CR01-CR02, the library migration follows the
-[agreed registration target](architecture.md#unified-library-registration-agreed-target-pending-implementation).
+[agreed registration target](architecture.md#unified-library-registration).
 Standard and application native modules use one Engine registration path.
 Registration owns signatures and Rust bindings; source-enabled analysis receives
 generated `.kgr` views of those same declarations. Types supplies semantic models
@@ -107,16 +107,15 @@ built-in standard-library catalog. The registration path has no binary
 intermediary. Crate metadata and separate/parallel compilation are
 deferred to their own future design.
 
-The [registration API draft](architecture.md#registration-api-draft) makes the
+The [registration API](architecture.md#registration-api) makes the
 provider input, mutable engine builder, full-doc registration and optional source
-cache concrete. API spellings are still under review; the ownership and single
-registration flow are the target. The continuous goal activates these phases
-after CR01-CR02.
+cache concrete. The implemented ownership and mutable API follow this single
+registration flow; acceptance is recorded in the phase ledger below.
 
 This decision supersedes AC02/NS01's handwritten core-trait authority and checked
 `traits.bin` product for the migration. Those checkpoints remain completed history;
-their passing checks describe the current implementation, not LR acceptance.
-This checkpoint records design and scope; LR implementation has not started.
+their passing checks describe those historical checkpoints, not LR acceptance.
+The following phase checklist and ledger record the current implementation.
 
 - [x] **LR01: Give the standard library its own registration owner.** Populate
   `kagari-stdlib` with the existing contract library recipes, documentation,
@@ -157,7 +156,7 @@ This checkpoint records design and scope; LR implementation has not started.
   Replace old-product shape checks with installed declaration correspondence plus
   explicit language-role requirements. Preserve existing default Engine behavior;
   live registry mutation and a no_std product mode are outside scope.
-- [ ] **LR03: Remove obsolete products and complete integration.** Delete
+- [x] **LR03: Remove obsolete products and complete integration.** Delete
   `traits.bin`, its decoder/regenerator and independent handwritten core trait
   declarations once their consumers use registration records; do not substitute
   another binary or generated Rust snapshot. Delete `trait_source`,
@@ -208,7 +207,8 @@ CLI JIT tests and diff checks. Update dependency assertions for the concrete std
 owner, narrow common and semantic types owner; retain the frontend-free
 types/ABI/contract/runtime/VM/backend boundaries. Resolve all CR/LR carried errors.
 
-Design ledger: inspected production manifests and current registration consumers.
+Historical design ledger (implementation follows below): inspected production
+manifests and then-current registration consumers.
 Concrete coupling exists in contract's catalog/product, HIR's default catalog and
 old-product shape checks, Runtime's implicit foundation installation, and
 ModuleBuilder/LanguageContracts defaults. Engine already forwards application
@@ -217,7 +217,7 @@ standard library. No source or runtime implementation changed in this design
 checkpoint. Documentation links/content and `git diff --check` are its validation.
 Subsequent design refinements require real cached `.kgr` files for editor
 navigation and complete module/item/member docs authored through registration.
-Current implementation has FunctionDecl documentation and an item-ID doc map,
+At that design checkpoint, implementation had FunctionDecl documentation and an item-ID doc map,
 but module/trait/type/method builder coverage and module-doc queries are incomplete;
 LR01/LR02 own those gaps.
 
@@ -226,7 +226,7 @@ Source-path audit also found pre-parser exact-attribute/blank-line extraction in
 and copied-text searches for navigation in `native::api::import_source`. LR02
 replaces their consumers with complete generated-module parsing and explicit
 ranges; LR03 removes the obsolete helpers. This refinement updates the design
-only; implementation remains pending.
+only; the execution ledger below records its subsequent implementation.
 
 Crate audit refinement: HIR declares ABI but has no direct source use; contract's
 `Ty::representation()` still couples its shared type model to ABI. Common mixes
@@ -236,7 +236,7 @@ The authorized order is CR01 -> CR02 -> LR01 -> LR02 -> LR03. Existing library
 requirements, full docs/cache navigation, native safety and source-free artifact
 acceptance remain in scope.
 
-Execution ledger (CR01-CR02 and LR01-LR02 complete; LR03 next): numerical evaluation,
+Execution ledger (CR01-CR02 and LR01-LR03 complete): numerical evaluation,
 collection/range semantics and offline host schemas now belong to `kagari-types`.
 Scoped types, generic constraints, substitution, identity traversal, declarations,
 symbolic defaults and narrow reserved language-role identities moved from contract.
@@ -346,6 +346,36 @@ thirteen production dependency boundaries, ABI/contract build graphs and diff ch
 pass. The ten initially reported qualified paths are corrected. No LR02 build or
 test errors remain. Full workspace and standalone feature integration remain LR03.
 
+LR03 removes the obsolete binary/decoder/regenerator, handwritten core declarations,
+unused source extractor/renderer and orphan runtime library facade. The registered
+source inventory now checks exact generated locations and module/item Markdown for
+all standard declarations. Traits/architecture documents describe the implemented
+provider path and defer crate compilation metadata. The first full workspace run
+finds two Cranelift unit producers still assuming Runtime's implicit standard
+installation (`cargo test --workspace`, runtime ModuleValidation at tests.rs:109/184).
+LR03 changes that test factory to install the same explicit standard modules;
+production backend dependencies and validation remain unchanged. The focused six
+Cranelift cases pass and the full workspace rerun passes 1652 tests with one existing
+manual measurement ignored. All carried CR/LR build and test errors are closed.
+
+Final acceptance passes `cargo test --workspace`, strict workspace all-target Clippy,
+formatting, structure (759 Rust files, zero violations/exceptions), changed-document
+link/content checks and `git diff --check`. The standalone feature checker passes
+all thirteen production boundaries and ABI/contract build graphs; independent
+artifact-only/source/native/source+native consumers pass 6/7/8/9 artifact tests.
+CLI JIT passes all five tests. The standard documentation inventory and examples,
+all 38 traits/24 roles, generated navigation/cache/doc-only compatibility, native
+GC/borrows/cancellation/effect order and pinned reload/source-free artifact coverage
+remain exercised by those suites. Repository search finds no obsolete extractor,
+binary decoder/regenerator or handwritten-core references in code, current specs
+or architecture. Generated cache products stay ignored; no substitute declaration
+artifact, ABI version bump, compatibility alias or frontend dependency is introduced.
+
+The finite CR01 -> CR02 -> LR01 -> LR02 -> LR03 goal is complete. Crate metadata,
+separate/parallel compilation, live registration mutation, no_std and a standalone
+LSP server remain outside this goal; SDK queries/cache provide the LSP integration
+surface. Performance differences from these ownership changes are not measured.
+
 ## Rust-style library namespaces (NS01, complete)
 
 Authorized scope: replace `core::language` with responsibility-based `core`,
@@ -383,7 +413,8 @@ Final validation passes: `cargo test --workspace` (1640 passed, one ignored),
 `cargo clippy --workspace --all-targets -- -D warnings`,
 `cargo fmt --all -- --check`, `uv run --locked scripts/check_structure.py`,
 `uv run python scripts/check_features.py`, `cargo test -p kagari-cli --features jit`,
-`cargo run -p kagari-compiler --example regenerate_language_traits -- --check`,
+`cargo run -p kagari-compiler --example regenerate_language_traits -- --check`
+(the historical product check, removed by LR03),
 and `git diff --check`. The structure checker reports zero violations and zero
 exceptions. All four standalone SDK feature consumers and the production
 crate/ABI dependency boundaries pass. Namespace tests cover identity-preserving
@@ -604,7 +635,7 @@ Cranelift suites; runtime native execution, native builder, offline types and
 installation access; HIR language contracts; structure, formatting and diff checks.
 No carried build/test error remains. Temporary output lives in `target/ac-cleanup`.
 
-AC02 replaces Rust constructors for the 24 core trait declarations with handwritten
+Historical AC02 (superseded by LR01-LR03) replaced Rust constructors for the 24 core trait declarations with handwritten
 core trait modules and their source-compiled `language/traits.bin` product.
 Only source tooling includes the text; contract decodes and validates the bounded
 product without a frontend. `regenerate_language_traits --check` checks source/
@@ -788,7 +819,7 @@ Current implementation entrypoints:
 | --- | --- |
 | ABI/contract model and verification | [Contract root](../crates/kagari-contract/src/lib.rs), `types/`, `callable/`, `layout.rs`, `slots.rs`, `contracts.rs`, `native_import/` under that crate |
 | Physical representation and native boundary | [Value representations](../crates/kagari-abi/src/representation.rs), [native calls](../crates/kagari-abi/src/native_call.rs), [native products](../crates/kagari-abi/src/native.rs) |
-| Existing foundation definitions and generated source | [Native library catalog](../crates/kagari-contract/src/library/catalog/mod.rs), [native declarations](../crates/kagari-contract/src/declaration/mod.rs), [source renderer](../crates/kagari-hir/src/native/render.rs) |
+| Existing foundation definitions and generated source | [Native library catalog](../crates/kagari-stdlib/src/catalog/mod.rs), [native declarations](../crates/kagari-types/src/declaration/mod.rs), [source renderer](../crates/kagari-hir/src/native/render.rs) |
 | Attribute analysis and language selection | [Syntax attributes](../crates/kagari-syntax/src/ast/item.rs), [HIR entry](../crates/kagari-hir/src/lib.rs), HIR `lower/`, `language/`, `typeck/` and compiler `source/lower/` |
 | Installation and executable consumers | Runtime `native/`, `loading.rs`, `backend.rs` and `backend/native.rs`; MIR, bytecode, VM, codegen and embed consumers of the checked contract model |
 | Common ownership and dependency validation | [Common root](../crates/kagari-common/src/lib.rs), [source root](../crates/kagari-source/src/lib.rs), workspace/crate manifests and [standalone feature checker](../scripts/check_features.py) |

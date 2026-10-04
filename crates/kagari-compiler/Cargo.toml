@@ -34,9 +34,5 @@ required-features = ["source"]
 name = "layouts"
 required-features = ["source"]
 
-[[example]]
-name = "regenerate_language_traits"
-required-features = ["source"]
-
 [dev-dependencies]
 kagari-stdlib.workspace = true

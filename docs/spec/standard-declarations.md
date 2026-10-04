@@ -9,9 +9,9 @@ these same declarations and local Rust bindings without a binary declaration pro
 
 This page describes current implemented behavior. CR01-CR02 established shared
 semantic ownership and explicit analysis providers. LR01 moved concrete standard
-registrations and algorithms to their own crate. LR02-LR03 still replace the
-handwritten-core analysis splice with complete generated modules, cached navigation
-and syntax-based role recognition, then remove the unused trait product and oracle.
+registrations and algorithms to their own crate. LR02 connects complete generated
+modules, cached navigation and syntax-based role recognition to Engine registration.
+LR03 removes the unused trait product and independent handwritten declarations.
 The [single execution plan](../implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed)
 owns sequencing and acceptance.
 
@@ -40,7 +40,10 @@ install `kagari_stdlib::modules()` with `NativeModule::install_all`, including f
 source-free execution. All engine constructors select and install the standard
 modules. The builder's `install(module)` adds an application module,
 and `with_native_modules` accepts application modules in addition to the foundation.
-Duplicate/conflicting foundation bindings are rejected. A finished module contains
+The fallible mutable builder uses `install`/`install_all` as atomic transactions;
+`build` consumes it. `builder.declarations()` supplies the installed authoring
+providers to application ModuleBuilders. Duplicate module identities, conflicting
+bindings, missing dependencies and declaration mismatches are rejected. A finished module contains
 both portable declarations and runtime-local Rust entries/storage descriptors.
 Compiler-only consumers can read the same declarations without a runtime.
 
@@ -137,6 +140,34 @@ Trait implementations inherit the provider's method docs across module boundarie
 Finished `ModuleDecl` records retain module and member documentation independently
 of executable signatures and contract matching.
 
+## Engine source presentation
+
+Source-enabled engines render every installed module from the sealed registrations
+and check complete generated KGR with the ordinary frontend before publishing it.
+`engine.native_declaration_sources()` returns those immutable views and their sites.
+For example, a tooling host configures file materialization before sealing:
+
+```rust
+let mut builder = KagariEngine::builder()?;
+// Construct application modules against builder.declarations(), then install them.
+builder.declaration_cache("target/kagari-declarations");
+let engine = builder.build()?;
+```
+
+Omitting the directory keeps views in memory without filesystem IO. CLI source
+commands configure it automatically. The cache uses renderer-version/content paths;
+unchanged content reuses paths and doc-only changes preserve old snapshot targets.
+SDK errors retain the failing filesystem path and IO cause. Published normalized
+absolute paths and declaration ranges match the analyzed content; LSP integrations
+encode paths as file URIs at their protocol boundary. HIR declaration snapshots
+provide `documentation` and `module_documentation`; full analysis supplies
+`documentation_at` and `module_documentation_at` for item and module references.
+All return the complete registered Markdown from parsed owning source locations.
+
+Artifact-only and native-only SDK consumers install the same checked registration
+records without a source frontend, generated KGR or declaration binary. User-program
+KBC/MIR artifacts and linked verification remain independent execution features.
+
 ## Checked executable contracts
 
 Source analysis parses native-generated declaration views through ordinary
@@ -223,10 +254,10 @@ and documentation. It is not executable source, a second signature authority or
 an installation trigger. The compiler parses/lowers this view through ordinary
 declaration machinery and checks non-trivia correspondence with registration
 before attaching native storage, bindings and default metadata. Declaration
-locations and docs come from the same records used by compilation. Standard registrations now own all trait and module documentation. The current
-core analysis path still splices the six handwritten views and navigates to copied
-source ranges; LR02 replaces that temporary path with the uniform renderer and
-materialized declaration cache.
+locations and docs come from the same records used by compilation. Standard
+registrations own all trait and module documentation. Core and application views
+use the uniform renderer and optional materialized declaration cache; navigation
+resolves their parsed owning ranges in the exact generated snapshot.
 Other generated views include library-owned types,
 inherent methods and trait impl methods, including MapIterator.next.
 

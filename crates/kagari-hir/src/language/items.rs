@@ -101,8 +101,8 @@ pub(crate) fn collect(
     items
 }
 
-/// Compare analyzed member types/binders/parents against the installed checked
-/// language product before any role-dependent body is accepted.
+/// Compare analyzed member types/binders/parents against installed registrations
+/// before any role-dependent body is accepted.
 pub(crate) fn validate_shapes(
     declarations: &Declarations,
     aggregates: &AggregateCatalog,

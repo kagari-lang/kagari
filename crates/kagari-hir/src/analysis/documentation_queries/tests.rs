@@ -27,6 +27,9 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             .files()
             .find(|file| file.source().name() == generated.uri)
             .unwrap();
+        let module_doc = snapshot.module_documentation(&installed.identity).unwrap();
+        assert_eq!(module_doc.location.file, file.source().id());
+        assert_eq!(module_doc.documentation, installed.module_documentation);
         for (id, site) in &generated.sites {
             let range = site.name_span;
             // Impl header spans name a receiver type, not a named declaration.
@@ -46,32 +49,11 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             assert!(identities.insert(declaration.id.clone()));
             let metadata = snapshot.documentation(&declaration.id).unwrap();
             assert_eq!(metadata.declaration, *declaration);
-            if declaration.location.file == file.source().id() {
-                assert_eq!(
-                    metadata.documentation,
-                    installed.documentation.get(id).cloned().unwrap_or_default()
-                );
-            } else {
-                let authored = snapshot.source(declaration.location.file).unwrap();
-                assert!(
-                    authored
-                        .name()
-                        .ends_with(&format!("library/core/{}.kgr", id.module.path[0]))
-                );
-                assert_eq!(
-                    authored.text(),
-                    crate::language::source::module_source(&id.module.path[0]).1
-                );
-                assert_eq!(
-                    authored.span(declaration.location.range),
-                    Some(declaration.location)
-                );
-                assert_eq!(
-                    &authored.text()
-                        [declaration.location.range.start..declaration.location.range.end],
-                    declaration.name
-                );
-            }
+            assert_eq!(declaration.location.file, file.source().id());
+            assert_eq!(
+                metadata.documentation,
+                installed.documentation.get(id).cloned().unwrap_or_default()
+            );
             assert!(metadata.written_signature.contains(&declaration.name));
             assert!(independent.documentation(&declaration.id).is_none());
             let other = independent

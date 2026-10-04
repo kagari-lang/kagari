@@ -133,25 +133,20 @@ Application and library modules use explicit ModuleBuilder declarations and
 scoped implementation blocks. `bind` checks Rust codecs against Kagari signatures;
 `bind_with` supplies explicit codecs. Rust signatures do not infer Kagari traits.
 `finish` checks the declaration/binding/storage closure; installation validates
-dependencies and publishes atomically. Runtime construction atomically installs the
-foundation modules and bundled algorithms, reusing immutable registrations at host-thread
-lifetime while retaining independent heaps, host state and generations.
+dependencies and publishes atomically. Runtime construction starts empty. Engine
+construction explicitly installs standard modules through the same builder path
+as application modules, retaining independent heaps, host state and generations.
 
-HIR embeds the six `library/core/{ops,cmp,hash,fmt,iter,convert}.kgr` files as
-text with `include_str!`. Before parsing, `language::source::trait_source` finds
-an exact `#[lang = "..."]` string and surrounding blank-line separators to copy
-each of the 24 handwritten traits into a generated module. That combined text
-then passes through the declaration parser and ordinary trait lowering. This
-pre-parser extraction is formatting-dependent: attribute whitespace, blank lines
-inside a trait or its documentation, and marker text inside comments can break
-selection or truncate the copied declaration. Native import also searches for
-the copied text to reconstruct navigation provenance. These mechanisms are
-implementation debt retired by LR02/LR03 below, not a supported source contract.
+All 38 standard traits are explicit registrations owned by `kagari-stdlib`.
+Complete generated modules pass through the declaration parser and ordinary HIR
+lowering. The renderer records identity/range mappings while producing source;
+parsed attribute nodes identify language roles on their owning declarations.
+There is no handwritten-core extraction, source splice or declaration binary.
 Header collection binds LangRole to declaration IDs;
 signature completion validates installed origin, uniqueness, required roles,
 binders, parents and member types before body selection. The 24 core signatures
-now belong to explicit standard registrations; the old product remains only as a
-transitional test oracle scheduled for LR03 removal.
+belong to explicit standard registrations, checked against the installed records
+and the compiler requirements.
 Rust library records under `kagari-stdlib::catalog` generate declaration views
 that use the ordinary declaration parser and HIR lowering. Non-trivia syntax is
 checked against authoritative registrations before native storage, bindings and
@@ -160,20 +155,18 @@ declarations, native imports, signatures and selected witnesses; loading checks
 them against installed implementations without parsing source. The ownership model below preserves source-free execution.
 See [native declarations](spec/standard-declarations.md) for the registration API.
 
-## Crate responsibility target (agreed, pending implementation)
+## Crate responsibility target
 
-The next migration separates shared semantic models from executable contracts,
-then completes unified library registration. This target supersedes AC01-AC05's
-combined semantic/executable contract ownership. CR01 established the shared
-semantic owner reflected in the workspace table above. CR02 removes HIR's ABI
-and contract dependencies and requires callers to supply declaration providers;
-library registration remains pending. [CR01-CR02 and LR01-LR03](implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed)
-own sequencing and acceptance under the active continuous goal.
+CR01-CR02 separate shared semantic models from executable contracts; LR01-LR03
+complete unified library registration. This ownership supersedes AC01-AC05's
+combined semantic/executable contract model. HIR depends on explicit semantic
+providers; stdlib owns concrete declarations and implementations. The
+[execution roadmap](implementation-roadmap.md) records checkpoints and validation.
 
 | Crate | Target responsibility |
 | --- | --- |
 | `kagari-common` | Spans, cooperative cancellation and portable/scoped definition identity, tables and mappings; no host or language API inventory |
-| `kagari-types` (new) | Source-independent types, signatures, traits, generic/member constraints, module declarations/docs, semantic role metadata, offline host schemas, numeric semantics and declaration-level checks |
+| `kagari-types` | Source-independent types, signatures, traits, generic/member constraints, module declarations/docs, semantic role metadata, offline host schemas, numeric semantics and declaration-level checks |
 | `kagari-source` | Source documents/revisions, line indices, diagnostics, literal grammar and navigation provenance |
 | `kagari-syntax` | Lexer, parser, CST and AST |
 | `kagari-hir` | Recoverable resolution, inference, trait selection, semantic checking and source queries; rendering explicit registered semantic declarations |
@@ -186,7 +179,7 @@ own sequencing and acceptance under the active continuous goal.
 | `kagari-codegen-cranelift` | Cranelift machine-code emission |
 | `kagari-runtime` | Values, GC, roots, host state/borrows, native builders/bindings, linking, versions and execution services |
 | `kagari-vm` | Interpreter/frame driver, call dispatch and debugger control |
-| `kagari-stdlib` (new) | Concrete core/alloc/std declarations, docs, exports, Rust bindings and algorithms |
+| `kagari-stdlib` | Concrete core/alloc/std declarations, docs, exports, Rust bindings and algorithms |
 | `kagari-embed` | Engine/SDK composition of registrations, compilation, loading, preparation and execution |
 | `kagari-cli` | Arguments, filesystem IO and presentation |
 
@@ -215,11 +208,10 @@ runtime or stdlib. Embed composes the required subsystems and stdlib; standalone
 analysis receives declarations without installing a runtime. Generic runtime,
 HIR, compiler, MIR, bytecode and backends do not depend on concrete stdlib.
 
-Move pure `Ty`, nominal/generic/trait/function/member records, ModuleDecl/docs and
-general type operations from contract to types. Move collection access, range
-forms, numeric evaluation and offline host declarations from common to focused
-types modules. Keep numeric evaluation shared between constant evaluation and
-runtime so casts, widths, overflow and trap behavior remain consistent. Span and
+Pure `Ty`, nominal/generic/trait/function/member records, ModuleDecl/docs and
+general type operations belong to types. Collection access, range forms, numeric
+evaluation and offline host declarations belong to focused types modules. Numeric
+evaluation stays shared between constant evaluation and runtime so casts, widths, overflow and trap behavior remain consistent. Span and
 definition identity remain usable by runtime/debug metadata without pulling in
 source documents or analysis.
 
@@ -234,7 +226,7 @@ produce semantic declarations plus separate execution bindings. Host schemas
 describe declared access and passing; actual Rust borrow state remains runtime-local.
 Bounded codecs follow their records rather than creating a shared artifact catalog.
 
-Remove `Ty::representation()` from the semantic model. Contract exposes explicit
+`Ty` has no execution representation method. Contract exposes explicit
 semantic-to-slot lowering used by compiler and executable verification. HIR's
 inference/unknown/error types remain local; checked portable types describe a
 different stage and need not absorb incomplete-source analysis state. HIR converts
@@ -257,13 +249,12 @@ complete CR01's semantic ownership, then CR02's consumer/dependency boundaries,
 then LR01-LR03's concrete stdlib registration. Required intermediate build failures
 are bounded and recorded in the roadmap; CR02 closes its carried errors before LR01.
 
-## Unified library registration (agreed target, pending implementation)
+## Unified library registration
 
-This target supersedes the source-authority and embedded trait-product choices of
-AC02/NS01 for the next migration. The preceding crate target defines the semantic
-and execution split; CR01-CR02 precede
-[LR01-LR03](implementation-roadmap.md#unified-library-registration-lr01-lr03-design-agreed),
-which own library implementation and acceptance.
+This registration path supersedes AC02/NS01's source-authority and embedded
+trait-product choices. The preceding crate target defines the semantic and
+execution split; the [roadmap](implementation-roadmap.md) records implementation
+and acceptance.
 
 Standard and application native libraries supply the same kind of module:
 explicit Kagari declarations, documentation, dependencies and checked Rust
@@ -347,7 +338,7 @@ must not depend on Markdown contents. This requirement covers registration APIs,
 generated files and analysis queries; it does not add a documentation website or
 an automatic doctest runner.
 
-### Registration API draft
+### Registration API
 
 The Engine builder uses the same explicit-signature/binding model as standalone
 native libraries. Registration and configuration operations mutate the builder;
@@ -428,7 +419,8 @@ generic checked operations; moving code cannot expose unchecked heap internals.
 LR01 moved the declaration recipes, library-owned namespace inventory, native
 bindings and bundled collection algorithms to `kagari-stdlib`. Runtime construction
 is empty until modules are installed explicitly; Engine construction selects and
-installs standard modules. Its single mutable registration path remains LR02 work. Split `library::namespaces` by consumer responsibility: public
+installs standard modules through the mutable registration builder. Namespace
+ownership follows consumer responsibility: public
 library paths belong to stdlib, while executable ownership validation consumes
 checked declaration/representation bindings. Semantic language-role metadata
 belongs to types; primitive execution facts and executable role bindings belong
@@ -437,38 +429,29 @@ inventory. HIR consumes semantic records through explicit provider inputs.
 
 ### Core traits and registration authority
 
-The 24 core trait signatures become ordinary explicit standard-library
-registration records, alongside the other 14 traits. Their `.kgr` analysis views
-are generated through the same renderer as application modules. Retire the six
-handwritten core trait files as independent declaration authorities, preserving
-their documentation and generated navigation. Do not replace `traits.bin` with
-another binary, a checked-in generated Rust snapshot, or a build-time frontend.
+The 24 core trait signatures are ordinary explicit standard-library registrations,
+alongside the other 14 traits. Their KGR analysis views use the same renderer as
+application modules, retaining complete documentation and navigation. There are
+no independent handwritten core trait declarations, embedded declaration binary,
+checked-in generated snapshot or build-time frontend.
 
-Render complete module documents from registration records, then pass them through
-the ordinary declaration parser and HIR lowering. Remove `trait_source`, its
-`core_text` wrapper, the handwritten-core splice branch, and copied-text searches
-used to reconstruct navigation to the old files. Do not replace exact-string or
-blank-line extraction with another textual heuristic. Language attributes are
-recognized through parsed attribute nodes and their owning declarations, followed
-by the origin and shape checks below.
+Complete rendered modules use the ordinary declaration parser and HIR lowering.
+Language attributes are recognized through parsed attribute nodes and their
+owning declarations, followed by origin and shape checks. Selection and navigation
+never search for attribute spellings, blank-line delimiters or copied source text.
 
 The renderer records declaration identities and output ranges while producing
 text; parsed syntax nodes supply semantic declaration/member spans. Navigation
 uses those ranges in the exact generated snapshot, including its cached file,
 without searching for attribute spellings or declaration text. Documentation
 paragraphs, fenced examples and blank lines cannot delimit or truncate a trait.
-Any handwritten source still analyzed during migration must be parsed as a
-complete module; if extraction is necessary, select AST nodes and explicit source
-ranges, preserving attached documentation and attributes. This is an intermediate
-correctness rule, not a second handwritten-core path in the final architecture.
-
 Compiler-recognized roles still need explicit checks for origin, identity,
 uniqueness, completeness, binders and the members required by language semantics.
 Registration supplies the declarations and checked role/representation bindings;
 HIR collects them from trusted generated views. A copied `#[lang]` attribute or a
 same-named application trait cannot acquire reserved authority. Shape validation
 uses the installed declaration and the compiler's actual semantic requirements,
-not a previous generated product. Ordinary native modules use the same declaration
+not a previous binary product. Ordinary native modules use the same declaration
 and binding checks; only the narrow language-role requirements are additional.
 
 Module builders now receive an explicit `DeclarationCatalog`. The opt-in
@@ -481,9 +464,9 @@ programs retain their checked identities and generation ownership.
 
 ### Binary products and scope
 
-Remove `language/traits.bin`, its decoder, regeneration example and source/product
-comparison workflow after all consumers use registered declarations. This native
-registration path needs no binary intermediary. Existing user-program KBC/MIR
+The former declaration binary, decoder, regeneration example and source/product
+comparison workflow have been removed. Native registration needs no binary
+intermediary. Existing user-program KBC/MIR
 artifacts and their validation remain separate execution features.
 
 Crate metadata analogous to `.rmeta` is deferred to a concrete design for Kagari
@@ -626,14 +609,12 @@ records those gates. See [JIT](spec/jit.md) and [backend contract](spec/codegen-
 
 ## Contract and common responsibility cleanup
 
-AC01-AC05 implemented and validated the current partition described in this
-section. The pending [crate responsibility target](#crate-responsibility-target-agreed-pending-implementation)
-supersedes its combined semantic/executable ownership through CR01-CR02; it does
-not describe already-migrated code.
-`kagari-abi` owns physical binary interfaces; `kagari-contract` owns portable
-semantic contracts. Core declarations come from handwritten language source,
-while ordinary native-library declarations and Rust implementations retain their
-own authority. Source/tooling utilities belong to `kagari-source`.
+AC01-AC05 established an earlier partition. The
+[crate responsibility target](#crate-responsibility-target) refines it through
+CR01-CR02 and LR01-LR03: ABI owns physical binary interfaces, types owns shared
+semantic declarations and contract owns executable records and linked checks.
+Stdlib owns concrete core/alloc/std declarations and Rust implementations;
+source/tooling utilities belong to source and HIR.
 
 ### Agreed implementation order
 
@@ -642,22 +623,22 @@ roles next (AC02), integrate native-generated views and declaration-driven libra
 policy (AC03), then migrate loading/tooling/common ownership (AC04). The roadmap
 records final acceptance and phase commits.
 
-Contract owns types, generic binders/bounds, trait/impl and function declarations,
-logical layouts, interface/call records and validation. ABI owns lowered
-representations and physical runtime/codegen interfaces. The dependency is
-`contract -> abi`; ABI never resolves script types or owns Add/List declarations.
-A generic TraitDef record belongs to contract; its particular Add or List
-definition belongs to language source or the native library respectively.
+Shared types, generic binders/bounds and trait/impl/function declarations belong to
+types. Logical layouts, executable interface/call records and linked validation
+belong to contract; physical runtime/codegen interfaces belong to ABI. A generic
+TraitDef belongs to types, while its particular Add or List definition belongs
+to stdlib registration. ABI never resolves script types or owns those declarations.
 
 ### Ownership boundaries
 
 | Responsibility | Implemented owner |
 | --- | --- |
 | Physical values, calling conventions, helper symbols/signatures, native entries and physical root locations | Narrow ABI; no semantic catalog, frontend or runtime implementation dependency |
-| Semantic types/declarations, logical layouts, imports, interface records and verification | Contract; source-independent, depending on ABI where physical facts are needed |
-| Syntax-required trait declarations and role selection | Language foundation source and compiler semantics, using ordinary parser/HIR |
+| Semantic types, declarations and generic/member checks | Types; source-independent and separate from physical/execution facts |
+| Logical layouts, executable imports/interface records and linked verification | Contract; uses types and ABI without a frontend |
+| Syntax-required trait declarations and role selection | Stdlib registration, types role identities and compiler semantics using ordinary parser/HIR |
 | Collection/standard-library traits, types, methods and Rust bodies | Explicit native library ownership; Rust declarations generate `.kgr` for compiler/LSP analysis |
-| Substitution and implementation proofs | Focused contract verification, including linked and bounded checks |
+| Substitution and implementation proofs | Types performs semantic substitution/checks; contract validates linked executable proofs with bounds |
 | Source rendering, navigation and diagnostics | Source owns documents and provenance; HIR tooling owns rendering and queries; no executable dependency on generated text |
 
 ### Naming policy for the split
@@ -877,7 +858,7 @@ library ownership neither removes range syntax nor requires a RangeBounds lang i
 ### Declaration preparation and dependency direction
 
 ```text
-language trait source + generated native declaration source
+registered semantic declarations -> complete generated declaration source
   -> ordinary parser/HIR, validated roles and declarations
   -> checked semantic contracts and selected calls
   -> verified MIR -> bytecode/native products
@@ -890,8 +871,8 @@ Rust native definitions remain authoritative for ordinary libraries. Generated
 source is not independently editable authority. Check analyzed declaration IDs,
 binders, signatures, bounds, parents and associated members against native records;
 source spans remain analysis data. Remove duplicate injected library catalogs.
-Collect headers/roles before dependent bodies without recursively injecting the
-foundation being compiled. Runtime installation never parses either source form.
+Collect headers/roles before dependent bodies from the explicit provider set.
+Runtime installation never parses generated source.
 
 The dependency direction is contract -> ABI, never ABI -> contract. Neither has
 syntax/HIR or frontend build dependencies. Semantic type-to-representation lowering
@@ -907,19 +888,16 @@ AC04 implements the common audit with `kagari-source` owning source documents,
 FileId/Revision/FileSpan, diagnostics, line indices and literal grammar. Frontend
 consumers import that owner directly; compiler/SDK dependencies are gated by
 `source`, and backend/VM test dependencies do not enter their production graphs.
-Common retains portable definition identities and debug Span coordinates,
-checked numeric arithmetic, cancellation and bounded decoding. Its host schema,
-CollectionAccess and RangeKind are portable facts consumed by contract validation,
-runtime host registration/GC/borrow checks and VM/backend operations; they do not
-own source declarations or independently select library traits.
+CR01 leaves portable definition identities, debug spans, cancellation and bounded
+decoding in common. Shared numeric semantics, host schemas, CollectionAccess and
+RangeKind now belong to types; contract and runtime consume these semantic facts
+without source analysis or a concrete library API catalog.
 
-Core documentation is authored in the handwritten `library/core/{ops,cmp,hash,fmt,iter,convert}.kgr` modules. Native views copy
-those declarations verbatim for ordinary analysis. Source provenance accepts only
-exact disjoint copied ranges and retains their original text and revision; HIR
-site lookup uses view offsets while navigation and documentation expose authored
-locations through the owning snapshot. Other native declarations retain generated
-view locations and Rust-owned documentation. Loading and reload compare every
-reserved core trait and installed storage/conversion capability against the exact
+Core and application documentation is authored in registered module/item metadata.
+Complete generated views retain module Markdown, member docs and renderer-recorded
+sites. Analysis snapshots own parsed text and locations; optional SDK cache files
+use those same physical paths and ranges. There is no separate authored-core
+provenance path. Loading and reload compare every reserved core trait and installed storage/conversion capability against the exact
 runtime registration, including private records and products with no native calls.
 The installed core modules collectively expose all 24 required declarations;
 each owning module must expose its assigned roles exactly once.

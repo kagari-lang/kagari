@@ -7,9 +7,11 @@ use kagari_embed::engine::KagariEngine;
 use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
 use kagari_runtime::{
     Runtime, RuntimeConfig, backend::BackendInvocationError, error::RuntimeErrorKind,
-    jit_abi::native_helper_symbols, resource::RuntimeLimits, value::Value,
+    jit_abi::native_helper_symbols, native::module::NativeModule, resource::RuntimeLimits,
+    value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use std::rc::Rc;
 use {
     kagari_abi::{native::ExecutableEntryPoint, native_call::JIT_POLL_EXECUTION_SYMBOL},
@@ -32,12 +34,14 @@ fn root(program: &VerifiedMirProgram) -> &VerifiedMirModule {
 }
 
 fn runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
+    let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
             ..Default::default()
         },
         ..Default::default()
-    })
+    });
+    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
+    runtime
 }
 
 fn compile(

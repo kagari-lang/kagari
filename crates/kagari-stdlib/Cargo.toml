@@ -12,6 +12,5 @@ kagari-runtime.workspace = true
 kagari-bytecode.workspace = true
 
 [dev-dependencies]
-bincode.workspace = true
 kagari-hir.workspace = true
 kagari-source.workspace = true
