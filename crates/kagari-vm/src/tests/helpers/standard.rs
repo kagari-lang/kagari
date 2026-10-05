@@ -27,7 +27,7 @@ fn executes_source_lowered_declared_host_log() {
         .load_program("print.kgr", bytecode)
         .expect("print module should load");
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::Unit);
@@ -58,7 +58,7 @@ fn main()->(usize,bool,usize,bool){
     .unwrap()
     .program;
     let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(
@@ -84,7 +84,7 @@ fn main() -> usize {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::U64(3));
@@ -104,7 +104,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(9));

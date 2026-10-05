@@ -1,10 +1,11 @@
 //! Element contracts retain one checked reified type, independently of collection length.
 use crate::{
     error::RuntimeError,
-    frame::types::{TypeEnvironment, arguments::TypeArgument, compatibility::TypeView},
+    frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
     gc::GcHeap,
     module::LoadedModule,
     value::Value,
+    value_check::matches_type,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
@@ -63,7 +64,7 @@ impl StorageType {
         &self,
         ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
+        environment: Option<&TypeBindings>,
     ) -> bool {
         self.view()
             .compatible(TypeView::new(ty, owner, environment))
@@ -76,7 +77,7 @@ impl StorageType {
     pub(crate) fn accepts_value(&self, heap: &GcHeap, value: &Value) -> bool {
         match &self.scope {
             Some(scope) => scope.matches_heap(heap, value, &self.owner),
-            None => heap.matches_abi(value, &self.ty, &self.owner),
+            None => matches_type(heap, value, &self.ty, &self.owner),
         }
     }
 }

@@ -1,8 +1,9 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
+    closure::ClosureValueSnapshot,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::types::{TypeEnvironment, arguments::TypeArgument},
-    gc,
+    execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId, links::MetadataCache},
+    frame::types::{EnvironmentRecord, TypeEnvironment, arguments::TypeArgument},
     gc::{
         HeapObjectId,
         interfaces::{
@@ -11,10 +12,10 @@ use crate::{
         },
         roots::RootedValue,
     },
-    module,
-    module::LoadedModule,
+    module::{self, LoadedModule},
     value,
     value::{EnumTag, Value},
+    value_check::matches_type,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::CallableTarget;
@@ -26,10 +27,11 @@ use kagari_types::{
     language::binding,
     ty::{NominalTy, Ty, substitution::TypeSubstitution},
 };
-use std::{cell::OnceCell, rc::Rc, slice};
+use std::{cell::Ref, slice};
 mod application;
 mod calls;
 pub(crate) mod method;
+mod method_view;
 mod operations;
 
 impl Runtime {
@@ -143,7 +145,7 @@ impl Runtime {
         arguments: &[TypeArgument],
         data: Value,
         use_view: bool,
-    ) -> Result<Rc<InterfaceValueSnapshot>, RuntimeError> {
+    ) -> Result<InterfaceValueSnapshot, RuntimeError> {
         let invalid = || RuntimeError::module_validation("invalid interface implementation table");
         if !implementation.belongs_to(self.host.owner()) {
             return Err(invalid());
@@ -180,11 +182,11 @@ impl Runtime {
         let environment = if template.generic_params.is_empty() {
             None
         } else {
-            Some(Rc::new(TypeEnvironment::new(
+            Some(self.gc.alloc_environment(EnvironmentRecord::new(
                 self.definition_context(),
                 template.generic_params.clone(),
                 arguments.to_vec(),
-            )?))
+            )?)?)
         };
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in template.generic_params.iter().zip(&concrete_arguments) {
@@ -278,8 +280,8 @@ impl Runtime {
                 })
                 .transpose()?;
             methods.push(Some(InterfaceMethodBinding {
-                application: OnceCell::new(),
-                receiver_operations: OnceCell::new(),
+                application: MetadataCache::new(),
+                receiver_operations: MetadataCache::new(),
                 parameters: method.generic_params.clone(),
                 entry_parameters: match slot.target {
                     CallableTarget::Script(target) => implementation.bytecode.functions
@@ -303,8 +305,8 @@ impl Runtime {
                 return_type: method.return_type.clone(),
             }));
         }
-        Ok(Rc::new(InterfaceValueSnapshot {
-            receiver_operations: OnceCell::new(),
+        Ok(InterfaceValueSnapshot {
+            receiver_operations: MetadataCache::new(),
             receiver_table: InterfaceResultBinding {
                 owner: implementation.clone(),
                 table: table_index,
@@ -320,7 +322,7 @@ impl Runtime {
                 .iter()
                 .map(|parent| {
                     Ok(InterfaceParentBinding {
-                        prepared: OnceCell::new(),
+                        prepared: MetadataCache::new(),
                         interface: substitution
                             .apply_nominal(&parent.interface, &Default::default())
                             .map_err(|_| invalid())?,
@@ -347,23 +349,14 @@ impl Runtime {
             environment,
             implementation: implementation.clone(),
             methods,
-        }))
+        })
     }
 
-    fn publish_interface(
-        &self,
-        snapshot: Rc<InterfaceValueSnapshot>,
-    ) -> Result<Value, RuntimeError> {
+    fn publish_interface(&self, snapshot: InterfaceValueSnapshot) -> Result<Value, RuntimeError> {
         self.validate_interface_receiver(&snapshot)?;
-        let retention = self
-            .modules
-            .retain_runtime_program(&snapshot.implementation)
-            .ok_or_else(|| {
-                RuntimeError::module_validation("invalid interface implementation table")
-            })?;
-        self.gc
-            .alloc_interface(snapshot, retention)
-            .map(Value::Interface)
+        self.validate_metadata(MetadataEdge::InterfaceView(&snapshot))?;
+        let id = self.gc.alloc_interface_snapshot(snapshot)?;
+        self.gc.alloc_interface(id).map(Value::Interface)
     }
 
     fn validate_interface_receiver(
@@ -379,7 +372,10 @@ impl Runtime {
             &snapshot.data,
             &snapshot.concrete_expression,
             &snapshot.implementation,
-            snapshot.environment.as_deref(),
+            snapshot
+                .environment
+                .as_ref()
+                .map(|environment| environment.types.as_ref()),
         ) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -389,39 +385,58 @@ impl Runtime {
         Ok(())
     }
 
+    fn publish_interface_view(&self, id: InterfaceSnapshotId) -> Result<Value, RuntimeError> {
+        let snapshot = self
+            .gc
+            .interface_metadata(id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
+        self.validate_interface_receiver(&snapshot)?;
+        self.validate_metadata(MetadataEdge::Interface(id))?;
+        drop(snapshot);
+        self.gc.alloc_interface(id).map(Value::Interface)
+    }
+
     fn parent_snapshot(
         &self,
-        snapshot: &InterfaceValueSnapshot,
+        id: InterfaceSnapshotId,
         target: &NominalTy<DefinitionId>,
-    ) -> Result<Rc<InterfaceValueSnapshot>, RuntimeError> {
-        let parent = snapshot
+    ) -> Result<InterfaceSnapshotId, RuntimeError> {
+        let invalid =
+            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
+        let snapshot = self.gc.interface_metadata(id).ok_or_else(invalid)?;
+        let slot = snapshot
             .parents
             .iter()
-            .find(|parent| parent.interface == *target)
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast")
-            })?;
+            .position(|parent| parent.interface == *target)
+            .ok_or_else(invalid)?;
+        let parent = &snapshot.parents[slot];
         if let Some(prepared) = parent.prepared.get() {
-            self.validate_interface_receiver(prepared)?;
-            return Ok(prepared.clone());
+            let view = self.gc.interface_metadata(*prepared).ok_or_else(invalid)?;
+            self.validate_interface_receiver(&view)?;
+            return Ok(*prepared);
         }
-        let binding = &parent.binding;
+        let binding = parent.binding.clone();
+        let data = snapshot.data.clone();
+        let use_view = parent.view;
+        drop(snapshot);
         let prepared = self.prepare_interface_snapshot(
             &binding.owner,
             binding.table,
             &self.type_arguments(
                 &binding.owner,
-                binding.environment.clone(),
+                binding
+                    .environment
+                    .as_ref()
+                    .map(|environment| environment.types.clone()),
                 &binding.arguments,
             )?,
-            snapshot.data.clone(),
-            parent.view,
+            data,
+            use_view,
         )?;
         self.validate_interface_receiver(&prepared)?;
-        parent
-            .prepared
-            .set(prepared.clone())
-            .expect("parent interface prepared once");
+        self.validate_metadata(MetadataEdge::InterfaceView(&prepared))?;
+        let prepared = self.gc.alloc_interface_snapshot(prepared)?;
+        self.cache_parent_interface(id, slot, prepared)?;
         Ok(prepared)
     }
 
@@ -430,7 +445,7 @@ impl Runtime {
         implementation: &LoadedModule,
         function: FunctionRef,
         captures: Vec<value::Value>,
-        environment: Option<Rc<TypeEnvironment>>,
+        environment: Option<TypeEnvironment>,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(implementation)?;
         let metadata = implementation
@@ -456,7 +471,7 @@ impl Runtime {
             .is_some_and(|body| {
                 environment
                     .as_ref()
-                    .is_none_or(|environment| !environment.matches(body))
+                    .is_none_or(|environment| !environment.types.matches(body))
             })
         {
             return Err(RuntimeError::module_validation(
@@ -466,7 +481,7 @@ impl Runtime {
         if let Some(environment) = &environment {
             for (index, value) in captures.iter().enumerate() {
                 if let Some(ty) = metadata.metadata.semantic.params.get(&index)
-                    && !self.matches_capture_type(value, ty, implementation, environment)
+                    && !self.matches_capture_type(value, ty, implementation, &environment.types)
                 {
                     return Err(RuntimeError::module_validation(
                         "closure semantic capture mismatch",
@@ -475,21 +490,14 @@ impl Runtime {
             }
         }
         self.validate_heap_payloads(&captures)?;
-        let retention = self
-            .modules
-            .retain_runtime_program(implementation)
-            .ok_or_else(|| RuntimeError::module_validation("closure version unavailable"))?;
-        self.gc
-            .alloc_closure(
-                gc::ClosureValueSnapshot {
-                    environment,
-                    implementation: implementation.clone(),
-                    function,
-                    captures,
-                },
-                retention,
-            )
-            .map(Value::Closure)
+        let snapshot = ClosureValueSnapshot {
+            environment,
+            implementation: implementation.clone(),
+            function,
+            captures,
+        };
+        self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
+        self.gc.alloc_closure(snapshot).map(Value::Closure)
     }
 
     pub fn iter_operation(
@@ -601,10 +609,12 @@ impl Runtime {
         self.gc.cell_set(*id, ty, value)
     }
 
+    /// Borrow the checked heap record for inspection. Release the view before
+    /// heap mutation, collection or execution that may perform either operation.
     pub fn resolve_closure(
         &self,
         value: &value::Value,
-    ) -> Result<Rc<gc::ClosureValueSnapshot>, RuntimeError> {
+    ) -> Result<Ref<'_, ClosureValueSnapshot>, RuntimeError> {
         let Value::Closure(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -621,28 +631,32 @@ impl Runtime {
         value: &Value,
         method: &I,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        let Value::Interface(id) = value else {
+        let Value::Interface(object) = value else {
             return Err(RuntimeError::module_validation("expected interface value"));
         };
+        let id = self
+            .gc
+            .interface_snapshot_id(*object)
+            .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
         let snapshot = self
             .gc
-            .interface_snapshot(*id)
+            .interface_metadata(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
-        let method_id = method
+        let method = method
             .resolve(snapshot.receiver_table.owner.definitions())
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let method = &method_id;
         let root = self.root_value(value.clone()).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
         })?;
         let slot = snapshot.methods.iter().position(|binding| {
             binding
                 .as_ref()
-                .is_some_and(|binding| &binding.method == method)
+                .is_some_and(|binding| binding.method == method)
         });
         if let Some(slot) = slot {
+            drop(snapshot);
             return self.apply_interface_method(
-                RootedInterfaceMethod::from_interface(root, snapshot, slot),
+                RootedInterfaceMethod::from_interface(self, root, id, slot)?,
                 &[],
             );
         }
@@ -650,22 +664,29 @@ impl Runtime {
             .receiver_table
             .owner
             .definitions()
-            .parent(*method)
+            .parent(method)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?
             .ok_or_else(|| RuntimeError::module_validation("interface method parent"))?;
-        if let Some(parent) = snapshot
+        let parent = snapshot
             .parents
             .iter()
             .find(|parent| parent.interface.declaration == owner)
-        {
-            let snapshot = self.parent_snapshot(&snapshot, &parent.interface)?;
-            if let Some(slot) = snapshot.methods.iter().position(|binding| {
+            .map(|parent| parent.interface.clone());
+        drop(snapshot);
+        if let Some(parent) = parent {
+            let id = self.parent_snapshot(id, &parent)?;
+            let snapshot = self.gc.interface_metadata(id).ok_or_else(|| {
+                RuntimeError::module_validation("invalid parent interface snapshot")
+            })?;
+            let slot = snapshot.methods.iter().position(|binding| {
                 binding
                     .as_ref()
-                    .is_some_and(|binding| &binding.method == method)
-            }) {
+                    .is_some_and(|binding| binding.method == method)
+            });
+            drop(snapshot);
+            if let Some(slot) = slot {
                 return self.apply_interface_method(
-                    RootedInterfaceMethod::from_interface(root, snapshot, slot),
+                    RootedInterfaceMethod::from_interface(self, root, id, slot)?,
                     &[],
                 );
             }
@@ -696,7 +717,9 @@ impl Runtime {
         if source == target {
             return Ok(value.clone());
         }
-        self.publish_interface(self.parent_snapshot(&snapshot, target)?)
+        drop(snapshot);
+        let snapshot = self.gc.interface_snapshot_id(*id).ok_or_else(invalid)?;
+        self.publish_interface_view(self.parent_snapshot(snapshot, target)?)
     }
 
     /// Resolves a trait declaration's verified method ordinal without a
@@ -708,25 +731,20 @@ impl Runtime {
         slot: usize,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        let (root, snapshot) = self.rooted_interface_snapshot(value)?;
-        let snapshot = if snapshot.interface_type == *interface {
-            snapshot
+        let (root, id) = self.rooted_interface_snapshot(value)?;
+        let snapshot = self
+            .gc
+            .interface_metadata(id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
+        let same = snapshot.interface_type == *interface;
+        drop(snapshot);
+        let id = if same {
+            id
         } else {
-            self.parent_snapshot(&snapshot, interface)?
+            self.parent_snapshot(id, interface)?
         };
-        if snapshot
-            .methods
-            .get(slot)
-            .and_then(Option::as_ref)
-            .is_none()
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "interface method unavailable",
-            ));
-        }
         self.apply_interface_method(
-            RootedInterfaceMethod::from_interface(root, snapshot, slot),
+            RootedInterfaceMethod::from_interface(self, root, id, slot)?,
             arguments,
         )
     }
@@ -734,7 +752,7 @@ impl Runtime {
     fn rooted_interface_snapshot(
         &self,
         value: &Value,
-    ) -> Result<(RootedValue, Rc<InterfaceValueSnapshot>), RuntimeError> {
+    ) -> Result<(RootedValue, InterfaceSnapshotId), RuntimeError> {
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle");
         let Value::Interface(id) = value else {
@@ -744,7 +762,7 @@ impl Runtime {
             ));
         };
         let root = self.root_value(value.clone()).ok_or_else(invalid)?;
-        let snapshot = self.gc.interface_snapshot(*id).ok_or_else(invalid)?;
+        let snapshot = self.gc.interface_snapshot_id(*id).ok_or_else(invalid)?;
         Ok((root, snapshot))
     }
 
@@ -753,19 +771,20 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         arguments: &[value::Value],
     ) -> Result<(), RuntimeError> {
-        if !method.implementation().belongs_to(self.host.owner())
-            || arguments.len() != method.parameter_types().len()
+        let view = method.view(self)?;
+        if !view.implementation().belongs_to(self.host.owner())
+            || arguments.len() != view.parameter_types().len()
             || !arguments
                 .iter()
                 .enumerate()
-                .all(|(index, value)| match method.scoped_signature() {
+                .all(|(index, value)| match view.scoped_signature() {
                     Some(signature) => {
-                        signature.params[index].matches(self, value, method.implementation())
+                        signature.params[index].matches(self, value, view.implementation())
                     }
                     None => self.matches_interface_method_abi(
                         value,
-                        &method.parameter_types()[index],
-                        method.implementation(),
+                        &view.parameter_types()[index],
+                        view.implementation(),
                     ),
                 })
         {
@@ -783,14 +802,18 @@ impl Runtime {
         result: Value,
     ) -> Result<Value, RuntimeError> {
         self.validate_interface_method_result(method, &result)?;
-        if let Some(adapter) = method.result_adapter() {
+        let adapter = method.view(self)?.result_adapter().cloned();
+        if let Some(adapter) = adapter {
             // Keep the raw return alive until its interface wrapper is published.
             let _root = self
                 .root_value(result.clone())
                 .ok_or_else(|| RuntimeError::module_validation("invalid interface result root"))?;
             let arguments = self.type_arguments(
                 &adapter.owner,
-                adapter.environment.clone(),
+                adapter
+                    .environment
+                    .as_ref()
+                    .map(|environment| environment.types.clone()),
                 &adapter.arguments,
             )?;
             self.make_interface_applied(&adapter.owner, adapter.table, &arguments, result)
@@ -804,15 +827,16 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         result: &value::Value,
     ) -> Result<(), RuntimeError> {
-        if !method.implementation().belongs_to(self.host.owner())
-            || !match method.scoped_signature() {
+        let view = method.view(self)?;
+        if !view.implementation().belongs_to(self.host.owner())
+            || !match view.scoped_signature() {
                 Some(signature) => signature
                     .result
-                    .matches(self, result, method.implementation()),
+                    .matches(self, result, view.implementation()),
                 None => self.matches_interface_method_abi(
                     result,
-                    method.return_type(),
-                    method.implementation(),
+                    view.return_type(),
+                    view.implementation(),
                 ),
             }
         {
@@ -844,7 +868,7 @@ impl Runtime {
                 self.host.matches_root(*root)
                     && implementation.host_type(*id) == Some(root.type_id())
             }
-            _ => self.gc.matches_abi(value, ty, implementation),
+            _ => matches_type(&self.gc, value, ty, implementation),
         }
     }
 }

@@ -3,23 +3,25 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     frame::ExecutionFrame,
-    gc::{GcHeap, HeapObjectId},
+    gc::leases::LeaseScope,
     host::HostFrameId,
-    host_scope::HostScopeState,
-    module::{LoadedModule, ModuleEpochRetention, ModuleStore},
+    module::{LoadedModule, retention::ProgramLease},
     resource::{ResourceCounters, ResourceState},
+    session::store::SessionId,
     value::Value,
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use std::{
-    cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
+    cell::{Cell, Ref, RefCell},
+    collections::HashSet,
     fmt::Debug,
     rc::Rc,
     time::Instant,
 };
 
 use kagari_bytecode::artifact::ArtifactFingerprint;
+
+pub(crate) mod store;
 
 /// Only checked closure handles authorize entering a retained program outside
 /// the current dependency graph. Candidate entry remains independently gated.
@@ -155,16 +157,17 @@ pub trait ExecutionObserver: Debug {
 
 #[derive(Debug)]
 pub(crate) struct SessionState {
-    pub iter_guards: RefCell<HashSet<HeapObjectId>>,
-    pub host_scopes: RefCell<HashMap<HostFrameId, Rc<HostScopeState>>>,
+    pub id: SessionId,
+    pub leases: LeaseScope,
+    pub host_scopes: RefCell<HashSet<HostFrameId>>,
     pub observer: RefCell<Option<Rc<dyn ExecutionObserver>>>,
-    pub frames: RefCell<Vec<ExecutionFrame>>,
     pub frame_scopes: RefCell<Vec<u64>>,
     pub next_frame_scope: Cell<u64>,
     pub scopes: Cell<usize>,
     pub peak_call_depth: Cell<u32>,
     pub peak_heap_units: Cell<usize>,
     pub root: LoadedModule,
+    _program: ProgramLease,
     pub options: ExecutionOptions,
     pub termination: RefCell<Option<RuntimeError>>,
     random_counter: Cell<u64>,
@@ -175,21 +178,24 @@ pub(crate) struct SessionState {
 
 impl SessionState {
     pub(crate) fn new(
+        id: SessionId,
         root: LoadedModule,
         options: ExecutionOptions,
         baseline: ResourceCounters,
+        program: ProgramLease,
     ) -> Self {
         Self {
-            iter_guards: Default::default(),
-            host_scopes: RefCell::new(HashMap::new()),
+            id,
+            leases: LeaseScope::default(),
+            host_scopes: RefCell::new(HashSet::new()),
             observer: RefCell::new(None),
-            frames: RefCell::new(Vec::new()),
             frame_scopes: RefCell::new(Vec::new()),
             next_frame_scope: Cell::new(0),
             scopes: Cell::new(0),
             peak_call_depth: Cell::new(baseline.current_call_depth),
             peak_heap_units: Cell::new(baseline.current_heap_units),
             root,
+            _program: program,
             options,
             termination: RefCell::new(None),
             random_counter: Cell::new(0),
@@ -248,33 +254,41 @@ impl SessionState {
         }
     }
 
-    pub(crate) fn terminate(&self, error: RuntimeError) -> RuntimeError {
-        let error = error.with_trace(ErrorTrace::capture_session(self));
+    pub(crate) fn terminate(&self, resources: &ResourceState, error: RuntimeError) -> RuntimeError {
+        let error = error.with_trace(ErrorTrace::capture_session(resources, self.id));
         self.termination.borrow_mut().get_or_insert(error).clone()
     }
 
-    pub(crate) fn poll(&self) -> Result<(), RuntimeError> {
+    pub(crate) fn poll(&self, resources: &ResourceState) -> Result<(), RuntimeError> {
         if let Some(error) = self.termination.borrow().as_ref() {
             return Err(error.clone());
         }
         if self.options.cancellation.check().is_err() {
-            return Err(self.terminate(RuntimeError::new(
-                RuntimeErrorKind::Cancelled,
-                "execution cancelled",
-            )));
+            return Err(self.terminate(
+                resources,
+                RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled"),
+            ));
         }
         Ok(())
     }
 }
 
-/// An owned scope, so driving the VM does not borrow the runtime for the call.
+/// A scope borrowing runtime-owned session storage.
 /// Last scope drop releases the pinned program and active execution inputs.
+/// The runtime cannot be moved or destroyed while a scope is live.
+///
+/// ```compile_fail
+/// use kagari_runtime::{Runtime, module::LoadedModule};
+/// fn detach(runtime: Runtime, module: &LoadedModule) {
+///     let session = runtime.begin_execution(module, runtime.execution_options()).unwrap();
+///     drop(runtime);
+///     drop(session);
+/// }
+/// ```
 #[must_use]
-pub struct ExecutionSession {
-    pub(crate) gc: Rc<GcHeap>,
-    pub(crate) state: Rc<SessionState>,
-    pub(crate) resources: Rc<ResourceState>,
-    pub(crate) modules: ModuleStore,
+pub struct ExecutionSession<'runtime> {
+    pub(crate) id: SessionId,
+    pub(crate) resources: &'runtime ResourceState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,37 +300,44 @@ pub struct ExecutionCounters {
     pub elapsed_wall_time_ms: u64,
 }
 
-impl ExecutionSession {
+impl ExecutionSession<'_> {
+    pub(crate) fn state(&self) -> Ref<'_, SessionState> {
+        self.resources
+            .sessions
+            .get(self.id)
+            .expect("live execution scope")
+    }
+
     pub fn trace(&self) -> Option<ExecutionTrace> {
-        self.state
-            .options
-            .record_host_calls
-            .then(|| ExecutionTrace {
-                root_identity: self.state.root.bytecode.identity.clone(),
-                code_fingerprint: self.state.root.program_fingerprint(),
-                inputs: self.state.options.inputs,
-                host_calls: self.state.host_calls.borrow().clone(),
-                dropped_host_calls: self.state.dropped_host_calls.get(),
-            })
+        let state = self.state();
+        state.options.record_host_calls.then(|| ExecutionTrace {
+            root_identity: state.root.bytecode.identity.clone(),
+            code_fingerprint: state.root.program_fingerprint(),
+            inputs: state.options.inputs,
+            host_calls: state.host_calls.borrow().clone(),
+            dropped_host_calls: state.dropped_host_calls.get(),
+        })
     }
 
     pub fn host_scope_count(&self) -> usize {
-        self.state.host_scopes.borrow().len()
+        let state = self.state();
+        state.host_scopes.borrow().len()
     }
 
-    pub fn root(&self) -> &LoadedModule {
-        &self.state.root
+    pub fn root(&self) -> LoadedModule {
+        let state = self.state();
+        state.root.clone()
     }
 
     pub fn counters(&self) -> ExecutionCounters {
+        let state = self.state();
         let counters = self.resources.counters();
         ExecutionCounters {
             current_call_depth: counters.current_call_depth,
-            peak_call_depth: self.state.peak_call_depth.get(),
+            peak_call_depth: state.peak_call_depth.get(),
             current_heap_units: counters.current_heap_units,
-            peak_heap_units: self.state.peak_heap_units.get(),
-            elapsed_wall_time_ms: self
-                .state
+            peak_heap_units: state.peak_heap_units.get(),
+            elapsed_wall_time_ms: state
                 .started
                 .elapsed()
                 .as_millis()
@@ -325,51 +346,63 @@ impl ExecutionSession {
     }
 }
 
-impl Drop for ExecutionSession {
+impl Drop for ExecutionSession<'_> {
     fn drop(&mut self) {
-        let scopes = self.state.scopes.get();
-        self.state.scopes.set(scopes - 1);
+        let state = self.state();
+        let scopes = state.scopes.get();
+        state.scopes.set(scopes - 1);
         if scopes == 1 {
-            if !self.state.frames.borrow().is_empty()
-                || !self.state.frame_scopes.borrow().is_empty()
-                || !self.state.host_scopes.borrow().is_empty()
+            if self
+                .resources
+                .sessions
+                .frames(self.id)
+                .is_none_or(|frames| !frames.is_empty())
+                || !state.frame_scopes.borrow().is_empty()
+                || !state.host_scopes.borrow().is_empty()
             {
                 self.resources
                     .quarantine("execution session ended with active resources");
             }
-            self.gc.release_iter_guards(&self.state);
-            self.resources.end_execution(&self.state);
-            self.modules
-                .release_epoch(self.state.root.key(), ModuleEpochRetention::ActiveCall);
+            self.resources.end_execution(self.id);
+            drop(state);
+            if self.resources.sessions.remove(self.id).is_none() {
+                self.resources
+                    .quarantine("session records remained borrowed during cleanup");
+            }
         }
     }
 }
 
 /// A separate initialization root that restores a suspended ordinary call on exit.
-pub struct CandidateSession<'candidate> {
+pub struct CandidateSession<'runtime, 'candidate> {
     pub(crate) candidate: &'candidate StagedReload,
-    pub(crate) execution: Option<ExecutionSession>,
-    pub(crate) previous: Option<Rc<SessionState>>,
-    pub(crate) resources: Rc<ResourceState>,
+    pub(crate) execution: Option<ExecutionSession<'runtime>>,
+    pub(crate) previous: Option<SessionId>,
+    pub(crate) resources: &'runtime ResourceState,
 }
 
-impl Drop for CandidateSession<'_> {
+impl Drop for CandidateSession<'_, '_> {
     fn drop(&mut self) {
         if let Some(execution) = &self.execution
-            && let Err(error) = execution.state.poll()
+            && let Err(error) = execution.state().poll(self.resources)
         {
             self.candidate.record_initialization_error(error);
         }
         if self
             .execution
             .as_ref()
-            .is_some_and(|execution| execution.state.scopes.get() != 1)
+            .is_some_and(|execution| execution.state().scopes.get() != 1)
         {
             self.resources
                 .quarantine("candidate session ended with nested execution scopes");
         }
         drop(self.execution.take());
-        let previous = self.previous.take().filter(|state| state.scopes.get() != 0);
+        let previous = self.previous.take().filter(|id| {
+            self.resources
+                .sessions
+                .get(*id)
+                .is_some_and(|state| state.scopes.get() != 0)
+        });
         self.resources.replace_session(previous);
     }
 }
@@ -426,7 +459,7 @@ mod tests {
         options.record_host_calls = true;
         let session = runtime.begin_execution(&module, options).unwrap();
         for _ in 0..10_001 {
-            session.state.begin_host_call("ping", &[]);
+            session.state().begin_host_call("ping", &[]);
         }
         let trace = session.trace().unwrap();
         assert_eq!(trace.host_calls.len(), 10_000);

@@ -2,13 +2,10 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
+    execution_metadata::{groups::OperationId, links::MetadataCache, operation::BoundOperation},
     frame::{
         ExecutionFrame,
-        types::{
-            BoundOperation, TypeEnvironment,
-            compatibility::TypeView,
-            operations::{OperationBindings, ReceiverOperations},
-        },
+        types::{TypeEnvironment, compatibility::TypeView, operations::OperationBindings},
     },
     gc::interfaces::InterfaceResultBinding,
     module::LoadedModule,
@@ -28,15 +25,11 @@ use kagari_contract::{
 use kagari_types::{
     callable::CallableImplementation, declaration::requirement::NativeCallableRequirement, ty::Ty,
 };
-use std::{
-    cell::OnceCell,
-    rc::{Rc, Weak},
-};
 
 pub(super) fn interface_binding(
     implementation: &LoadedModule,
     application: &ConcreteFunctionIdentity<DefinitionId>,
-    environment: Option<Rc<TypeEnvironment>>,
+    environment: Option<TypeEnvironment>,
 ) -> Result<InterfaceResultBinding, RuntimeError> {
     let invalid = || RuntimeError::module_validation("invalid selected interface binding");
     let module = implementation.definition(application.declaration)?.module();
@@ -106,55 +99,77 @@ impl Runtime {
             let receiver_type = frame.resolve_type(ty)?;
             let environment = frame.environment().ok_or_else(invalid)?;
             let operation = environment
-                .operation_slot(&receiver_type, &interface, contract.method_slot)
+                .operation_slot(&self.gc, &receiver_type, &interface, contract.method_slot)
                 .ok_or_else(invalid)?;
-            self.validate_loaded_module(&operation.owner)?;
             let method = RootedInterfaceMethod::from_operation(
+                self,
                 self.root_value(receiver.clone()).ok_or_else(invalid)?,
-                operation.clone(),
+                operation,
                 receiver.clone(),
                 receiver_type.into_owned(),
                 interface,
-            );
-            let arguments =
-                self.type_arguments(frame.loaded(), frame.environment(), &contract.arguments)?;
+            )?;
+            let arguments = self.type_arguments(
+                frame.loaded(),
+                frame
+                    .environment()
+                    .map(|environment| environment.types.clone()),
+                &contract.arguments,
+            )?;
             let mut method = self.apply_interface_method(method, &arguments)?;
             if !contract.operations.is_empty()
                 && let Some(environment) = &mut method.environment
             {
-                Rc::make_mut(environment)
-                    .operations
-                    .extend(self.bind_operations(frame, &contract.operations)?);
+                *environment = self.gc.extend_environment(
+                    environment,
+                    self.bind_operations(frame, &contract.operations)?,
+                )?;
             }
+            method.refresh_roots(self)?;
             return Ok(method);
         }
-        let arguments =
-            self.type_arguments(frame.loaded(), frame.environment(), &contract.arguments)?;
+        let arguments = self.type_arguments(
+            frame.loaded(),
+            frame
+                .environment()
+                .map(|environment| environment.types.clone()),
+            &contract.arguments,
+        )?;
         let mut method = self.resolve_interface_method_slot(
             receiver,
             &interface,
             contract.method_slot as usize,
             &arguments,
         )?;
-        if !TypeView::new(
-            &Ty::Trait(method.interface_expression().clone()),
-            method.implementation(),
-            method.receiver_environment().map(Rc::as_ref),
-        )
-        .compatible(TypeView::new(
-            &Ty::Trait(contract.interface.clone()),
-            frame.loaded(),
-            frame.environment().as_deref(),
-        )) {
+        let compatible = {
+            let view = method.view(self)?;
+            TypeView::new(
+                &Ty::Trait(method.interface_expression().clone()),
+                view.implementation(),
+                view.receiver_environment()
+                    .map(|environment| environment.types.as_ref()),
+            )
+            .compatible(TypeView::new(
+                &Ty::Trait(contract.interface.clone()),
+                frame.loaded(),
+                frame
+                    .environment()
+                    .as_ref()
+                    .map(|environment| environment.types.as_ref()),
+            ))
+        };
+        if !compatible {
             return Err(invalid());
         }
         if !contract.operations.is_empty()
             && let Some(environment) = &mut method.environment
         {
-            Rc::make_mut(environment)
-                .operations
-                .extend(self.bind_operations(frame, &contract.operations)?);
+            *environment = self.gc.extend_environment(
+                environment,
+                self.bind_operations(frame, &contract.operations)?,
+            )?;
         }
+        method.refresh_roots(self)?;
         Ok(method)
     }
 
@@ -165,35 +180,19 @@ impl Runtime {
     ) -> Result<OperationBindings, RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         let mut operations = OperationBindings::default();
-        let mut supplying_program = None;
         for witness in witnesses {
             let operation = match witness {
                 OperationWitness::SharedMethod(selected) => {
-                    let (operation, group) = self.bind_shared_method(frame, selected)?;
-                    operations.push(operation);
-                    drop(group);
-                    continue;
+                    self.bind_shared_method(frame, selected)?
                 }
                 OperationWitness::Forward(required) => {
                     let required = resolve_requirement(frame, required)?;
                     frame
                         .environment()
-                        .and_then(|environment| environment.operation(&required).cloned())
+                        .and_then(|environment| environment.operation(&self.gc, &required))
                         .ok_or_else(invalid)?
                 }
                 OperationWitness::Selected(selected) => {
-                    let retention = match &supplying_program {
-                        Some(retention) => Rc::clone(retention),
-                        None => {
-                            let retention = Rc::new(
-                                self.modules
-                                    .retain_runtime_program(frame.loaded())
-                                    .ok_or_else(invalid)?,
-                            );
-                            supplying_program = Some(retention.clone());
-                            retention
-                        }
-                    };
                     let module = frame
                         .loaded()
                         .definition(selected.instance.declaration)?
@@ -295,22 +294,20 @@ impl Runtime {
                             associated_interface = interface;
                         }
                     }
-                    Rc::new(BoundOperation {
+                    self.gc.alloc_bound_operation(BoundOperation {
                         associated_interface,
-                        receiver_operations: Weak::new(),
-                        application: OnceCell::new(),
+                        application: MetadataCache::new(),
                         generic: None,
-                        retention,
                         slot,
                         primitive: callable_primitive(selected, owner.definitions()),
                         requirement: selected.requirement.clone(),
                         owner,
                         target,
                         signature: selected.signature.clone(),
-                    })
+                    })?
                 }
             };
-            operations.push(operation);
+            operations.push(&self.gc, operation)?;
         }
         Ok(operations)
     }
@@ -321,7 +318,7 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
         selected: &SharedMethodWitness<DefinitionId>,
-    ) -> Result<(Rc<BoundOperation>, Rc<ReceiverOperations>), RuntimeError> {
+    ) -> Result<OperationId, RuntimeError> {
         let binding = interface_binding(
             frame.loaded(),
             &selected.implementation,
@@ -329,12 +326,9 @@ impl Runtime {
         )?;
         let required = resolve_requirement(frame, &selected.requirement)?;
         let group = self.bind_table_operations(&binding)?;
-        let operation = group
-            .operation(&required)
-            .cloned()
-            .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))?;
-        // Keep the group's weak back-reference upgradeable until bind_operations
-        // publishes the selected descriptor and its retained group together.
-        Ok((operation, group))
+        self.gc
+            .operation_group(group)
+            .and_then(|group| group.operation(&required))
+            .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))
     }
 }

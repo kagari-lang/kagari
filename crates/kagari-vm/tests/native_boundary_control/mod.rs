@@ -149,7 +149,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             let loaded = runtime
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();
-            let mut vm = Vm::new(runtime);
+            let vm = Vm::new(runtime);
             let result = vm.execute(&loaded, "main");
             if fails {
                 assert!(
@@ -187,8 +187,9 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
             .unwrap();
         let mut options = runtime.execution_options();
         options.cancellation = token;
-        let session = runtime.begin_execution(&loaded, options).unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
+        let session = vm.runtime().begin_execution(&loaded, options).unwrap();
+
         assert!(
             matches!(vm.execute(&loaded, "main"), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::Cancelled)
         );
@@ -346,7 +347,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         let loaded = runtime
             .load_program("native-control", route(&program, encoded))
             .unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         assert_eq!(
             vm.execute(&loaded, "main").unwrap().return_value,
             Value::I32(42)
@@ -399,7 +400,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             .load_program("native-control", route(&old_program, encoded))
             .unwrap();
         let old_key = old.key();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         let closure = vm.execute(&old, "make").unwrap().return_value;
         let rooted = vm.runtime().root_value(closure.clone()).unwrap();
         *retained.borrow_mut() = Some(closure);
@@ -456,9 +457,11 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                 at,
                 token: options.cancellation.clone(),
             });
-            let session = runtime.begin_execution(&loaded, options).unwrap();
-            runtime.attach_execution_observer(observer.clone()).unwrap();
-            let mut vm = Vm::new(runtime);
+            let vm = Vm::new(runtime);
+            let session = vm.runtime().begin_execution(&loaded, options).unwrap();
+            vm.runtime()
+                .attach_execution_observer(observer.clone())
+                .unwrap();
             match vm.execute(&loaded, "main") {
                 Ok(report) => {
                     assert_eq!(report.return_value, Value::I32(42));
@@ -533,8 +536,9 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
         let loaded = runtime.load_program("native-poll", program).unwrap();
         let mut options = runtime.execution_options();
         options.cancellation = token;
-        let session = runtime.begin_execution(&loaded, options).unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
+        let session = vm.runtime().begin_execution(&loaded, options).unwrap();
+
         let error = vm.execute(&loaded, "main").unwrap_err();
         assert!(
             matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::Cancelled)

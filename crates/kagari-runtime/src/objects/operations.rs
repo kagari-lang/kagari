@@ -2,9 +2,12 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{
-        BoundGenericMethod, BoundOperation, TypeEnvironment, operations::ReceiverOperations,
+    execution_metadata::{
+        groups::OperationGroupId,
+        links::MetadataCache,
+        operation::{BoundGenericMethod, BoundOperation},
     },
+    frame::types::EnvironmentRecord,
     gc::interfaces::InterfaceResultBinding,
     module::LoadedModule,
     objects::calls,
@@ -14,10 +17,6 @@ use kagari_contract::{callable::witness::OperationWitness, types as abi, types::
 use kagari_types::{
     callable::Signature, declaration::requirement::NativeCallableRequirement, ty::Ty,
 };
-use std::{
-    cell::OnceCell,
-    rc::{Rc, Weak},
-};
 
 impl Runtime {
     pub(crate) fn bind_receiver_operations(
@@ -25,8 +24,8 @@ impl Runtime {
         owner: &LoadedModule,
         target: CallableTarget,
         binding: &InterfaceResultBinding,
-        prepared: Option<Rc<ReceiverOperations>>,
-    ) -> Result<Option<Rc<ReceiverOperations>>, RuntimeError> {
+        prepared: Option<OperationGroupId>,
+    ) -> Result<Option<OperationGroupId>, RuntimeError> {
         let required = match target {
             CallableTarget::Native(target) => owner
                 .bytecode
@@ -53,7 +52,7 @@ impl Runtime {
     pub(crate) fn bind_table_operations(
         &self,
         binding: &InterfaceResultBinding,
-    ) -> Result<Rc<ReceiverOperations>, RuntimeError> {
+    ) -> Result<OperationGroupId, RuntimeError> {
         let invalid = || RuntimeError::module_validation("receiver operation table");
         let mut pending = vec![binding.clone()];
         let mut operations: Vec<BoundOperation> = vec![];
@@ -77,8 +76,14 @@ impl Runtime {
                     _ => None,
                 })
                 .ok_or_else(invalid)?;
-            let arguments =
-                self.type_arguments(owner, binding.environment.clone(), &binding.arguments)?;
+            let arguments = self.type_arguments(
+                owner,
+                binding
+                    .environment
+                    .as_ref()
+                    .map(|environment| environment.types.clone()),
+                &binding.arguments,
+            )?;
             let key = (
                 owner.key(),
                 binding.table,
@@ -91,13 +96,13 @@ impl Runtime {
                 continue;
             }
             visited.push(key);
-            let environment = Rc::new(TypeEnvironment::new(
+            let environment = self.gc.alloc_environment(EnvironmentRecord::new(
                 self.definition_context(),
                 template.generic_params.clone(),
                 arguments,
-            )?);
-            let receiver = environment.resolve(&template.for_type)?;
-            let Ty::Trait(interface) = environment.resolve(&template.trait_type)? else {
+            )?)?;
+            let receiver = environment.types.resolve(&template.for_type)?;
+            let Ty::Trait(interface) = environment.types.resolve(&template.trait_type)? else {
                 return Err(invalid());
             };
             let contract = owner
@@ -113,11 +118,6 @@ impl Runtime {
                     .cloned()
                 })
                 .ok_or_else(invalid)?;
-            let retention = Rc::new(
-                self.modules
-                    .retain_runtime_program(owner)
-                    .ok_or_else(invalid)?,
-            );
             for slot in &table.methods {
                 let name = owner.definition_name(slot.method).ok_or_else(invalid)?;
                 let method = template
@@ -169,8 +169,7 @@ impl Runtime {
                 };
                 operations.push(BoundOperation {
                     associated_interface: interface.clone(),
-                    receiver_operations: Weak::new(),
-                    application: OnceCell::new(),
+                    application: MetadataCache::new(),
                     generic: Some(BoundGenericMethod {
                         receiver_table: binding.clone(),
                         receiver_environment: Some(environment.clone()),
@@ -193,7 +192,6 @@ impl Runtime {
                             .collect(),
                         result: method.return_type.clone(),
                     },
-                    retention: retention.clone(),
                 });
             }
             // An associated result adapter already selects the output's table.
@@ -215,6 +213,6 @@ impl Runtime {
                 )?);
             }
         }
-        Ok(ReceiverOperations::new(operations))
+        self.gc.alloc_operation_group(operations)
     }
 }

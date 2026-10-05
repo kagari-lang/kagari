@@ -501,11 +501,12 @@ guards through completion or failure. Generic execution does not name MapIterato
 
 ## Interface dispatch
 
-Interface GC objects share immutable receiver descriptors. Rooted calls select a
-checked ordinal or shared operation without copying the whole table. Receiver
-signatures/operations are prepared on demand and reused; method-local arguments
-and caller witnesses remain per-call. Immutable binder/parent scopes retain exact
-origins and generations. Weak back-references avoid metadata ownership cycles.
+Interface GC objects reference runtime-owned receiver descriptors by checked IDs.
+Rooted calls select a checked ordinal or shared operation without copying the whole
+table. Receiver signatures/operations are prepared on demand and reused; method-local arguments
+and caller witnesses remain per-call. Immutable type facts preserve origins;
+executable environments and parent/operation/application caches use checked IDs.
+Coordinated tracing reclaims cycles across metadata, heap objects and old programs.
 Inherited calls retain the original root; escaping upcasts publish normal checked
 GC interface values. Metadata sharing does not replace GC roots or code ownership.
 
@@ -570,9 +571,15 @@ See [runtime](spec/runtime.md), [host interop](spec/host-interop.md) and
 Root values live in a heap-owned generational table. Host/frame/debug handles carry
 Arc leases and checked root identities; value access requires the owning heap.
 Leases can move across threads and outlive runtime teardown without owning heap
-storage. Execution/program/environment ownership and Runtime transfer remain the
-following GO phases; transferable leases alone do not make the runtime Send.
-
+storage. Runtime owns session, frame, program and executable metadata stores by
+value. Borrowed execution/host scopes prevent owner replacement during execution
+and release roots, call depth and borrow leases on every exit. LoadedModule shares
+immutable verified descriptors; installed native callbacks and layout caches live
+in module records. GC traces executable IDs and exact program dependencies together,
+validates storage before sweeping and disposes of records outside table borrows.
+Object policy publishes references through checked storage paths, including module
+slots, frame/root slots and lazy metadata caches. Runtime transfer and callback
+Send bounds remain GO03 work; transferable leases alone do not make Runtime Send.
 
 Installation determines exposed native/host APIs; declared visibility, writeability,
 storage access, ownership and generations remain checked. Root cancellation is

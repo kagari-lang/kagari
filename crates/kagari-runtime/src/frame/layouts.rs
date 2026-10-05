@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     frame::{
         ExecutionFrame,
-        types::{TypeEnvironment, arguments::TypeArgument},
+        types::{arguments::TypeArgument, bindings::TypeBindings},
     },
     gc::HeapObjectId,
     module::{EnumVariantRef, StructLayoutRef},
@@ -22,7 +22,12 @@ impl ExecutionFrame {
         runtime: &Runtime,
         types: &[Ty<DefinitionId>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
-        runtime.type_arguments(self.loaded(), self.environment(), types)
+        runtime.type_arguments(
+            self.loaded(),
+            self.environment()
+                .map(|environment| environment.types.clone()),
+            types,
+        )
     }
 
     fn element_contract(
@@ -31,7 +36,12 @@ impl ExecutionFrame {
         element: &Ty<DefinitionId>,
     ) -> Result<Rc<StorageType>, RuntimeError> {
         let argument = runtime
-            .type_arguments(self.loaded(), self.environment(), slice::from_ref(element))?
+            .type_arguments(
+                self.loaded(),
+                self.environment()
+                    .map(|environment| environment.types.clone()),
+                slice::from_ref(element),
+            )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("array element scope"))?;
         StorageType::prepare_scoped(argument, self.loaded()).map(Rc::new)
@@ -83,11 +93,16 @@ impl ExecutionFrame {
         runtime: &Runtime,
         declaration: &DefinitionId,
         arguments: &[Ty<DefinitionId>],
-    ) -> Result<Option<Rc<TypeEnvironment>>, RuntimeError> {
+    ) -> Result<Option<Rc<TypeBindings>>, RuntimeError> {
         if arguments.iter().all(Ty::is_concrete) {
             return Ok(None);
         }
-        let arguments = runtime.type_arguments(self.loaded(), self.environment(), arguments)?;
+        let arguments = runtime.type_arguments(
+            self.loaded(),
+            self.environment()
+                .map(|environment| environment.types.clone()),
+            arguments,
+        )?;
         if !arguments.iter().any(|argument| argument.has_origin()) {
             return Ok(None);
         }
@@ -97,7 +112,7 @@ impl ExecutionFrame {
                 position,
             })
             .collect();
-        TypeEnvironment::new(runtime.definition_context(), parameters, arguments)
+        TypeBindings::new(runtime.definition_context(), parameters, arguments)
             .map(|environment| Some(Rc::new(environment)))
     }
 
@@ -107,9 +122,9 @@ impl ExecutionFrame {
         id: StructId,
         arguments: &[Ty<DefinitionId>],
     ) -> Result<StructLayoutRef, RuntimeError> {
-        let mut layout = self
-            .loaded()
-            .applied_struct_layout(id, &self.layout_arguments(arguments)?)
+        let mut layout = runtime
+            .modules
+            .applied_struct_layout(self.loaded(), id, &self.layout_arguments(arguments)?)
             .ok_or_else(|| RuntimeError::module_validation("invalid struct layout application"))?;
         layout.environment =
             self.layout_environment(runtime, &layout.layout().declaration, arguments)?;
@@ -123,9 +138,14 @@ impl ExecutionFrame {
         arguments: &[Ty<DefinitionId>],
         variant: u32,
     ) -> Result<EnumVariantRef, RuntimeError> {
-        let mut layout = self
-            .loaded()
-            .applied_enum_variant(id, &self.layout_arguments(arguments)?, variant)
+        let mut layout = runtime
+            .modules
+            .applied_enum_variant(
+                self.loaded(),
+                id,
+                &self.layout_arguments(arguments)?,
+                variant,
+            )
             .ok_or_else(|| RuntimeError::module_validation("invalid enum layout application"))?;
         layout.environment =
             self.layout_environment(runtime, &layout.layout().declaration, arguments)?;

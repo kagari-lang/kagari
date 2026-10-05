@@ -1,16 +1,15 @@
-//! Concrete aggregate applications are cached within their loaded generation.
+//! Immutable aggregate descriptions; installed application caches live in ModuleStore.
 use crate::{
-    frame::types::{TypeEnvironment, compatibility::TypeView},
-    module::{EnumVariantRef, LoadedModule, StructLayoutRef},
+    frame::types::{bindings::TypeBindings, compatibility::TypeView},
+    module::{EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef},
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::{NominalTy, Ty};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
-type LayoutApplications<Id, Layout> =
-    RefCell<HashMap<Id, HashMap<Vec<Ty<DefinitionId>>, Rc<Layout>>>>;
+type LayoutApplications<Id, Layout> = HashMap<Id, HashMap<Vec<Ty<DefinitionId>>, Arc<Layout>>>;
 
 #[derive(Debug, Default)]
 pub(super) struct LayoutCache {
@@ -72,15 +71,9 @@ impl LoadedModule {
         let applied = if template.arguments == arguments {
             None
         } else {
-            let mut caches = self.layouts.structures.borrow_mut();
-            let cache = caches.entry(id).or_default();
-            if let Some(layout) = cache.get(arguments) {
-                Some(layout.clone())
-            } else {
-                let layout = Rc::new(template.apply(arguments, &Default::default())?.into_owned());
-                cache.insert(arguments.to_vec(), layout.clone());
-                Some(layout)
-            }
+            Some(Arc::new(
+                template.apply(arguments, &Default::default())?.into_owned(),
+            ))
         };
         Some(StructLayoutRef {
             module: self.clone(),
@@ -107,15 +100,9 @@ impl LoadedModule {
         let applied = if template.arguments == arguments {
             None
         } else {
-            let mut caches = self.layouts.enumerations.borrow_mut();
-            let cache = caches.entry(id).or_default();
-            if let Some(layout) = cache.get(arguments) {
-                Some(layout.clone())
-            } else {
-                let layout = Rc::new(template.apply(arguments, &Default::default())?.into_owned());
-                cache.insert(arguments.to_vec(), layout.clone());
-                Some(layout)
-            }
+            Some(Arc::new(
+                template.apply(arguments, &Default::default())?.into_owned(),
+            ))
         };
         Some(EnumVariantRef {
             module: self.clone(),
@@ -124,6 +111,88 @@ impl LoadedModule {
             applied,
             environment: None,
         })
+    }
+}
+
+impl ModuleStore {
+    pub(crate) fn applied_struct_layout(
+        &self,
+        owner: &LoadedModule,
+        id: StructId,
+        arguments: &[Ty<DefinitionId>],
+    ) -> Option<StructLayoutRef> {
+        let mut records = self.inner.try_borrow_mut().ok();
+        let Some(record) = records
+            .as_deref_mut()
+            .and_then(|records| records.resolve_mut(owner))
+        else {
+            // Detached type provenance remains readable without executable storage.
+            return owner.applied_struct_layout(id, arguments);
+        };
+        if let Some(applied) = record
+            .layouts
+            .structures
+            .get(&id)
+            .and_then(|cache| cache.get(arguments))
+        {
+            return Some(StructLayoutRef {
+                module: owner.clone(),
+                id,
+                applied: Some(applied.clone()),
+                environment: None,
+            });
+        }
+        let layout = owner.applied_struct_layout(id, arguments)?;
+        if let Some(applied) = &layout.applied {
+            record
+                .layouts
+                .structures
+                .entry(id)
+                .or_default()
+                .insert(arguments.to_vec(), applied.clone());
+        }
+        Some(layout)
+    }
+
+    pub(crate) fn applied_enum_variant(
+        &self,
+        owner: &LoadedModule,
+        id: EnumId,
+        arguments: &[Ty<DefinitionId>],
+        variant: u32,
+    ) -> Option<EnumVariantRef> {
+        let mut records = self.inner.try_borrow_mut().ok();
+        let Some(record) = records
+            .as_deref_mut()
+            .and_then(|records| records.resolve_mut(owner))
+        else {
+            return owner.applied_enum_variant(id, arguments, variant);
+        };
+        if let Some(applied) = record
+            .layouts
+            .enumerations
+            .get(&id)
+            .and_then(|cache| cache.get(arguments))
+        {
+            applied.variants.get(variant as usize)?;
+            return Some(EnumVariantRef {
+                module: owner.clone(),
+                id,
+                variant,
+                applied: Some(applied.clone()),
+                environment: None,
+            });
+        }
+        let layout = owner.applied_enum_variant(id, arguments, variant)?;
+        if let Some(applied) = &layout.applied {
+            record
+                .layouts
+                .enumerations
+                .entry(id)
+                .or_default()
+                .insert(arguments.to_vec(), applied.clone());
+        }
+        Some(layout)
     }
 }
 
@@ -148,7 +217,7 @@ impl StructLayoutRef {
         &self,
         ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
+        environment: Option<&TypeBindings>,
     ) -> bool {
         TypeView::new(
             &self.type_expression(),
@@ -161,7 +230,7 @@ impl StructLayoutRef {
     pub(crate) fn field_type(
         &self,
         slot: usize,
-    ) -> Option<(&Ty<DefinitionId>, Option<&TypeEnvironment>)> {
+    ) -> Option<(&Ty<DefinitionId>, Option<&TypeBindings>)> {
         let layout = if self.environment.is_some() {
             &self.module.bytecode.structures[self.id.index()]
         } else {
@@ -190,7 +259,7 @@ impl EnumVariantRef {
         &self,
         ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
+        environment: Option<&TypeBindings>,
     ) -> bool {
         TypeView::new(
             &self.type_expression(),
@@ -214,7 +283,7 @@ impl EnumVariantRef {
     pub(crate) fn payload_type(
         &self,
         slot: usize,
-    ) -> Option<(&Ty<DefinitionId>, Option<&TypeEnvironment>)> {
+    ) -> Option<(&Ty<DefinitionId>, Option<&TypeBindings>)> {
         let layout = if self.environment.is_some() {
             &self.module.bytecode.enumerations[self.id.index()]
         } else {

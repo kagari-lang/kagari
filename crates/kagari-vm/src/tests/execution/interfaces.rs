@@ -2,7 +2,7 @@ use super::*;
 use crate::{executor::Executor, tests::common::standard_runtime};
 use kagari_bytecode::instruction::StructId;
 use kagari_contract::types::PublicItem;
-use kagari_runtime::module::LoadedModule;
+use kagari_runtime::{Runtime, module::LoadedModule};
 use kagari_types::ty::{NominalTy, Ty};
 use std::slice;
 
@@ -16,8 +16,16 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
     assert_eq!(resolved.receiver(), &Value::I32(7));
-    assert_eq!(resolved.implementation().key(), loaded.key());
-    assert_eq!(resolved.target(), table.methods[0].target);
+    assert_eq!(
+        resolved.implementation(&runtime).unwrap().key(),
+        loaded.key()
+    );
+    assert_eq!(resolved.target(&runtime).unwrap(), table.methods[0].target);
+    let foreign = Runtime::default();
+    assert!(resolved.implementation(&foreign).is_err());
+    assert!(resolved.target(&foreign).is_err());
+    assert!(resolved.parameter_types(&foreign).is_err());
+    assert!(resolved.return_type(&foreign).is_err());
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().validate_value(&boxed));
     assert!(
@@ -31,7 +39,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
             .is_err()
     );
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.invoke_interface_method(&boxed, &method, &[]).unwrap(),
         Value::I32(8)
@@ -86,20 +94,25 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
             .method
     };
     assert_eq!(
-        first.target(),
+        first.target(&runtime).unwrap(),
         runtime
             .resolve_interface_method(&boxed, &method("first"))
             .unwrap()
-            .target()
+            .target(&runtime)
+            .unwrap()
     );
     assert_eq!(
-        second.target(),
+        second.target(&runtime).unwrap(),
         runtime
             .resolve_interface_method(&boxed, &method("second"))
             .unwrap()
-            .target()
+            .target(&runtime)
+            .unwrap()
     );
-    assert_ne!(first.target(), second.target());
+    assert_ne!(
+        first.target(&runtime).unwrap(),
+        second.target(&runtime).unwrap()
+    );
     assert!(
         runtime
             .resolve_interface_method_slot(&boxed, interface, 2, &[])
@@ -133,7 +146,7 @@ fn source_call_boxes_a_concrete_argument_for_an_interface_parameter() {
             .flat_map(|function| &function.instructions)
             .any(|instruction| matches!(instruction, BytecodeInstruction::MakeInterface { .. }))
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
@@ -145,7 +158,7 @@ fn source_call_boxes_an_interface_with_methods() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { accept(7) }",
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
@@ -157,7 +170,7 @@ fn source_interface_method_call_dispatches_through_the_linked_slot() {
     let (runtime, loaded) = load_test_module(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn accept(value: Tag) -> i32 { value.tag() } fn main() -> i32 { accept(7) }",
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(8)
@@ -169,7 +182,7 @@ fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
     let (runtime, loaded) = load_test_module(
         "trait Tag {} impl Tag for i32 {} fn make() -> Tag { 7 } fn accept(value: Tag) -> i32 { 42 } fn main() -> i32 { val value: Tag = make(); accept(value) }",
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
@@ -191,7 +204,7 @@ fn interface_method_keeps_its_implementation_across_reload() {
         .unwrap();
     let new = runtime.publish_staged_reload(candidate).unwrap();
     let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.invoke_interface_method(&old_value, &method, &[])
             .unwrap(),
@@ -239,7 +252,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
         .unwrap()
         .id;
     let stack = runtime.enter_execution_stack(&new).unwrap();
-    stack.push(new.slot(), entry, &[], None).unwrap();
+    stack.push(&runtime, new.slot(), entry, &[], None).unwrap();
     let wrong = runtime.resolve_interface_method(&boxed, &method).unwrap();
     assert!(
         stack
@@ -251,7 +264,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
         .push_interface_method(&runtime, resolved, &[Value::I32(7)], None)
         .unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), old.key());
-    stack.push(old.slot(), helper, &[], None).unwrap();
+    stack.push(&runtime, old.slot(), helper, &[], None).unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), old.key());
     stack.pop().unwrap();
     stack.pop().unwrap();
@@ -291,14 +304,20 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
     let mut new_call = crate::executor::Executor::new(&runtime, &new, read, &[new_value]).unwrap();
     assert_eq!(new_call.run().unwrap(), Value::I32(9));
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert!(runtime.modules().collect_unreachable_epochs().is_empty());
+    assert!(
+        runtime
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
+            .is_empty()
+    );
     drop(new_call);
     drop(old_root);
-    runtime.collect_garbage().unwrap();
     let expected: std::collections::HashSet<_> = old.members().map(|member| member.key()).collect();
     let reclaimed: std::collections::HashSet<_> = runtime
-        .modules()
-        .collect_unreachable_epochs()
+        .collect_garbage()
+        .unwrap()
+        .reclaimed_modules
         .into_iter()
         .collect();
     assert_eq!(reclaimed, expected);
@@ -365,8 +384,7 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
     drop(interface_root);
     drop(closure_root);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    runtime.collect_garbage().unwrap();
-    let retained = runtime.modules().collect_unreachable_epochs();
+    let retained = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(retained.contains(&old.key()));
 }
 
@@ -377,7 +395,7 @@ fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     );
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert!(vm.invoke_interface_method(&boxed, &method, &[]).is_err());
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
     assert_eq!(
@@ -393,7 +411,7 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
     );
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let right = vm.execute(&loaded, "make_a").unwrap().return_value;
     assert_eq!(
         vm.invoke_interface_method(&boxed, &method, &[right])
@@ -455,7 +473,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     let loaded = runtime
         .load_program("interface-instruction", decoded.program)
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let value = vm.execute(&loaded, "main").unwrap().return_value;
     assert!(matches!(value, Value::Interface(_)));
     assert!(vm.runtime().gc().validate_value(&value));
@@ -513,16 +531,12 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
         .load_program("interface-consumer", decoded.program)
         .unwrap();
     let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let value = vm.execute(&loaded, "main").unwrap().return_value;
     assert!(matches!(value, Value::Interface(_)));
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(dependency_key)
-            .runtime_values,
-        1
-    );
+    let _root = vm.runtime().root_value(value).unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    assert!(vm.runtime().modules().loaded(dependency_key).is_some());
 }
 
 #[test]
@@ -581,8 +595,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         )
         .unwrap();
     let third = runtime.publish_staged_reload(candidate).unwrap();
-    runtime.collect_garbage().unwrap();
-    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(!reclaimed.contains(&first.key()));
     assert!(!reclaimed.contains(&second.key()));
     assert_eq!(
@@ -590,8 +603,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         Value::I32(43)
     );
     drop(closure_root);
-    runtime.collect_garbage().unwrap();
-    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(reclaimed.contains(&first.key()));
     assert!(reclaimed.contains(&second.key()));
 }
@@ -762,8 +774,7 @@ fn check_type_provenance_reload(source: &str) {
         )
         .unwrap();
     let third = runtime.publish_staged_reload(candidate).unwrap();
-    runtime.collect_garbage().unwrap();
-    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(!reclaimed.contains(&old.key()));
     assert!(reclaimed.contains(&second.key()));
     assert!(runtime.validate_loaded_module(&second).is_err());
@@ -783,8 +794,7 @@ fn check_type_provenance_reload(source: &str) {
     );
     drop(root);
     drop(interface_root);
-    runtime.collect_garbage().unwrap();
-    let reclaimed = runtime.modules().collect_unreachable_epochs();
+    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(reclaimed.contains(&old.key()));
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
@@ -917,11 +927,11 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         );
     }
     drop((receiver_root, closure_root));
-    runtime.collect_garbage().unwrap();
     assert!(
         runtime
-            .modules()
-            .collect_unreachable_epochs()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
             .contains(&old.key())
     );
 }

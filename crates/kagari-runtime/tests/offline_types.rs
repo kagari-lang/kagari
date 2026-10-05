@@ -282,7 +282,6 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
         decoded.validate_for_loader(&Default::default()).unwrap();
         assert!(runtime.load_program("types", decoded.program).is_err());
         assert_eq!(runtime.modules().loaded_count(), 0);
-        assert_eq!(runtime.resources().counters().loaded_modules, 0);
     }
     let mut documented = interface;
     documented.types[0].documentation = "Updated type docs".into();

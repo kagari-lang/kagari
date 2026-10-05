@@ -157,13 +157,13 @@ fn sample(
 ) -> (Counts, Duration) {
     let stack = runtime.enter_execution_stack(loaded).unwrap();
     stack
-        .push(loaded.slot(), site.function, arguments, None)
+        .push(runtime, loaded.slot(), site.function, arguments, None)
         .unwrap();
     for (register, value) in site.arguments.iter().zip(arguments) {
         stack
             .current_mut()
             .unwrap()
-            .write_register(*register, value.clone())
+            .write_register(runtime, *register, value.clone())
             .unwrap();
     }
     let invoke = || {
@@ -199,7 +199,7 @@ fn sample(
         stack
             .current()
             .unwrap()
-            .read_register(site.destination.unwrap())
+            .read_register(runtime, site.destination.unwrap())
             .unwrap(),
         Value::I32(expected)
     );

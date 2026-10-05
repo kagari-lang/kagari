@@ -1,8 +1,14 @@
-use crate::{error::RuntimeError, execution_state::ExecutionState, session::SessionState};
-use std::{
-    cell::{RefCell, RefMut},
-    rc::Rc,
+use crate::{
+    error::RuntimeError,
+    execution_state::ExecutionState,
+    session::{
+        SessionState,
+        store::{SessionId, SessionStore},
+    },
 };
+use std::cell::{Cell, Ref, RefCell, RefMut};
+#[cfg(test)]
+use std::sync::{Arc, Weak};
 
 /// Runtime-wide protection against accidental recursion. No execution metering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,12 +30,15 @@ pub struct ResourceCounters {
     pub peak_call_depth: u32,
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
-    pub loaded_modules: usize,
 }
 
 #[derive(Debug)]
 pub struct ResourceState {
-    active_session: RefCell<Option<Rc<SessionState>>>,
+    // Observe destruction in ownership regressions without making storage shared.
+    #[cfg(test)]
+    lifetime: Arc<()>,
+    active_session: Cell<Option<SessionId>>,
+    pub(crate) sessions: SessionStore,
     execution: ExecutionState,
     limits: RuntimeLimits,
     counters: RefCell<ResourceCounters>,
@@ -37,7 +46,7 @@ pub struct ResourceState {
 
 /// A checked, uncharged growth operation. No user code runs while it is held.
 pub(crate) struct HeapGrowth<'a> {
-    session: Option<Rc<SessionState>>,
+    session: Option<Ref<'a, SessionState>>,
     counters: RefMut<'a, ResourceCounters>,
     live: usize,
 }
@@ -67,61 +76,71 @@ impl HeapGrowth<'_> {
 }
 
 impl ResourceState {
+    #[cfg(test)]
+    pub(crate) fn lifetime_probe(&self) -> Weak<()> {
+        Arc::downgrade(&self.lifetime)
+    }
+
+    pub(crate) fn collect_operation<T>(
+        &self,
+        collect: impl FnOnce() -> T,
+    ) -> Result<T, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.execution.collect(collect)
+    }
+
     pub fn new(limits: RuntimeLimits) -> Self {
         Self {
-            active_session: RefCell::new(None),
+            #[cfg(test)]
+            lifetime: Arc::new(()),
+            active_session: Cell::new(None),
+            sessions: SessionStore::default(),
             execution: Default::default(),
             limits,
             counters: RefCell::new(ResourceCounters::default()),
         }
     }
 
-    pub(crate) fn active_session(&self) -> Option<Rc<SessionState>> {
-        self.active_session.borrow().clone()
+    pub(crate) fn active_session(&self) -> Option<Ref<'_, SessionState>> {
+        self.active_session
+            .get()
+            .and_then(|id| self.sessions.get(id))
     }
 
-    pub(crate) fn replace_session(
-        &self,
-        session: Option<Rc<SessionState>>,
-    ) -> Option<Rc<SessionState>> {
+    pub(crate) fn replace_session(&self, session: Option<SessionId>) -> Option<SessionId> {
         self.active_session.replace(session)
     }
 
-    pub(crate) fn start_execution(&self, session: Rc<SessionState>) {
-        *self.active_session.borrow_mut() = Some(session);
+    pub(crate) fn start_execution(&self, session: SessionId) {
+        self.active_session.set(Some(session));
     }
 
-    pub(crate) fn end_execution(&self, session: &Rc<SessionState>) {
-        let mut active = self.active_session.borrow_mut();
-        if active
-            .as_ref()
-            .is_some_and(|active| Rc::ptr_eq(active, session))
-        {
-            *active = None;
+    pub(crate) fn end_execution(&self, session: SessionId) {
+        if self.active_session.get() == Some(session) {
+            self.active_session.set(None);
         }
     }
 
     pub fn termination(&self) -> Option<RuntimeError> {
-        self.active_session
-            .borrow()
+        self.active_session()
             .as_ref()
             .and_then(|session| session.termination.borrow().clone())
     }
 
     pub fn poll_execution(&self) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
-        if let Some(session) = self.active_session.borrow().as_ref() {
-            session.poll()?;
+        if let Some(session) = self.active_session().as_ref() {
+            session.poll(self)?;
         }
         Ok(())
     }
 
     pub(crate) fn limit(&self, name: &'static str) -> RuntimeError {
         let error = RuntimeError::resource_limit(name);
-        self.active_session
-            .borrow()
-            .as_ref()
-            .map_or_else(|| error.clone(), |session| session.terminate(error.clone()))
+        self.active_session().as_ref().map_or_else(
+            || error.clone(),
+            |session| session.terminate(self, error.clone()),
+        )
     }
 
     pub fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
@@ -218,28 +237,6 @@ impl ResourceState {
             .current_heap_units
             .checked_sub(units)
             .expect("heap accounting cannot underflow");
-    }
-
-    pub(crate) fn admit_modules(&self, additional: usize) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        let mut counters = self.counters.borrow_mut();
-        let next = counters
-            .loaded_modules
-            .checked_add(additional)
-            .ok_or_else(|| self.limit("loaded modules"))?;
-        counters.loaded_modules = next;
-        Ok(())
-    }
-
-    /// Releasing ownership must work even after cancellation or quarantine.
-    pub(crate) fn release_modules(&self, count: usize) {
-        let mut counters = self.counters.borrow_mut();
-        match counters.loaded_modules.checked_sub(count) {
-            Some(remaining) => counters.loaded_modules = remaining,
-            None => {
-                self.quarantine("loaded module count underflow");
-            }
-        }
     }
 }
 

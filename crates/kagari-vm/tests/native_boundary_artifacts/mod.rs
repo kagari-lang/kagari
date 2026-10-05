@@ -101,7 +101,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         )
         .unwrap();
         let loaded = runtime.load_program("native-imports", program).unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         assert_eq!(
             vm.execute(&loaded, "main").unwrap().return_value,
             Value::I32(42)
@@ -228,7 +228,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         )
         .unwrap();
         let loaded = runtime.load_program("native-collections", program).unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         assert_eq!(
             vm.execute(&loaded, "main").unwrap().return_value,
             Value::I32(42)
@@ -289,7 +289,7 @@ pub fn answer() -> i32 {
     let loaded = runtime
         .load_program("native-witnesses", decoded.program)
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)

@@ -112,7 +112,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let loaded = runtime
                 .load_program("reentry.kgr", route(module, encoded))
                 .unwrap();
-            let mut vm = Vm::new(runtime);
+            let vm = Vm::new(runtime);
             let prepared = native_fixtures::unsupported();
             let report = if jit {
                 vm.execute_prepared(&loaded, "main", &prepared)
@@ -196,8 +196,9 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let mut options = runtime.execution_options();
                 options.cancellation = token;
 
-                let scope = runtime.begin_execution(&loaded, options).unwrap();
-                let mut vm = Vm::new(runtime);
+                let vm = Vm::new(runtime);
+                let scope = vm.runtime().begin_execution(&loaded, options).unwrap();
+
                 let prepared = native_fixtures::unsupported();
                 let error = if jit {
                     vm.execute_prepared(&loaded, "main", &prepared)
@@ -289,7 +290,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         .invoke_host("host.log", &[Value::Str("enter".into())])
         .unwrap();
     let loaded = runtime.load_program("inputs.kgr", module).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
@@ -336,7 +337,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             Ok(Value::Unit)
         })).unwrap();
         let old = runtime.load_program("versions.kgr", first).unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         let scope = vm
             .runtime()
             .begin_execution(&old, vm.runtime().execution_options())
@@ -372,7 +373,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         Ok(Value::Unit)
     })).unwrap();
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
@@ -427,8 +428,8 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
                 .unwrap();
             let mut options = runtime.execution_options();
             options.cancellation = token;
-            let session = runtime.begin_execution(&loaded, options).unwrap();
-            let mut vm = Vm::new(runtime);
+            let vm = Vm::new(runtime);
+            let session = vm.runtime().begin_execution(&loaded, options).unwrap();
             let prepared = native_fixtures::unsupported();
             let error = if jit {
                 vm.execute_prepared(&loaded, "main", &prepared).unwrap_err()
@@ -477,7 +478,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let candidate = runtime
             .stage_reload_program(&old, "staged.kgr", program())
             .unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         let error = vm.execute(candidate.module(), "main").unwrap_err();
         assert!(
             matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
@@ -500,10 +501,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         assert_eq!(calls.get(), 0);
         drop(session);
         drop(candidate);
-        assert_eq!(
-            vm.runtime().resources().counters().loaded_modules,
-            old.members().count()
-        );
+        assert_eq!(vm.runtime().modules().loaded_count(), old.members().count());
         assert!(vm.runtime().execution_root().is_none());
         assert!(!vm.runtime().is_quarantined());
     }
@@ -555,7 +553,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let loaded = runtime
             .load_program("host-origin.kgr", route(module, encoded))
             .unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         let error = vm.execute(&loaded, "main").unwrap_err();
         assert_eq!(
             error

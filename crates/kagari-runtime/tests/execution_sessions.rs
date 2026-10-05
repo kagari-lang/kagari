@@ -1,5 +1,7 @@
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    module::BytecodeModule,
+    instruction::ModuleSlot,
+    module::{BytecodeModule, BytecodeModuleSlot},
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -20,7 +22,14 @@ fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
             name,
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
+                modules: vec![BytecodeModule {
+                    module_slots: vec![BytecodeModuleSlot {
+                        name: "state".into(),
+                        ty: ValueType::HeapObject,
+                        mutable: true,
+                    }],
+                    ..Default::default()
+                }],
             },
         )
         .unwrap()
@@ -454,14 +463,11 @@ fn candidate_module_state_access_is_limited_to_its_program() {
     for external in [&old, &other] {
         assert!(runtime.module_instance_snapshot(external).is_none());
         assert_eq!(
-            runtime.module_instance_mut(external).unwrap_err().kind(),
-            RuntimeErrorKind::ExecutionPhaseViolation
-        );
-        assert!(
             runtime
-                .modules()
-                .instance_snapshot(external.key())
-                .is_none()
+                .read_module_slot(external, ModuleSlot::new(0))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ExecutionPhaseViolation
         );
     }
     assert!(
@@ -469,7 +475,15 @@ fn candidate_module_state_access_is_limited_to_its_program() {
             .module_instance_snapshot(candidate.module())
             .is_some()
     );
-    assert!(runtime.module_instance_mut(candidate.module()).is_ok());
+    runtime
+        .write_module_slot(candidate.module(), ModuleSlot::new(0), Value::Tuple(vec![]))
+        .unwrap();
+    assert_eq!(
+        runtime
+            .read_module_slot(candidate.module(), ModuleSlot::new(0))
+            .unwrap(),
+        Value::Tuple(vec![])
+    );
     assert!(!runtime.is_quarantined());
     drop(session);
     assert_eq!(
@@ -520,9 +534,8 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
             )
             .unwrap();
         runtime
-            .module_instance_mut(candidate.module())
-            .unwrap()
-            .module_slots = vec![Value::Array(local)];
+            .write_module_slot(candidate.module(), ModuleSlot::new(0), Value::Array(local))
+            .unwrap();
         drop(session);
         if inject_external {
             // A low-level driver can still mutate candidate state between phases.
@@ -538,7 +551,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
                 runtime.modules().latest("main").unwrap().key(),
                 baseline.key()
             );
-            assert_eq!(runtime.resources().counters().loaded_modules, 1);
+            assert_eq!(runtime.modules().loaded_count(), 1);
         } else {
             let current = runtime.publish_staged_reload(candidate).unwrap();
             assert_eq!(
@@ -604,7 +617,7 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
             runtime.modules().latest("main").unwrap().key(),
             baseline.key()
         );
-        assert_eq!(runtime.resources().counters().loaded_modules, 1);
+        assert_eq!(runtime.modules().loaded_count(), 1);
         assert!(!runtime.is_quarantined());
     }
 }

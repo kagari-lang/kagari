@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObject, HeapObjectId},
+    gc::{GcHeap, HeapObjectId, storage::HeapObject},
     native::{
         hash_storage::{HashMapStorage, HashSetStorage},
         hashed::{MapPayload, SetPayload},
@@ -248,7 +248,7 @@ impl GcHeap {
         id: HeapObjectId,
         f: impl FnOnce(&mut HashMapStorage) -> R,
     ) -> Option<R> {
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut().ok()?;
         let revision = objects.get(id.slot)?.revision.checked_add(1)?;
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;
@@ -285,7 +285,7 @@ impl GcHeap {
         id: HeapObjectId,
         f: impl FnOnce(&mut HashSetStorage) -> R,
     ) -> Option<R> {
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut().ok()?;
         let revision = objects.get(id.slot)?.revision.checked_add(1)?;
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;

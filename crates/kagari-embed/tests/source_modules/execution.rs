@@ -216,12 +216,10 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
                 }
         })
         .unwrap();
-    assert!(
-        runtime
-            .runtime()
-            .modules()
-            .retain_epoch(dependency.key(), ModuleEpochRetention::ActiveCall)
-    );
+    let retention = runtime
+        .runtime()
+        .retain_module(&dependency, ModuleEpochRetention::ActiveCall)
+        .unwrap();
     let new = runtime
         .reload_program(
             &old,
@@ -237,8 +235,9 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     assert!(
         runtime
             .runtime()
-            .modules()
-            .collect_unreachable_epochs()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
             .is_empty()
     );
     for (module, value) in [(&old, 1), (&new, 2), (&old, 1)] {
@@ -260,16 +259,12 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
             )
             .is_err()
     );
-    assert!(
-        runtime
-            .runtime()
-            .modules()
-            .release_epoch(dependency.key(), ModuleEpochRetention::ActiveCall)
-    );
+    drop(retention);
     let collected: HashSet<_> = runtime
         .runtime()
-        .modules()
-        .collect_unreachable_epochs()
+        .collect_garbage()
+        .unwrap()
+        .reclaimed_modules
         .into_iter()
         .collect();
     let old_members: HashSet<_> = old.members().map(|module| module.key()).collect();

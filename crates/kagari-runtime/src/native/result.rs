@@ -11,7 +11,6 @@ use kagari_bytecode::{program::ModuleRef, trait_bounds::views::native_result_tar
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::native_import::NativeImport;
 use kagari_types::ty::Ty;
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LinkedResultAdapter {
@@ -48,10 +47,14 @@ impl LinkedResultAdapter {
         &self,
         runtime: &Runtime,
         owner: &LoadedModule,
-        environment: Rc<TypeEnvironment>,
+        environment: TypeEnvironment,
     ) -> NativeResult<Self> {
         Ok(Self {
-            applied: Some(runtime.type_arguments(owner, Some(environment), &self.arguments)?),
+            applied: Some(runtime.type_arguments(
+                owner,
+                Some(environment.types.clone()),
+                &self.arguments,
+            )?),
             ..self.clone()
         })
     }

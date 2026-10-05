@@ -1133,7 +1133,7 @@ Phase order and progress:
 - [x] **GO01: Central roots and checked identities.** Runtime-owned root storage,
   common root enumeration, automatic host leases, stale/foreign identity checks
   and teardown semantics.
-- [ ] **GO02: Central execution and metadata ownership.** Session/frame/program/
+- [x] **GO02: Central execution and metadata ownership.** Session/frame/program/
   environment stores, synchronous reentry, coordinated reachability and pinned
   version reclamation, including cycles and escaped generic environments. Separate
   object policy from collection; establish storage traversal and controlled internal
@@ -1176,11 +1176,177 @@ is assumed. Open implementation errors and resumption state belong here.
   `cargo test -p kagari-runtime -p kagari-vm -p kagari-embed --lib --test gc_ownership --test runtime_substrate --test execution_sessions --test native_boundary --test native_provider_reset`.
   Initial test/example root-read signature errors were resolved. No carried build
   or test error remains. Logs under target/go01-* are disposable.
-- GO02 next: centralize sessions/frames, programs and environments; separate object
-  policy and collector/storage responsibilities. Preserve reentry cleanup, exact
-  dependency ownership and escaped environments while replacing Rc/Weak graphs.
-  GO01 does not make Runtime Send or replace the public native authoring API;
-  those remain GO03-GO05, with final integration at GO06.
+- GO02 complete: execution, program and metadata stores are runtime-owned; graph
+  traversal and checked reference publication cover the accepted internal scope.
+  Exact generations, immediate session cleanup, scoped reentry and escaped generic
+  environments are preserved. No carried compilation/test error or structural debt
+  remains. Runtime is not Send yet; GO03-GO06 remain pending. Next is GO03: audit
+  shared callback/descriptor bounds, exclusively owned payloads/observers and native
+  code owners; prove exclusive OS-thread/Tokio handoff without a local-only variant.
+- GO02 acceptance: `cargo test -p kagari-runtime -p kagari-vm -p kagari-embed --no-fail-fast`
+  initially passed 925 tests and found one obsolete lease-count assertion in
+  library_mapping::retained_map_uses_its_original_callback_after_reload. Replace
+  that ownership-detail assertion with installed-record reachability and actual
+  reclamation after root release; retain old/fresh callback result assertions.
+  `cargo test -p kagari-vm --test library_collections` then passed all 18 tests.
+  Combined coverage is 926 tests passing, including compile-fail scope tests and
+  source/artifact/interpreter/JIT behavior; one pre-existing manual performance
+  measurement remains ignored. No test was disabled or behavioral check removed.
+  Workspace all-target check, strict all-target Clippy for runtime/VM/embed, focused
+  Clippy after the assertion update, structure (807 files, zero violations and
+  exceptions), formatting, 88 local documentation links and diff checks passed.
+  Ownership, production imports, visibility, macro boundaries and changed modules
+  were reviewed. Disposable logs: target/go02-acceptance-*. Final workspace-wide
+  tests, strict Clippy and feature/backend matrix remain GO06 acceptance.
+- Collector/storage boundary: the marker consumes identities and an edge visitor;
+  storage owns physical value/reference traversal. The coordinated graph covers heap
+  objects, executable metadata and program instances. Latest/live-staged programs,
+  explicit leases and active roots seed traversal. Reached programs trace exact
+  dependency-member slots. Type-only argument origins and layout provenance do not
+  retain mutable instances. Obsolete module/closure/environment cycles retire in
+  one pass; no independent module-only sweep remains. Marking/accounting and storage
+  borrow validation precede all detachment. Tracing/destruction cannot reenter or
+  mutate roots; trace failure prevents sweeping, and destructor panic is contained
+  while disposal continues outside table borrows.
+- Execution storage: Runtime owns GcHeap directly; SessionStore owns session records
+  and separately borrowed frame stacks. SessionId checks owner/slot/generation and
+  retires exhausted slots. Frames require the owning Runtime. Session end immediately
+  invalidates IDs and releases state/roots/version/iteration leases; only empty frame
+  buckets can await pruning when another session's view is borrowed. Heap-owned
+  exclusion tables replace shared mutable iteration/mutation/hash counters; cursor
+  leases expire without heap scans and warmed short native leases add no allocations.
+  ResourceState now lives by value in GcHeap; runtime components no longer own
+  Rc/Weak resource state. ExecutionSession, CandidateSession and ExecutionStack
+  borrow storage, preventing runtime replacement/destruction during execution.
+  HostBorrowTable owns records directly; borrowed HostCallGuard keeps the resource
+  gate, and HostResourceScope holds central root leases plus a registered frame ID.
+  Scope unwinding releases leases before the last session ends. Public root and
+  collection leases still outlive runtime teardown without retaining payloads.
+  ModuleStore also owns epoch reservation. VM/SDK execution and reload publication
+  take checked shared references so active old-version sessions can coexist with
+  publication. Runtime remains non-Sync; this supplies no concurrent execution or
+  Send claim. Registration and owner replacement still need mutable access.
+  Existing consumers now construct the VM before beginning a borrowed session;
+  compiler-suggested unused mutable bindings were removed across callers.
+- Program storage: Runtime directly owns non-Clone ModuleStore. ProgramLease and
+  StagedProgram carry lease tokens, never store ownership. Publication checks the
+  actual installed code and exact staging token. Last staged-handle drop immediately
+  hides all candidate members from access and retention; coordinated collection
+  disposes of the records. Automatic safepoints and validated load/stage operations
+  collect abandoned candidates; disabled automatic GC remains explicit-only.
+  ModuleStore::loaded_count replaces duplicate resource admission counters.
+  ModuleRecord now owns each instance, native links and mutable layout caches by
+  value; collection detaches them together before disposal. LoadedModule shares only
+  an immutable Arc<ProgramDescriptor>, proven Send + Sync and readable across threads
+  after runtime teardown. It cannot retain native callbacks or caches. Central lookup
+  checks exact descriptor identity, owner and epoch; copying keys and binding facts
+  cannot authorize execution. Native invocation drops the store borrow before Rust
+  callbacks. Cached layout application uses installed records; detached type facts
+  remain readable through pure descriptor application without reviving runtime state.
+  ModuleStore no longer owns Rc<ResourceState>. Runtime owns execution gates,
+  candidate instance isolation and public version retention; private store methods
+  operate on checked records. Runtime::retain_module replaces public retention on
+  ModuleStore, and instance access goes through Runtime. Load entry checks the
+  execution gate before linking/reserving a version. Collection-time retention
+  cannot resurrect records, and quarantine blocks retention, instance access,
+  loading and candidate publication without changing the current version.
+- Reference writes: Runtime::read_module_slot/write_module_slot replace unrestricted
+  module_instance_mut. Bytecode driver and host tests use the same checked path;
+  slot declarations, mutability, representations, heap identity/liveness and candidate
+  ownership are checked before replacement. Snapshot edits are detached. Storage
+  fault injection remains test-only and still proves quarantine and frame/root/depth
+  cleanup. GC tests cover failed writes, replacement/removal, obsolete program cycles
+  and transitive candidate validation at publication.
+  Executable root metadata is now written through Runtime; the root setter validates
+  each incoming program/metadata edge before replacing the old references. Frame,
+  selected-call and prepared-method roots share this boundary. Failed replacement
+  leaves old dependencies reachable, and stale/foreign roots cannot revive records.
+  Collector atomicity tests use explicit test-only corruption after asserting that
+  normal publication rejects invalid IDs. Parent-interface, method-application and
+  receiver-operation caches now expose reads only; execution_metadata::links owns
+  publication after checking destination identity/slot and incoming dependencies.
+  Shared/method receiver cells are validated together before either changes. Invalid,
+  stale, foreign and duplicate writes preserve the old graph; published edges retain
+  their referents until the owner becomes unreachable. Tests retain explicit
+  corruption hooks solely for collector failure coverage.
+- Executable metadata: central root records trace active frames, prepared methods
+  and selected native calls. Publication/frame entry validates executable edges;
+  detached diagnostic data cannot resurrect released program or operation records,
+  even when supplying code remains installed. GcHeap owns OperationGroupStore,
+  ApplicationStore, InterfaceStore and EnvironmentStore by value. Their typed
+  generational IDs check owner/bounds/generation, do not create roots and contribute
+  to safepoint pressure.
+  Allocation/view-borrow failures reject without partial sweeping or accounting.
+- Operation groups own BoundOperation entries by value. OperationId selects a stable
+  member ordinal; forwarding reuses that ID. Tracing a selected witness reaches its
+  supplying group without exposing sibling witnesses. Associated type facts are
+  copied separately. Checked MethodView reads replace Rc descriptor ownership;
+  public method metadata inspection requires Runtime. Closed applications reuse
+  receiver environments; method-local generic applications remain call-specific.
+- Interface snapshots live by value behind InterfaceSnapshotId. Heap wrappers,
+  parent caches and prepared methods hold ID edges. Metadata roots reach receiver
+  objects and exact program dependencies without retaining heap wrappers. Repeated
+  upcasts share parent records while keeping wrapper identities. Prepared methods
+  copy receiver/type facts and cannot own snapshot records past runtime teardown.
+  Invalid declaration/slot access preserves its prior error classification.
+- Closure records now live by value in existing heap slots. PreparedClosure holds
+  only a Value identity; snapshot inspection requires Runtime and returns a scoped
+  view. Frame entry accepts a closure Value, validates it and roots captures without
+  a temporary capture vector. Native invocation releases the view before executing
+  script. Stored callbacks trace identities; RootedCallable adds an explicit lease.
+  Neither keeps closure storage alive after teardown. Explicit diagnostic copies
+  in stale-environment tests are not execution capabilities. Central checked mutable
+  slot access replaces panicking heap borrow_mut paths; allocation and mutation
+  under a scoped read reject without changing contents or counters.
+- TypeBindings now owns only immutable substitutions, associated-type facts and
+  type-only parent scopes. Layouts, type origins and compatibility checks use these
+  snapshots without retaining executable environment records. EnvironmentStore owns
+  EnvironmentRecord values; TypeEnvironment is an EnvironmentId plus immutable type
+  facts, not a storage owner or root. Frames, closures, interface applications and
+  selected native calls trace environment IDs. Publication rechecks parent/selection
+  edges; extensions allocate a new record without changing existing handles. The
+  coordinated collector marks parents and selected groups, validates all table
+  borrows before detachment and includes environment occupancy in safepoint pressure.
+  Retained handles cannot prevent reclamation or alias recycled slots. Type facts
+  remain usable after their executable records are collected.
+- Reference-write validation passed: `cargo check --workspace --all-targets`;
+  `cargo test -p kagari-runtime -p kagari-vm --lib --test execution_sessions --test execution_frames --test offline_host --test native_boundary --test native_allocations --no-fail-fast`
+  (345 tests); `cargo test -p kagari-embed --test generic_reload --test callable_traits --test trait_inheritance --test try_protocols --test cranelift_preparation --test associated_types --no-fail-fast`
+  (44 tests). Strict all-target Clippy for runtime/VM/embed, structure (806 files,
+  zero violations/exceptions), formatting and git diff --check passed. Disposable
+  logs: target/go02-reference-writes-*. No carried error remains.
+- Previous scoped-resource validation passed: `cargo check --workspace --all-targets`;
+  `cargo test -p kagari-runtime -p kagari-vm --lib --test execution_sessions --test execution_frames --test host_borrows --test host_scopes --test native_boundary --test native_allocations --test prepared_execution --no-fail-fast`
+  (351 tests, including host-scope unwind with/without an execution session);
+  `cargo test -p kagari-embed --lib --test error_traces --test result_option --test generic_reload --test source_modules --test embedding_api --test cranelift_preparation --no-fail-fast`
+  (70 tests, including the source/artifact/interpreter/JIT language-contract matrix);
+  `cargo test -p kagari-runtime --doc` (3 compile-fail tests, including runtime/table
+  teardown while a borrowed execution/host scope remains live). Strict all-target
+  Clippy for runtime/VM/embed, structure (804 files, zero violations/exceptions),
+  formatting and git diff --check passed. Initial borrowed-consumer compile errors
+  and one needless-borrow lint were fixed without changing behavioral assertions.
+  Ownership probes now observe a test-only destruction token on the value-owned
+  ResourceState. Disposable logs: target/go02-borrowed-sessions-*.
+- Previous module-access validation passed: `cargo check --workspace --all-targets`;
+  `cargo test -p kagari-runtime -p kagari-vm --lib --test execution_sessions --test execution_frames --test runtime_substrate --test native_boundary --test offline_host --no-fail-fast`
+  (343 tests, including collection-time retention and quarantine regressions);
+  `cargo test -p kagari-embed --test source_modules --test generic_reload --no-fail-fast`
+  (31 tests); strict all-target Clippy for runtime/VM/embed; structure (804 files,
+  zero violations/exceptions), formatting and git diff --check. Disposable logs:
+  target/go02-module-access-*. No carried build/test error remains.
+- Previous program-record validation passed: `cargo check --workspace --all-targets`;
+  `cargo test -p kagari-runtime -p kagari-vm --lib --test native_boundary --test native_allocations --test struct_layouts --test native_execution --test offline_host --no-fail-fast`
+  (335 tests, including five new module-record lifetime/cache/identity regressions);
+  `cargo test -p kagari-embed --test generic_reload --test callable_traits --test trait_inheritance --test try_protocols --test iteration_traits --test native_provider_reset --test associated_types --test source_modules --no-fail-fast`
+  (100 tests); strict all-target Clippy for runtime/VM/embed; structure (804 files,
+  zero violations/exceptions), formatting and git diff --check. Logs under
+  target/go02-program-records-* are disposable. Earlier GO02 checks also covered runtime
+  frame/session/GC/native/layout integrations and embed source_modules,
+  embedding_api and cranelift_preparation; final integration still belongs to GO06.
+  Existing tests cover candidate abandonment/borrowed cleanup, foreign/stale and
+  exhausted identities, sibling-witness visibility, metadata-only scheduling,
+  cached native applications, parent views, heap/program cycles, exact old-version
+  execution, cancellation, traps, callback reentry and panic-safe collection.
 
 ### Other proposals
 

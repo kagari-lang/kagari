@@ -21,7 +21,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     jit_abi::decode_native_value,
-    module::{LoadedModule, ModuleEpochRetention, ModuleKey, ModuleStore},
+    module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
     value::Value,
 };
 
@@ -31,7 +31,7 @@ use crate::{
 pub struct InstalledNativeFunction {
     product: Rc<NativeCompilationProduct>,
     module: LoadedModule,
-    _retention: Rc<NativeRetention>,
+    _retention: ProgramLease,
 }
 
 impl InstalledNativeFunction {
@@ -51,21 +51,6 @@ pub struct NativeInvocationFailure {
     #[source]
     pub error: BackendInvocationError,
     pub trace: Arc<ErrorTrace>,
-}
-
-#[derive(Debug)]
-struct NativeRetention {
-    store: ModuleStore,
-    members: Vec<ModuleKey>,
-}
-
-impl Drop for NativeRetention {
-    fn drop(&mut self) {
-        for &member in &self.members {
-            self.store
-                .release_epoch(member, ModuleEpochRetention::CompiledArtifact);
-        }
-    }
 }
 
 impl Runtime {
@@ -90,25 +75,17 @@ impl Runtime {
             .ensure_execution_allowed()
             .map_err(runtime_failure)?;
         validate_product(module, &product.artifact)?;
-        let mut retention = NativeRetention {
-            store: self.modules.clone(),
-            members: Vec::new(),
-        };
-        for member in module.members() {
-            if !self
-                .modules
-                .retain_epoch(member.key(), ModuleEpochRetention::CompiledArtifact)
-            {
-                return Err(runtime_failure(RuntimeError::module_validation(
+        let retention = self
+            .retain_program(module, ModuleEpochRetention::CompiledArtifact)
+            .ok_or_else(|| {
+                runtime_failure(RuntimeError::module_validation(
                     "native dependency was released",
-                )));
-            }
-            retention.members.push(member.key());
-        }
+                ))
+            })?;
         Ok(InstalledNativeFunction {
             product,
             module: module.clone(),
-            _retention: Rc::new(retention),
+            _retention: retention,
         })
     }
 
@@ -132,7 +109,7 @@ impl Runtime {
         // The existing native subset has no observer callbacks. Metadata alone
         // does not grant permission to bypass an attached execution observer.
         if self
-            .resources
+            .resources()
             .active_session()
             .is_some_and(|session| session.observer.borrow().is_some())
         {
@@ -146,6 +123,7 @@ impl Runtime {
             .map_err(failure)?;
         stack
             .push(
+                self,
                 installed.module.slot(),
                 installed.artifact().function,
                 &[],
@@ -170,13 +148,13 @@ impl Runtime {
         let function = unsafe { mem::transmute::<usize, JitCompiledFunction>(address) };
         let mut result = JitValue::default();
         let status = unsafe { function((self as *const Self).cast(), &mut result) };
-        self.resources
+        self.resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)?;
         check_status(self, status)?;
         let value = decode_native_value(result).ok_or_else(|| {
             runtime_failure(
-                self.resources
+                self.resources()
                     .quarantine("compiled function returned an invalid value"),
             )
         })?;
@@ -185,7 +163,7 @@ impl Runtime {
             .return_type;
         if !value.has_representation(expected) {
             return Err(runtime_failure(
-                self.resources
+                self.resources()
                     .quarantine("compiled function returned the wrong representation"),
             ));
         }
@@ -255,7 +233,7 @@ fn check_status(runtime: &Runtime, status: i32) -> Result<(), BackendInvocationE
     let error = match status {
         JIT_STATUS_OK => return Ok(()),
         JIT_STATUS_RESOURCE_LIMIT => runtime
-            .resources
+            .resources()
             .termination()
             .unwrap_or_else(|| RuntimeError::resource_limit("instruction steps")),
         JIT_STATUS_CANCELLED => {
@@ -269,10 +247,10 @@ fn check_status(runtime: &Runtime, status: i32) -> Result<(), BackendInvocationE
             "invalid heap reference at safepoint",
         ),
         JIT_STATUS_ENGINE_FAULT | JIT_STATUS_INVALID_RUNTIME => runtime
-            .resources
+            .resources()
             .quarantine("native execution reported an engine fault"),
         _ => runtime
-            .resources
+            .resources()
             .quarantine("compiled function returned an unknown status"),
     };
     Err(runtime_failure(error))

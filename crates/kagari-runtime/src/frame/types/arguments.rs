@@ -9,10 +9,11 @@ mod identity_tests;
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{TypeEnvironment, compatibility::TypeView},
+    frame::types::{bindings::TypeBindings, compatibility::TypeView},
     gc::GcHeap,
     module::LoadedModule,
-    value::{EnumTag, Value},
+    value::Value,
+    value_check::matches_type_in,
 };
 use kagari_types::{declaration::verify::types_in_scope_in, ty::Ty};
 use std::{rc::Rc, slice};
@@ -33,7 +34,7 @@ struct TypeOrigin {
 #[derive(Debug)]
 struct TypeScope {
     owner: LoadedModule,
-    environment: Option<Rc<TypeEnvironment>>,
+    environment: Option<Rc<TypeBindings>>,
 }
 
 #[derive(Debug)]
@@ -56,7 +57,7 @@ impl TypeArgument {
 
     pub(crate) fn matches_heap(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> bool {
         let view = self.view(owner);
-        heap.matches_type_in(value, view.ty, view.owner, view.environment)
+        matches_type_in(heap, value, view.ty, view.owner, view.environment)
     }
 
     pub(crate) fn derive(
@@ -187,7 +188,7 @@ impl Runtime {
         value: &Value,
         ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: &TypeEnvironment,
+        environment: &TypeBindings,
     ) -> bool {
         // A mutable capture carries a cell handle; its semantic type describes
         // the contained variable rather than that internal storage handle.
@@ -226,7 +227,7 @@ impl Runtime {
     pub(crate) fn type_arguments(
         &self,
         owner: &LoadedModule,
-        environment: Option<Rc<TypeEnvironment>>,
+        environment: Option<Rc<TypeBindings>>,
         types: &[Ty<DefinitionId>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("type argument scope");
@@ -262,13 +263,7 @@ impl Runtime {
                     None => {
                         let prepared = Rc::new(TypeScope {
                             owner: owner.clone(),
-                            environment: environment.as_ref().map(|environment| {
-                                if environment.operations.is_empty() {
-                                    environment.clone()
-                                } else {
-                                    Rc::new(environment.types_only())
-                                }
-                            }),
+                            environment: environment.clone(),
                         });
                         scope = Some(prepared.clone());
                         prepared
@@ -295,7 +290,7 @@ impl Runtime {
         value: &Value,
         ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
+        environment: Option<&TypeBindings>,
     ) -> bool {
         if !self.gc.validate_value(value) {
             return false;
@@ -319,82 +314,6 @@ impl Runtime {
         if matches!(ty, Ty::Host(_)) {
             return self.matches_interface_method_abi(value, ty, owner);
         }
-        self.gc.matches_type_in(value, ty, owner, environment)
-    }
-}
-
-impl GcHeap {
-    pub(crate) fn matches_type_in(
-        &self,
-        value: &Value,
-        ty: &Ty<DefinitionId>,
-        owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
-    ) -> bool {
-        if ty.is_concrete() {
-            return self.matches_abi(value, ty, owner);
-        }
-        if let Ty::Parameter {
-            owner: binder,
-            position,
-        } = ty
-        {
-            return environment
-                .and_then(|environment| environment.argument(binder, *position))
-                .is_some_and(|argument| argument.matches_heap(self, value, owner));
-        }
-        if let (Value::Tuple(values), Ty::Tuple(types)) = (value, ty) {
-            return values.len() == types.len()
-                && values
-                    .iter()
-                    .zip(types)
-                    .all(|(value, ty)| self.matches_type_in(value, ty, owner, environment));
-        }
-        if let (Value::Closure(id), Ty::Function { params, result }) = (value, ty) {
-            return self.closure_snapshot(*id).is_some_and(|closure| {
-                closure.matches_function(params, result, owner, environment)
-            });
-        }
-        if let (Value::Interface(id), Ty::Trait(_)) = (value, ty) {
-            return self
-                .interface_snapshot(*id)
-                .is_some_and(|actual| actual.matches_type(ty, owner, environment));
-        }
-        if let (Value::GcHandle(id), Ty::Iter(element)) = (value, ty) {
-            return self.matches_iter_type(*id, element, owner, environment);
-        }
-        if let (Value::GcHandle(id), Ty::NativeObject(_)) = (value, ty) {
-            return self.matches_native_type(*id, ty, owner, environment);
-        }
-        if let (Value::Map(id), Ty::Map { key, value, .. }) = (value, ty) {
-            return self.map_contract(*id).is_some_and(|(a, b, _)| {
-                a.matches_scoped(key, owner, environment)
-                    && b.matches_scoped(value, owner, environment)
-            });
-        }
-        if let (Value::Set(id), Ty::Set(element, _)) = (value, ty) {
-            return self
-                .set_contract(*id)
-                .is_some_and(|(contract, _)| contract.matches_scoped(element, owner, environment));
-        }
-        if let (Value::Array(id), Ty::Array(element, _)) = (value, ty) {
-            return self
-                .array_contract(*id)
-                .is_some_and(|contract| contract.matches_scoped(element, owner, environment));
-        }
-        if let (Value::Struct(id), Ty::Struct(_)) = (value, ty) {
-            return self
-                .struct_layout(*id)
-                .is_some_and(|actual| actual.matches_type(ty, owner, environment));
-        }
-        if let (Value::Enum(id), Ty::Enum(_)) = (value, ty) {
-            return self.enum_snapshot(*id).is_some_and(|snapshot| matches!(snapshot.tag, EnumTag::Declared(actual) if actual.matches_type(ty, owner, environment)));
-        }
-        match environment {
-            Some(environment) => environment
-                .resolve(ty)
-                .is_ok_and(|ty| self.matches_abi(value, &ty, owner)),
-            None => self.matches_abi(value, ty, owner),
-        }
+        matches_type_in(&self.gc, value, ty, owner, environment)
     }
 }

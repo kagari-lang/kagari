@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, arguments::FrameArguments, types::TypeEnvironment},
+    frame::{ExecutionStack, FrameDispatch, arguments::FrameArguments, types::EnvironmentRecord},
     module::LoadedModule,
     native::context::LinkedCallable,
     value::Value,
@@ -11,9 +11,8 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, Register},
     module::CallableTarget,
 };
-use std::rc::Rc;
 
-impl ExecutionStack {
+impl ExecutionStack<'_> {
     pub fn push_selected_call(
         &self,
         runtime: &Runtime,
@@ -32,12 +31,15 @@ impl ExecutionStack {
             return Err(RuntimeError::module_validation("selected call arguments"));
         }
         self.push_arguments(
+            runtime,
             owner,
             selected.target,
             FrameArguments::plain(args),
             None,
-            None,
-            selected.environment.clone(),
+            FrameDispatch {
+                interface_method: None,
+                environment: selected.environment.clone(),
+            },
         )
     }
 
@@ -47,7 +49,7 @@ impl ExecutionStack {
         args: &[Value],
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
-        self.validate_top()?;
+        self.validate_runtime(runtime)?;
         let invalid = || RuntimeError::module_validation("invalid shared call entry");
         let (loaded, target, environment) = {
             let caller = self.current()?;
@@ -86,15 +88,17 @@ impl ExecutionStack {
             .ok_or_else(invalid)?;
             let arguments = runtime.type_arguments(
                 caller.loaded(),
-                caller.environment(),
+                caller
+                    .environment()
+                    .map(|environment| environment.types.clone()),
                 &contract.arguments,
             )?;
-            let mut environment = TypeEnvironment::new(
+            let mut environment = EnvironmentRecord::new(
                 runtime.definition_context(),
                 body.parameters.clone(),
                 arguments,
             )?;
-            environment.operations = runtime.bind_operations(&caller, &contract.operations)?;
+            environment.extend_operations(runtime.bind_operations(&caller, &contract.operations)?);
             if args.len() != contract.signature.params.len() {
                 return Err(invalid());
             }
@@ -103,20 +107,26 @@ impl ExecutionStack {
                     value,
                     ty,
                     caller.loaded(),
-                    caller.environment().as_deref(),
+                    caller
+                        .environment()
+                        .as_ref()
+                        .map(|environment| environment.types.as_ref()),
                 ) {
                     return Err(invalid());
                 }
             }
-            (loaded, *target, Rc::new(environment))
+            (loaded, *target, runtime.gc.alloc_environment(environment)?)
         };
         self.push_arguments(
+            runtime,
             loaded,
             target,
             FrameArguments::plain(args),
             return_dst,
-            None,
-            Some(environment),
+            FrameDispatch {
+                interface_method: None,
+                environment: Some(environment),
+            },
         )
     }
 }

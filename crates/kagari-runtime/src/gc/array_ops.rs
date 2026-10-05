@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObject, HeapObjectId},
+    gc::{GcHeap, HeapObjectId, storage::HeapObject},
     native::sequence::SequencePayload,
     value::Value,
 };
@@ -58,7 +58,7 @@ impl GcHeap {
     pub fn array_swap(&self, id: HeapObjectId, a: usize, b: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut()?;
         let revision = objects
             .get(id.slot)
             .ok_or_else(invalid)?
@@ -87,7 +87,7 @@ impl GcHeap {
         self.ensure_structure_mutable(id)?;
         let count = self.array_len(id).ok_or_else(invalid)?;
         self.resources.poll_execution()?;
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut()?;
         let revision = objects
             .get(id.slot)
             .ok_or_else(invalid)?

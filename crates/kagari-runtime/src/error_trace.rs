@@ -2,7 +2,7 @@
 
 use crate::{
     Runtime, error::RuntimeError, frame::ExecutionFrame, module::LoadedModule,
-    resource::ResourceState, session::SessionState, value::Value, value_semantics,
+    resource::ResourceState, session::store::SessionId, value::Value, value_semantics,
 };
 use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget};
 use kagari_common::span::Span;
@@ -45,11 +45,11 @@ impl ErrorTrace {
                 ..Self::default()
             });
         };
-        Self::capture_session(&session)
+        Self::capture_session(resources, session.id)
     }
 
-    pub(crate) fn capture_session(session: &SessionState) -> Arc<Self> {
-        let Ok(frames) = session.frames.try_borrow() else {
+    pub(crate) fn capture_session(resources: &ResourceState, id: SessionId) -> Arc<Self> {
+        let Some(frames) = resources.sessions.frames(id) else {
             return Arc::new(Self {
                 incomplete: true,
                 ..Self::default()
@@ -177,7 +177,7 @@ impl Display for ErrorTrace {
 
 impl Runtime {
     pub fn capture_error_trace(&self) -> Arc<ErrorTrace> {
-        ErrorTrace::capture(&self.resources)
+        ErrorTrace::capture(self.resources())
     }
 }
 

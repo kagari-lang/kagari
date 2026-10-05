@@ -33,11 +33,11 @@ impl ExecutionObserver for CancelAt {
     }
 }
 
-pub fn cancel_after(
-    runtime: &Runtime,
+pub fn cancel_after<'runtime>(
+    runtime: &'runtime Runtime,
     loaded: &kagari_runtime::module::LoadedModule,
     at: usize,
-) -> kagari_runtime::session::ExecutionSession {
+) -> kagari_runtime::session::ExecutionSession<'runtime> {
     let options = runtime.execution_options();
     let observer = std::rc::Rc::new(CancelAt {
         seen: Default::default(),

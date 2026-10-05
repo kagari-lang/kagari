@@ -2,12 +2,16 @@ use crate::{
     PreparedReload, Runtime, StagedReload,
     cache::{InterpreterCacheId, ReloadDependencySnapshot, ReloadInvalidation},
     error::RuntimeError,
-    module::{LinkedHostBindings, LoadedModule, VerifiedProgram},
+    module::{
+        LinkedHostBindings, LoadedModule, ModuleEpochRetention, ModuleKey, VerifiedProgram,
+        retention::ProgramLease,
+    },
     native::registry::link_host,
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
         validate_verified_reload_candidate,
     },
+    session::ExecutionPhase,
 };
 use kagari_bytecode::{
     artifact::{
@@ -19,6 +23,33 @@ use kagari_bytecode::{
 use kagari_common::identity::table::DefinitionId;
 
 impl Runtime {
+    /// Keep one exact module version reachable until the last lease is dropped.
+    /// The lease does not own runtime storage and may outlive the runtime.
+    pub fn retain_module(
+        &self,
+        module: &LoadedModule,
+        kind: ModuleEpochRetention,
+    ) -> Option<ProgramLease> {
+        self.resources().ensure_execution_allowed().ok()?;
+        self.modules.retain_module(module, kind)
+    }
+
+    pub(crate) fn retain_program(
+        &self,
+        module: &LoadedModule,
+        kind: ModuleEpochRetention,
+    ) -> Option<ProgramLease> {
+        self.resources().ensure_execution_allowed().ok()?;
+        self.modules.retain_program(module, kind)
+    }
+
+    pub(crate) fn allows_instance_access(&self, key: ModuleKey) -> bool {
+        self.resources().active_session().is_none_or(|session| {
+            session.options.phase != ExecutionPhase::CandidateInitialization
+                || session.root.members().any(|member| member.key() == key)
+        })
+    }
+
     fn link_native_module(
         &self,
         module: &BytecodeModule<DefinitionId>,
@@ -54,17 +85,17 @@ impl Runtime {
     }
 
     pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
+        self.resources().ensure_execution_allowed()?;
         if !module.belongs_to(self.host.owner()) {
             return Err(RuntimeError::module_validation(
                 "loaded module belongs to another runtime or has been released",
             ));
         }
-        let loaded = self.modules.try_loaded(module.key()).map_err(|_| {
-            self.resources
+        let loaded = self.modules.contains_module(module).map_err(|_| {
+            self.resources()
                 .quarantine("module store is borrowed across execution")
         })?;
-        if loaded.is_none() {
+        if !loaded {
             return Err(RuntimeError::module_validation(
                 "loaded module belongs to another runtime or has been released",
             ));
@@ -86,6 +117,7 @@ impl Runtime {
         name: impl Into<String>,
         program: VerifiedProgram,
     ) -> Result<LoadedModule, RuntimeError> {
+        self.resources().ensure_execution_allowed()?;
         let program = program.normalized(self.definition_context())?;
         let name = name.into();
         let dependencies = program.dependencies().clone();
@@ -94,17 +126,20 @@ impl Runtime {
             .iter()
             .map(|module| self.link_native_module(module, &program))
             .collect::<Result<Vec<_>, _>>()?;
-        let epoch = self.epochs.reserve(&name)?;
+        if self.modules.has_abandoned_programs()? {
+            self.gc_safepoint()?;
+        }
+        let epoch = self.modules.reserve_epoch(&name)?;
         let module = self
             .modules
             .stage_verified_program(name, epoch, program, self.host.owner(), bindings)?
-            .publish();
+            .publish(&self.modules)?;
         self.invalidate_interpreter_caches_for_reload(&module, dependencies);
         Ok(module)
     }
 
     pub fn stage_reload_program(
-        &mut self,
+        &self,
         active: &LoadedModule,
         name: impl Into<String>,
         bytecode: BytecodeProgram,
@@ -120,7 +155,7 @@ impl Runtime {
     }
 
     pub fn stage_reload_artifact(
-        &mut self,
+        &self,
         active: &LoadedModule,
         name: impl Into<String>,
         artifact: KbcArtifact,
@@ -145,7 +180,7 @@ impl Runtime {
     /// Stage shared verified code without changing its immutable program identity.
     /// Host bindings, candidate state, permissions and publication remain runtime-local.
     pub fn stage_reload_verified_program(
-        &mut self,
+        &self,
         active: &LoadedModule,
         name: impl Into<String>,
         program: VerifiedProgram,
@@ -182,7 +217,7 @@ impl Runtime {
     }
 
     pub(super) fn stage_prepared_reload(
-        &mut self,
+        &self,
         candidate: PreparedReload,
     ) -> Result<StagedReload, ReloadValidationError> {
         let PreparedReload {
@@ -207,9 +242,17 @@ impl Runtime {
                 ));
             }
         }
+        if self
+            .modules
+            .has_abandoned_programs()
+            .map_err(ReloadValidationError::Runtime)?
+        {
+            self.gc_safepoint()
+                .map_err(ReloadValidationError::Runtime)?;
+        }
         let epoch = self
-            .epochs
-            .reserve(&name)
+            .modules
+            .reserve_epoch(&name)
             .map_err(ReloadValidationError::Runtime)?;
         let program = self
             .modules
@@ -223,7 +266,7 @@ impl Runtime {
     }
 
     pub fn publish_staged_reload(
-        &mut self,
+        &self,
         candidate: StagedReload,
     ) -> Result<LoadedModule, ReloadValidationError> {
         if let Some(error) = candidate.initialization_error() {
@@ -257,8 +300,8 @@ impl Runtime {
             });
         }
         for member in program.module().members() {
-            let Some(instance) = self.modules.instance_snapshot(member.key()) else {
-                return Err(ReloadValidationError::Runtime(self.resources.quarantine(
+            let Some(instance) = self.module_instance_snapshot(&member) else {
+                return Err(ReloadValidationError::Runtime(self.resources().quarantine(
                     "candidate module instance disappeared at publication",
                 )));
             };
@@ -275,9 +318,7 @@ impl Runtime {
             let current = self
                 .link_native_module(&member.bytecode, member.verified_program())
                 .map_err(ReloadValidationError::Runtime)?;
-            if current.functions != member.host_bindings.functions
-                || current.paths != member.host_bindings.paths
-            {
+            if current.functions != member.host_functions || current.paths != member.host_paths {
                 return Err(ReloadValidationError::Runtime(
                     RuntimeError::module_validation(
                         "host bindings changed during candidate initialization",
@@ -286,7 +327,9 @@ impl Runtime {
             }
         }
         let dependencies = program.module().verified_program().dependencies().clone();
-        let module = program.publish();
+        let module = program
+            .publish(&self.modules)
+            .map_err(ReloadValidationError::Runtime)?;
         self.invalidate_interpreter_caches_for_reload(&module, dependencies);
         Ok(module)
     }

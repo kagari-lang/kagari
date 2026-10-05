@@ -88,7 +88,7 @@ fn executes_runtime_host_helper_call() {
         )
         .expect("helper module should load");
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(42));
@@ -162,7 +162,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                 program
             };
             let loaded = runtime.load_program("fault.kgr", program).unwrap();
-            let mut vm = Vm::new(runtime);
+            let vm = Vm::new(runtime);
             let error = if jit {
                 vm.execute_prepared(&loaded, "main", &prepared).unwrap_err()
             } else {
@@ -296,10 +296,11 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .program;
             }
             let loaded = runtime.load_program("path-reentry.kgr", program).unwrap();
-            let scope = runtime
-                .begin_execution(&loaded, runtime.execution_options())
+            let vm = Vm::new(runtime);
+            let scope = vm
+                .runtime()
+                .begin_execution(&loaded, vm.runtime().execution_options())
                 .unwrap();
-            let mut vm = Vm::new(runtime);
             let prepared = native_fixtures::unsupported();
             let report = if jit {
                 vm.execute_prepared(&loaded, "main", &prepared)
@@ -380,7 +381,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
         )
         .unwrap();
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").unwrap();
 
     assert_eq!(report.return_value, Value::I32(7));
@@ -457,7 +458,7 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
         )
         .unwrap();
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(10)
@@ -558,7 +559,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 RuntimeErrorKind::TypedPathValidation
             );
             assert_eq!(runtime.modules().loaded_count(), 1);
-            let mut vm = Vm::new(runtime);
+            let vm = Vm::new(runtime);
             let value = if jit {
                 let prepared = native_fixtures::unsupported();
                 vm.execute_prepared(&loaded, "main", &prepared).unwrap()

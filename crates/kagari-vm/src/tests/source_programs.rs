@@ -60,7 +60,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                     ..Default::default()
                 });
                 let loaded = runtime.load_program("root", program.clone()).unwrap();
-                let mut vm = Vm::new(runtime);
+                let vm = Vm::new(runtime);
                 let report = if jit {
                     vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
                 } else {

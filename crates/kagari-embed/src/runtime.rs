@@ -83,7 +83,7 @@ impl KagariRuntime {
     }
 
     pub fn reload_program(
-        &mut self,
+        &self,
         previous: &LoadedModule,
         program: &PreparedProgram,
         options: ReloadOptions,
@@ -91,17 +91,17 @@ impl KagariRuntime {
         let module_name = options.module_name.unwrap_or_else(|| previous.name.clone());
         let candidate = self
             .vm
-            .runtime_mut()
+            .runtime()
             .stage_reload_verified_program(previous, module_name, program.bytecode().clone())
             .map_err(EmbeddingError::reload_validation)?;
         self.vm
-            .runtime_mut()
+            .runtime()
             .publish_staged_reload(candidate)
             .map_err(EmbeddingError::reload_validation)
     }
 
     pub fn execute(
-        &mut self,
+        &self,
         module: &LoadedModule,
         entry: &str,
         args: &[Value],
@@ -126,7 +126,7 @@ impl KagariRuntime {
     }
 
     pub fn execute_prepared(
-        &mut self,
+        &self,
         module: &LoadedModule,
         entry: &str,
         args: &[Value],

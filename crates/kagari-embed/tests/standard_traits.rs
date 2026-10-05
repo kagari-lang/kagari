@@ -538,7 +538,7 @@ fn make()->(Test,HashSet<Key>) {
     let loaded = runtime
         .load_program("callback-cleanup", artifact.program)
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     for mode in 1..=4 {
         let value = vm.execute(&loaded, "make").unwrap().return_value;
         let root = vm.runtime().root_value(value.clone()).unwrap();

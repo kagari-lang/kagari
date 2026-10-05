@@ -2,30 +2,17 @@
 //! frames between these operations, never inside a borrowed hash table.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, GcObjectKind, HeapObjectId, roots::RootSet},
+    gc::{GcHeap, GcObjectKind, HeapObjectId, leases::BorrowedLease, roots::RootSet},
     value::{MapKey, Value},
 };
 
 use crate::native::hash_storage::HashMapStorage;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 /// The synchronous native frame already roots the collection. This borrow pins
 /// that argument scope without allocating another RootSet for each key lookup.
 pub(crate) struct KeyLookupGuard<'roots> {
     _roots: &'roots RootSet,
-    active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
-    id: HeapObjectId,
-}
-
-impl Drop for KeyLookupGuard<'_> {
-    fn drop(&mut self) {
-        let mut active = self.active.borrow_mut();
-        let count = active.get_mut(&self.id).expect("registered key lookup");
-        *count -= 1;
-        if *count == 0 {
-            active.remove(&self.id);
-        }
-    }
+    _lease: BorrowedLease<'roots>,
 }
 
 fn invalid() -> RuntimeError {
@@ -51,7 +38,7 @@ impl GcHeap {
     }
 
     pub(crate) fn begin_key_lookup<'roots>(
-        &self,
+        &'roots self,
         value: &Value,
         roots: &'roots RootSet,
     ) -> Result<KeyLookupGuard<'roots>, RuntimeError> {
@@ -61,27 +48,18 @@ impl GcHeap {
             Value::Set(id) if self.object_kind(*id) == Some(GcObjectKind::Set) => *id,
             _ => return Err(invalid()),
         };
-        let mut active = self.key_lookups.borrow_mut();
-        let count = active
-            .get(&id)
-            .copied()
-            .unwrap_or(0)
-            .checked_add(1)
-            .ok_or_else(invalid)?;
-        active
-            .try_reserve(1)
-            .map_err(|_| self.resource_limit("key lookup registry"))?;
-        active.insert(id, count);
         Ok(KeyLookupGuard {
             _roots: roots,
-            active: self.key_lookups.clone(),
-            id,
+            _lease: self
+                .key_lookups
+                .borrow(id)
+                .map_err(|_| self.resource_limit("key lookup registry"))?,
         })
     }
 
     pub(crate) fn ensure_key_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_callback_mutable(id)?;
-        if self.key_lookups.borrow().contains_key(&id) {
+        if self.key_lookups.is_active(id) {
             Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "container mutation during key comparison or hashing",

@@ -102,7 +102,7 @@ fn scalar_function_executes_through_the_checked_registration() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         "use example::math::add; fn main() -> i32 { add(20, 22) }",
         Some(&module),
     );
@@ -130,7 +130,7 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         "use example::bad::broken; fn main() -> i32 { broken() } fn healthy() -> i32 { 42 }",
         Some(&module),
     );
@@ -143,7 +143,7 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
 
 #[test]
 fn foundation_defaults_execute_without_optional_modules() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> i32 {
@@ -166,7 +166,7 @@ fn foundation_defaults_execute_without_optional_modules() {
 
 #[test]
 fn custom_hash_collisions_use_selected_script_methods() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap};
 use std::hash::{Hash};
 
@@ -245,7 +245,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::calls::{Step, repeat};
         struct Counter { val amount: i32 }
@@ -359,7 +359,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         "use example::objects::{Counter, new, read}; fn main() -> Counter<i32> { new() } fn answer() -> i32 { read(new()) }",
         Some(&module),
     );
@@ -454,7 +454,7 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         "use std::collections::{HashMap};\nuse example::buffers::{Buffer, push, sum}; fn main() -> i32 { val buffer: Buffer<i32> = Buffer::new(); val other: Buffer<i32> = Buffer::new(); if buffer != buffer || buffer == other { return -2; } val keys = HashMap::new(); keys.insert(buffer, 42); if !keys.contains_key(buffer) || keys.contains_key(other) { return -3; } if sum(buffer) != 0 { return -1; } push(buffer, 20); push(buffer, 22); sum(buffer) }",
         Some(&module),
     );
@@ -499,7 +499,7 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::arrays::probe;
         fn main() -> i32 {
@@ -578,7 +578,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         .unwrap();
     builder.bind(transform, transform_sequence).unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::views::{len, transform};
         fn main() -> i32 {
@@ -610,7 +610,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
 
 #[test]
 fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_elements() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         "struct Node { val value: i32 } fn values() -> Vec<i32> { [1, 2, 3, 4] } fn nodes() -> Vec<Node> { [Node { value: 42 }] }",
         None,
     );
@@ -779,7 +779,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
         .join(" ");
     let source =
         format!("use example::scalar_arrays::*; fn main() -> bool {{ {statements} true }}");
-    let (mut vm, loaded) = compile(&source, Some(&module));
+    let (vm, loaded) = compile(&source, Some(&module));
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::Bool(true)
@@ -811,7 +811,7 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 use std::hash::{Hash};
 
@@ -859,7 +859,7 @@ use std::hash::{Hash};
 
 #[test]
 fn empty_hash_containers_reject_wrong_types_and_keep_the_selected_key_protocol() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 use std::hash::{Hash};
 
@@ -942,7 +942,7 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::iter::{CollectionCursor};
 
         use example::cursors::hold;
@@ -1041,7 +1041,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::provided::{Counter, new, read, missing_payload};
         fn main() -> Counter { new([42]) }

@@ -15,7 +15,7 @@ impl Executor<'_> {
         arguments: &[Ty<DefinitionId>],
         variant: u32,
     ) -> Result<Value, VmError> {
-        let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
+        let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
         let snapshot = self
@@ -40,7 +40,7 @@ impl Executor<'_> {
         variant: u32,
         index: u32,
     ) -> Result<Value, VmError> {
-        let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
+        let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
         let snapshot = self
@@ -70,7 +70,12 @@ impl Executor<'_> {
     ) -> Result<Value, VmError> {
         let fields = fields
             .iter()
-            .map(|register| Ok::<_, VmError>(self.current_frame()?.read_register(*register)?))
+            .map(|register| {
+                Ok::<_, VmError>(
+                    self.current_frame()?
+                        .read_register(self.runtime, *register)?,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let layout =
             self.current_frame()?
@@ -84,7 +89,12 @@ impl Executor<'_> {
     pub(crate) fn make_tuple(&self, elements: &[Register]) -> Result<Value, VmError> {
         elements
             .iter()
-            .map(|element| Ok::<_, VmError>(self.current_frame()?.read_register(*element)?))
+            .map(|element| {
+                Ok::<_, VmError>(
+                    self.current_frame()?
+                        .read_register(self.runtime, *element)?,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()
             .map(Value::Tuple)
     }
@@ -96,7 +106,12 @@ impl Executor<'_> {
     ) -> Result<Value, VmError> {
         let elements = elements
             .iter()
-            .map(|element| Ok::<_, VmError>(self.current_frame()?.read_register(*element)?))
+            .map(|element| {
+                Ok::<_, VmError>(
+                    self.current_frame()?
+                        .read_register(self.runtime, *element)?,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         if !elements.iter().all(Value::is_default_heap_payload) {
             return Err(VmError::TypeMismatch(
@@ -118,7 +133,9 @@ impl Executor<'_> {
     ) -> Result<Value, VmError> {
         let fields = fields
             .iter()
-            .map(|field| Ok::<_, VmError>(self.current_frame()?.read_register(*field)?))
+            .map(|field| {
+                Ok::<_, VmError>(self.current_frame()?.read_register(self.runtime, *field)?)
+            })
             .collect::<Result<Vec<_>, VmError>>()?;
         let layout = self
             .current_frame()?
@@ -138,7 +155,7 @@ impl Executor<'_> {
         let layout =
             self.current_frame()?
                 .struct_layout(self.runtime, field.structure, &field.arguments)?;
-        match self.current_frame()?.read_register(base)? {
+        match self.current_frame()?.read_register(self.runtime, base)? {
             Value::Struct(handle) => self
                 .runtime
                 .gc()
@@ -149,8 +166,8 @@ impl Executor<'_> {
     }
 
     pub(crate) fn read_index(&self, base: Register, index: Register) -> Result<Value, VmError> {
-        let base = self.current_frame()?.read_register(base)?;
-        let index = self.current_frame()?.read_register(index)?;
+        let base = self.current_frame()?.read_register(self.runtime, base)?;
+        let index = self.current_frame()?.read_register(self.runtime, index)?;
         let index = match index {
             Value::I32(index) if index >= 0 => index as usize,
             Value::I64(index) if index >= 0 => index as usize,
@@ -184,7 +201,7 @@ impl Executor<'_> {
         field: FieldRef<DefinitionId>,
         value: Register,
     ) -> Result<(), VmError> {
-        let value = self.current_frame()?.read_register(value)?;
+        let value = self.current_frame()?.read_register(self.runtime, value)?;
         if !value.is_default_heap_payload() {
             return Err(VmError::TypeMismatch(
                 "write_field expects default-storable value",
@@ -193,7 +210,7 @@ impl Executor<'_> {
         let layout =
             self.current_frame()?
                 .struct_layout(self.runtime, field.structure, &field.arguments)?;
-        match self.current_frame()?.read_register(base)? {
+        match self.current_frame()?.read_register(self.runtime, base)? {
             Value::Struct(handle) => self
                 .runtime
                 .gc()
@@ -209,9 +226,9 @@ impl Executor<'_> {
         index: Register,
         value: Register,
     ) -> Result<(), VmError> {
-        let base_value = self.current_frame()?.read_register(base)?;
-        let index_value = self.current_frame()?.read_register(index)?;
-        let value = self.current_frame()?.read_register(value)?;
+        let base_value = self.current_frame()?.read_register(self.runtime, base)?;
+        let index_value = self.current_frame()?.read_register(self.runtime, index)?;
+        let value = self.current_frame()?.read_register(self.runtime, value)?;
         let index = match index_value {
             Value::I32(index) if index >= 0 => index as usize,
             Value::I64(index) if index >= 0 => index as usize,
@@ -246,8 +263,11 @@ impl Executor<'_> {
                     return Err(VmError::InvalidIndex(index));
                 };
                 *slot = value;
-                self.current_frame_mut()?
-                    .write_register(base, Value::Tuple(elements))?;
+                self.current_frame_mut()?.write_register(
+                    self.runtime,
+                    base,
+                    Value::Tuple(elements),
+                )?;
                 Ok(())
             }
             _ => Err(VmError::TypeMismatch(

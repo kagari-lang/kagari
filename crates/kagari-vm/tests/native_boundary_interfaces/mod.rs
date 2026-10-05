@@ -137,7 +137,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     let loaded = runtime
         .load_program("shared-native", decoded.program)
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
@@ -196,7 +196,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::defaults::Read;
         struct Number {}
@@ -217,7 +217,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
 
 #[test]
 fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{List};
 
         fn sum(values: List<i32>) -> i32 {
@@ -312,7 +312,7 @@ fn dynamic_iteration_preserves_gc_roots_and_mutation_guards() {
         })
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{List, MutableList};
 
         use example::collection_gc::collect;
@@ -346,7 +346,7 @@ fn dynamic_iteration_preserves_gc_roots_and_mutation_guards() {
 
 #[test]
 fn script_iterator_results_use_the_same_dynamic_adapter() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         struct Cursor { var current: i32 }
         impl Iterator for Cursor {
@@ -380,7 +380,7 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
 
 #[test]
 fn default_map_and_set_iterate_through_readonly_parent_views() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet, Set};
 
         fn map_sum(values: MutableMap<i32, i32>) -> i32 {
@@ -522,7 +522,7 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program("shared-helper", decoded.program)
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
@@ -646,11 +646,11 @@ fn runner() -> Run { 7 }
         Value::I32(42)
     );
     drop(root);
-    vm.runtime().collect_garbage().unwrap();
     assert!(
         vm.runtime()
-            .modules()
-            .collect_unreachable_epochs()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
             .contains(&old.key())
     );
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
@@ -697,7 +697,7 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
 use example::receiver::Read;
 struct Source<R> { val value: R }
@@ -771,7 +771,7 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
 use example::generic_operation::{Identity, invoke};
 struct Source { var calls: i32 }

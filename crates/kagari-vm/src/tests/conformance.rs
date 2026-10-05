@@ -40,7 +40,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(13));
@@ -62,7 +62,7 @@ fn missing_entry_is_rejected_before_execution() {
         };
         let mut runtime = standard_runtime(Default::default());
         let loaded = runtime.load_program("missing-entry.kgr", program).unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         for jit in [false, true] {
             let error = if jit {
                 let prepared = native_fixtures::unsupported();
@@ -106,7 +106,7 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
         let loaded = runtime
             .load_program("ambiguous-entry.kgr", program)
             .unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         for jit in [false, true] {
             let error = if jit {
                 let prepared = native_fixtures::unsupported();
@@ -128,7 +128,7 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
 #[test]
 fn interpreter_conformance_classifies_failure_paths() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val values = [1]; values[3] }");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm
         .execute(&loaded, "main")
         .expect_err("out of bounds index should trap");
@@ -151,7 +151,7 @@ fn interpreter_conformance_classifies_failure_paths() {
     let loaded = runtime
         .load_program("resource_limit.kgr", bytecode)
         .expect("module should load");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm
         .execute(&loaded, "main")
         .expect_err("resource limit should be classified");

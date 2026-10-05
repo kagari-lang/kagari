@@ -10,7 +10,7 @@ use crate::{
         compatibility::TypeView,
     },
     gc::{GcCollection, GcHeap, HeapObjectId, roots::RootSet},
-    module::{LoadedModule, RetainedRuntimeProgram},
+    module::LoadedModule,
     native::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
@@ -112,7 +112,7 @@ impl<'call> ArgumentView<'call> {
 /// A target selected from a verified program during linking, without source lookup.
 #[derive(Debug, Clone)]
 pub struct LinkedCallable {
-    pub(crate) environment: Option<Rc<TypeEnvironment>>,
+    pub(crate) environment: Option<TypeEnvironment>,
     pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
     pub(crate) owner: CallableOwner,
     pub(crate) target: CallableTarget,
@@ -124,7 +124,7 @@ pub struct LinkedCallable {
 #[derive(Debug, Clone)]
 pub(crate) enum CallableOwner {
     Program(ModuleRef),
-    Pinned(LoadedModule, Rc<RetainedRuntimeProgram>),
+    Pinned(LoadedModule, RootSet),
 }
 
 impl LinkedCallable {
@@ -501,8 +501,10 @@ impl<'call> CallContext<'call> {
                 && let CallableTarget::Native(import) = target.target
             {
                 let owner = target.owner(self.owner)?;
-                let function = owner
-                    .native_binding(import)
+                let function = self
+                    .runtime
+                    .modules
+                    .native_binding(&owner, import)
                     .ok_or_else(|| RuntimeError::module_validation("unlinked native callback"))?;
                 let mut context = CallContext {
                     runtime: self.runtime,

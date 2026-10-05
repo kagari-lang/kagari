@@ -8,57 +8,34 @@ use crate::{
     resource::ResourceState,
     value::Value,
 };
-use std::rc::{Rc, Weak};
 
 impl HostBorrowTable {
-    pub(crate) fn with_resources(resources: &Rc<ResourceState>) -> Self {
-        Self {
-            resources: Some(Rc::downgrade(resources)),
-            ..Default::default()
+    pub fn enter_frame(&self) -> Result<HostCallGuard<'_>, RuntimeError> {
+        self.enter_frame_in(None)
+    }
+
+    pub(crate) fn enter_frame_in<'runtime>(
+        &'runtime self,
+        resources: Option<&'runtime ResourceState>,
+    ) -> Result<HostCallGuard<'runtime>, RuntimeError> {
+        if let Some(resources) = resources {
+            resources.ensure_execution_allowed()?;
         }
-    }
-
-    pub(super) fn ensure_allowed(&self) -> Result<(), RuntimeError> {
-        if let Some(resources) = &self.resources {
-            resources
-                .upgrade()
-                .ok_or_else(|| RuntimeError::expired_host_borrow("host runtime has been released"))?
-                .ensure_execution_allowed()?;
-        }
-        Ok(())
-    }
-
-    pub(super) fn invariant(&self, message: &'static str) -> RuntimeError {
-        self.resources.as_ref().and_then(Weak::upgrade).map_or_else(
-            || RuntimeError::new(RuntimeErrorKind::EngineFault, message),
-            |resources| resources.quarantine(message),
-        )
-    }
-
-    pub(super) fn capacity_error(&self) -> RuntimeError {
-        self.resources.as_ref().and_then(Weak::upgrade).map_or_else(
-            || RuntimeError::resource_limit("host borrow capacity"),
-            |resources| resources.limit("host borrow capacity"),
-        )
-    }
-
-    pub fn enter_frame(&self) -> Result<HostCallGuard, RuntimeError> {
-        self.ensure_allowed()?;
         let mut state = self.state.borrow_mut();
         let frame_id = HostFrameId(state.next_frame_id);
         let epoch = BorrowEpoch(state.next_epoch);
         let next_frame = state
             .next_frame_id
             .checked_add(1)
-            .ok_or_else(|| self.invariant("host frame identity exhausted"))?;
+            .ok_or_else(|| invariant(resources, "host frame identity exhausted"))?;
         let next_epoch = state
             .next_epoch
             .checked_add(1)
-            .ok_or_else(|| self.invariant("host borrow epoch exhausted"))?;
+            .ok_or_else(|| invariant(resources, "host borrow epoch exhausted"))?;
         state
             .active_frames
             .try_reserve(1)
-            .map_err(|_| self.capacity_error())?;
+            .map_err(|_| capacity_error(resources))?;
         state.next_frame_id = next_frame;
         state.next_epoch = next_epoch;
         state.active_frames.insert(
@@ -69,7 +46,8 @@ impl HostBorrowTable {
             },
         );
         Ok(HostCallGuard {
-            table: self.clone(),
+            table: self,
+            resources,
             frame_id,
             epoch,
         })
@@ -80,7 +58,6 @@ impl HostBorrowTable {
         token: FrameHostBorrowToken,
         required_kind: HostBorrowKind,
     ) -> Result<(), RuntimeError> {
-        self.ensure_allowed()?;
         if token.owner != self.owner {
             return Err(RuntimeError::expired_host_borrow(
                 "host borrow belongs to another runtime or table",
@@ -131,13 +108,20 @@ impl HostBorrowTable {
 
     pub(super) fn borrow(
         &self,
-        frame_id: HostFrameId,
-        epoch: BorrowEpoch,
+        frame: &HostCallGuard<'_>,
         object_id: HostObjectId,
         borrow_kind: HostBorrowKind,
         type_id: TypeId,
     ) -> Result<FrameHostBorrowToken, RuntimeError> {
-        self.ensure_allowed()?;
+        let HostCallGuard {
+            frame_id,
+            epoch,
+            resources,
+            ..
+        } = *frame;
+        if let Some(resources) = resources {
+            resources.ensure_execution_allowed()?;
+        }
         let mut state = self.state.borrow_mut();
         let frame = state.active_frames.get(&frame_id).ok_or_else(|| {
             RuntimeError::expired_host_borrow(format!(
@@ -158,11 +142,11 @@ impl HostBorrowTable {
             .expect("validated host frame")
             .borrows
             .try_reserve(1)
-            .map_err(|_| self.capacity_error())?;
+            .map_err(|_| capacity_error(resources))?;
         state
             .object_borrows
             .try_reserve(1)
-            .map_err(|_| self.capacity_error())?;
+            .map_err(|_| capacity_error(resources))?;
         let object_state = state.object_borrows.entry(object_id).or_default();
         match borrow_kind {
             HostBorrowKind::Shared if object_state.unique_count > 0 => {
@@ -175,7 +159,7 @@ impl HostBorrowTable {
                 object_state.shared_count = object_state
                     .shared_count
                     .checked_add(1)
-                    .ok_or_else(|| self.invariant("host shared borrow count exhausted"))?;
+                    .ok_or_else(|| invariant(resources, "host shared borrow count exhausted"))?;
             }
             HostBorrowKind::Unique
                 if object_state.shared_count > 0 || object_state.unique_count > 0 =>
@@ -201,14 +185,19 @@ impl HostBorrowTable {
         Ok(token)
     }
 
-    pub(super) fn leave_frame(&self, frame_id: HostFrameId, epoch: BorrowEpoch) {
+    pub(super) fn leave_frame(
+        &self,
+        frame_id: HostFrameId,
+        epoch: BorrowEpoch,
+        resources: Option<&ResourceState>,
+    ) {
         let mut state = self.state.borrow_mut();
         let Some(frame) = state.active_frames.remove(&frame_id) else {
-            self.invariant("host borrow frame disappeared during cleanup");
+            invariant(resources, "host borrow frame disappeared during cleanup");
             return;
         };
         if frame.epoch != epoch {
-            self.invariant("host borrow frame epoch changed during cleanup");
+            invariant(resources, "host borrow frame epoch changed during cleanup");
         }
 
         for record in frame.borrows {
@@ -218,25 +207,39 @@ impl HostBorrowTable {
                     HostBorrowKind::Shared => {
                         object_state.shared_count =
                             object_state.shared_count.checked_sub(1).unwrap_or_else(|| {
-                                self.invariant("host shared borrow count underflow");
+                                invariant(resources, "host shared borrow count underflow");
                                 0
                             });
                     }
                     HostBorrowKind::Unique => {
                         object_state.unique_count =
                             object_state.unique_count.checked_sub(1).unwrap_or_else(|| {
-                                self.invariant("host unique borrow count underflow");
+                                invariant(resources, "host unique borrow count underflow");
                                 0
                             });
                     }
                 }
                 remove_object = object_state.is_empty();
             } else {
-                self.invariant("host object borrow disappeared during cleanup");
+                invariant(resources, "host object borrow disappeared during cleanup");
             }
             if remove_object {
                 state.object_borrows.remove(&record.object_id);
             }
         }
     }
+}
+
+fn invariant(resources: Option<&ResourceState>, message: &'static str) -> RuntimeError {
+    resources.map_or_else(
+        || RuntimeError::new(RuntimeErrorKind::EngineFault, message),
+        |resources| resources.quarantine(message),
+    )
+}
+
+fn capacity_error(resources: Option<&ResourceState>) -> RuntimeError {
+    resources.map_or_else(
+        || RuntimeError::resource_limit("host borrow capacity"),
+        |resources| resources.limit("host borrow capacity"),
+    )
 }

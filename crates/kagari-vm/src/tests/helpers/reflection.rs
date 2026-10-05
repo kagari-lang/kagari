@@ -26,7 +26,7 @@ fn executes_runtime_reflect_type_of_helper() {
         ),
     );
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::Str("i32".to_owned()));
@@ -55,7 +55,7 @@ fn runtime_reflection_helpers_use_declared_metadata() {
         ),
     );
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::Str("i32".into())
@@ -100,7 +100,7 @@ fn declared_reflection_reads_are_available() {
             },
         )
         .unwrap();
-    let mut vm = Vm::new(metadata_only);
+    let vm = Vm::new(metadata_only);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(1)
@@ -154,7 +154,7 @@ fn declared_reflection_writes_are_available() {
             },
         )
         .unwrap();
-    let mut vm = Vm::new(read_only);
+    let vm = Vm::new(read_only);
     vm.execute(&loaded, "main").unwrap();
 }
 
@@ -206,7 +206,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
         ),
     );
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(9));
@@ -254,7 +254,7 @@ fn executes_runtime_reflect_set_index_helper() {
         ),
     );
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     let Value::Array(handle) = report.return_value else {
@@ -269,7 +269,7 @@ fn executes_runtime_reflect_set_index_helper() {
 #[test]
 fn executes_source_lowered_type_of_helper() {
     let (runtime, loaded) = load_reflection_test_module("fn main() -> String { type_of(7) }");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::Str("i32".to_owned()));
@@ -288,7 +288,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(9));
@@ -304,7 +304,7 @@ fn main() -> Vec<i32> {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     let Value::Array(handle) = report.return_value else {
@@ -332,7 +332,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(12));
@@ -351,7 +351,7 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
     "#,
     );
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(

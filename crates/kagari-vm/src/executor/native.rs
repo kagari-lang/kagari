@@ -22,7 +22,7 @@ pub(super) fn invoke_script(
         }
         ScriptCall::Closure(closure) => {
             let stack = runtime.enter_closure_execution_stack(closure)?;
-            stack.push_closure(runtime, closure.snapshot(), arguments, None)?;
+            stack.push_closure(runtime, closure.value(), arguments, None)?;
             stack
         }
     };

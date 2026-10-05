@@ -272,13 +272,11 @@ impl EmbeddingError {
             VmError::BytecodeVerification(_) => RuntimeFailureKind::BytecodeVerification,
             VmError::AmbiguousFunction(_)
             | VmError::InvalidFunctionRef(_)
-            | VmError::InvalidModuleSlot(_)
             | VmError::UnsupportedCallTarget(_)
             | VmError::UnsupportedInstruction(_) => RuntimeFailureKind::BytecodeVerification,
             VmError::JitInvocation(_) => RuntimeFailureKind::EngineInvariant,
             VmError::MissingFunction(_)
             | VmError::MissingField(_)
-            | VmError::ImmutableModuleSlot(_)
             | VmError::InvalidIndex(_)
             | VmError::InvalidBranchCondition
             | VmError::BuiltinError(_)

@@ -1,8 +1,9 @@
 //! Prepared function arguments and explicitly traced or rooted retained callbacks.
 use crate::{
     Runtime,
+    closure::ClosureValueSnapshot,
     error::RuntimeError,
-    gc::{ClosureValueSnapshot, GcObjectKind, roots::RootedValue},
+    gc::{GcObjectKind, roots::RootedValue},
     native::{
         arguments::CallArguments,
         binding::NativeResult,
@@ -14,12 +15,11 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
-use std::rc::Rc;
+use std::{cell::Ref, rc::Rc};
 
 #[derive(Debug, Clone)]
 pub struct PreparedClosure {
     value: Value,
-    closure: Rc<ClosureValueSnapshot>,
 }
 
 impl PreparedClosure {
@@ -41,17 +41,23 @@ impl PreparedClosure {
         Ok(())
     }
 
-    pub fn snapshot(&self) -> &ClosureValueSnapshot {
-        &self.closure
+    /// Inspect the owning runtime's live closure record without retaining it.
+    pub fn snapshot<'runtime>(
+        &self,
+        runtime: &'runtime Runtime,
+    ) -> NativeResult<Ref<'runtime, ClosureValueSnapshot>> {
+        self.validate(runtime)?;
+        runtime.resolve_closure(&self.value)
+    }
+
+    /// The checked-at-use GC identity; this descriptor does not create a root.
+    pub fn value(&self) -> &Value {
+        &self.value
     }
 
     fn invoke(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
-        (cx.invoke_script)(
-            cx.runtime,
-            &self.closure.implementation,
-            ScriptCall::Closure(self),
-            arguments,
-        )
+        let owner = self.snapshot(cx.runtime)?.implementation.clone();
+        (cx.invoke_script)(cx.runtime, &owner, ScriptCall::Closure(self), arguments)
     }
 
     fn call<R: NativeScalar, A: CallArguments>(
@@ -72,14 +78,23 @@ impl PreparedClosure {
 
     fn call_values(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
         cx.heap().ensure_no_native_borrow()?;
-        let owner = &self.closure.implementation;
+        let (owner, function, captures, environment) = {
+            let closure = self.snapshot(cx.runtime)?;
+            (
+                closure.implementation.clone(),
+                closure.function,
+                closure.captures.len(),
+                closure.environment.clone(),
+            )
+        };
         let function = owner
             .bytecode
             .functions
-            .get(self.closure.function.index())
+            .get(function.index())
             .ok_or_else(|| RuntimeError::module_validation("native callback function"))?;
-        let captures = self.closure.captures.len();
-        let environment = self.closure.environment.as_deref();
+        let environment = environment
+            .as_ref()
+            .map(|environment| environment.types.as_ref());
         if captures.checked_add(arguments.len()) != Some(function.metadata.params.len())
             || !arguments.iter().enumerate().all(|(index, value)| {
                 function
@@ -87,7 +102,7 @@ impl PreparedClosure {
                     .semantic
                     .params
                     .get(&(captures + index))
-                    .is_some_and(|ty| cx.runtime.matches_type_in(value, ty, owner, environment))
+                    .is_some_and(|ty| cx.runtime.matches_type_in(value, ty, &owner, environment))
             })
         {
             return Err(RuntimeError::module_validation("native callback arguments"));
@@ -98,7 +113,7 @@ impl PreparedClosure {
             .semantic
             .result
             .as_ref()
-            .is_some_and(|ty| cx.runtime.matches_type_in(&value, ty, owner, environment))
+            .is_some_and(|ty| cx.runtime.matches_type_in(&value, ty, &owner, environment))
         {
             return Err(RuntimeError::module_validation("native callback result"));
         }
@@ -107,7 +122,7 @@ impl PreparedClosure {
 }
 
 /// A function argument borrows its existing frame root. Resolving the closure
-/// shares immutable capture metadata and never holds a heap borrow across calls.
+/// checks immutable capture metadata and never holds a heap borrow across calls.
 pub struct CallableHandle<'call> {
     target: PreparedClosure,
     params: &'call [Ty<DefinitionId>],
@@ -145,7 +160,7 @@ impl<'call> CallableHandle<'call> {
             return Err(RuntimeError::module_validation("native callback signature"));
         }
         Ok(Self {
-            target: PreparedClosure { value, closure },
+            target: PreparedClosure { value },
             params,
             result,
             _arguments: cx.arguments(),
@@ -259,3 +274,6 @@ impl RootedCallable {
         function.target.call_values(cx, arguments)
     }
 }
+
+#[cfg(test)]
+mod tests;

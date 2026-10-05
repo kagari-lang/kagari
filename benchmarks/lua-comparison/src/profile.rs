@@ -71,7 +71,7 @@ impl ExecutionObserver for InstructionCounts {
 }
 
 fn execute(
-    runtime: &mut KagariRuntime,
+    runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
     expected: i32,
@@ -83,7 +83,7 @@ fn execute(
 }
 
 pub(super) fn run(
-    runtime: &mut KagariRuntime,
+    runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
     name: &str,

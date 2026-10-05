@@ -28,7 +28,7 @@ impl Vm {
     /// Execute already-prepared code or an explicit pre-entry fallback decision.
     /// This method never compiles and never restarts a partially executed native call.
     pub fn execute_prepared(
-        &mut self,
+        &self,
         module: &LoadedModule,
         entry: &str,
         prepared: &PreparedNativeEntry,

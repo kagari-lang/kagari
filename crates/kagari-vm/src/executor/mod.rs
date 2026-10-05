@@ -21,7 +21,7 @@ use crate::error::VmError;
 
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
-    stack: ExecutionStack,
+    stack: ExecutionStack<'a>,
 }
 
 impl<'a> Executor<'a> {
@@ -50,7 +50,7 @@ impl<'a> Executor<'a> {
         method: RootedInterfaceMethod,
         args: &[Value],
     ) -> Result<Self, VmError> {
-        let loaded = method.implementation().clone();
+        let loaded = method.implementation(runtime)?;
         let stack = runtime.enter_execution_stack(&loaded)?;
         stack.push_interface_method(runtime, method, args, None)?;
         Ok(Self { runtime, stack })
@@ -63,7 +63,7 @@ impl<'a> Executor<'a> {
 
     fn run_inner(&mut self) -> Result<Value, VmError> {
         loop {
-            let native_return = self.current_frame()?.native_return();
+            let native_return = self.current_frame()?.native_return(self.runtime)?;
             if let Some(value) = native_return {
                 let result = self.stack.finish_return(self.runtime, value);
                 if let Some(value) = self.report_operation(result.map_err(VmError::RuntimeError))? {
@@ -102,7 +102,9 @@ impl<'a> Executor<'a> {
             match instruction {
                 BytecodeInstruction::Return(value) => {
                     let value = match value {
-                        Some(register) => self.current_frame()?.read_register(register)?,
+                        Some(register) => self
+                            .current_frame()?
+                            .read_register(self.runtime, register)?,
                         None => Value::Unit,
                     };
                     let result = self.stack.finish_return(self.runtime, value);
@@ -151,6 +153,8 @@ impl<'a> Executor<'a> {
         args: &[Value],
         return_dst: Option<Register>,
     ) -> Result<(), VmError> {
-        Ok(self.stack.push(module, function, args, return_dst)?)
+        Ok(self
+            .stack
+            .push(self.runtime, module, function, args, return_dst)?)
     }
 }

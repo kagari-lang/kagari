@@ -1,7 +1,4 @@
-use kagari_bytecode::{
-    instruction::{CallTarget, ModuleSlot},
-    verifier::BytecodeVerificationError,
-};
+use kagari_bytecode::{instruction::CallTarget, verifier::BytecodeVerificationError};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
@@ -24,8 +21,6 @@ pub enum VmError {
     AmbiguousFunction(String),
     MissingField(String),
     InvalidFunctionRef(FunctionRef),
-    InvalidModuleSlot(ModuleSlot),
-    ImmutableModuleSlot(ModuleSlot),
     InvalidIndex(usize),
     InvalidBranchCondition,
     HostError(HostError),
@@ -93,7 +88,6 @@ impl VmError {
     pub(crate) fn invariant_reason(&self) -> Option<&'static str> {
         match self {
             Self::InvalidFunctionRef(_) => Some("verified function reference is missing"),
-            Self::InvalidModuleSlot(_) => Some("verified module slot is missing"),
             Self::InvalidBranchCondition => Some("verified branch condition is not bool"),
             Self::UnsupportedCallTarget(_) => Some("verified call target is unsupported"),
             Self::UnsupportedInstruction(reason) => Some(reason),

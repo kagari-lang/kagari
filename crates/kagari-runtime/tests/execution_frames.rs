@@ -27,7 +27,7 @@ impl ExecutionObserver for ReentrantObserver {
     ) -> Result<(), RuntimeError> {
         let module = runtime.execution_root().unwrap();
         let nested = runtime.enter_execution_stack(&module)?;
-        nested.push(module.slot(), FunctionRef::new(0), &[], None)
+        nested.push(runtime, module.slot(), FunctionRef::new(0), &[], None)
     }
 }
 
@@ -80,7 +80,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     let module = loaded(&mut runtime);
     let outer = runtime.enter_execution_stack(&module).unwrap();
     outer
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     let first = Value::Array(
         runtime
@@ -90,11 +90,11 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     outer
         .current_mut()
         .unwrap()
-        .write_register(Register::new(0), first.clone())
+        .write_register(&runtime, Register::new(0), first.clone())
         .unwrap();
     let nested = runtime.enter_execution_stack(&module).unwrap();
     nested
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     let second = Value::Array(
         runtime
@@ -104,7 +104,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     nested
         .current_mut()
         .unwrap()
-        .write_register(Register::new(0), second.clone())
+        .write_register(&runtime, Register::new(0), second.clone())
         .unwrap();
     assert_eq!(outer.frames().unwrap().len(), 2);
     assert_eq!(nested.frames().unwrap()[0].loaded().key(), module.key());
@@ -136,7 +136,7 @@ fn root_depth_peaks_follow_actual_frames_and_reset_between_roots() {
         let stack = runtime.enter_execution_stack(&module).unwrap();
         for _ in 0..depth {
             stack
-                .push(module.slot(), FunctionRef::new(0), &[], None)
+                .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
                 .unwrap();
         }
         assert_eq!(session.counters().current_call_depth, depth);
@@ -153,13 +153,13 @@ fn invalid_frame_access_quarantines_but_scope_cleanup_still_releases_every_root(
     let module = loaded(&mut runtime);
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     assert_eq!(
         stack
             .current()
             .unwrap()
-            .read_register(Register::new(9))
+            .read_register(&runtime, Register::new(9))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::EngineFault
@@ -183,11 +183,11 @@ fn out_of_order_stack_drop_is_isolated_without_double_cleanup() {
     let module = loaded(&mut runtime);
     let outer = runtime.enter_execution_stack(&module).unwrap();
     outer
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     let nested = runtime.enter_execution_stack(&module).unwrap();
     nested
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     drop(outer);
     assert!(runtime.is_quarantined());
@@ -221,7 +221,7 @@ fn observers_cannot_reenter_a_borrowed_stack_or_replace_the_root_observer() {
         RuntimeErrorKind::ModuleValidation
     );
     stack
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     assert_eq!(
         runtime
@@ -264,6 +264,7 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
     assert_eq!(
         stack
             .push(
+                &runtime,
                 candidate.module().slot(),
                 FunctionRef::new(0),
                 &[old_object],
@@ -275,11 +276,24 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
     );
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     stack
-        .push(candidate.module().slot(), FunctionRef::new(0), &[], None)
+        .push(
+            &runtime,
+            candidate.module().slot(),
+            FunctionRef::new(0),
+            &[],
+            None,
+        )
         .unwrap();
     assert_eq!(runtime.resources().counters().current_call_depth, 1);
+    let inspected = stack.frames().unwrap();
     drop(outer);
     assert!(!runtime.is_quarantined());
+    assert_eq!(inspected.len(), 1);
+    assert_eq!(
+        runtime.modules().retention_counts(old.key()).active_calls,
+        0
+    );
+    drop(inspected);
     assert!(stack.current().is_ok());
     drop(stack);
     drop(initialization);
@@ -294,7 +308,7 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
     let old = loaded(&mut runtime);
     let outer = runtime.enter_execution_stack(&old).unwrap();
     outer
-        .push(old.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, old.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     let candidate = runtime
         .stage_reload_program(
@@ -316,7 +330,7 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
     drop(candidate);
     drop(outer);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(runtime.resources().counters().loaded_modules, 1);
+    assert_eq!(runtime.modules().loaded_count(), 1);
     assert!(runtime.execution_root().is_none());
 }
 
@@ -348,7 +362,7 @@ fn native_polling_preserves_cancellation_offsets_and_cleanup() {
     let _session = runtime.begin_execution(&module, options).unwrap();
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     for offset in 0..2 {
         assert_eq!(
@@ -385,7 +399,7 @@ fn native_polling_requires_an_active_validated_program_point() {
     let module = loaded(&mut runtime);
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     assert_eq!(
         unsafe { jit_poll_execution(&runtime, 1) },
@@ -407,7 +421,7 @@ fn interpreter_frame_fetch_preserves_instruction_offsets() {
     );
     let stack = runtime.enter_execution_stack(&module).unwrap();
     stack
-        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
     for index in 0..2 {
         let instruction = stack.current_mut().unwrap().next_instruction().unwrap();
@@ -420,4 +434,58 @@ fn interpreter_frame_fetch_preserves_instruction_offsets() {
     }
 
     assert!(stack.current_mut().unwrap().next_instruction().is_none());
+}
+
+#[test]
+fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point() {
+    let mut runtime = Runtime::default();
+    let module = loaded(&mut runtime);
+    let foreign = Runtime::default();
+    let stack = runtime.enter_execution_stack(&module).unwrap();
+    assert_eq!(
+        stack
+            .push(&foreign, module.slot(), FunctionRef::new(0), &[], None)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ModuleValidation
+    );
+    assert!(stack.is_empty().unwrap());
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    stack
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    let original = Value::Array(
+        runtime
+            .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
+            .unwrap(),
+    );
+    let mut frame = stack.current_mut().unwrap();
+    frame
+        .write_register(&runtime, Register::new(0), original.clone())
+        .unwrap();
+    for error in [
+        frame.read_register(&foreign, Register::new(0)).unwrap_err(),
+        frame
+            .write_register(&foreign, Register::new(0), Value::Unit)
+            .unwrap_err(),
+        frame.jump_to(&foreign, 0).unwrap_err(),
+        frame
+            .begin_collection_mutation(&foreign, &original)
+            .unwrap_err(),
+    ] {
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    }
+    assert_eq!(
+        frame.read_register(&runtime, Register::new(0)).unwrap(),
+        original
+    );
+    assert_eq!(frame.instruction_offset(), 0);
+    assert!(!runtime.is_quarantined());
+    assert!(!foreign.is_quarantined());
+    drop(frame);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc().validate_value(&original));
+    drop(stack);
+    runtime.collect_garbage().unwrap();
+    assert!(!runtime.gc().validate_value(&original));
 }

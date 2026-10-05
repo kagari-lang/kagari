@@ -6,44 +6,40 @@ use crate::{
     session::ExecutionSession,
     value::{EphemeralValue, Value},
 };
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
 
-#[derive(Debug)]
-pub(crate) struct HostScopeState {
-    borrows: HostCallGuard,
-    roots: RefCell<Vec<RootSet>>,
-}
-
-/// Temporary host resources. Active script sessions own the registered state;
-/// this guard removes it and releases its borrows/roots before leaving the session.
+/// Scoped leases into runtime-owned borrow and root tables.
+/// The guard unregisters its identity and releases leases before leaving the session.
 #[must_use]
 pub struct HostResourceScope<'a> {
     runtime: &'a Runtime,
-    state: Rc<HostScopeState>,
-    session: Option<ExecutionSession>,
+    borrows: HostCallGuard<'a>,
+    roots: RefCell<Vec<RootSet>>,
+    session: Option<ExecutionSession<'a>>,
 }
 
 impl<'a> HostResourceScope<'a> {
     pub(crate) fn new(runtime: &'a Runtime, values: &[Value]) -> Result<Self, RuntimeError> {
-        runtime.resources.poll_execution()?;
+        runtime.resources().poll_execution()?;
         let session = runtime
             .execution_root()
             .map(|root| runtime.begin_execution(&root, runtime.execution_options()))
             .transpose()?;
-        let state = Rc::new(HostScopeState {
-            borrows: runtime.host_borrows.enter_frame()?,
-            roots: RefCell::new(Vec::new()),
-        });
+        let borrows = runtime
+            .host_borrows
+            .enter_frame_in(Some(runtime.resources()))?;
         if let Some(session) = &session {
-            let mut scopes = session.state.host_scopes.borrow_mut();
+            let session = session.state();
+            let mut scopes = session.host_scopes.borrow_mut();
             scopes
                 .try_reserve(1)
-                .map_err(|_| runtime.resources.limit("host scope capacity"))?;
-            scopes.insert(state.borrows.frame_id(), state.clone());
+                .map_err(|_| runtime.resources().limit("host scope capacity"))?;
+            scopes.insert(borrows.frame_id());
         }
         let scope = Self {
             runtime,
-            state,
+            borrows,
+            roots: RefCell::new(Vec::new()),
             session,
         };
         scope.retain_values(values)?;
@@ -54,14 +50,14 @@ impl<'a> HostResourceScope<'a> {
         self.runtime
     }
 
-    pub fn borrows(&self) -> &HostCallGuard {
-        &self.state.borrows
+    pub fn borrows(&self) -> &HostCallGuard<'_> {
+        &self.borrows
     }
 
     /// Keep values alive through subsequent host preparation and nested calls.
     /// Permanent host retention uses RootedValue instead.
     pub fn retain_values(&self, values: &[Value]) -> Result<(), RuntimeError> {
-        self.runtime.resources.ensure_execution_allowed()?;
+        self.runtime.resources().ensure_execution_allowed()?;
         self.validate_borrows(values)?;
         if values.is_empty() {
             return Ok(());
@@ -73,10 +69,12 @@ impl<'a> HostResourceScope<'a> {
             .ok_or_else(|| {
                 RuntimeError::host_call_failure("invalid heap reference in host temporaries")
             })?;
-        let mut retained = self.state.roots.borrow_mut();
-        retained
-            .try_reserve(1)
-            .map_err(|_| self.runtime.resources.limit("host temporary root capacity"))?;
+        let mut retained = self.roots.borrow_mut();
+        retained.try_reserve(1).map_err(|_| {
+            self.runtime
+                .resources()
+                .limit("host temporary root capacity")
+        })?;
         retained.push(roots);
         Ok(())
     }
@@ -98,12 +96,10 @@ impl<'a> HostResourceScope<'a> {
                 }
                 Value::Ephemeral(EphemeralValue::HostRef(token)) => self
                     .runtime
-                    .host_borrows
-                    .validate(*token, HostBorrowKind::Shared)?,
+                    .validate_host_borrow(*token, HostBorrowKind::Shared)?,
                 Value::Ephemeral(EphemeralValue::HostMut(token)) => self
                     .runtime
-                    .host_borrows
-                    .validate(*token, HostBorrowKind::Unique)?,
+                    .validate_host_borrow(*token, HostBorrowKind::Unique)?,
                 _ => {}
             }
         }
@@ -115,10 +111,10 @@ impl Drop for HostResourceScope<'_> {
     fn drop(&mut self) {
         if let Some(session) = &self.session {
             session
-                .state
+                .state()
                 .host_scopes
                 .borrow_mut()
-                .remove(&self.state.borrows.frame_id());
+                .remove(&self.borrows.frame_id());
         }
     }
 }

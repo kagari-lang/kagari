@@ -153,6 +153,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
     let object = runtime
         .alloc_struct(original.clone(), vec![Value::I32(1)])
         .unwrap();
+    let _root = runtime.root_value(Value::Struct(object)).unwrap();
     let next = runtime
         .stage_reload_program(
             original.module(),
@@ -179,8 +180,9 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
     drop(original);
     assert!(
         runtime
-            .modules()
-            .collect_unreachable_epochs()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
             .contains(&original_key)
     );
     let retained = runtime.gc().struct_layout(object).unwrap();

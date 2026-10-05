@@ -2,14 +2,14 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
+    execution_metadata::applications::MethodApplication,
     frame::types::{
-        TypeEnvironment,
+        EnvironmentRecord,
         arguments::{ScopedSignature, TypeArgument},
     },
-    gc::interfaces::MethodApplication,
 };
 use kagari_types::callable::Signature;
-use std::{rc::Rc, slice};
+use std::slice;
 
 impl Runtime {
     pub(super) fn apply_interface_method(
@@ -17,7 +17,8 @@ impl Runtime {
         mut method: RootedInterfaceMethod,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        if arguments.len() != method.type_parameters().len() {
+        let view = method.view(self)?;
+        if arguments.len() != view.type_parameters().len() {
             return Err(RuntimeError::module_validation(
                 "interface method type arguments",
             ));
@@ -25,36 +26,35 @@ impl Runtime {
         for argument in arguments {
             argument.validate(self)?;
         }
-        if method.type_parameters().is_empty()
-            && method.entry_parameters().is_empty()
-            && method.receiver_environment().is_none()
+        if view.type_parameters().is_empty()
+            && view.entry_parameters().is_empty()
+            && view.receiver_environment().is_none()
         {
+            drop(view);
+            method.refresh_roots(self)?;
             return Ok(method);
         }
-        let reusable = method.type_parameters().is_empty();
-        let application = if reusable && let Some(prepared) = method.application_cell().get() {
-            prepared.clone()
+        let reusable = view.type_parameters().is_empty();
+        let cached = view.cached_application();
+        drop(view);
+        let application = if reusable && let Some(prepared) = cached {
+            prepared
         } else {
-            let prepared = Rc::new(self.prepare_method_application(&method, arguments)?);
+            let prepared = self.prepare_method_application(&method, arguments)?;
+            let prepared = self.gc.alloc_method_application(prepared)?;
             if reusable {
-                method
-                    .application_cell()
-                    .set(prepared.clone())
-                    .expect("method application prepared once");
+                self.cache_method_application(method.selection, prepared)?;
             }
             prepared
         };
-        method.environment = application.environment.clone();
-        // A descriptor's cache contains only types. Keeping its supplying group
-        // here would create group -> descriptor -> application -> group cycles.
-        if method.is_operation()
-            && method.environment.is_some()
-            && let Some(group) = method.receiver_operations(self)?
-            && let Some(environment) = &mut method.environment
-        {
-            Rc::make_mut(environment).operations.receiver(group);
-        }
+        method.environment = self
+            .gc
+            .method_application(application)
+            .ok_or_else(|| RuntimeError::module_validation("invalid cached method application"))?
+            .environment
+            .clone();
         method.application = Some(application);
+        method.refresh_roots(self)?;
         Ok(method)
     }
 
@@ -63,28 +63,33 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         arguments: &[TypeArgument],
     ) -> Result<MethodApplication, RuntimeError> {
-        let mut binders = TypeEnvironment::new(
+        let view = method.view(self)?;
+        let mut binders = EnvironmentRecord::new(
             self.definition_context(),
-            method.type_parameters().to_vec(),
+            view.type_parameters().to_vec(),
             arguments.to_vec(),
         )?;
-        binders.include(method.receiver_environment().cloned())?;
-        let binders = Some(Rc::new(binders));
-        let result_adapter = method.result_adapter().map(|adapter| {
+        binders.include(view.receiver_environment().cloned())?;
+        let binders = Some(self.gc.alloc_environment(binders)?);
+        let result_adapter = view.result_adapter().map(|adapter| {
             let mut adapter = adapter.clone();
             adapter.environment = binders.clone();
             adapter
         });
         let params = self.type_arguments(
-            method.implementation(),
-            binders.clone(),
-            method.parameter_types(),
+            view.implementation(),
+            binders
+                .as_ref()
+                .map(|environment| environment.types.clone()),
+            view.parameter_types(),
         )?;
         let result = self
             .type_arguments(
-                method.implementation(),
-                binders.clone(),
-                slice::from_ref(method.return_type()),
+                view.implementation(),
+                binders
+                    .as_ref()
+                    .map(|environment| environment.types.clone()),
+                slice::from_ref(view.return_type()),
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("interface return type"))?;
@@ -97,20 +102,22 @@ impl Runtime {
         };
         let scoped_signature = (result.has_origin() || params.iter().any(TypeArgument::has_origin))
             .then_some(ScopedSignature { params, result });
-        let environment = if method.entry_parameters().is_empty() {
+        let environment = if view.entry_parameters().is_empty() {
             None
         } else {
-            let mut environment = TypeEnvironment::new(
+            let mut environment = EnvironmentRecord::new(
                 self.definition_context(),
-                method.entry_parameters().to_vec(),
-                self.type_arguments(method.implementation(), binders, method.entry_arguments())?,
+                view.entry_parameters().to_vec(),
+                self.type_arguments(
+                    view.implementation(),
+                    binders.map(|environment| environment.types.clone()),
+                    view.entry_arguments(),
+                )?,
             )?;
-            if !method.is_operation()
-                && let Some(group) = method.receiver_operations(self)?
-            {
-                environment.operations.receiver(group);
+            if let Some(group) = method.receiver_operations(self)? {
+                environment.add_receiver(&self.gc, group)?;
             }
-            Some(Rc::new(environment))
+            Some(self.gc.alloc_environment(environment)?)
         };
         Ok(MethodApplication {
             signature,
@@ -120,3 +127,6 @@ impl Runtime {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,8 +1,8 @@
 //! Scoped access to one registered Rust payload. A borrow cannot escape its closure.
 use crate::{
     error::RuntimeError,
-    frame::types::{TypeEnvironment, compatibility::TypeView},
-    gc::{GcHeap, HeapObject, HeapObjectId},
+    frame::types::{bindings::TypeBindings, compatibility::TypeView},
+    gc::{GcHeap, HeapObjectId, storage::HeapObject},
     module::LoadedModule,
     native::{
         binding::NativeResult,
@@ -29,7 +29,7 @@ impl GcHeap {
         id: HeapObjectId,
         ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
+        environment: Option<&TypeBindings>,
     ) -> bool {
         let objects = self.objects.borrow();
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty, owner, environment))

@@ -437,7 +437,7 @@ impl DebugSession {
             .flat_map(|function| &function.metadata.debug.local_live_ranges)
             .filter(|range| range.start <= instruction_offset && instruction_offset < range.end)
             .map(|range| {
-                let value = frame.read_local(range.local)?;
+                let value = frame.read_local(runtime, range.local)?;
                 runtime
                     .validate_debug_value(&value)
                     .map_err(VmError::RuntimeError)?;

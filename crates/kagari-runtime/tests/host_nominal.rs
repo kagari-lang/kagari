@@ -117,7 +117,6 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     };
     assert!(runtime.load_program("nominal", program.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
-    assert_eq!(runtime.resources().counters().loaded_modules, 0);
     register(
         &mut runtime,
         "export.Alias",

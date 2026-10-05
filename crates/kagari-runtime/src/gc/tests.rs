@@ -8,6 +8,7 @@ use crate::{
     layout_fixtures::allocation_owner,
     metadata::{AbiFingerprint, TypeId},
 };
+use kagari_contract::ids::FunctionRef;
 use kagari_types::{
     host_interface::{
         type_declaration::{
@@ -18,6 +19,42 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
+
+#[test]
+fn foreign_executable_edges_abort_collection_before_any_storage_is_detached() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let dead = runtime
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
+    let mut foreign = Runtime::default();
+    let foreign_owner = allocation_owner(&mut foreign);
+    assert_eq!(owner.key(), foreign_owner.key());
+    // Deliberately bypass Runtime::make_closure to exercise corrupted storage.
+    let closure = runtime
+        .gc()
+        .alloc_closure(ClosureValueSnapshot {
+            implementation: foreign_owner,
+            function: FunctionRef::new(0),
+            captures: vec![],
+            environment: None,
+        })
+        .unwrap();
+    let _root = runtime.root_value(Value::Closure(closure)).unwrap();
+    let before = runtime.resources().counters();
+    let stats = runtime.gc().stats();
+    assert_eq!(
+        runtime.collect_garbage().unwrap_err().kind(),
+        RuntimeErrorKind::EngineFault
+    );
+    assert_eq!(runtime.resources().counters(), before);
+    assert_eq!(runtime.gc().stats(), stats);
+    assert_eq!(runtime.gc().object_kind(dead), Some(GcObjectKind::Array));
+    assert_eq!(
+        runtime.gc().object_kind(closure),
+        Some(GcObjectKind::Closure)
+    );
+}
 
 #[test]
 fn interface_roots_trace_data_and_retain_old_dependency_versions() {
@@ -49,7 +86,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
             .make_interface(&loaded, 0, Value::I32(7))
             .is_err()
     );
-    assert_eq!(runtime.modules().retention_counts(old).runtime_values, 1);
+    assert_eq!(runtime.modules().retention_counts(old).runtime_values, 0);
     let root = runtime.root_value(interface.clone()).unwrap();
     assert!(runtime.gc().interface_snapshot(id).is_some());
     assert!(!crate::Runtime::default().gc().validate_value(&interface));
@@ -67,21 +104,18 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     );
     assert!(
         !runtime
-            .modules()
-            .collect_unreachable_epochs()
+            .collect_garbage()
+            .unwrap()
+            .reclaimed_modules
             .contains(&old)
     );
 
     drop(root);
-    runtime.collect_garbage().unwrap();
+    let collected = runtime.collect_garbage().unwrap();
     assert!(!runtime.gc().validate_value(&interface));
     assert_eq!(runtime.modules().retention_counts(old).runtime_values, 0);
-    assert!(
-        runtime
-            .modules()
-            .collect_unreachable_epochs()
-            .contains(&old)
-    );
+    assert!(collected.reclaimed_modules.contains(&old));
+    assert!(runtime.modules().loaded(old).is_none());
 }
 
 fn layout(name: &str, field: &str, ty: Ty) -> crate::module::StructLayoutRef {
@@ -285,9 +319,9 @@ fn roots_are_explicit_storable_slots() {
     let bare_copy = root.value(heap).unwrap();
     let retained = root.clone();
     drop(root);
-    assert_eq!(heap.collect(&[]).unwrap().live_objects, 1);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(retained);
-    assert_eq!(heap.collect(&[]).unwrap().reclaimed_objects, 1);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
     assert!(!heap.validate_value(&bare_copy));
 }
 

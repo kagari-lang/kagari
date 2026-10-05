@@ -14,7 +14,7 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     let foreign = first.load_program("same", bytecode.clone()).unwrap();
     let local = second.load_program("same", bytecode).unwrap();
     assert_eq!(foreign.key(), local.key());
-    let mut vm = Vm::new(second);
+    let vm = Vm::new(second);
     assert!(
         matches!(vm.execute(&foreign, "main"), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
@@ -27,7 +27,7 @@ fn foreign_loaded_module_is_rejected_before_execution() {
 #[test]
 fn executes_simple_arithmetic_function() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(3));
@@ -166,7 +166,7 @@ fn unsupported_dynamic_invocation_is_rejected() {
 #[test]
 fn executes_if_control_flow() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { if true { 1 } else { 2 } }");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(1));
@@ -180,7 +180,7 @@ fn callee() -> i32 { 7 }
 fn main() -> i32 { callee() }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(7));
@@ -202,7 +202,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(12));
@@ -228,7 +228,7 @@ fn main() -> i32 { middle() }
         .load_program("call_depth.kgr", bytecode)
         .expect("module should load");
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm
         .execute(&loaded, "main")
         .expect_err("third frame should exceed call depth");
@@ -261,7 +261,7 @@ fn unreachable_instruction_is_a_script_trap() {
         )
         .expect("module should load");
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm
         .execute(&loaded, "main")
         .expect_err("unreachable should trap");
@@ -274,7 +274,7 @@ fn unreachable_instruction_is_a_script_trap() {
 fn executes_array_index_access() {
     let (runtime, loaded) =
         load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(2));
@@ -292,7 +292,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(report.return_value, Value::I32(2));
@@ -301,7 +301,7 @@ fn main() -> i32 {
 #[test]
 fn executes_tuple_literal_return() {
     let (runtime, loaded) = load_test_module("fn main() -> (bool, bool) { (true, false) }");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(
@@ -321,7 +321,7 @@ fn main() -> Point {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     let Value::Struct(handle) = report.return_value else {
@@ -346,34 +346,42 @@ fn main() -> Point {
 }
 
 #[test]
-fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
+fn module_slot_driver_and_checked_host_writes_share_storage() {
     let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
         .load_program(
-            "module-slot-invariant",
+            "module-slot-writes",
             BytecodeProgram {
                 root: ModuleRef::new(0),
                 modules: vec![module_with_mutable_slot(7)],
             },
         )
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     vm.execute(&loaded, "init").unwrap();
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(7)
     );
-    vm.runtime()
-        .module_instance_mut(&loaded)
-        .unwrap()
-        .module_slots
-        .clear();
-
-    let error = vm.execute(&loaded, "main").unwrap_err();
+    let slot = ModuleSlot::new(0);
     assert!(
-        matches!(error, VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
+        vm.runtime()
+            .write_module_slot(&loaded, slot, Value::Bool(true))
+            .is_err()
     );
-    assert!(vm.runtime().is_quarantined());
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(7)
+    );
+    vm.runtime()
+        .write_module_slot(&loaded, slot, Value::I32(9))
+        .unwrap();
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(9)
+    );
+    assert!(!vm.runtime().is_quarantined());
+    assert!(vm.runtime().execution_root().is_none());
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
@@ -390,11 +398,9 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
             },
         )
         .expect("first module epoch should load");
-    assert!(
-        runtime
-            .modules()
-            .retain_epoch(first_loaded.key(), ModuleEpochRetention::ActiveCall)
-    );
+    let retention = runtime
+        .retain_module(&first_loaded, ModuleEpochRetention::ActiveCall)
+        .unwrap();
 
     let second_loaded = runtime
         .stage_reload_program(
@@ -409,12 +415,12 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let second_loaded = runtime.publish_staged_reload(second_loaded).unwrap();
 
     assert_eq!(
-        runtime.modules().collect_unreachable_epochs(),
+        runtime.collect_garbage().unwrap().reclaimed_modules,
         Vec::new(),
         "old active-call epoch must remain reachable after reload"
     );
 
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let old_report = vm
         .execute(&first_loaded, "main")
         .expect("old active epoch should remain executable");
@@ -433,13 +439,9 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     assert_eq!(latest_report.epoch, second_loaded.epoch.0);
     assert_eq!(latest_report.return_value, Value::I32(2));
 
-    assert!(
-        vm.runtime()
-            .modules()
-            .release_epoch(first_loaded.key(), ModuleEpochRetention::ActiveCall)
-    );
+    drop(retention);
     assert_eq!(
-        vm.runtime().modules().collect_unreachable_epochs(),
+        vm.runtime().collect_garbage().unwrap().reclaimed_modules,
         vec![first_loaded.key()]
     );
 }

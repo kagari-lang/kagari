@@ -1,20 +1,27 @@
+pub(crate) mod collection;
 mod layouts;
+mod records;
+pub mod retention;
+pub(crate) mod staging;
+mod state;
 use crate::{
     cache::ReloadDependencySnapshot,
     error::RuntimeError,
-    frame::types::TypeEnvironment,
+    frame::types::bindings::TypeBindings,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
-    module::layouts::LayoutCache,
+    module::{
+        records::ModuleRecord,
+        retention::{ProgramLease, Retentions},
+        staging::StagedProgram,
+    },
     native::binding::LinkedNativeFunction,
-    reload::ModuleEpoch,
-    resource::ResourceState,
-    session::ExecutionPhase,
+    reload::{ModuleEpoch, ModuleEpochAllocator},
     value::Value,
 };
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError},
-    instruction::{EnumId, NativeImportId, PathId, StructId},
+    instruction::{EnumId, PathId, StructId},
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
@@ -31,12 +38,15 @@ use kagari_common::{
     },
 };
 use std::{
-    cell::{BorrowError, RefCell, RefMut},
+    cell::{BorrowError, RefCell},
     collections::{HashMap, HashSet},
     ops::Deref,
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Weak},
 };
+
+#[cfg(test)]
+use std::cell::RefMut;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleId(u64);
@@ -79,27 +89,6 @@ impl ModuleEpochRetentionCounts {
     pub fn is_retained(self) -> bool {
         self.total() > 0
     }
-
-    fn increment(&mut self, retention: ModuleEpochRetention) {
-        match retention {
-            ModuleEpochRetention::ActiveCall => self.active_calls += 1,
-            ModuleEpochRetention::RuntimeValue => self.runtime_values += 1,
-            ModuleEpochRetention::CompiledArtifact => self.compiled_artifacts += 1,
-        }
-    }
-
-    fn decrement(&mut self, retention: ModuleEpochRetention) -> bool {
-        let counter = match retention {
-            ModuleEpochRetention::ActiveCall => &mut self.active_calls,
-            ModuleEpochRetention::RuntimeValue => &mut self.runtime_values,
-            ModuleEpochRetention::CompiledArtifact => &mut self.compiled_artifacts,
-        };
-        if *counter == 0 {
-            return false;
-        }
-        *counter -= 1;
-        true
-    }
 }
 
 /// A verified, linked module with immutable shared executable data.
@@ -111,7 +100,7 @@ impl ModuleEpochRetentionCounts {
 /// ```
 #[derive(Debug, Clone)]
 pub struct LoadedModule {
-    program: Rc<LinkedProgram>,
+    program: Arc<ProgramDescriptor>,
     slot: ModuleRef,
 }
 
@@ -252,7 +241,7 @@ impl VerifiedProgram {
 }
 
 #[derive(Debug)]
-struct LinkedProgram {
+struct ProgramDescriptor {
     code: VerifiedProgram,
     root: ModuleRef,
     fingerprint: ArtifactFingerprint,
@@ -267,9 +256,9 @@ pub struct LinkedModule {
     pub epoch: ModuleEpoch,
     pub bytecode: Arc<BytecodeModule<DefinitionId>>,
     registry_owner: HostRegistryId,
-    native_bindings: Vec<Rc<LinkedNativeFunction>>,
-    layouts: LayoutCache,
-    pub(crate) host_bindings: LinkedHostBindings,
+    host_types: HashMap<DefinitionId, TypeId>,
+    pub(crate) host_functions: Vec<HostFunctionId>,
+    pub(crate) host_paths: Vec<HostPathDescriptorId>,
 }
 
 #[derive(Debug, Default)]
@@ -290,7 +279,7 @@ impl Deref for LoadedModule {
 
 impl LoadedModule {
     pub(crate) fn host_type(&self, id: DefinitionId) -> Option<TypeId> {
-        self.host_bindings.types.get(&id).copied()
+        self.host_types.get(&id).copied()
     }
 
     /// Materialize editable authoring metadata without verification evidence.
@@ -377,13 +366,8 @@ impl LoadedModule {
         self.applied_enum_variant(id, &layout.arguments, variant)
     }
 
-    /// Registry entries are resolved once for this immutable program generation.
-    pub fn native_binding(&self, import: NativeImportId) -> Option<Rc<LinkedNativeFunction>> {
-        self.native_bindings.get(import.index()).cloned()
-    }
-
     pub fn path_binding(&self, path: PathId) -> Option<HostPathDescriptorId> {
-        self.host_bindings.paths.get(path.index()).copied()
+        self.host_paths.get(path.index()).copied()
     }
 
     pub(crate) fn belongs_to(&self, owner: HostRegistryId) -> bool {
@@ -404,8 +388,8 @@ pub struct EnumVariantRef {
     module: LoadedModule,
     id: EnumId,
     variant: u32,
-    applied: Option<Rc<EnumLayout<DefinitionId>>>,
-    pub(crate) environment: Option<Rc<TypeEnvironment>>,
+    applied: Option<Arc<EnumLayout<DefinitionId>>>,
+    pub(crate) environment: Option<Rc<TypeBindings>>,
 }
 
 impl EnumVariantRef {
@@ -442,8 +426,8 @@ impl PartialEq for EnumVariantRef {
 pub struct StructLayoutRef {
     module: LoadedModule,
     id: StructId,
-    applied: Option<Rc<StructLayout<DefinitionId>>>,
-    pub(crate) environment: Option<Rc<TypeEnvironment>>,
+    applied: Option<Arc<StructLayout<DefinitionId>>>,
+    pub(crate) environment: Option<Rc<TypeBindings>>,
 }
 
 impl StructLayoutRef {
@@ -461,12 +445,12 @@ impl StructLayoutRef {
         self.module.registry_owner == other.module.registry_owner
             && ((self.environment.is_none()
                 && other.environment.is_none()
-                && Rc::ptr_eq(&self.module.program, &other.module.program)
+                && Arc::ptr_eq(&self.module.program, &other.module.program)
                 && self.module.slot == other.module.slot
                 && self.id == other.id
                 && match (&self.applied, &other.applied) {
                     (None, None) => true,
-                    (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+                    (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                     _ => false,
                 })
                 || self.matches_type(
@@ -491,127 +475,72 @@ impl ModuleInstance {
             id: module.id,
             name: module.name.clone(),
             epoch: module.epoch,
+            // Empty storage has no outgoing edges. Checked slot writes publish values.
             module_slots: vec![Value::Unit; module.bytecode.module_slots.len()],
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
 pub struct ModuleStore {
-    resources: Rc<ResourceState>,
-    inner: Rc<RefCell<ModuleStoreInner>>,
-}
-
-/// Keeps every member of one linked dependency closure reachable while a
-/// runtime-owned value can dispatch through its executable tables.
-#[derive(Debug)]
-pub(crate) struct RetainedRuntimeProgram {
-    store: ModuleStore,
-    members: Vec<ModuleKey>,
-}
-
-impl Drop for RetainedRuntimeProgram {
-    fn drop(&mut self) {
-        for key in &self.members {
-            self.store
-                .release_epoch(*key, ModuleEpochRetention::RuntimeValue);
-        }
-    }
-}
-
-impl Default for ModuleStore {
-    fn default() -> Self {
-        Self::new(Rc::new(ResourceState::default()))
-    }
+    inner: RefCell<ModuleStoreInner>,
 }
 
 #[derive(Debug, Default)]
 struct ModuleStoreInner {
+    epochs: ModuleEpochAllocator,
     next_id: usize,
     ids_by_member: HashMap<(String, ModuleIdentity), ModuleId>,
-    loaded: HashMap<ModuleKey, LoadedModule>,
+    records: HashMap<ModuleKey, ModuleRecord>,
     latest_by_name: HashMap<String, ModuleKey>,
-    staged: HashSet<ModuleKey>,
-    instances: HashMap<ModuleKey, ModuleInstance>,
-    retentions: HashMap<ModuleKey, ModuleEpochRetentionCounts>,
+    staged: HashMap<ModuleKey, Weak<()>>,
+    retentions: HashMap<ModuleKey, Retentions>,
 }
 
-/// Owns an unpublished program and its isolated module instances.
-/// Dropping the candidate releases those instances without touching active entries.
-#[derive(Debug)]
-pub(crate) struct StagedProgram {
-    store: ModuleStore,
-    module: LoadedModule,
-}
-
-impl StagedProgram {
-    pub(crate) fn module(&self) -> &LoadedModule {
-        &self.module
-    }
-
-    pub(crate) fn publish(self) -> LoadedModule {
-        let mut inner = self.store.inner.borrow_mut();
-        inner.staged.remove(&self.module.program_key());
-        inner
-            .latest_by_name
-            .insert(self.module.name.clone(), self.module.key());
-        self.module.clone()
-    }
-}
-
-impl Drop for StagedProgram {
-    fn drop(&mut self) {
-        let mut inner = self.store.inner.borrow_mut();
-        if inner.staged.remove(&self.module.program_key()) {
-            for member in self.module.members() {
-                let key = member.key();
-                inner.loaded.remove(&key);
-                inner.instances.remove(&key);
-                inner.retentions.remove(&key);
-            }
-            self.store
-                .resources
-                .release_modules(self.module.members().count());
-        }
+impl ModuleStoreInner {
+    fn available(&self, key: ModuleKey) -> Option<&LoadedModule> {
+        let module = &self.records.get(&key)?.module;
+        self.staged
+            .get(&module.program_key())
+            .is_none_or(|lease| lease.strong_count() != 0)
+            .then_some(module)
     }
 }
 
 impl ModuleStore {
-    pub(crate) fn retain_runtime_program(
+    pub(crate) fn reserve_epoch(&self, name: &str) -> Result<ModuleEpoch, RuntimeError> {
+        self.inner
+            .try_borrow_mut()
+            .map_err(|_| {
+                RuntimeError::module_validation(
+                    "module store is borrowed during version reservation",
+                )
+            })?
+            .epochs
+            .reserve(name)
+    }
+
+    pub(crate) fn retain_program(
         &self,
         module: &LoadedModule,
-    ) -> Option<RetainedRuntimeProgram> {
-        let mut members = Vec::new();
+        kind: ModuleEpochRetention,
+    ) -> Option<ProgramLease> {
+        let mut inner = self.inner.try_borrow_mut().ok()?;
+        if !module
+            .members()
+            .all(|member| inner.resolve(&member).is_some())
+        {
+            return None;
+        }
+        let lease = ProgramLease::new(kind);
         for member in module.members() {
-            let key = member.key();
-            if !self.retain_epoch(key, ModuleEpochRetention::RuntimeValue) {
-                for retained in &members {
-                    self.release_epoch(*retained, ModuleEpochRetention::RuntimeValue);
-                }
-                return None;
-            }
-            members.push(key);
+            inner
+                .retentions
+                .get_mut(&member.key())?
+                .register(&lease)
+                .ok()?;
         }
-        Some(RetainedRuntimeProgram {
-            store: self.clone(),
-            members,
-        })
-    }
-
-    pub(crate) fn new(resources: Rc<ResourceState>) -> Self {
-        Self {
-            resources,
-            inner: Default::default(),
-        }
-    }
-
-    pub(crate) fn gc_roots(&self) -> Vec<Value> {
-        self.inner
-            .borrow()
-            .instances
-            .values()
-            .flat_map(|instance| instance.module_slots.iter().cloned())
-            .collect()
+        Some(lease)
     }
 
     pub(crate) fn stage_verified_program(
@@ -628,10 +557,17 @@ impl ModuleStore {
             "each program member must be linked"
         );
         let name = name.into();
-        let mut inner = self.inner.borrow_mut();
-        self.resources.admit_modules(program.modules.len())?;
+        let mut inner = self.inner.try_borrow_mut().map_err(|_| {
+            RuntimeError::module_validation("module store is borrowed during staging")
+        })?;
+        inner
+            .records
+            .len()
+            .checked_add(program.modules.len())
+            .ok_or_else(|| RuntimeError::resource_limit("loaded modules"))?;
         let root = program.root;
         let fingerprint = program.dependencies.module_fingerprint;
+        let mut native_links = Vec::with_capacity(host_bindings.len());
         let modules = program
             .modules
             .iter()
@@ -653,20 +589,26 @@ impl ModuleStore {
                 } else {
                     format!("{}::{}", name, bytecode.identity)
                 };
-                let native_bindings = host_bindings.native.clone();
+                let LinkedHostBindings {
+                    types,
+                    functions,
+                    native,
+                    paths,
+                } = host_bindings;
+                native_links.push(native);
                 LinkedModule {
-                    layouts: LayoutCache::default(),
-                    native_bindings,
                     id,
                     name: display,
                     epoch,
                     bytecode,
                     registry_owner,
-                    host_bindings,
+                    host_types: types,
+                    host_functions: functions,
+                    host_paths: paths,
                 }
             })
             .collect();
-        let program = Rc::new(LinkedProgram {
+        let program = Arc::new(ProgramDescriptor {
             code: program,
             root,
             fingerprint,
@@ -676,154 +618,165 @@ impl ModuleStore {
             program,
             slot: root,
         };
-        for member in loaded.members() {
+        for (member, native) in loaded.members().zip(native_links) {
             let key = member.key();
-            inner.instances.insert(key, ModuleInstance::new(&member));
             inner.retentions.entry(key).or_default();
-            inner.loaded.insert(key, member);
+            inner.records.insert(key, ModuleRecord::new(member, native));
         }
-        inner.staged.insert(loaded.program_key());
+        let lease = Arc::new(());
+        inner
+            .staged
+            .insert(loaded.program_key(), Arc::downgrade(&lease));
         Ok(StagedProgram {
-            store: self.clone(),
             module: loaded,
+            lease,
         })
     }
 
     pub fn loaded(&self, key: ModuleKey) -> Option<LoadedModule> {
-        self.inner.borrow().loaded.get(&key).cloned()
+        self.inner.borrow().available(key).cloned()
     }
 
-    pub(crate) fn try_loaded(&self, key: ModuleKey) -> Result<Option<LoadedModule>, BorrowError> {
-        Ok(self.inner.try_borrow()?.loaded.get(&key).cloned())
+    pub(crate) fn contains_module(&self, module: &LoadedModule) -> Result<bool, BorrowError> {
+        Ok(self.inner.try_borrow()?.resolve(module).is_some())
     }
 
     pub fn latest(&self, name: &str) -> Option<LoadedModule> {
         let inner = self.inner.borrow();
         let key = inner.latest_by_name.get(name)?;
-        inner.loaded.get(key).cloned()
+        inner.available(*key).cloned()
     }
 
-    pub(crate) fn allows_instance_access(&self, key: ModuleKey) -> bool {
-        self.resources.active_session().is_none_or(|session| {
-            session.options.phase != ExecutionPhase::CandidateInitialization
-                || session.root.members().any(|member| member.key() == key)
-        })
+    pub(crate) fn instance_snapshot(&self, key: ModuleKey) -> Option<ModuleInstance> {
+        let inner = self.inner.try_borrow().ok()?;
+        inner.available(key)?;
+        inner
+            .records
+            .get(&key)
+            .map(|record| record.instance.clone())
     }
 
-    pub fn instance_snapshot(&self, key: ModuleKey) -> Option<ModuleInstance> {
-        if !self.allows_instance_access(key) {
-            return None;
-        }
-        self.inner.try_borrow().ok()?.instances.get(&key).cloned()
-    }
-
+    #[cfg(test)]
     pub(crate) fn instance_mut(&self, key: ModuleKey) -> Option<RefMut<'_, ModuleInstance>> {
-        if !self.allows_instance_access(key) {
-            return None;
-        }
-        self.instance_mut_for_cleanup(key)
-    }
-
-    pub(crate) fn instance_mut_for_cleanup(
-        &self,
-        key: ModuleKey,
-    ) -> Option<RefMut<'_, ModuleInstance>> {
         RefMut::filter_map(self.inner.try_borrow_mut().ok()?, |inner| {
-            inner.instances.get_mut(&key)
+            inner.available(key)?;
+            inner
+                .records
+                .get_mut(&key)
+                .map(|record| &mut record.instance)
         })
         .ok()
     }
 
     pub(crate) fn is_staged(&self, module: &LoadedModule) -> bool {
-        self.inner.borrow().staged.contains(&module.program_key())
+        self.inner
+            .borrow()
+            .staged
+            .get(&module.program_key())
+            .is_some_and(|lease| lease.strong_count() != 0)
     }
 
+    pub(crate) fn has_abandoned_programs(&self) -> Result<bool, RuntimeError> {
+        Ok(self
+            .inner
+            .try_borrow()
+            .map_err(|_| {
+                RuntimeError::module_validation(
+                    "module store is borrowed at a collection safepoint",
+                )
+            })?
+            .staged
+            .values()
+            .any(|lease| lease.strong_count() == 0))
+    }
+
+    /// Installed members available for access, excluding abandoned candidates.
     pub fn loaded_count(&self) -> usize {
-        self.inner.borrow().loaded.len()
+        let inner = self.inner.borrow();
+        inner
+            .records
+            .keys()
+            .filter(|key| inner.available(**key).is_some())
+            .count()
     }
 
-    pub fn retain_epoch(&self, key: ModuleKey, retention: ModuleEpochRetention) -> bool {
-        let mut inner = self.inner.borrow_mut();
-        if !inner.loaded.contains_key(&key) {
-            return false;
-        }
+    pub(crate) fn retain_module(
+        &self,
+        module: &LoadedModule,
+        kind: ModuleEpochRetention,
+    ) -> Option<ProgramLease> {
+        let mut inner = self.inner.try_borrow_mut().ok()?;
+        inner.resolve(module)?;
+        let lease = ProgramLease::new(kind);
         inner
             .retentions
-            .entry(key)
-            .or_default()
-            .increment(retention);
-        true
-    }
-
-    pub fn release_epoch(&self, key: ModuleKey, retention: ModuleEpochRetention) -> bool {
-        let mut inner = self.inner.borrow_mut();
-        let Some(counts) = inner.retentions.get_mut(&key) else {
-            return false;
-        };
-        counts.decrement(retention)
+            .get_mut(&module.key())?
+            .register(&lease)
+            .ok()?;
+        Some(lease)
     }
 
     pub fn retention_counts(&self, key: ModuleKey) -> ModuleEpochRetentionCounts {
-        self.inner
-            .borrow()
-            .retentions
-            .get(&key)
-            .copied()
+        let inner = self.inner.borrow();
+        inner
+            .available(key)
+            .and_then(|_| inner.retentions.get(&key))
+            .map(Retentions::counts)
             .unwrap_or_default()
     }
 
-    pub fn is_reachable(&self, key: ModuleKey) -> bool {
+    #[cfg(test)]
+    fn is_program_root(&self, key: ModuleKey) -> bool {
         let inner = self.inner.borrow();
-        let Some(module) = inner.loaded.get(&key) else {
+        let Some(module) = inner.available(key) else {
             return false;
         };
-        live_programs(&inner).contains(&module.program_key())
-    }
-
-    pub fn collect_unreachable_epochs(&self) -> Vec<ModuleKey> {
-        let mut inner = self.inner.borrow_mut();
-        let live = live_programs(&inner);
-        let removable = inner
-            .loaded
-            .iter()
-            .filter_map(|(key, module)| (!live.contains(&module.program_key())).then_some(*key))
-            .collect::<Vec<_>>();
-        for key in &removable {
-            inner.loaded.remove(key);
-            inner.instances.remove(key);
-            inner.retentions.remove(key);
-        }
-        self.resources.release_modules(removable.len());
-        removable
+        root_programs(&inner).contains(&module.program_key())
     }
 }
 
-fn live_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
+fn root_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
     inner
         .latest_by_name
         .values()
         .copied()
-        .chain(inner.staged.iter().copied())
+        .chain(inner.staged.keys().copied())
         .chain(
             inner
                 .retentions
                 .iter()
                 .filter_map(|(key, counts)| counts.is_retained().then_some(*key)),
         )
-        .filter_map(|key| inner.loaded.get(&key).map(LoadedModule::program_key))
+        .filter_map(|key| inner.available(key).map(LoadedModule::program_key))
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind};
+    use crate::resource::ResourceState;
+    use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeap};
     use kagari_bytecode::module::BytecodeModuleSlot;
-    use {
-        crate::resource::{ResourceState, RuntimeLimits},
-        kagari_bytecode::program::ModuleRef,
-    };
+    use kagari_bytecode::program::ModuleRef;
 
     use super::*;
+
+    fn collect(store: &ModuleStore) -> Vec<ModuleKey> {
+        GcHeap::new(Default::default(), ResourceState::default())
+            .collect(store, &[])
+            .unwrap()
+            .reclaimed_modules
+    }
+
+    fn slot_values(store: &ModuleStore) -> Vec<Value> {
+        let graph = store.collection_graph().unwrap();
+        let mut values = Vec::new();
+        for key in graph.roots() {
+            graph
+                .trace(key, &mut |value| values.push(value.clone()))
+                .unwrap();
+        }
+        values
+    }
 
     #[test]
     fn invalid_code_cannot_become_a_shared_verified_program() {
@@ -929,7 +882,7 @@ mod tests {
                 )
                 .unwrap()
         };
-        let baseline = stage(1).publish();
+        let baseline = stage(1).publish(&store).unwrap();
         let abandoned = stage(2);
         let candidate = stage(3);
         let abandoned_keys = abandoned
@@ -939,15 +892,13 @@ mod tests {
             .collect::<Vec<_>>();
         for member in candidate.module.members() {
             store.instance_mut(member.key()).unwrap().module_slots[0] = Value::I32(73);
-            assert!(store.is_reachable(member.key()));
+            assert!(store.is_program_root(member.key()));
         }
         assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
         assert_eq!(store.loaded_count(), 6);
-        assert_eq!(store.resources.counters().loaded_modules, 6);
-        assert!(store.collect_unreachable_epochs().is_empty());
+        assert!(collect(&store).is_empty());
         assert_eq!(
-            store
-                .gc_roots()
+            slot_values(&store)
                 .into_iter()
                 .filter(|value| *value == Value::I32(73))
                 .count(),
@@ -955,27 +906,27 @@ mod tests {
         );
 
         drop(abandoned);
-        for key in abandoned_keys {
-            assert!(store.loaded(key).is_none());
-            assert!(store.instance_snapshot(key).is_none());
+        for key in &abandoned_keys {
+            assert!(store.loaded(*key).is_none());
+            assert!(store.instance_snapshot(*key).is_none());
         }
         assert_eq!(store.loaded_count(), 4);
-        assert_eq!(store.resources.counters().loaded_modules, 4);
         assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
-        assert!(store.collect_unreachable_epochs().is_empty());
+        assert_eq!(
+            collect(&store).into_iter().collect::<HashSet<_>>(),
+            abandoned_keys.into_iter().collect()
+        );
 
-        let published = candidate.publish();
+        let published = candidate.publish(&store).unwrap();
         assert_eq!(store.latest("game.player").unwrap().key(), published.key());
         for member in published.members() {
             let instance = store.instance_snapshot(member.key()).unwrap();
             assert_eq!(instance.module_slots, vec![Value::I32(73)]);
         }
-        assert_eq!(store.collect_unreachable_epochs().len(), 2);
+        assert_eq!(collect(&store).len(), 2);
         assert_eq!(store.loaded_count(), 2);
-        assert_eq!(store.resources.counters().loaded_modules, 2);
         assert_eq!(
-            store
-                .gc_roots()
+            slot_values(&store)
                 .into_iter()
                 .filter(|value| *value == Value::I32(73))
                 .count(),
@@ -984,11 +935,9 @@ mod tests {
     }
 
     #[test]
-    fn abandoning_candidates_releases_admission_even_after_quarantine() {
-        let resources = std::rc::Rc::new(ResourceState::new(RuntimeLimits {
-            ..Default::default()
-        }));
-        let store = ModuleStore::new(resources.clone());
+    fn abandoning_candidates_invalidates_access_even_after_quarantine() {
+        let runtime = Runtime::default();
+        let store = runtime.modules();
         let stage = |epoch| {
             store.stage_verified_program(
                 "candidate",
@@ -1004,16 +953,16 @@ mod tests {
         };
         let candidate = stage(1).unwrap();
         assert_eq!(store.loaded_count(), 1);
-        assert_eq!(resources.counters().loaded_modules, 1);
         assert!(store.latest("candidate").is_none());
         drop(candidate);
-        assert_eq!(resources.counters().loaded_modules, 0);
+        assert_eq!(store.loaded_count(), 0);
         let candidate = stage(3).unwrap();
-        resources.quarantine("test failed initializer invariant");
+        runtime
+            .resources()
+            .quarantine("test failed initializer invariant");
         drop(candidate);
         assert_eq!(store.loaded_count(), 0);
-        assert_eq!(resources.counters().loaded_modules, 0);
-        assert!(resources.is_quarantined());
+        assert!(runtime.is_quarantined());
     }
 
     #[test]
@@ -1032,7 +981,8 @@ mod tests {
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
-            .publish();
+            .publish(&store)
+            .unwrap();
         let second = store
             .stage_verified_program(
                 "game.player",
@@ -1046,7 +996,8 @@ mod tests {
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
-            .publish();
+            .publish(&store)
+            .unwrap();
         let other = store
             .stage_verified_program(
                 "game.world",
@@ -1060,7 +1011,8 @@ mod tests {
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
-            .publish();
+            .publish(&store)
+            .unwrap();
 
         assert_eq!(first.id, second.id);
         assert_ne!(first.id, other.id);
@@ -1086,7 +1038,8 @@ mod tests {
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
-            .publish();
+            .publish(&store)
+            .unwrap();
         let held = store.instance_mut(module.key()).unwrap();
         assert!(store.instance_snapshot(module.key()).is_none());
         drop(held);
@@ -1109,7 +1062,8 @@ mod tests {
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
-            .publish();
+            .publish(&store)
+            .unwrap();
         let second = store
             .stage_verified_program(
                 "game.player",
@@ -1123,24 +1077,31 @@ mod tests {
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
-            .publish();
+            .publish(&store)
+            .unwrap();
 
-        assert!(store.is_reachable(second.key()));
-        assert!(!store.is_reachable(first.key()));
-        assert!(store.retain_epoch(first.key(), ModuleEpochRetention::ActiveCall));
-        assert!(store.retain_epoch(first.key(), ModuleEpochRetention::RuntimeValue));
-        assert!(store.retain_epoch(first.key(), ModuleEpochRetention::CompiledArtifact));
-        assert!(store.is_reachable(first.key()));
+        assert!(store.is_program_root(second.key()));
+        assert!(!store.is_program_root(first.key()));
+        let call = store
+            .retain_module(&first, ModuleEpochRetention::ActiveCall)
+            .unwrap();
+        let value = store
+            .retain_module(&first, ModuleEpochRetention::RuntimeValue)
+            .unwrap();
+        let artifact = store
+            .retain_module(&first, ModuleEpochRetention::CompiledArtifact)
+            .unwrap();
+        assert!(store.is_program_root(first.key()));
         assert_eq!(store.retention_counts(first.key()).active_calls, 1);
         assert_eq!(store.retention_counts(first.key()).runtime_values, 1);
         assert_eq!(store.retention_counts(first.key()).compiled_artifacts, 1);
-        assert!(store.collect_unreachable_epochs().is_empty());
+        assert!(collect(&store).is_empty());
         assert!(store.loaded(first.key()).is_some());
 
-        assert!(store.release_epoch(first.key(), ModuleEpochRetention::ActiveCall));
-        assert!(store.release_epoch(first.key(), ModuleEpochRetention::RuntimeValue));
-        assert!(store.release_epoch(first.key(), ModuleEpochRetention::CompiledArtifact));
-        assert_eq!(store.collect_unreachable_epochs(), vec![first.key()]);
+        drop(call);
+        drop(value);
+        drop(artifact);
+        assert_eq!(collect(&store), vec![first.key()]);
         assert!(store.loaded(first.key()).is_none());
         assert!(store.loaded(second.key()).is_some());
     }

@@ -42,7 +42,7 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
                 program
             };
             let loaded = runtime.load_program("gc.kgr", program).unwrap();
-            let mut vm = Vm::new(runtime);
+            let vm = Vm::new(runtime);
             let report = if jit {
                 vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
                     .unwrap()
@@ -92,7 +92,7 @@ fn main() -> i32 {
     );
     let mut runtime = runtime();
     let loaded = runtime.load_program("closure_gc.kgr", module).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").unwrap();
     assert_eq!(report.return_value, Value::I32(43));
     assert!(vm.runtime().gc().stats().collections > 0);
@@ -107,7 +107,7 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
     let loaded = owner_runtime
         .load_program("closure_handles.kgr", module)
         .unwrap();
-    let mut vm = Vm::new(owner_runtime);
+    let vm = Vm::new(owner_runtime);
     let value = vm.execute(&loaded, "make").unwrap().return_value;
     let Value::Closure(_) = value else {
         panic!("closure result")
@@ -177,7 +177,7 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
         .unwrap();
     let native =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let report = vm.execute_prepared(&loaded, "main", &native).unwrap();
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     assert_eq!(report.return_value, Value::I32(42));
@@ -191,7 +191,7 @@ fn traps_release_frame_roots_and_call_depth() {
     {
         let mut runtime = runtime();
         let loaded = runtime.load_program("gc.kgr", module.clone()).unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         assert!(vm.execute(&loaded, "main").is_err());
         assert_eq!(vm.runtime().gc().active_roots(), 0);
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);

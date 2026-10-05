@@ -1,6 +1,6 @@
 //! Compare complete reified layout graphs while preserving lexical type scopes.
 use crate::{
-    frame::types::TypeEnvironment,
+    frame::types::bindings::TypeBindings,
     module::{LoadedModule, ModuleKey},
 };
 use kagari_common::identity::table::DefinitionId;
@@ -11,7 +11,7 @@ use std::{borrow::Cow, collections::HashSet, ptr};
 pub(crate) struct TypeView<'a> {
     pub(crate) ty: &'a Ty<DefinitionId>,
     pub(crate) owner: &'a LoadedModule,
-    pub(crate) environment: Option<&'a TypeEnvironment>,
+    pub(crate) environment: Option<&'a TypeBindings>,
     application: Option<&'a Application<'a>>,
 }
 
@@ -30,7 +30,7 @@ impl<'a> TypeView<'a> {
     pub(crate) fn new(
         ty: &'a Ty<DefinitionId>,
         owner: &'a LoadedModule,
-        environment: Option<&'a TypeEnvironment>,
+        environment: Option<&'a TypeBindings>,
     ) -> Self {
         Self {
             ty,

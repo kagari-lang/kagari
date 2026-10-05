@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{TypeEnvironment, arguments::TypeArgument},
+    frame::types::{arguments::TypeArgument, bindings::TypeBindings},
     module::{EnumVariantRef, LoadedModule},
     native::{binding::NativeResult, context::CallContext, types::VariantRef},
     value::{EnumTag, EnumValueSnapshot, Value},
@@ -43,8 +43,9 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::module_validation("variant belongs to another enum"))?;
         let index = u32::try_from(index)
             .map_err(|_| RuntimeError::module_validation("enum variant index"))?;
-        let mut layout = owner
-            .applied_enum_variant(id, &nominal.arguments, index)
+        let mut layout = self
+            .modules
+            .applied_enum_variant(&owner, id, &nominal.arguments, index)
             .ok_or_else(|| RuntimeError::module_validation("native enum layout application"))?;
         let arguments = (0..nominal.arguments.len())
             .map(|position| applied.parameter(self, fallback, position))
@@ -61,7 +62,7 @@ impl Runtime {
                     position,
                 })
                 .collect();
-            layout.environment = Some(Rc::new(TypeEnvironment::new(
+            layout.environment = Some(Rc::new(TypeBindings::new(
                 self.definition_context(),
                 parameters,
                 arguments,

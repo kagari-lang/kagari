@@ -75,7 +75,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, "main").unwrap_err();
     assert!(format!("{error:?}").contains("structural modification during iteration"));
     let Value::Array(array) = probe
@@ -120,7 +120,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let iterator = vm.execute(&loaded, "make").unwrap().return_value;
     let root = vm.runtime().root_value(iterator.clone()).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
@@ -157,7 +157,7 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
     )
     .unwrap();
     let loaded = runtime.load_program("map", program("use std::collections::map; fn make() -> Iterator<Item = i32> { map([42], |item| item) }", &[&library])).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let iterator = vm.execute(&loaded, "make").unwrap().return_value;
     let root = vm.runtime().root_value(iterator.clone()).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
@@ -203,7 +203,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
     let loaded = runtime
         .load_program("map", program(source, &[&library]))
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, "main").unwrap_err();
     assert!(
         format!("{error:?}").contains("recursive next on the same lazy iterator"),
@@ -233,7 +233,7 @@ fn retained_map_uses_its_original_callback_after_reload() {
         .load_program("map", program(source, &[&library]))
         .unwrap();
     let old_key = old.key();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let iterator = vm.execute(&old, "make").unwrap().return_value;
     let root = vm.runtime().root_value(iterator.clone()).unwrap();
     let replacement = vm
@@ -245,13 +245,7 @@ fn retained_map_uses_its_original_callback_after_reload() {
         .unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
-    assert!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values
-            > 0
-    );
+    assert!(vm.runtime().modules().loaded(old_key).is_some());
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
     let Value::Enum(id) = vm.invoke_interface_method(&iterator, &next, &[]).unwrap() else {
         panic!("Option");
@@ -269,14 +263,10 @@ fn retained_map_uses_its_original_callback_after_reload() {
         vec![Value::I32(110)]
     );
     drop(root);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values,
-        0
-    );
+    let collected = vm.runtime().collect_garbage().unwrap();
+    assert_eq!(collected.live_objects, 0);
+    assert!(collected.reclaimed_modules.contains(&old_key));
+    assert!(vm.runtime().modules().loaded(old_key).is_none());
 }
 
 #[test]

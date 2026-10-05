@@ -1,7 +1,7 @@
 //! Scoped native iteration resources, including library-owned wrapper payloads.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, iter::NativeIter},
+    gc::{CollectionIteration, GcHeap, GcObjectKind, iter::NativeIter, storage::HeapObject},
     value::Value,
 };
 use kagari_types::ty::Ty;
@@ -20,9 +20,8 @@ impl GcHeap {
         if matches!(value, Value::GcHandle(_) | Value::Interface(_)) {
             let mut guard = CollectionIteration {
                 _children: Vec::new(),
-                iter_loops: Vec::new(),
-                active: self.iterations.clone(),
-                id: None,
+                loop_leases: Vec::new(),
+                _lease: None,
                 _root: self.root_value(value.clone()).ok_or_else(|| {
                     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid iterator")
                 })?,
@@ -37,34 +36,33 @@ impl GcHeap {
                         if !visited.insert(id) {
                             continue;
                         }
-                        let mut objects = self.objects.borrow_mut();
-                        let (loops, dependencies) = match self.object_mut(&mut objects, id) {
+                        let mut objects = self.objects_mut()?;
+                        let (cursor, dependencies) = match self.object_mut(&mut objects, id) {
                             Some(HeapObject::Native(object))
                                 if matches!(object.ty, Ty::Iter(_)) =>
                             {
                                 let iter = object.payload_mut::<NativeIter>()?;
                                 iter.guard = None;
-                                (Some(iter.loops.clone()), vec![iter.source.clone()])
+                                (true, vec![iter.source.clone()])
                             }
                             Some(HeapObject::Native(object)) => {
                                 let mut sources = Vec::new();
                                 object
                                     .iteration_sources(&mut |source| sources.push(source.clone()));
-                                (None, sources)
+                                (false, sources)
                             }
                             _ => return Err(invalid()),
                         };
-                        if let Some(loops) = loops {
-                            let count = loops
-                                .get()
-                                .checked_add(1)
-                                .ok_or_else(|| self.resource_limit("iterator loop depth"))?;
+                        if cursor {
                             guard
-                                .iter_loops
+                                .loop_leases
                                 .try_reserve(1)
                                 .map_err(|_| self.resource_limit("iterator guards"))?;
-                            guard.iter_loops.push(loops.clone());
-                            loops.set(count);
+                            guard.loop_leases.push(
+                                self.iterator_loops
+                                    .acquire(id, None)
+                                    .map_err(|_| self.resource_limit("iterator guards"))?,
+                            );
                         }
                         pending.extend(dependencies);
                     }
@@ -72,12 +70,7 @@ impl GcHeap {
                         if !visited.insert(id.0) {
                             continue;
                         }
-                        let objects = self.objects.borrow();
-                        let Some(HeapObject::Interface { snapshot, .. }) =
-                            self.readable_object(&objects, id.0)
-                        else {
-                            return Err(invalid());
-                        };
+                        let snapshot = self.interface_snapshot(id).ok_or_else(invalid)?;
                         pending.push(snapshot.data.clone());
                     }
                     source => guard
@@ -93,9 +86,8 @@ impl GcHeap {
         ) {
             return Ok(CollectionIteration {
                 _children: Vec::new(),
-                iter_loops: Vec::new(),
-                active: self.iterations.clone(),
-                id: None,
+                loop_leases: Vec::new(),
+                _lease: None,
                 _root: self.root_value(value.clone()).ok_or_else(invalid)?,
             });
         }
@@ -122,22 +114,14 @@ impl GcHeap {
         let root = self.root_value(value.clone()).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid collection handle")
         })?;
-        let mut active = self.iterations.borrow_mut();
-        let count = active
-            .get(&id)
-            .copied()
-            .unwrap_or(0)
-            .checked_add(1)
-            .ok_or_else(|| self.resource_limit("iteration depth"))?;
-        active
-            .try_reserve(1)
+        let lease = self
+            .iterations
+            .acquire(id, None)
             .map_err(|_| self.resource_limit("iteration registry"))?;
-        active.insert(id, count);
         Ok(CollectionIteration {
             _children: Vec::new(),
-            iter_loops: Vec::new(),
-            active: self.iterations.clone(),
-            id: Some(id),
+            loop_leases: Vec::new(),
+            _lease: Some(lease),
             _root: root,
         })
     }

@@ -1,4 +1,7 @@
-use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_bytecode::{
+    instruction::ModuleSlot,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_runtime::{Runtime, host::HostFunction, value::Value};
 use kagari_types::{
     collection::CollectionAccess,
@@ -52,7 +55,6 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
             .is_err()
     );
     assert_eq!(runtime.modules().loaded_count(), 0);
-    assert_eq!(runtime.resources().counters().loaded_modules, 0);
     runtime
         .register_host_function(HostFunction::new(required, |_, _| {
             panic!("linking must not invoke host")
@@ -142,7 +144,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     assert_eq!(a.key(), b.key());
     assert!(second.validate_loaded_module(&a).is_err());
     assert!(second.module_instance_snapshot(&a).is_none());
-    assert!(second.module_instance_mut(&a).is_err());
+    assert!(second.read_module_slot(&a, ModuleSlot::new(0)).is_err());
     assert!(
         second
             .stage_reload_program(

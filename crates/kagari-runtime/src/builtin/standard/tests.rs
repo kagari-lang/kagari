@@ -34,7 +34,7 @@ fn join_validates_native_arguments_and_leaves_the_array_unchanged() {
         array_join(
             &GcHeap::new(
                 GcHeapConfig::default(),
-                std::rc::Rc::new(crate::resource::ResourceState::default())
+                crate::resource::ResourceState::default()
             ),
             &[Value::Array(handle), Value::Str("".into())]
         )

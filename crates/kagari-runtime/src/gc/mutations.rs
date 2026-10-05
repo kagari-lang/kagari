@@ -2,7 +2,7 @@
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, HeapObjectId},
+    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     native::{
         hashed::{MapPayload, SetPayload},
         sequence::{SequencePayload, SequenceStorage},
@@ -152,7 +152,7 @@ impl GcHeap {
         let after = prepared.units();
         drop(objects);
         self.ensure_execution_allowed()?;
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut()?;
         *self.object_mut(&mut objects, id).ok_or_else(invalid)? = prepared;
         objects[id.slot].revision = revision;
         self.release_heap_units(before - after);
@@ -179,22 +179,20 @@ impl GcHeap {
         let root = self.root_value(value.clone()).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid mutation root")
         })?;
-        let mut active = self.mutations.borrow_mut();
-        active
-            .try_reserve(1)
+        let lease = self
+            .mutations
+            .acquire(id, None)
             .map_err(|_| self.resource_limit("mutation registry"))?;
-        active.insert(id, 1);
         Ok(CollectionIteration {
             _children: Vec::new(),
-            iter_loops: Vec::new(),
-            active: self.mutations.clone(),
-            id: Some(id),
+            loop_leases: Vec::new(),
+            _lease: Some(lease),
             _root: root,
         })
     }
 
     pub(crate) fn ensure_callback_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
-        if self.mutations.borrow().contains_key(&id) {
+        if self.mutations.is_active(id) {
             Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "container mutation during a guarded callback",

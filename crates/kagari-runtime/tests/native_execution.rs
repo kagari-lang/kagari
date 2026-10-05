@@ -197,7 +197,7 @@ fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
             .compiled_artifacts,
         1
     );
-    runtime.modules().collect_unreachable_epochs();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime.invoke_native_function(&installed).unwrap(),
         Value::Unit
@@ -213,7 +213,7 @@ fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
             .compiled_artifacts,
         0
     );
-    runtime.modules().collect_unreachable_epochs();
+    runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(module.key()).is_none());
     assert!(runtime.modules().loaded(new.key()).is_some());
 }
@@ -375,7 +375,13 @@ fn native_reentry_preserves_the_callers_frame_and_shared_execution() {
     let installed = install(&mut runtime, execute);
     let outer = runtime.enter_execution_stack(installed.module()).unwrap();
     outer
-        .push(installed.module().slot(), FunctionRef::new(0), &[], None)
+        .push(
+            &runtime,
+            installed.module().slot(),
+            FunctionRef::new(0),
+            &[],
+            None,
+        )
         .unwrap();
     assert_eq!(
         runtime.invoke_native_function(&installed).unwrap(),
@@ -477,7 +483,7 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         .stage_reload_program(&module, "native", graph)
         .unwrap();
     let new = runtime.publish_staged_reload(candidate).unwrap();
-    runtime.modules().collect_unreachable_epochs();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime
             .modules()
@@ -495,7 +501,7 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         Value::Unit
     );
     drop(installed);
-    runtime.modules().collect_unreachable_epochs();
+    runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(old_dependency.key()).is_none());
 }
 

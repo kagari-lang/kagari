@@ -55,7 +55,7 @@ fn function_arguments_call_captured_script_closures_synchronously() {
         .unwrap();
     builder.bind(apply, call_repeatedly).unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::callbacks::apply;
         fn main() -> i32 {
@@ -133,7 +133,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         fn main() -> i32 { val offset = [41]; remember(|value| value + offset[0]); invoke(1) }
         fn run() -> i32 { invoke(1) }
     "#;
-    let (mut vm, loaded) = compile(old, Some(&module));
+    let (vm, loaded) = compile(old, Some(&module));
     let old_key = loaded.key();
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
@@ -148,13 +148,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         .unwrap();
     drop(loaded);
     vm.runtime().collect_garbage().unwrap();
-    assert!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values
-            > 0
-    );
+    assert!(vm.runtime().modules().loaded(old_key).is_some());
     assert_eq!(
         vm.execute(&replacement, "run").unwrap().return_value,
         Value::I32(42)
@@ -222,7 +216,7 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::stored::{Handler, new, invoke};
         fn make() -> Handler { val offset = [41]; new(|value| value + offset[0]) }
@@ -284,7 +278,7 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         use example::generic::{identity, probe};
         struct Item { val value: i32 }
@@ -339,7 +333,7 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         "use example::fold::fold; fn main() -> i32 { fold([9, 10], |value| (value + 1) * 2) }",
         Some(&module),
     );

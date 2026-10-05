@@ -12,24 +12,13 @@ use kagari_bytecode::{
 };
 use std::rc::Rc;
 
-impl ExecutionStack {
-    fn validate_native_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        self.validate_top()?;
-        if !Rc::ptr_eq(&runtime.resources, &self.session.resources) {
-            return Err(self
-                .session
-                .resources
-                .quarantine("native invocation used another runtime"));
-        }
-        Ok(())
-    }
-
+impl ExecutionStack<'_> {
     pub fn start_native_entry(
         &self,
         runtime: &Runtime,
         invoke_script: ScriptInvoker,
     ) -> Result<(), RuntimeError> {
-        self.validate_native_runtime(runtime)?;
+        self.validate_runtime(runtime)?;
         let (loaded, import, roots, environment) = {
             let mut frame = self.current_mut()?;
             let CallableTarget::Native(import) = frame.target else {
@@ -50,8 +39,9 @@ impl ExecutionStack {
                 frame.environment(),
             )
         };
-        let function = loaded
-            .native_binding(import)
+        let function = runtime
+            .modules
+            .native_binding(&loaded, import)
             .ok_or_else(|| RuntimeError::module_validation("unlinked native callable"))?;
         let function =
             if loaded.bytecode.native_imports[import.index()]
@@ -74,7 +64,7 @@ impl ExecutionStack {
             function: &function,
             invoke_script,
             arguments: ArgumentView::new(
-                &self.heap,
+                &runtime.gc,
                 &roots,
                 ArgumentSlots::Contiguous {
                     start: 1,
@@ -86,7 +76,7 @@ impl ExecutionStack {
         let mut frame = self.current_mut()?;
         frame
             .slots
-            .set(&self.heap, 0, value)
+            .set(&runtime.gc, 0, value)
             .ok_or_else(|| RuntimeError::module_validation("native return destination"))?;
         frame.native_entry = NativeEntryState::Complete;
         Ok(())
@@ -100,24 +90,26 @@ impl ExecutionStack {
         destination: Option<Register>,
         invoke_script: ScriptInvoker,
     ) -> Result<(), RuntimeError> {
-        self.validate_native_runtime(runtime)?;
+        self.validate_runtime(runtime)?;
         let (loaded, roots) = {
             let frame = self.current()?;
             (frame.loaded.clone(), frame.slots.clone())
         };
-        let function = loaded
-            .native_binding(import)
+        let function = runtime
+            .modules
+            .native_binding(&loaded, import)
             .ok_or_else(|| RuntimeError::module_validation("unlinked native callable"))?;
         let mut context = CallContext {
             runtime,
             owner: &loaded,
             function: &function,
             invoke_script,
-            arguments: ArgumentView::new(&self.heap, &roots, ArgumentSlots::Registers(arguments)),
+            arguments: ArgumentView::new(&runtime.gc, &roots, ArgumentSlots::Registers(arguments)),
         };
         let value = function.invoke(&mut context)?;
         if let Some(destination) = destination {
-            self.current_mut()?.write_register(destination, value)?;
+            self.current_mut()?
+                .write_register(runtime, destination, value)?;
         }
         Ok(())
     }
@@ -127,7 +119,7 @@ impl ExecutionStack {
         runtime: &Runtime,
         mut value: Value,
     ) -> Result<Option<Value>, RuntimeError> {
-        self.validate_native_runtime(runtime)?;
+        self.validate_runtime(runtime)?;
         let destination = {
             let frame = self.current()?;
             if frame.interface_method().is_none()
@@ -145,7 +137,7 @@ impl ExecutionStack {
                         .map(|import| &import.signature.result),
                 }
                 .ok_or_else(|| RuntimeError::module_validation("shared return contract"))?;
-                if !runtime.matches_type_in(&value, ty, frame.loaded(), Some(&environment)) {
+                if !runtime.matches_type_in(&value, ty, frame.loaded(), Some(&environment.types)) {
                     return Err(RuntimeError::module_validation(
                         "shared return type mismatch",
                     ));
@@ -162,7 +154,8 @@ impl ExecutionStack {
         }
         match destination {
             ReturnDestination::Register(Some(destination)) => {
-                self.current_mut()?.write_register(destination, value)?
+                self.current_mut()?
+                    .write_register(runtime, destination, value)?
             }
             ReturnDestination::Register(None) => {}
         }

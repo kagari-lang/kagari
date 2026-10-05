@@ -1,21 +1,20 @@
 use super::string_iter::StringTraversal;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    frame::types::{TypeEnvironment, arguments::TypeArgument},
-    gc::{GcHeap, GcObjectKind, HeapObject, HeapObjectId},
+    frame::types::{arguments::TypeArgument, bindings::TypeBindings},
+    gc::{
+        GcHeap, GcObjectKind, HeapObjectId,
+        leases::{LeaseScope, OwnedLease},
+        storage::HeapObject,
+    },
     module::LoadedModule,
     native::{storage::NativePayload, storage_type::StorageType},
-    session::SessionState,
     value::{MapKey, Value},
+    value_check::matches_type,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::operations::{IterOp, StringIterKind};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    rc::{Rc, Weak},
-};
 
 struct IterTypeScope<'a> {
     source: &'a TypeArgument,
@@ -32,28 +31,7 @@ pub(super) struct NativeIter {
     /// Unordered tables retain keys once; next performs a direct checked lookup.
     pub(super) keys: Vec<MapKey>,
     pub(super) revision: u64,
-    pub(super) guard: Option<IterationLease>,
-    pub(super) loops: Rc<Cell<usize>>,
-    pub(super) session: Weak<SessionState>,
-}
-
-#[derive(Debug)]
-pub(super) struct IterationLease {
-    active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
-    id: Option<HeapObjectId>,
-}
-
-impl Drop for IterationLease {
-    fn drop(&mut self) {
-        if let Some(id) = self.id {
-            let mut active = self.active.borrow_mut();
-            let count = active.get_mut(&id).expect("registered cursor source");
-            *count -= 1;
-            if *count == 0 {
-                active.remove(&id);
-            }
-        }
-    }
+    pub(super) guard: Option<OwnedLease>,
 }
 
 impl NativePayload for NativeIter {
@@ -77,35 +55,25 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
-    fn begin_iteration_lease(&self, source: &Value) -> Result<IterationLease, RuntimeError> {
+    fn begin_iteration_lease(
+        &self,
+        source: &Value,
+        scope: &LeaseScope,
+    ) -> Result<OwnedLease, RuntimeError> {
         self.ensure_execution_allowed()?;
         let (id, expected) = match source {
-            Value::Array(id) => (Some(*id), GcObjectKind::Array),
-            Value::Map(id) => (Some(*id), GcObjectKind::Map),
-            Value::Set(id) => (Some(*id), GcObjectKind::Set),
-            Value::Str(_) | Value::Range(_) => (None, GcObjectKind::Iter),
+            Value::Array(id) => (*id, GcObjectKind::Array),
+            Value::Map(id) => (*id, GcObjectKind::Map),
+            Value::Set(id) => (*id, GcObjectKind::Set),
+            Value::Str(_) | Value::Range(_) => return Ok(OwnedLease::new(Some(scope))),
             _ => return Err(invalid()),
         };
-        if let Some(id) = id {
-            if self.object_kind(id) != Some(expected) {
-                return Err(invalid());
-            }
-            let mut active = self.iterations.borrow_mut();
-            let count = active
-                .get(&id)
-                .copied()
-                .unwrap_or(0)
-                .checked_add(1)
-                .ok_or_else(invalid)?;
-            active
-                .try_reserve(1)
-                .map_err(|_| self.resource_limit("iterator registry"))?;
-            active.insert(id, count);
+        if self.object_kind(id) != Some(expected) {
+            return Err(invalid());
         }
-        Ok(IterationLease {
-            active: self.iterations.clone(),
-            id,
-        })
+        self.iterations
+            .acquire(id, Some(scope))
+            .map_err(|_| self.resource_limit("iterator registry"))
     }
 
     /// Reopening an indexed adapter must validate and protect its retained source.
@@ -125,27 +93,21 @@ impl GcHeap {
             (
                 iter.source.clone(),
                 iter.revision,
-                iter.guard.is_none() && iter.loops.get() == 0,
+                !iter.guard.as_ref().is_some_and(OwnedLease::is_active)
+                    && !self.iterator_loops.is_active(*id),
             )
         };
         if self.collection_revision(&source) != Some(revision) {
             return Err(invalid());
         }
         if needs_guard {
-            session
-                .iter_guards
-                .borrow_mut()
-                .try_reserve(1)
-                .map_err(|_| self.resource_limit("iterator registry"))?;
-            let guard = self.begin_iteration_lease(&source)?;
-            let mut objects = self.objects.borrow_mut();
+            let guard = self.begin_iteration_lease(&source, &session.leases)?;
+            let mut objects = self.objects_mut()?;
             let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, *id) else {
                 return Err(invalid());
             };
             let iter = object.payload_mut::<NativeIter>()?;
             iter.guard = Some(guard);
-            iter.session = Rc::downgrade(&session);
-            session.iter_guards.borrow_mut().insert(*id);
         }
         Ok(())
     }
@@ -174,7 +136,7 @@ impl GcHeap {
         let Value::GcHandle(id) = value else {
             return Err(invalid());
         };
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut()?;
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, *id) else {
             return Err(invalid());
         };
@@ -200,7 +162,7 @@ impl GcHeap {
         id: HeapObjectId,
         element: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
+        environment: Option<&TypeBindings>,
     ) -> bool {
         let objects = self.objects.borrow();
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_scoped(element, owner, environment)))
@@ -242,7 +204,7 @@ impl GcHeap {
         if !valid
             || !match &scope {
                 Some(scope) => scope.source.matches_heap(self, source, owner),
-                None => self.matches_abi(source, ty, owner),
+                None => matches_type(self, source, ty, owner),
             }
         {
             return Err(invalid());
@@ -264,12 +226,7 @@ impl GcHeap {
         };
         let revision = self.collection_revision(source).ok_or_else(invalid)?;
         let session = self.resources.active_session().ok_or_else(invalid)?;
-        session
-            .iter_guards
-            .borrow_mut()
-            .try_reserve(1)
-            .map_err(|_| self.resource_limit("iterator registry"))?;
-        let guard = Some(self.begin_iteration_lease(source)?);
+        let guard = Some(self.begin_iteration_lease(source, &session.leases)?);
         let count = match source {
             Value::Map(id) => self.map_len(*id),
             Value::Set(id) => self.set_len(*id),
@@ -298,14 +255,11 @@ impl GcHeap {
             keys,
             revision,
             guard,
-            loops: Rc::new(Cell::new(0)),
-            session: Rc::downgrade(&session),
         };
         let object = self
             .cursor_storage
             .prepare_payload(self, &cursor_type, payload, owner)?;
         let id = self.alloc_native(object)?;
-        session.iter_guards.borrow_mut().insert(id);
         Ok(Value::GcHandle(id))
     }
 
@@ -423,7 +377,8 @@ impl GcHeap {
                 }
             };
             (
-                iter.guard.is_none() && iter.loops.get() == 0,
+                !iter.guard.as_ref().is_some_and(OwnedLease::is_active)
+                    && !self.iterator_loops.is_active(*id),
                 payload,
                 iter.position.checked_add(advance).ok_or_else(invalid)?,
                 string_cursor,
@@ -431,11 +386,6 @@ impl GcHeap {
         };
         let session = self.resources.active_session().ok_or_else(invalid)?;
         let new_guard = if needs_guard && payload.is_some() {
-            session
-                .iter_guards
-                .borrow_mut()
-                .try_reserve(1)
-                .map_err(|_| self.resource_limit("iterator registry"))?;
             let source = {
                 let objects = self.objects.borrow();
                 let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
@@ -443,15 +393,16 @@ impl GcHeap {
                 };
                 object.payload::<NativeIter>()?.source.clone()
             };
-            Some(self.begin_iteration_lease(&source)?)
+            Some(self.begin_iteration_lease(&source, &session.leases)?)
         } else {
             None
         };
         // Prepare the public result before committing. Native adapters can take
         // an item directly, without allocating an intermediate script Option.
+        drop(session);
         let has_item = payload.is_some();
         let result = finish(payload)?;
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut()?;
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, *id) else {
             return Err(invalid());
         };
@@ -462,34 +413,11 @@ impl GcHeap {
         if has_item {
             iter.position = next_position;
             if needs_guard {
-                session.iter_guards.borrow_mut().insert(*id);
                 iter.guard = new_guard;
-                iter.session = Rc::downgrade(&session);
             }
         } else {
             iter.guard = None;
         }
         Ok(result)
-    }
-
-    pub(crate) fn release_iter_guards(&self, session: &Rc<SessionState>) {
-        let mut objects = self.objects.borrow_mut();
-        for id in session.iter_guards.borrow_mut().drain() {
-            if id.owner != self.owner {
-                continue;
-            }
-            let Some(slot) = objects.get_mut(id.slot) else {
-                continue;
-            };
-            if slot.generation != id.generation {
-                continue;
-            }
-            if let Some(HeapObject::Native(object)) = &mut slot.object
-                && let Ok(iter) = object.payload_mut::<NativeIter>()
-                && iter.session.ptr_eq(&Rc::downgrade(session))
-            {
-                iter.guard = None;
-            }
-        }
     }
 }

@@ -15,7 +15,7 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let loaded = runtime
         .load_program("failure", program(source, &[&probe.module]))
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
     assert_eq!(probe.calls.get(), calls);
     let Value::Array(array) = probe

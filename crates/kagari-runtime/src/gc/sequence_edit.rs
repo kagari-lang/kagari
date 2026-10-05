@@ -1,7 +1,7 @@
 //! Exclusive sequence storage leases restore completed edits on every exit path.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObject, HeapObjectId, roots::RootSet},
+    gc::{GcHeap, HeapObjectId, leases::BorrowedLease, roots::RootSet, storage::HeapObject},
     native::{
         binding::NativeResult,
         sequence::{SequencePayload, SequenceStorage},
@@ -12,6 +12,7 @@ use std::mem;
 
 struct StorageLease<'heap> {
     heap: &'heap GcHeap,
+    _mutation: BorrowedLease<'heap>,
     id: HeapObjectId,
     values: SequenceStorage,
     before: usize,
@@ -36,7 +37,6 @@ impl Drop for StorageLease<'_> {
             self.heap.release_heap_units(self.before - after);
             Some(())
         })();
-        self.heap.mutations.borrow_mut().remove(&self.id);
         if restored.is_none() {
             self.heap
                 .resources
@@ -72,9 +72,9 @@ impl GcHeap {
         } else {
             Some(self.root_execution_values(references).ok_or_else(invalid)?)
         };
-        self.mutations
-            .borrow_mut()
-            .try_reserve(1)
+        let mutation = self
+            .mutations
+            .borrow(id)
             .map_err(|_| self.resource_limit("sequence edit registry"))?;
         let mut objects = self.objects.try_borrow_mut().map_err(|_| invalid())?;
         let revision = objects
@@ -94,9 +94,9 @@ impl GcHeap {
         );
         sequence.leased_units = Some(before);
         drop(objects);
-        self.mutations.borrow_mut().insert(id, 1);
         let mut lease = StorageLease {
             heap: self,
+            _mutation: mutation,
             id,
             values,
             before,

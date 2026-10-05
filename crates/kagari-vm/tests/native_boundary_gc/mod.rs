@@ -1,6 +1,8 @@
+mod payload_failures;
+mod program_cycles;
 use super::{compile, compile_program};
 use kagari_abi::representation::ValueType;
-use kagari_bytecode::module::BytecodeModuleSlot;
+use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
 use kagari_runtime::{
     Runtime,
     value::{MapKey, Value},
@@ -12,7 +14,7 @@ use std::collections::HashSet;
 
 #[test]
 fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachable_graphs() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         struct Node { val edges: HashMap<i32, Node> }
@@ -49,7 +51,7 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
 
 #[test]
 fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         struct Node { val next: Option<Node> }
         fn main() -> Option<Node> {
@@ -72,7 +74,7 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 
 #[test]
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (HashMap<Option<(Vec<i32>, String)>, i32>, HashSet<Option<(Vec<i32>, String)>>, bool) {
@@ -157,7 +159,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
 
 #[test]
 fn invalid_identity_keys_are_rejected_without_container_modification() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (HashMap<i32, i32>, HashSet<i32>) {
@@ -204,7 +206,7 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
 
 #[test]
 fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         struct Node { val items: Vec<Node> }
         fn main() -> Vec<Node> {
@@ -255,37 +257,36 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     .unwrap();
     let program = module;
     let old = runtime.load_program("gc.kgr", program.clone()).unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let array = vm
         .runtime()
         .alloc_array(&old, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
-    {
-        let mut instance = vm.runtime().module_instance_mut(&old).unwrap();
-        instance.module_slots[0] = Value::Array(array);
-    }
+    vm.runtime()
+        .write_module_slot(&old, ModuleSlot::new(0), Value::Array(array))
+        .unwrap();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
     let new = vm.reload_program(&old, "gc.kgr", program).unwrap();
     let other = vm
         .runtime()
         .alloc_array(&new, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
         .unwrap();
-    vm.runtime().module_instance_mut(&new).unwrap().module_slots[0] = Value::Array(other);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
+    vm.runtime()
+        .write_module_slot(&new, ModuleSlot::new(0), Value::Array(other))
+        .unwrap();
+    let collected = vm.runtime().collect_garbage().unwrap();
+    assert_eq!(collected.live_objects, 1);
+    assert_eq!(collected.reclaimed_objects, 1);
     let expected: HashSet<_> = old.members().map(|member| member.key()).collect();
-    let reclaimed: HashSet<_> = vm
-        .runtime()
-        .modules()
-        .collect_unreachable_epochs()
-        .into_iter()
-        .collect();
+    let reclaimed: HashSet<_> = collected.reclaimed_modules.into_iter().collect();
     assert_eq!(reclaimed, expected);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);
+    assert!(vm.runtime().gc().array_len(array).is_none());
+    assert_eq!(vm.runtime().gc().array_get(other, 0), Some(Value::I32(9)));
 }
 
 #[test]
 fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
-    let (mut vm, old) = compile(
+    let (vm, old) = compile(
         "struct Item { val value: i32 } fn main() -> Vec<Item> { [Item { value: 42 }] }",
         None,
     );
@@ -304,8 +305,9 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     let expected: HashSet<_> = old.members().map(|member| member.key()).collect();
     let reclaimed: HashSet<_> = vm
         .runtime()
-        .modules()
-        .collect_unreachable_epochs()
+        .collect_garbage()
+        .unwrap()
+        .reclaimed_modules
         .into_iter()
         .collect();
     assert_eq!(reclaimed, expected);
@@ -334,7 +336,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
             [node]
         }
     "#;
-    let (mut vm, old) = compile(source, None);
+    let (vm, old) = compile(source, None);
     let old_value = vm.execute(&old, "main").unwrap().return_value;
     let old_root = vm.runtime().root_value(old_value.clone()).unwrap();
     let replacement = source
@@ -348,7 +350,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
     let (Value::Array(old_array), Value::Array(new_array)) = (old_value, new_value) else {
         panic!("typed arrays");
     };
-    let reclaimed = vm.runtime().modules().collect_unreachable_epochs();
+    let reclaimed = vm.runtime().collect_garbage().unwrap().reclaimed_modules;
     assert!(
         old.members()
             .all(|member| reclaimed.contains(&member.key()))

@@ -71,7 +71,7 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
                 .to_path(),
             "m0",
         );
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         let receiver = vm.execute(&loaded, "make").unwrap().return_value;
         let root = vm.runtime().root_value(receiver.clone()).unwrap();
         for _ in 0..5 {
@@ -121,7 +121,7 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
             source.push_str(&format!("fn m{index}(self) -> i32 {{ 1 }}"));
         }
         source.push_str("} fn make() -> Child { Worker {} }");
-        let (mut vm, loaded) = load(&source);
+        let (vm, loaded) = load(&source);
         let declaration = loaded
             .bytecode
             .trait_contracts
@@ -186,7 +186,7 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
 
 #[test]
 fn cached_native_receiver_defaults_release_their_program_and_gc_values() {
-    let (mut vm, loaded) = load(
+    let (vm, loaded) = load(
         r#"use std::collections::{List};
 use std::iter::{CollectionCursor};
 use std::ops::{Index};

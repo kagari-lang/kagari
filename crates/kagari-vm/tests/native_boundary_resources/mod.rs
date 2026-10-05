@@ -101,7 +101,7 @@ impl MutationFixture {
 
 #[test]
 fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
-    let mut fixture = MutationFixture::new(
+    let fixture = MutationFixture::new(
         "use test::roots::retain; fn main() -> Option<i32> { val array = [42]; retain(array); array.pop() }",
         RuntimeLimits {
             ..Default::default()
@@ -137,7 +137,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
 
 #[test]
 fn duplicate_native_insertions_preserve_final_container_contents() {
-    let mut fixture = MutationFixture::new(
+    let fixture = MutationFixture::new(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (HashMap<i32,i32>, HashSet<i32>) {
@@ -175,7 +175,7 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
 #[test]
 fn custom_map_removal_prepares_the_result_without_repeating_hash_callbacks() {
     {
-        let mut fixture = MutationFixture::new(
+        let fixture = MutationFixture::new(
             r#"use std::collections::{HashMap};
 use std::hash::{Hash};
 

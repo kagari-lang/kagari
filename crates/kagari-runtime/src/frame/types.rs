@@ -1,262 +1,128 @@
 //! Reified type arguments retained by a shared frame or closure.
 pub mod arguments;
+pub(crate) mod bindings;
 pub(crate) mod compatibility;
 pub(crate) mod operations;
 use crate::{
     error::RuntimeError,
+    execution_metadata::{
+        MetadataEdge,
+        environments::EnvironmentId,
+        groups::{OperationGroupId, OperationId},
+    },
     frame::types::{
-        arguments::TypeArgument,
-        operations::{OperationBindings, ReceiverOperations},
+        arguments::TypeArgument, bindings::TypeBindings, operations::OperationBindings,
     },
-    gc::interfaces::{InterfaceResultBinding, MethodApplication},
-    module::{LoadedModule, RetainedRuntimeProgram},
+    gc::GcHeap,
 };
-use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
-use kagari_contract::{callable::generic::GenericBody, standard::RuntimePrimitive};
 use kagari_types::{
-    callable::Signature,
     declaration::requirement::NativeCallableRequirement,
-    ty::{
-        GenericParam, NominalTy, Ty,
-        substitution::{normalize_projections, substitute_parameters},
-    },
+    ty::{GenericParam, NominalTy, Ty},
 };
-use std::{
-    cell::OnceCell,
-    rc::{Rc, Weak},
-};
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-pub(crate) struct BoundOperation {
-    pub(crate) receiver_operations: Weak<ReceiverOperations>,
-    pub(crate) application: OnceCell<Rc<MethodApplication>>,
-    pub(crate) generic: Option<BoundGenericMethod>,
-    pub(crate) requirement: NativeCallableRequirement<DefinitionId>,
-    pub(crate) associated_interface: NominalTy<DefinitionId>,
-    pub(crate) slot: u32,
-    pub(crate) primitive: Option<RuntimePrimitive>,
-    pub(crate) owner: LoadedModule,
-    pub(crate) target: CallableTarget,
-    pub(crate) signature: Signature<DefinitionId>,
-    pub(crate) retention: Rc<RetainedRuntimeProgram>,
+pub(crate) struct EnvironmentRecord {
+    pub(crate) types: Rc<TypeBindings>,
+    parent: Option<EnvironmentId>,
+    operations: OperationBindings,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct BoundGenericMethod {
-    pub(crate) receiver_table: InterfaceResultBinding,
-    pub(crate) receiver_environment: Option<Rc<TypeEnvironment>>,
-    pub(crate) parameters: Vec<GenericParam<DefinitionId>>,
-    pub(crate) entry_parameters: Vec<GenericParam<DefinitionId>>,
-    pub(crate) entry_arguments: Vec<Ty<DefinitionId>>,
-}
+impl EnvironmentRecord {
+    pub(crate) fn validate(&self, heap: &GcHeap) -> bool {
+        self.parent
+            .is_none_or(|parent| heap.environment(parent).is_some())
+            && self.operations.validate(heap)
+    }
 
-#[derive(Debug, Clone)]
-pub struct TypeEnvironment {
-    definitions: DefinitionContext,
-    parameters: Rc<[GenericParam<DefinitionId>]>,
-    arguments: Rc<[TypeArgument]>,
-    parent: Option<Rc<TypeEnvironment>>,
-    associated_interfaces: Vec<(Ty<DefinitionId>, NominalTy<DefinitionId>, LoadedModule)>,
-    pub(crate) operations: OperationBindings,
-}
+    pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
+        if let Some(parent) = &self.parent {
+            pending.push(MetadataEdge::Environment(*parent));
+        }
+        self.operations.trace_metadata(pending);
+    }
 
-impl TypeEnvironment {
     pub(crate) fn new(
         definitions: &DefinitionContext,
         parameters: Vec<GenericParam<DefinitionId>>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
-        if parameters.len() != arguments.len()
-            || !arguments.iter().all(|argument| argument.ty().is_concrete())
-        {
-            return Err(RuntimeError::module_validation(
-                "generic call type arguments",
-            ));
-        }
-        let table = definitions.snapshot();
-        for parameter in &parameters {
-            table
-                .resolve(parameter.owner)
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        }
         Ok(Self {
-            definitions: definitions.clone(),
-            parameters: parameters.into(),
-            arguments: arguments.into(),
+            types: Rc::new(TypeBindings::new(definitions, parameters, arguments)?),
             parent: None,
-            associated_interfaces: vec![],
             operations: OperationBindings::default(),
         })
     }
 
-    /// Layout metadata cannot keep unrelated executable selections or module state alive.
-    pub(crate) fn types_only(&self) -> Self {
-        Self {
-            associated_interfaces: self
-                .associated_interfaces
-                .iter()
-                .cloned()
-                .chain(self.operations.associated_interfaces())
-                .collect(),
-            definitions: self.definitions.clone(),
-            parameters: self.parameters.clone(),
-            arguments: self.arguments.clone(),
-            parent: self
-                .parent
-                .as_ref()
-                .map(|parent| Rc::new(parent.types_only())),
-            operations: OperationBindings::default(),
-        }
-    }
-
-    pub(crate) fn include(&mut self, parent: Option<Rc<Self>>) -> Result<(), RuntimeError> {
+    pub(crate) fn include(&mut self, parent: Option<TypeEnvironment>) -> Result<(), RuntimeError> {
         if let Some(parent) = parent {
-            if self.parent.is_some()
-                || self.definitions.snapshot().id() != parent.definitions.snapshot().id()
-                || self.parameters.iter().any(|parameter| {
-                    parent
-                        .argument_id(parameter.owner, parameter.position)
-                        .is_some()
-                })
-            {
-                return Err(RuntimeError::module_validation(
-                    "duplicate generic call binder",
-                ));
-            }
-            self.parent = Some(parent);
+            Rc::make_mut(&mut self.types).include(Some(parent.types.clone()))?;
+            self.parent = Some(parent.id);
         }
         Ok(())
     }
 
-    pub(crate) fn argument(&self, owner: &DefinitionId, position: usize) -> Option<&TypeArgument> {
-        self.argument_id(*owner, position)
+    pub(crate) fn operations(&self) -> &OperationBindings {
+        &self.operations
     }
 
-    fn argument_id(&self, owner: DefinitionId, position: usize) -> Option<&TypeArgument> {
-        self.parameters
-            .iter()
-            .position(|parameter| parameter.owner == owner && parameter.position == position)
-            .and_then(|index| self.arguments.get(index))
-            .or_else(|| {
-                self.parent
-                    .as_ref()
-                    .and_then(|parent| parent.argument_id(owner, position))
-            })
+    fn refresh_types(&mut self) {
+        Rc::make_mut(&mut self.types).associated_interfaces =
+            self.operations.associated_interfaces();
     }
-
-    pub(crate) fn matches(&self, body: &GenericBody<DefinitionId>) -> bool {
-        let mut offset = 0;
-        let mut environment = Some(self);
-        while let Some(current) = environment {
-            let end = offset + current.parameters.len();
-            let Some(parameters) = body.parameters.get(offset..end) else {
-                return false;
-            };
-            if !parameters
-                .iter()
-                .zip(current.parameters.iter())
-                .all(|(expected, actual)| {
-                    expected.owner == actual.owner && expected.position == actual.position
-                })
-            {
-                return false;
-            }
-            offset = end;
-            environment = current.parent.as_deref();
-        }
-        offset == body.parameters.len()
+    #[cfg(test)]
+    pub(crate) fn add_operation(
+        &mut self,
+        heap: &GcHeap,
+        id: OperationId,
+    ) -> Result<(), RuntimeError> {
+        self.operations.push(heap, id)?;
+        self.refresh_types();
+        Ok(())
     }
-
-    pub(crate) fn resolve(&self, ty: &Ty<DefinitionId>) -> Result<Ty<DefinitionId>, RuntimeError> {
-        let result = substitute_parameters(
-            ty,
-            &|owner, position| self.argument(owner, position).map(TypeArgument::ty),
-            &Default::default(),
-        )
-        .map_err(|_| RuntimeError::module_validation("generic type substitution"))?;
-        let result = normalize_projections(
-            &result,
-            &|interface, receiver, member, arguments| {
-                Ok(arguments
-                    .is_empty()
-                    .then(|| {
-                        self.associated_output(receiver, interface, *member)
-                            .map(|(ty, _)| ty.clone())
-                    })
-                    .flatten())
-            },
-            &Default::default(),
-        )
-        .map_err(|_| RuntimeError::module_validation("generic associated output"))?;
-        if !result.is_concrete() {
-            return Err(RuntimeError::module_validation("unbound generic type"));
-        }
-        Ok(result)
+    pub(crate) fn add_receiver(
+        &mut self,
+        heap: &GcHeap,
+        id: OperationGroupId,
+    ) -> Result<(), RuntimeError> {
+        self.operations.receiver(heap, id)?;
+        self.refresh_types();
+        Ok(())
     }
-
-    pub(crate) fn associated_output(
-        &self,
-        receiver: &Ty<DefinitionId>,
-        interface: &NominalTy<DefinitionId>,
-        member: DefinitionId,
-    ) -> Option<(&Ty<DefinitionId>, &LoadedModule)> {
-        self.associated_interfaces
-            .iter()
-            .find_map(|(ty, applied, owner)| {
-                (ty == receiver
-                    && applied.declaration == interface.declaration
-                    && applied.arguments == interface.arguments
-                    && interface
-                        .associated_types
-                        .iter()
-                        .all(|(id, ty)| applied.associated_types.get(id) == Some(ty)))
-                .then(|| applied.associated_types.get(&member).map(|ty| (ty, owner)))
-                .flatten()
-            })
-            .or_else(|| {
-                self.operations
-                    .associated_output(receiver, interface, member)
-            })
-            .or_else(|| {
-                self.parent
-                    .as_ref()
-                    .and_then(|parent| parent.associated_output(receiver, interface, member))
-            })
+    pub(crate) fn extend_operations(&mut self, operations: OperationBindings) {
+        self.operations.extend(operations);
+        self.refresh_types();
     }
+}
 
-    pub(crate) fn resolve_requirement(
-        &self,
-        required: &NativeCallableRequirement<DefinitionId>,
-    ) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
-        let Ty::Trait(interface) = self.resolve(&Ty::Trait(required.interface.clone()))? else {
-            return Err(RuntimeError::module_validation("constraint interface type"));
-        };
-        Ok(NativeCallableRequirement {
-            receiver: self.resolve(&required.receiver)?,
-            interface,
-            member: required.member,
-            arguments: required
-                .arguments
-                .iter()
-                .map(|ty| self.resolve(ty))
-                .collect::<Result<_, _>>()?,
-        })
-    }
+/// A checked executable identity plus immutable type facts. This handle is not a root.
+#[derive(Debug, Clone)]
+pub struct TypeEnvironment {
+    pub(crate) id: EnvironmentId,
+    pub(crate) types: Rc<TypeBindings>,
+}
 
+impl TypeEnvironment {
     pub(crate) fn operation_slot(
         &self,
+        heap: &GcHeap,
         receiver: &Ty<DefinitionId>,
         interface: &NominalTy<DefinitionId>,
         slot: u32,
-    ) -> Option<&Rc<BoundOperation>> {
-        self.operations.operation_slot(receiver, interface, slot)
+    ) -> Option<OperationId> {
+        heap.environment(self.id)?
+            .operations
+            .operation_slot(heap, receiver, interface, slot)
     }
 
     pub(crate) fn operation(
         &self,
+        heap: &GcHeap,
         required: &NativeCallableRequirement<DefinitionId>,
-    ) -> Option<&Rc<BoundOperation>> {
-        self.operations.operation(required)
+    ) -> Option<OperationId> {
+        heap.environment(self.id)?
+            .operations
+            .operation(heap, required)
     }
 }

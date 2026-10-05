@@ -2,8 +2,9 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::{MetadataRoot, groups::OperationId},
     frame::types::{
-        BoundOperation, TypeEnvironment,
+        EnvironmentRecord, TypeEnvironment,
         arguments::{ScopedSignature, TypeArgument},
     },
     module::LoadedModule,
@@ -21,32 +22,36 @@ impl LinkedCallable {
     pub(crate) fn prepare(
         runtime: &Runtime,
         caller: &LoadedModule,
-        caller_environment: &Rc<TypeEnvironment>,
+        caller_environment: &TypeEnvironment,
         required: &NativeCallableRequirement<DefinitionId>,
-        operation: &BoundOperation,
+        id: OperationId,
     ) -> NativeResult<Self> {
+        let operation = runtime
+            .gc
+            .bound_operation(id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid native selected operation"))?;
         let (binders, environment) = if let Some(generic) = &operation.generic {
             let arguments = runtime.type_arguments(
                 caller,
-                Some(caller_environment.clone()),
+                Some(caller_environment.types.clone()),
                 &required.arguments,
             )?;
-            let mut binders = TypeEnvironment::new(
+            let mut binders = EnvironmentRecord::new(
                 runtime.definition_context(),
                 generic.parameters.clone(),
                 arguments,
             )?;
             binders.include(generic.receiver_environment.clone())?;
-            let binders = Rc::new(binders);
+            let binders = runtime.gc.alloc_environment(binders)?;
             let environment = if generic.entry_parameters.is_empty() {
                 None
             } else {
-                let mut environment = TypeEnvironment::new(
+                let mut environment = EnvironmentRecord::new(
                     runtime.definition_context(),
                     generic.entry_parameters.clone(),
                     runtime.type_arguments(
                         &operation.owner,
-                        Some(binders.clone()),
+                        Some(binders.types.clone()),
                         &generic.entry_arguments,
                     )?,
                 )?;
@@ -54,14 +59,21 @@ impl LinkedCallable {
                     &operation.owner,
                     operation.target,
                     &generic.receiver_table,
-                    operation.receiver_operations.upgrade(),
+                    Some(id.group),
                 )? {
-                    environment.operations.receiver(group);
+                    environment.add_receiver(&runtime.gc, group)?;
                 }
-                environment
-                    .operations
-                    .extend(caller_environment.operations.clone());
-                Some(Rc::new(environment))
+                environment.extend_operations(
+                    runtime
+                        .gc
+                        .environment(caller_environment.id)
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("invalid caller environment")
+                        })?
+                        .operations()
+                        .clone(),
+                );
+                Some(runtime.gc.alloc_environment(environment)?)
             };
             (Some(binders), environment)
         } else {
@@ -69,19 +81,28 @@ impl LinkedCallable {
         };
         let params = runtime.type_arguments(
             &operation.owner,
-            binders.clone(),
+            binders
+                .as_ref()
+                .map(|environment| environment.types.clone()),
             &operation.signature.params,
         )?;
         let result = runtime
             .type_arguments(
                 &operation.owner,
-                binders,
+                binders.map(|environment| environment.types.clone()),
                 slice::from_ref(&operation.signature.result),
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("selected operation result"))?;
+        let mut metadata = vec![MetadataRoot::Program(operation.owner.clone())];
+        metadata.extend(
+            environment
+                .iter()
+                .map(|environment| MetadataRoot::Environment(environment.id)),
+        );
+        let roots = runtime.root_metadata(metadata)?;
         Ok(Self {
-            owner: CallableOwner::Pinned(operation.owner.clone(), operation.retention.clone()),
+            owner: CallableOwner::Pinned(operation.owner.clone(), roots),
             target: operation.target,
             params: params
                 .iter()

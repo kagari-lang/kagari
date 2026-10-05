@@ -9,7 +9,7 @@ use kagari_bytecode::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactValidationError,
         DependencyFingerprint, KbcArtifact,
     },
-    instruction::{BytecodeInstruction, ConstantOperand},
+    instruction::{BytecodeInstruction, ConstantOperand, ModuleSlot},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
@@ -35,7 +35,11 @@ fn corrupted_collection_root_quarantines_the_runtime() {
     let foreign = foreign_runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), Vec::new())
         .unwrap();
-    runtime.module_instance_mut(&loaded).unwrap().module_slots = vec![value::Value::Array(foreign)];
+    runtime
+        .modules
+        .instance_mut(loaded.key())
+        .unwrap()
+        .module_slots = vec![value::Value::Array(foreign)];
 
     let error = runtime.collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
@@ -58,8 +62,10 @@ fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
             },
         )
         .unwrap();
-    let held = runtime.module_instance_mut(&loaded).unwrap();
-    let error = runtime.module_instance_mut(&loaded).unwrap_err();
+    let held = runtime.modules.instance_mut(loaded.key()).unwrap();
+    let error = runtime
+        .read_module_slot(&loaded, ModuleSlot::new(0))
+        .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert!(runtime.is_quarantined());
     drop(held);
@@ -366,10 +372,7 @@ fn staged_reload_failure_and_stale_publication_preserve_the_active_entry() {
     );
     drop(failed);
     assert!(runtime.modules.loaded(failed_key).is_none());
-    assert_eq!(
-        runtime.resources.counters().loaded_modules,
-        baseline.members().count()
-    );
+    assert_eq!(runtime.modules.loaded_count(), baseline.members().count());
 
     let candidate = stage(&mut runtime);
     let stale = stage(&mut runtime);
@@ -389,8 +392,8 @@ fn staged_reload_failure_and_stale_publication_preserve_the_active_entry() {
         current.key()
     );
     assert_eq!(
-        runtime.resources.counters().loaded_modules,
-        runtime.modules.loaded_count()
+        runtime.modules.loaded_count(),
+        baseline.members().count() + current.members().count()
     );
     assert!(runtime.module_instance_snapshot(&current).is_some());
     runtime.validate_loaded_module(&baseline).unwrap();

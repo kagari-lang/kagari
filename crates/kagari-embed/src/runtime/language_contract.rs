@@ -331,7 +331,7 @@ fn assert_outcome(
 }
 
 fn execute_route(
-    runtime: &mut KagariRuntime,
+    runtime: &KagariRuntime,
     program: &PreparedProgram,
     loaded: &LoadedModule,
     case: &Case<'_>,
@@ -469,13 +469,14 @@ fn run(
             )
             .unwrap()
     });
+    let vm = KagariRuntime::new(runtime, Default::default());
     let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
-        let mut options = runtime.execution_options();
+        let mut options = vm.runtime().execution_options();
         options.cancellation = cancellation.clone();
-        runtime.begin_execution(&loaded, options).unwrap()
+        vm.runtime().begin_execution(&loaded, options).unwrap()
     });
     if let Some(at) = case.cancel_at {
-        runtime
+        vm.runtime()
             .attach_execution_observer(Rc::new(CancelAt {
                 seen: Cell::new(0),
                 at,
@@ -483,10 +484,9 @@ fn run(
             }))
             .unwrap();
     }
-    let mut vm = KagariRuntime::new(runtime, Default::default());
     let mut backend = CraneliftBackend::for_host().unwrap();
     for attempt in 0..case.repeat {
-        let outcome = execute_route(&mut vm, module, &loaded, case, route, &mut backend);
+        let outcome = execute_route(&vm, module, &loaded, case, route, &mut backend);
         assert_outcome(case, route, attempt, outcome);
     }
     if let Some(candidate) = case.published_reload {
@@ -496,7 +496,7 @@ fn run(
             .begin_execution(&loaded, vm.runtime().execution_options())
             .unwrap();
         let stale = vm
-            .runtime_mut()
+            .runtime()
             .stage_reload_verified_program(&loaded, case.name, program.bytecode().clone())
             .unwrap();
         let current = vm
@@ -512,19 +512,19 @@ fn run(
             case,
             route,
             case.repeat,
-            execute_route(&mut vm, module, &loaded, case, route, &mut backend),
+            execute_route(&vm, module, &loaded, case, route, &mut backend),
         );
         drop(outer);
         assert_outcome(
             candidate,
             route,
             0,
-            execute_route(&mut vm, program, &current, candidate, route, &mut backend),
+            execute_route(&vm, program, &current, candidate, route, &mut backend),
         );
-        let before = vm.runtime().resources().counters().loaded_modules;
+        let before = vm.runtime().modules().loaded_count();
         let stale_members = stale.module().members().count();
         assert!(matches!(
-            vm.runtime_mut().publish_staged_reload(stale),
+            vm.runtime().publish_staged_reload(stale),
             Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(
@@ -532,14 +532,14 @@ fn run(
             current.key()
         );
         assert_eq!(
-            vm.runtime().resources().counters().loaded_modules,
+            vm.runtime().modules().loaded_count(),
             before - stale_members
         );
         assert_outcome(
             candidate,
             route,
             1,
-            execute_route(&mut vm, program, &current, candidate, route, &mut backend),
+            execute_route(&vm, program, &current, candidate, route, &mut backend),
         );
     }
     assert_eq!(

@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObject, HeapObjectId},
+    gc::{GcHeap, HeapObjectId, storage::HeapObject},
     module::LoadedModule,
     native::{
         sequence::{SequencePayload, SequenceStorage},
@@ -400,7 +400,7 @@ impl GcHeap {
         id: HeapObjectId,
         f: impl FnOnce(&mut SequenceStorage) -> R,
     ) -> Option<R> {
-        let mut objects = self.objects.borrow_mut();
+        let mut objects = self.objects_mut().ok()?;
         let revision = objects.get(id.slot)?.revision.checked_add(1)?;
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;

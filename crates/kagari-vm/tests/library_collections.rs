@@ -206,7 +206,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let loaded = runtime
         .load_program("sort", program(source, &[&library, &probe.module]))
         .unwrap();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
     assert_eq!(probe.calls.get(), 3);
     let Value::Array(array) = probe
@@ -291,7 +291,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         let loaded = runtime
             .load_program("sort", program(&source, &[&library, &probe.module]))
             .unwrap();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         let error = vm.execute(&loaded, "main").unwrap_err();
         assert!(
             format!("{error:?}").contains("guarded callback"),

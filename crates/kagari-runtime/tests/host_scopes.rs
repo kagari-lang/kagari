@@ -25,6 +25,7 @@ use kagari_types::{
 };
 use std::{
     cell::{Cell, RefCell},
+    panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
 };
 
@@ -105,6 +106,76 @@ fn same_frame_numbers_in_different_runtimes_do_not_authorize_foreign_borrows() {
         RuntimeErrorKind::ExpiredHostBorrow
     );
     assert!(!first.is_quarantined());
+}
+
+#[test]
+fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
+    for with_session in [false, true] {
+        let mut runtime = runtime();
+        let loaded = runtime
+            .load_program(
+                "unwind",
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+            )
+            .unwrap();
+        let value = Value::Array(
+            runtime
+                .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+                .unwrap(),
+        );
+        let token = Cell::new(None);
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                let session = with_session.then(|| {
+                    runtime
+                        .begin_execution(&loaded, runtime.execution_options())
+                        .unwrap()
+                });
+                let scope = runtime.host_scope(std::slice::from_ref(&value)).unwrap();
+                token.set(Some(
+                    scope
+                        .borrows()
+                        .borrow_unique(HostObjectId(9), TypeId::new(0))
+                        .unwrap(),
+                ));
+                if let Some(session) = &session {
+                    assert_eq!(session.host_scope_count(), 1);
+                }
+                runtime.collect_garbage().unwrap();
+                assert!(runtime.gc().validate_value(&value));
+                panic!("host unwind");
+            }))
+            .is_err()
+        );
+        assert!(runtime.execution_root().is_none());
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(
+            runtime
+                .modules()
+                .retention_counts(loaded.key())
+                .active_calls,
+            0
+        );
+        assert_eq!(
+            runtime
+                .validate_host_borrow(token.get().unwrap(), HostBorrowKind::Unique)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ExpiredHostBorrow
+        );
+        let next = runtime.host_scope(&[]).unwrap();
+        next.borrows()
+            .borrow_unique(HostObjectId(9), TypeId::new(0))
+            .unwrap();
+        drop(next);
+        runtime.collect_garbage().unwrap();
+        assert!(!runtime.gc().validate_value(&value));
+        assert!(!runtime.is_quarantined());
+    }
 }
 
 #[test]
@@ -275,7 +346,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     assert_eq!(
         stack
-            .push(loaded.slot(), FunctionRef::new(0), &[], None)
+            .push(&runtime, loaded.slot(), FunctionRef::new(0), &[], None)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::EngineFault

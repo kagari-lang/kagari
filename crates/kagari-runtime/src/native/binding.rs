@@ -168,14 +168,17 @@ impl LinkedNativeFunction {
         &self,
         runtime: &Runtime,
         owner: &LoadedModule,
-        environment: Rc<TypeEnvironment>,
+        environment: TypeEnvironment,
     ) -> NativeResult<Self> {
-        let params =
-            runtime.type_arguments(owner, Some(environment.clone()), &self.signature.params)?;
+        let params = runtime.type_arguments(
+            owner,
+            Some(environment.types.clone()),
+            &self.signature.params,
+        )?;
         let result = runtime
             .type_arguments(
                 owner,
-                Some(environment.clone()),
+                Some(environment.types.clone()),
                 slice::from_ref(&self.signature.result),
             )?
             .pop()
@@ -206,12 +209,15 @@ impl LinkedNativeFunction {
                         Ok(LinkedOperation::Ready(callable.clone()))
                     }
                     LinkedOperation::Forward(required) => {
-                        let resolved = environment.resolve_requirement(required)?;
-                        let operation = environment.operation(&resolved).ok_or_else(|| {
-                            RuntimeError::module_validation(
-                                "native constraint operation environment",
-                            )
-                        })?;
+                        let resolved = environment.types.resolve_requirement(required)?;
+                        let operation =
+                            environment
+                                .operation(&runtime.gc, &resolved)
+                                .ok_or_else(|| {
+                                    RuntimeError::module_validation(
+                                        "native constraint operation environment",
+                                    )
+                                })?;
                         Ok(LinkedOperation::Ready(LinkedCallable::prepare(
                             runtime,
                             owner,

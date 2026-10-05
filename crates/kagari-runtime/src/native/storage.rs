@@ -4,8 +4,8 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{
-        TypeEnvironment,
         arguments::{TypeArgument, type_parameter},
+        bindings::TypeBindings,
         compatibility::TypeView,
     },
     gc::GcHeap,
@@ -295,7 +295,7 @@ impl NativeObject {
         &self,
         ty: &Ty<DefinitionId>,
         owner: &LoadedModule,
-        environment: Option<&TypeEnvironment>,
+        environment: Option<&TypeBindings>,
     ) -> bool {
         let actual = match &self.scope {
             Some(scope) => scope.view(&self._owner),

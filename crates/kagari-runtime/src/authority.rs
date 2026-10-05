@@ -9,7 +9,7 @@ use kagari_types::host_interface::HostPassingStyle;
 
 impl Runtime {
     pub(super) fn is_candidate_initialization(&self) -> bool {
-        self.resources
+        self.resources()
             .active_session()
             .is_some_and(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
     }
@@ -24,7 +24,7 @@ impl Runtime {
     }
 
     pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
-        self.resources.poll_execution()?;
+        self.resources().poll_execution()?;
         let function = self.host.function(symbol);
         self.validate_bound_host_boundary(symbol, function)
     }
@@ -34,7 +34,7 @@ impl Runtime {
         symbol: &str,
         function: Option<&HostFunction>,
     ) -> Result<(), RuntimeError> {
-        self.resources.poll_execution()?;
+        self.resources().poll_execution()?;
         let Some(function) = function else {
             return Err(RuntimeError::host_call_failure(format!(
                 "unregistered host function `{symbol}`"
@@ -58,7 +58,7 @@ impl Runtime {
     }
 
     pub fn validate_debug_value(&self, value: &Value) -> Result<(), RuntimeError> {
-        self.resources.poll_execution()?;
+        self.resources().poll_execution()?;
         if !self.gc.validate_value(value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,

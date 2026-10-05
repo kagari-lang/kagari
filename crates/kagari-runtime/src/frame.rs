@@ -1,10 +1,10 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    execution_metadata::MetadataRoot,
     frame::{arguments::FrameArguments, types::TypeEnvironment},
-    gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, roots::RootSet},
+    gc::{CollectionIteration, roots::RootSet},
     module::LoadedModule,
-    resource::ResourceState,
     session::ExecutionSession,
     value::Value,
 };
@@ -22,7 +22,7 @@ use std::{
     cell::{Ref, RefMut},
     fmt,
     fmt::{Debug, Formatter},
-    rc::Rc,
+    ptr,
 };
 
 mod arguments;
@@ -33,41 +33,44 @@ pub mod types;
 
 /// An execution scope over the root session's shared frame stack.
 /// Dropping it unwinds only the frames entered by this scope.
-pub struct ExecutionStack {
-    session: ExecutionSession,
-    heap: Rc<GcHeap>,
+pub struct ExecutionStack<'runtime> {
+    session: ExecutionSession<'runtime>,
     base: usize,
     id: u64,
 }
 
-impl ExecutionStack {
-    pub(crate) fn new(session: ExecutionSession, heap: Rc<GcHeap>) -> Result<Self, RuntimeError> {
+impl<'runtime> ExecutionStack<'runtime> {
+    pub(crate) fn new(session: ExecutionSession<'runtime>) -> Result<Self, RuntimeError> {
         let base = session
-            .state
-            .frames
-            .try_borrow()
-            .map_err(|_| {
+            .resources
+            .sessions
+            .frames(session.id)
+            .ok_or_else(|| {
                 session
                     .resources
                     .quarantine("frame stack is borrowed across execution")
             })?
             .len();
-        let id = session.state.next_frame_scope.get();
-        session
-            .state
-            .next_frame_scope
-            .set(id.checked_add(1).ok_or_else(|| {
-                session
-                    .resources
-                    .quarantine("frame scope identity exhausted")
-            })?);
-        session.state.frame_scopes.borrow_mut().push(id);
-        Ok(Self {
-            session,
-            heap,
-            base,
-            id,
-        })
+        let state = session.state();
+        let id = state.next_frame_scope.get();
+        state.next_frame_scope.set(id.checked_add(1).ok_or_else(|| {
+            session
+                .resources
+                .quarantine("frame scope identity exhausted")
+        })?);
+        state.frame_scopes.borrow_mut().push(id);
+        drop(state);
+        Ok(Self { session, base, id })
+    }
+
+    fn validate_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        self.validate_top()?;
+        if !ptr::eq(runtime.resources(), self.session.resources) {
+            return Err(RuntimeError::module_validation(
+                "execution stack belongs to another runtime",
+            ));
+        }
+        Ok(())
     }
 
     fn validate_top(&self) -> Result<(), RuntimeError> {
@@ -76,14 +79,14 @@ impl ExecutionStack {
             .session
             .resources
             .active_session()
-            .is_some_and(|active| Rc::ptr_eq(&active, &self.session.state))
+            .is_some_and(|active| active.id == self.session.id)
         {
             return Err(self
                 .session
                 .resources
                 .quarantine("execution used a suspended session"));
         }
-        if self.session.state.frame_scopes.borrow().last() != Some(&self.id) {
+        if self.session.state().frame_scopes.borrow().last() != Some(&self.id) {
             return Err(self
                 .session
                 .resources
@@ -93,11 +96,15 @@ impl ExecutionStack {
     }
 
     pub fn frames(&self) -> Result<Ref<'_, Vec<ExecutionFrame>>, RuntimeError> {
-        self.session.state.frames.try_borrow().map_err(|_| {
-            self.session
-                .resources
-                .quarantine("frame stack is mutably borrowed")
-        })
+        self.session
+            .resources
+            .sessions
+            .frames(self.session.id)
+            .ok_or_else(|| {
+                self.session
+                    .resources
+                    .quarantine("frame stack is mutably borrowed")
+            })
     }
 
     pub fn current(&self) -> Result<Ref<'_, ExecutionFrame>, RuntimeError> {
@@ -113,11 +120,16 @@ impl ExecutionStack {
 
     pub fn current_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, RuntimeError> {
         self.validate_top()?;
-        let frames = self.session.state.frames.try_borrow_mut().map_err(|_| {
-            self.session
-                .resources
-                .quarantine("frame stack is borrowed across execution")
-        })?;
+        let frames = self
+            .session
+            .resources
+            .sessions
+            .frames_mut(self.session.id)
+            .ok_or_else(|| {
+                self.session
+                    .resources
+                    .quarantine("frame stack is borrowed across execution")
+            })?;
         if frames.len() <= self.base {
             return Err(self.session.resources.quarantine("missing execution frame"));
         }
@@ -128,23 +140,26 @@ impl ExecutionStack {
 
     pub fn push(
         &self,
+        runtime: &Runtime,
         module: ModuleRef,
         function: FunctionRef,
         args: &[Value],
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
-        self.validate_top()?;
+        self.validate_runtime(runtime)?;
         let loaded = {
             let frames = self.frames()?;
             let caller = (frames.len() > self.base)
                 .then(|| frames.last().map(ExecutionFrame::loaded))
                 .flatten();
-            caller
-                .unwrap_or(self.session.root())
-                .member(module)
-                .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?
+            match caller {
+                Some(caller) => caller.member(module),
+                None => self.session.root().member(module),
+            }
+            .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?
         };
         self.push_callable(
+            runtime,
             loaded,
             CallableTarget::Script(function),
             args,
@@ -162,22 +177,25 @@ impl ExecutionStack {
         args: &[Value],
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
-        self.validate_top()?;
-        runtime.validate_loaded_module(method.implementation())?;
+        self.validate_runtime(runtime)?;
+        let view = method.view(runtime)?;
+        runtime.validate_loaded_module(view.implementation())?;
         runtime.validate_interface_method_arguments(&method, args)?;
-        let loaded = method.implementation().clone();
-        let target = method.target();
-        self.push_callable(loaded, target, args, return_dst, Some(method))
+        let loaded = view.implementation().clone();
+        let target = view.target();
+        drop(view);
+        self.push_callable(runtime, loaded, target, args, return_dst, Some(method))
     }
 
     pub fn push_closure(
         &self,
         runtime: &Runtime,
-        closure: &ClosureValueSnapshot,
+        value: &Value,
         args: &[Value],
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
-        self.validate_top()?;
+        self.validate_runtime(runtime)?;
+        let closure = runtime.resolve_closure(value)?;
         runtime.validate_loaded_module(&closure.implementation)?;
         let function = closure
             .implementation
@@ -205,14 +223,14 @@ impl ExecutionStack {
                             value,
                             ty,
                             &closure.implementation,
-                            environment,
+                            &environment.types,
                         )
                     } else {
                         runtime.matches_type_in(
                             value,
                             ty,
                             &closure.implementation,
-                            Some(environment),
+                            Some(&environment.types),
                         )
                     })
                 {
@@ -223,17 +241,21 @@ impl ExecutionStack {
             }
         }
         self.push_arguments(
+            runtime,
             closure.implementation.clone(),
             CallableTarget::Script(closure.function),
             all,
             return_dst,
-            None,
-            closure.environment.clone(),
+            FrameDispatch {
+                interface_method: None,
+                environment: closure.environment.clone(),
+            },
         )
     }
 
     pub fn push_callable(
         &self,
+        runtime: &Runtime,
         loaded: LoadedModule,
         target: CallableTarget,
         args: &[Value],
@@ -244,54 +266,52 @@ impl ExecutionStack {
             .as_ref()
             .and_then(|method| method.environment.clone());
         self.push_arguments(
+            runtime,
             loaded,
             target,
             FrameArguments::plain(args),
-            return_dst,
-            interface_method,
-            environment,
-        )
-    }
-
-    fn push_arguments(
-        &self,
-        loaded: LoadedModule,
-        target: CallableTarget,
-        args: FrameArguments<'_>,
-        return_dst: Option<Register>,
-        interface_method: Option<RootedInterfaceMethod>,
-        environment: Option<Rc<TypeEnvironment>>,
-    ) -> Result<(), RuntimeError> {
-        self.validate_top()?;
-        if !args
-            .iter()
-            .all(|value| self.heap.validate_candidate_value(value))
-        {
-            return Err(RuntimeError::execution_phase_violation(
-                "external object in candidate call arguments",
-            ));
-        }
-        let mut frames = self.session.state.frames.try_borrow_mut().map_err(|_| {
-            self.session
-                .resources
-                .quarantine("frame stack is borrowed across execution")
-        })?;
-        frames
-            .try_reserve(1)
-            .map_err(|_| self.session.resources.limit("frame capacity"))?;
-        self.session.resources.enter_call()?;
-        match ExecutionFrame::new(
-            self.heap.clone(),
-            self.session.resources.clone(),
-            loaded,
-            target,
-            args,
             return_dst,
             FrameDispatch {
                 interface_method,
                 environment,
             },
-        ) {
+        )
+    }
+
+    fn push_arguments(
+        &self,
+        runtime: &Runtime,
+        loaded: LoadedModule,
+        target: CallableTarget,
+        args: FrameArguments<'_>,
+        return_dst: Option<Register>,
+        dispatch: FrameDispatch,
+    ) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
+        if !args
+            .iter()
+            .all(|value| runtime.gc.validate_candidate_value(value))
+        {
+            return Err(RuntimeError::execution_phase_violation(
+                "external object in candidate call arguments",
+            ));
+        }
+        let mut frames = self
+            .session
+            .resources
+            .sessions
+            .frames_mut(self.session.id)
+            .ok_or_else(|| {
+                self.session
+                    .resources
+                    .quarantine("frame stack is borrowed across execution")
+            })?;
+        frames
+            .try_reserve(1)
+            .map_err(|_| self.session.resources.limit("frame capacity"))?;
+        self.session.resources.enter_call()?;
+        let prepared = ExecutionFrame::new(runtime, loaded, target, args, return_dst, dispatch);
+        match prepared {
             Ok(frame) => {
                 frames.push(frame);
                 Ok(())
@@ -305,11 +325,16 @@ impl ExecutionStack {
 
     pub fn pop(&self) -> Result<(), RuntimeError> {
         self.validate_top()?;
-        let mut frames = self.session.state.frames.try_borrow_mut().map_err(|_| {
-            self.session
-                .resources
-                .quarantine("frame stack is borrowed across execution")
-        })?;
+        let mut frames = self
+            .session
+            .resources
+            .sessions
+            .frames_mut(self.session.id)
+            .ok_or_else(|| {
+                self.session
+                    .resources
+                    .quarantine("frame stack is borrowed across execution")
+            })?;
         if frames.len() <= self.base {
             return Err(self
                 .session
@@ -326,9 +351,10 @@ impl ExecutionStack {
     }
 }
 
-impl Drop for ExecutionStack {
+impl Drop for ExecutionStack<'_> {
     fn drop(&mut self) {
-        let mut scopes = self.session.state.frame_scopes.borrow_mut();
+        let state = self.session.state();
+        let mut scopes = state.frame_scopes.borrow_mut();
         let Some(position) = scopes.iter().position(|id| *id == self.id) else {
             return;
         };
@@ -338,7 +364,7 @@ impl Drop for ExecutionStack {
                 .quarantine("frame scopes dropped out of order");
         }
         scopes.truncate(position);
-        let Ok(mut frames) = self.session.state.frames.try_borrow_mut() else {
+        let Some(mut frames) = self.session.resources.sessions.frames_mut(self.session.id) else {
             self.session
                 .resources
                 .quarantine("frame stack remained borrowed during cleanup");
@@ -365,14 +391,12 @@ enum NativeEntryState {
 }
 
 pub struct ExecutionFrame {
-    environment: Option<Rc<TypeEnvironment>>,
+    environment: Option<TypeEnvironment>,
     loaded: LoadedModule,
     target: CallableTarget,
     native_entry: NativeEntryState,
     ip: usize,
     executing: Option<usize>,
-    heap: Rc<GcHeap>,
-    resources: Rc<ResourceState>,
     slots: RootSet,
     register_count: usize,
     return_to: ReturnDestination,
@@ -393,19 +417,29 @@ impl Debug for ExecutionFrame {
 
 struct FrameDispatch {
     interface_method: Option<RootedInterfaceMethod>,
-    environment: Option<Rc<TypeEnvironment>>,
+    environment: Option<TypeEnvironment>,
 }
 
 impl ExecutionFrame {
+    fn validate_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        if !self.slots.belongs_to(&runtime.gc) {
+            return Err(RuntimeError::module_validation(
+                "frame belongs to another runtime",
+            ));
+        }
+        runtime.resources().ensure_execution_allowed()
+    }
+
     fn new(
-        heap: Rc<GcHeap>,
-        resources: Rc<ResourceState>,
+        runtime: &Runtime,
         loaded: LoadedModule,
         target: CallableTarget,
         args: FrameArguments<'_>,
         return_dst: Option<Register>,
         dispatch: FrameDispatch,
     ) -> Result<Self, RuntimeError> {
+        let heap = runtime.gc();
+        let resources = runtime.resources();
         let FrameDispatch {
             interface_method,
             environment,
@@ -430,7 +464,7 @@ impl ExecutionFrame {
                     .is_some_and(|body| {
                         environment
                             .as_ref()
-                            .is_none_or(|environment| !environment.matches(body))
+                            .is_none_or(|environment| !environment.types.matches(body))
                     })
                 {
                     return Err(RuntimeError::module_validation(
@@ -454,7 +488,7 @@ impl ExecutionFrame {
                 if import.generic.as_ref().is_some_and(|body| {
                     environment
                         .as_ref()
-                        .is_none_or(|environment| !environment.matches(body))
+                        .is_none_or(|environment| !environment.types.matches(body))
                 }) {
                     return Err(RuntimeError::module_validation(
                         "shared native frame environment",
@@ -470,6 +504,16 @@ impl ExecutionFrame {
             }
         };
 
+        let slots = heap
+            .root_execution_values(slots)
+            .ok_or_else(|| RuntimeError::module_validation("invalid heap argument"))?;
+        let mut metadata = vec![MetadataRoot::Program(loaded.clone())];
+        metadata.extend(
+            environment
+                .iter()
+                .map(|environment| MetadataRoot::Environment(environment.id)),
+        );
+        slots.set_metadata(runtime, metadata)?;
         Ok(Self {
             environment,
             loaded,
@@ -477,11 +521,7 @@ impl ExecutionFrame {
             native_entry,
             ip: 0,
             executing: None,
-            heap: heap.clone(),
-            resources: resources.clone(),
-            slots: heap
-                .root_execution_values(slots)
-                .ok_or_else(|| RuntimeError::module_validation("invalid heap argument"))?,
+            slots,
             register_count,
             return_to: ReturnDestination::Register(return_dst),
             interface_method,
@@ -490,7 +530,7 @@ impl ExecutionFrame {
         })
     }
 
-    pub fn environment(&self) -> Option<Rc<TypeEnvironment>> {
+    pub fn environment(&self) -> Option<TypeEnvironment> {
         self.environment.clone()
     }
 
@@ -502,7 +542,7 @@ impl ExecutionFrame {
             return Ok(Cow::Borrowed(ty));
         }
         match &self.environment {
-            Some(environment) => environment.resolve(ty).map(Cow::Owned),
+            Some(environment) => environment.types.resolve(ty).map(Cow::Owned),
             None => Err(RuntimeError::module_validation(
                 "missing generic call environment",
             )),
@@ -537,12 +577,17 @@ impl ExecutionFrame {
         ))
     }
 
-    pub fn begin_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
+    pub fn begin_collection_mutation(
+        &mut self,
+        runtime: &Runtime,
+        value: &Value,
+    ) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
         self.mutations.try_reserve(1).map_err(|_| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "mutation guard allocation")
         })?;
         self.mutations
-            .push((value.clone(), self.heap.begin_collection_mutation(value)?));
+            .push((value.clone(), runtime.gc.begin_collection_mutation(value)?));
         Ok(())
     }
 
@@ -561,10 +606,15 @@ impl ExecutionFrame {
         Ok(())
     }
 
-    pub fn begin_iteration(&mut self, collection: Register) -> Result<(), RuntimeError> {
-        let value = self.read_register(collection)?;
+    pub fn begin_iteration(
+        &mut self,
+        runtime: &Runtime,
+        collection: Register,
+    ) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
+        let value = self.read_register(runtime, collection)?;
         self.iterations
-            .push(self.heap.begin_collection_iteration(&value)?);
+            .push(runtime.gc.begin_collection_iteration(&value)?);
         Ok(())
     }
 
@@ -597,21 +647,35 @@ impl ExecutionFrame {
         }
     }
 
-    pub fn native_return(&self) -> Option<Value> {
-        matches!(self.native_entry, NativeEntryState::Complete)
-            .then(|| self.slots.get(&self.heap, 0))
-            .flatten()
+    pub fn native_return(&self, runtime: &Runtime) -> Result<Option<Value>, RuntimeError> {
+        self.validate_runtime(runtime)?;
+        if !matches!(self.native_entry, NativeEntryState::Complete) {
+            return Ok(None);
+        }
+        self.slots
+            .get(&runtime.gc, 0)
+            .map(Some)
+            .ok_or_else(|| runtime.resources().quarantine("invalid native return slot"))
     }
 
     pub fn has_pending_native_entry(&self) -> bool {
         matches!(self.native_entry, NativeEntryState::Pending)
     }
 
-    pub fn register_type(&self, register: Register) -> Result<ValueType, RuntimeError> {
+    pub fn register_type(
+        &self,
+        runtime: &Runtime,
+        register: Register,
+    ) -> Result<ValueType, RuntimeError> {
+        self.validate_runtime(runtime)?;
         self.function()
             .and_then(|function| function.metadata.registers.get(register.index()))
             .copied()
-            .ok_or_else(|| self.resources.quarantine("invalid frame register type"))
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine("invalid frame register type")
+            })
     }
 
     pub fn module(&self) -> ModuleRef {
@@ -626,13 +690,18 @@ impl ExecutionFrame {
         self.interface_method.as_ref()
     }
 
-    pub(crate) fn set_native_instruction(&mut self, offset: usize) -> Result<(), RuntimeError> {
+    pub(crate) fn set_native_instruction(
+        &mut self,
+        runtime: &Runtime,
+        offset: usize,
+    ) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
         if self
             .function()
             .is_none_or(|function| offset >= function.instructions.len())
         {
-            return Err(self
-                .resources
+            return Err(runtime
+                .resources()
                 .quarantine("invalid native instruction offset"));
         }
         self.executing = Some(offset);
@@ -648,67 +717,86 @@ impl ExecutionFrame {
         self.executing = None;
     }
 
-    pub fn jump_to(&mut self, offset: usize) -> Result<(), RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
+    pub fn jump_to(&mut self, runtime: &Runtime, offset: usize) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
         if self
             .function()
             .is_none_or(|function| offset >= function.instructions.len())
         {
-            return Err(self.resources.quarantine("invalid frame jump target"));
+            return Err(runtime.resources().quarantine("invalid frame jump target"));
         }
         self.ip = offset;
         Ok(())
     }
 
-    pub fn read_register(&self, register: Register) -> Result<Value, RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
+    pub fn read_register(
+        &self,
+        runtime: &Runtime,
+        register: Register,
+    ) -> Result<Value, RuntimeError> {
+        self.validate_runtime(runtime)?;
         if register.index() >= self.register_count {
-            return Err(self.resources.quarantine("invalid frame register"));
+            return Err(runtime.resources().quarantine("invalid frame register"));
         }
         self.slots
-            .get(&self.heap, register.index())
-            .ok_or_else(|| self.resources.quarantine("invalid frame register"))
+            .get(&runtime.gc, register.index())
+            .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))
     }
 
-    pub fn write_register(&mut self, register: Register, value: Value) -> Result<(), RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
+    pub fn write_register(
+        &mut self,
+        runtime: &Runtime,
+        register: Register,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
         if register.index() >= self.register_count {
-            return Err(self.resources.quarantine("invalid frame register"));
+            return Err(runtime.resources().quarantine("invalid frame register"));
         }
         self.slots
-            .set(&self.heap, register.index(), value)
-            .ok_or_else(|| self.resources.quarantine("invalid frame register"))
+            .set(&runtime.gc, register.index(), value)
+            .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))
     }
 
-    pub fn read_local(&self, local: LocalSlot) -> Result<Value, RuntimeError> {
+    pub fn read_local(&self, runtime: &Runtime, local: LocalSlot) -> Result<Value, RuntimeError> {
+        self.validate_runtime(runtime)?;
         self.slots
-            .get(&self.heap, self.register_count + local.index())
-            .ok_or_else(|| self.resources.quarantine("invalid frame local"))
+            .get(&runtime.gc, self.register_count + local.index())
+            .ok_or_else(|| runtime.resources().quarantine("invalid frame local"))
     }
 
-    pub fn write_local(&mut self, local: LocalSlot, value: Value) -> Result<(), RuntimeError> {
-        self.resources.ensure_execution_allowed()?;
+    pub fn write_local(
+        &mut self,
+        runtime: &Runtime,
+        local: LocalSlot,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
         self.slots
-            .set(&self.heap, self.register_count + local.index(), value)
-            .ok_or_else(|| self.resources.quarantine("invalid frame local"))
+            .set(&runtime.gc, self.register_count + local.index(), value)
+            .ok_or_else(|| runtime.resources().quarantine("invalid frame local"))
     }
 }
 
 impl Runtime {
     /// Native backends publish their logical program point before a cancellation/GC safepoint.
     pub(crate) fn record_native_instruction(&self, offset: usize) -> Result<(), RuntimeError> {
-        let session = self.resources.active_session().ok_or_else(|| {
-            self.resources
+        let session = self.resources().active_session().ok_or_else(|| {
+            self.resources()
                 .quarantine("native program point without an execution session")
         })?;
-        let mut frames = session.frames.try_borrow_mut().map_err(|_| {
-            self.resources
-                .quarantine("native program point while frames are borrowed")
-        })?;
+        let mut frames = self
+            .resources()
+            .sessions
+            .frames_mut(session.id)
+            .ok_or_else(|| {
+                self.resources()
+                    .quarantine("native program point while frames are borrowed")
+            })?;
         let frame = frames.last_mut().ok_or_else(|| {
-            self.resources
+            self.resources()
                 .quarantine("native program point without an execution frame")
         })?;
-        frame.set_native_instruction(offset)
+        frame.set_native_instruction(self, offset)
     }
 }

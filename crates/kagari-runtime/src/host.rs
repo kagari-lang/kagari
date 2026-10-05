@@ -23,7 +23,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     fmt,
-    rc::{Rc, Weak},
+    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -760,21 +760,30 @@ impl Default for HostBorrowOwner {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct HostBorrowTable {
     owner: HostBorrowOwner,
-    state: Rc<RefCell<HostBorrowState>>,
-    resources: Option<Weak<ResourceState>>,
+    state: RefCell<HostBorrowState>,
 }
 
+/// A scoped borrow into its table; it cannot keep the table alive after teardown.
+///
+/// ```compile_fail
+/// use kagari_runtime::host::HostBorrowTable;
+/// let table = HostBorrowTable::default();
+/// let guard = table.enter_frame().unwrap();
+/// drop(table);
+/// drop(guard);
+/// ```
 #[derive(Debug)]
-pub struct HostCallGuard {
-    table: HostBorrowTable,
+pub struct HostCallGuard<'runtime> {
+    table: &'runtime HostBorrowTable,
+    resources: Option<&'runtime ResourceState>,
     frame_id: HostFrameId,
     epoch: BorrowEpoch,
 }
 
-impl HostCallGuard {
+impl HostCallGuard<'_> {
     pub fn frame_id(&self) -> HostFrameId {
         self.frame_id
     }
@@ -788,13 +797,8 @@ impl HostCallGuard {
         object_id: HostObjectId,
         type_id: TypeId,
     ) -> Result<FrameHostBorrowToken, RuntimeError> {
-        self.table.borrow(
-            self.frame_id,
-            self.epoch,
-            object_id,
-            HostBorrowKind::Shared,
-            type_id,
-        )
+        self.table
+            .borrow(self, object_id, HostBorrowKind::Shared, type_id)
     }
 
     pub fn borrow_unique(
@@ -802,13 +806,8 @@ impl HostCallGuard {
         object_id: HostObjectId,
         type_id: TypeId,
     ) -> Result<FrameHostBorrowToken, RuntimeError> {
-        self.table.borrow(
-            self.frame_id,
-            self.epoch,
-            object_id,
-            HostBorrowKind::Unique,
-            type_id,
-        )
+        self.table
+            .borrow(self, object_id, HostBorrowKind::Unique, type_id)
     }
 
     pub fn validate(
@@ -816,6 +815,9 @@ impl HostCallGuard {
         token: FrameHostBorrowToken,
         required_kind: HostBorrowKind,
     ) -> Result<(), RuntimeError> {
+        if let Some(resources) = self.resources {
+            resources.ensure_execution_allowed()?;
+        }
         if token.frame_id != self.frame_id {
             return Err(RuntimeError::expired_host_borrow(format!(
                 "token frame {} does not match current frame {}",
@@ -831,9 +833,10 @@ impl HostCallGuard {
     }
 }
 
-impl Drop for HostCallGuard {
+impl Drop for HostCallGuard<'_> {
     fn drop(&mut self) {
-        self.table.leave_frame(self.frame_id, self.epoch);
+        self.table
+            .leave_frame(self.frame_id, self.epoch, self.resources);
     }
 }
 
@@ -935,7 +938,7 @@ impl<'a> HostCallContext<'a> {
         self.scope.runtime()
     }
 
-    pub fn borrows(&self) -> &HostCallGuard {
+    pub fn borrows(&self) -> &HostCallGuard<'_> {
         self.scope.borrows()
     }
 

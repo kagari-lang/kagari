@@ -109,7 +109,7 @@ fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> Prepa
 
 #[test]
 fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames() {
-    let (mut vm, module) = setup(compile("fn main() {}", false));
+    let (vm, module) = setup(compile("fn main() {}", false));
     assert_eq!(module.bytecode.functions[0].instructions.len(), 2);
     let preparation = prepared(&vm, &module, native_unit);
     let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
@@ -124,7 +124,7 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
 
 #[test]
 fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
-    let (mut vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false));
+    let (vm, module) = setup(compile("fn main() -> i32 { 40 + 2 }", false));
     let preparation = PreparedNativeEntry::Unsupported {
         backend: BackendId::new("fixture"),
         diagnostics: vec!["unsupported operation".into()],
@@ -139,7 +139,7 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
 
 #[test]
 fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
-    let (mut vm, module) = setup(compile("fn main() {}", false));
+    let (vm, module) = setup(compile("fn main() {}", false));
     let preparation = prepared(&vm, &module, native_trap);
     let error = vm
         .execute_prepared(&module, "main", &preparation)
@@ -156,7 +156,7 @@ fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
 #[test]
 fn prepared_function_identity_must_match_the_requested_entry() {
     let bytecode = compile("fn main() {} fn other() {}", false);
-    let (mut vm, module) = setup(bytecode);
+    let (vm, module) = setup(bytecode);
     let preparation = prepared(&vm, &module, native_unit);
     let error = vm
         .execute_prepared(&module, "other", &preparation)
@@ -178,8 +178,8 @@ fn optimized_execution_preserves_results_traps_and_source_origins() {
         let original = compile(source, false);
         let optimized = compile(source, true);
         {
-            let (mut before, a) = setup(original.clone());
-            let (mut after, b) = setup(optimized.clone());
+            let (before, a) = setup(original.clone());
+            let (after, b) = setup(optimized.clone());
             let a = before.execute(&a, "main");
             let b = after.execute(&b, "main");
             match (a, b) {
@@ -233,7 +233,7 @@ fn debugging_selects_interpreter_before_entering_native_code() {
 #[test]
 fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
     let program = compile("fn main() {}", false);
-    let (mut vm, module) = setup(program.clone());
+    let (vm, module) = setup(program.clone());
     let preparation = prepared(&vm, &module, native_unit);
     let new = vm.reload_program(&module, "test", program).unwrap();
     let error = vm.execute_prepared(&new, "main", &preparation).unwrap_err();

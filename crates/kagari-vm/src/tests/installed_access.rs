@@ -57,7 +57,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
             },
         )
         .expect("module should load");
-    let mut host_vm = Vm::new(host_runtime);
+    let host_vm = Vm::new(host_runtime);
     assert_eq!(
         host_vm.execute(&host_module, "main").unwrap().return_value,
         Value::I32(42)
@@ -89,7 +89,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
             },
         )
         .expect("module should load");
-    let mut reflection_vm = Vm::new(reflection_runtime);
+    let reflection_vm = Vm::new(reflection_runtime);
     assert_eq!(
         reflection_vm
             .execute(&reflection_module, "main")
@@ -147,7 +147,7 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
             },
         )
         .expect("module should load");
-    let mut reflection_vm = Vm::new(metadata_only);
+    let reflection_vm = Vm::new(metadata_only);
     reflection_vm.execute(&reflection_module, "main").unwrap();
 
     let debug_runtime = standard_runtime(RuntimeConfig {

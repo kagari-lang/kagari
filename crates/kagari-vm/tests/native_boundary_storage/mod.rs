@@ -10,7 +10,7 @@ use std::ops::Bound;
 
 #[test]
 fn index_bounds_validate_the_applied_type_even_without_a_payload() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use core::ops::Bound;
         enum ForeignBound { Unbounded }
         fn valid() -> Bound<usize> { Bound::Unbounded }
@@ -37,7 +37,7 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
 
 #[test]
 fn assigns_stable_object_identity_and_kind() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         struct Empty { val value: () }
@@ -88,7 +88,7 @@ fn assigns_stable_object_identity_and_kind() {
 
 #[test]
 fn hash_map_replaces_duplicates_and_accounts_units() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap};
 fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new(); map.insert("b", 2); map.insert("a", 1); map.insert("b", 3); map }"#,
         None,
@@ -143,7 +143,7 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
 
 #[test]
 fn hash_set_replaces_duplicates_and_accounts_units() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashSet};
 fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.insert("b"); set.insert("a"); set.insert("b"); set }"#,
         None,
@@ -180,7 +180,7 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
 
 #[test]
 fn root_scanning_traces_only_gc_managed_boundaries() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         struct Record { val map: HashMap<String, Vec<i32>> }
@@ -227,7 +227,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
 
 #[test]
 fn root_scanning_handles_cycles_without_duplicate_identity() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         struct Cycle { val array: Vec<Cycle> }
         fn main() -> Vec<Cycle> { val array: Vec<Cycle> = []; array.push(Cycle { array: array }); array }
@@ -248,7 +248,7 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
 
 #[test]
 fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) { ([], HashMap::new(), HashSet::new()) }
@@ -318,7 +318,7 @@ fn sorted_set(mut entries: Vec<Value>) -> Vec<Value> {
 
 #[test]
 fn native_array_helpers_mutate_and_return_options() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"
         fn main() -> (Vec<i32>, Option<i32>, Option<i32>, usize) {
             val array = [1]; val length = array.len();
@@ -357,7 +357,7 @@ fn native_array_helpers_mutate_and_return_options() {
 
 #[test]
 fn native_map_helpers_return_options_and_keep_declared_types() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap};
 
         fn main() -> (HashMap<String,i32>, Option<i32>, Option<i32>, bool) {
@@ -405,7 +405,7 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
 
 #[test]
 fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) {
@@ -466,7 +466,7 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
 
 #[test]
 fn native_map_and_set_allocations_update_resource_counters() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (HashMap<String,i32>, HashSet<String>) {
@@ -500,7 +500,7 @@ fn native_map_and_set_allocations_update_resource_counters() {
 
 #[test]
 fn custom_set_removal_rejects_iteration_even_when_the_key_is_absent() {
-    let (mut vm, loaded) = compile(
+    let (vm, loaded) = compile(
         r#"use std::collections::{HashSet};
 use std::hash::{Hash};
 

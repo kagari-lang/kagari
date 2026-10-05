@@ -62,7 +62,7 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
         )
     })
     .to_vec();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let runner = vm.execute(&loaded, "runner").unwrap().return_value;
     (vm, loaded, runner, methods)
 }
@@ -72,7 +72,7 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
 fn compare_rust_native_and_script_stable_sorting() {
     verify_counter();
     let compilation = Instant::now();
-    let (mut vm, loaded, runner, methods) = setup();
+    let (vm, loaded, runner, methods) = setup();
     println!("compile_and_load_ns={}", compilation.elapsed().as_nanos());
     let root = vm.runtime().root_value(runner.clone()).unwrap();
     for length in [16usize, 4096] {

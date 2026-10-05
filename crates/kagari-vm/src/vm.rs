@@ -76,7 +76,7 @@ impl Vm {
     }
 
     pub fn reload_program(
-        &mut self,
+        &self,
         active: &LoadedModule,
         name: impl Into<String>,
         program: BytecodeProgram,
@@ -91,7 +91,7 @@ impl Vm {
     }
 
     pub fn reload_artifact(
-        &mut self,
+        &self,
         active: &LoadedModule,
         name: impl Into<String>,
         artifact: KbcArtifact,
@@ -135,7 +135,7 @@ impl Vm {
             .map(|session| session.0.borrow_mut())
     }
 
-    fn begin_execution(&self, module: &LoadedModule) -> Result<ExecutionSession, VmError> {
+    fn begin_execution(&self, module: &LoadedModule) -> Result<ExecutionSession<'_>, VmError> {
         let session = self
             .runtime
             .begin_execution(module, self.runtime.execution_options())?;
@@ -150,11 +150,7 @@ impl Vm {
         Ok(session)
     }
 
-    pub fn execute(
-        &mut self,
-        module: &LoadedModule,
-        entry: &str,
-    ) -> Result<ExecutionReport, VmError> {
+    pub fn execute(&self, module: &LoadedModule, entry: &str) -> Result<ExecutionReport, VmError> {
         let _session = self.begin_execution(module)?;
         self.runtime
             .validate_loaded_module(module)
@@ -179,7 +175,7 @@ impl Vm {
     /// interface value. The receiver and arguments remain rooted while module
     /// the method body executes.
     pub fn invoke_interface_method<I: DefinitionReference>(
-        &mut self,
+        &self,
         interface: &Value,
         method: &I,
         arguments: &[Value],
@@ -188,7 +184,7 @@ impl Vm {
             .runtime
             .resolve_interface_method(interface, method)
             .map_err(VmError::RuntimeError)?;
-        let loaded = resolved.implementation().clone();
+        let loaded = resolved.implementation(&self.runtime)?;
         let args = iter::once(resolved.receiver().clone())
             .chain(arguments.iter().cloned())
             .collect::<Vec<_>>();

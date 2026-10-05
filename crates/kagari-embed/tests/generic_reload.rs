@@ -74,7 +74,7 @@ fn make() -> Run {{
             "run",
         );
         let old_key = old.key();
-        let mut vm = Vm::new(runtime);
+        let vm = Vm::new(runtime);
         let saved = vm.execute(&old, "make").unwrap().return_value;
         let root = vm.runtime().root_value(saved.clone()).unwrap();
         let current = vm
@@ -82,13 +82,7 @@ fn make() -> Run {{
             .unwrap();
         drop(old);
         vm.runtime().collect_garbage().unwrap();
-        assert!(
-            vm.runtime()
-                .modules()
-                .retention_counts(old_key)
-                .runtime_values
-                > 0
-        );
+        assert!(vm.runtime().modules().loaded(old_key).is_some());
         let fresh = vm.execute(&current, "make").unwrap().return_value;
         let fresh_root = vm.runtime().root_value(fresh.clone()).unwrap();
         assert_eq!(
@@ -171,7 +165,7 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
         "run",
     );
     let old_key = old.key();
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let saved = vm.execute(&old, "make").unwrap().return_value;
     let root = vm.runtime().root_value(saved.clone()).unwrap();
     let stopped = vm.execute(&old, "make_stopped").unwrap().return_value;
@@ -179,13 +173,7 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
     let current = vm.reload_program(&old, "try-reload", replacement).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
-    assert!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values
-            > 0
-    );
+    assert!(vm.runtime().modules().loaded(old_key).is_some());
     let fresh = vm.execute(&current, "make").unwrap().return_value;
     let fresh_root = vm.runtime().root_value(fresh.clone()).unwrap();
     let fresh_stopped = vm.execute(&current, "make_stopped").unwrap().return_value;
