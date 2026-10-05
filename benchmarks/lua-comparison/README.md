@@ -91,6 +91,237 @@ The tiny entry case is not representative of numeric or collection throughput,
 and its JIT compilation may fold constants. Do not extrapolate one overall
 language speed ratio from these seven microbenchmarks.
 
+## Interpreter baseline after GO06, 2026-10-06
+
+The current interpreter does **not** meet Lua parity. Across the six nontrivial
+paired workloads, its median elapsed time is **308.28–764.12 times** PUC Lua's.
+This is a fresh baseline, not a measured regression against the Windows results
+below: machine, OS, compiler and runtime implementation differ. No production
+optimization was made in this measurement checkpoint.
+
+Reproduce execution and independent diagnostic sampling, in that order:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only
+uv run python scripts/profile_lua_macos.py arithmetic branches calls fibonacci arrays maps
+```
+
+The new `--interpreter-only` flag skips both native preparation and native
+execution. The binary still has SDK `source,native` features enabled; artifact
+preparation still verifies its normal contracts outside the execution timer.
+It never calls `execute_prepared` on this route. This measures pure interpretation,
+not JIT fallback. The original combined-route command remains available.
+
+### Environment and scope
+
+Production revision: `97804fe71f0e82a460eeef24b11e1a9ef8bb2aa7`, with only
+benchmark tooling changes. Apple M1 Max, 10 logical CPUs, 32 GiB RAM, macOS 26.6.2
+(25G83), aarch64-apple-darwin. Rust 1.98.1 (`48a229cea`, LLVM 22.1.8), Cargo 1.98.1
+(`797e8a9bc`). Workspace release defaults (optimization level 3), default target
+directory and Cargo parallelism; no RUSTFLAGS/CC/CFLAGS/jobs/target override.
+Lua 5.4.8 is vendored by lua-src 550.0.0 through mlua 0.11.6.
+
+Two sequential processes, three warmups per route and eleven samples per process;
+second process reverses the workload order and initial engine order. The table
+pools 22 samples, normalized by batch size. All 308 timed batches and all warmup
+results matched independent checksums. Every setup phase has six separate samples.
+Build cache was reused where available; the release build rebuilt affected crates
+and took 66.356 seconds, excluded from execution. No agent-started build/test/profile
+ran concurrently with timing. Desktop applications remained active; CPU placement,
+frequency, temperature and background activity were not controlled. Sample ranges
+and per-process ratios are retained rather than removing outliers.
+
+Sources use matching algorithms and explicit while loops, not identical opcodes.
+Kagari uses checked i32 operations; Lua uses its dynamic integer operations. These
+fixtures stay within i32 range. Default GC, runtime checks and host entry/result
+conversion are included. Compilation, verification, linking and initialization are
+excluded. Arrays compare Vec operations with dense Lua tables; maps compare sparse
+integer keys and explicit missing-value handling. These are useful end-to-end
+collection workloads, not identical container or return-value representations.
+
+### Execution results
+
+All times are **microseconds per complete workload**, except entry which is
+normalized to one call from a 1,000-call batch. Parentheses show min–max.
+
+| Workload | Kagari VM (us) | Lua 5.4 (us) | VM/Lua |
+| --- | ---: | ---: | ---: |
+| entry | 3.097 (3.051–3.183) | 0.030 (0.028–0.046) | 104.03 |
+| arithmetic | 274,713.312 (271,800.875–285,643.959) | 390.188 (375.750–416.583) | 704.05 |
+| branches | 348,287.125 (342,549.458–353,006.541) | 821.312 (789.375–885.167) | 424.06 |
+| calls | 94,889.042 (93,781.042–105,275.750) | 227.791 (220.208–255.041) | 416.56 |
+| fibonacci | 110,080.500 (108,577.500–111,504.458) | 357.083 (344.750–374.334) | 308.28 |
+| arrays | 66,748.750 (65,727.208–85,898.084) | 87.354 (68.959–109.750) | 764.12 |
+| maps | 47,415.375 (46,634.000–49,760.958) | 78.083 (68.042–95.875) | 607.24 |
+
+Per-process VM/Lua ratios, in forward/reverse order: entry 104.12/100.94,
+arithmetic 692.30/717.73, branches 431.51/409.19, calls 417.07/419.25,
+fibonacci 310.43/307.29, arrays 754.83/772.86, maps 570.20/653.45.
+The tiny entry workload measures the public host-call protocol, not arithmetic
+throughput. Collection timings have more variation; that does not explain the
+hundreds-fold gap in both independent processes.
+
+For arithmetic, separate setup medians are: Kagari engine 190.511 ms,
+source-to-artifact 589.760 ms, artifact preparation 270.256 ms, runtime creation
+107.742 ms and linking 2.429 ms. Lua state creation is 0.065 ms, source-to-chunk
+0.015 ms and module initialization 0.002 ms. The setup products do different work;
+these numbers are not part of the interpreter throughput ratios.
+
+Raw evidence: `target/lua-comparison/20261005T230702Z/results.json`, with its two
+CSV files, build log and metadata/source/binary hashes. Raw samples are disposable;
+this report and paired sources preserve the durable result and reproduction.
+
+### Execution diagnosis
+
+`profile_lua_macos.py` builds the same release configuration without a debug/profile
+override, then runs each workload in a fresh process. After three warm calls it
+samples a ten-second execution window using `/usr/bin/sample PID 5 1` (five seconds,
+one-millisecond requested interval). It rejects windows that may overlap the
+subsequent instruction-counting pass. No execution observer or Lua hook is enabled
+in the sampled window. Instruction counts use separate checked observer/hook calls;
+GC counts cover the complete ten-second window, divided by completed calls.
+
+The six reports contain 24,143 main-thread samples and no additional sampled
+threads. These are wall-clock stack samples, not exact CPU times. Optimized inline
+attribution is incomplete; duplicate linker symbols remain explicitly unattributed.
+The table sums the sampler's collapsed leaf symbols reported at least five times,
+so small omitted symbols can undercount a family. Families are disjoint; percentages
+must not be added to inclusive parent-stack percentages. Sampled execution durations
+are never pooled into the throughput results.
+
+| Workload | Samples | SipHash leaf | Frame/session access | Termination/allowed checks | Fetch/clone | Root get/set | Duplicate symbols, unattributed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 3,998 | 13.78% | 22.81% | 15.56% | 12.76% | 5.30% | 10.63% |
+| branches | 4,028 | 12.56% | 21.65% | 15.44% | 14.35% | 5.76% | 11.47% |
+| calls | 4,000 | 13.88% | 22.00% | 14.42% | 11.95% | 5.67% | 10.15% |
+| fibonacci | 4,060 | 13.42% | 22.41% | 12.81% | 11.43% | 4.14% | 10.71% |
+| arrays | 4,027 | 9.83% | 11.55% | 8.57% | 8.10% | 2.81% | 7.55% |
+| maps | 4,030 | 10.35% | 12.70% | 9.53% | 8.41% | 3.28% | 9.85% |
+
+Frame/session includes `ExecutionStack::{current,current_mut,validate_top}` and
+`SessionStore::{frames,frames_mut}`. Termination includes
+`ResourceState::{termination,ensure_execution_allowed}`. Fetch is
+`ExecutionFrame::next_instruction`; roots are `RootSet::{get,set}`. Hash is only
+the `Sip13Rounds` leaf, not all hashing. In arithmetic, its parent stacks resolve
+to session-frame lookup, even though the script has no map. Collections additionally
+show module-key hashing and allocator work; not all their hashing belongs to frames.
+
+| Workload | Kagari instructions/call | Lua instructions/call | GC collections/call | GC object allocations/call |
+| --- | ---: | ---: | ---: | ---: |
+| arithmetic | 750,014 | 250,007 | 0 | 0 |
+| branches | 960,016 | 309,968 | 0 | 0 |
+| calls | 240,014 | 110,007 | 0 | 0 |
+| fibonacci | 262,691 | 120,400 | 0 | 0 |
+| arrays | 96,030 | 42,012 | 2 | 1 |
+| maps | 81,030 | 24,012 | 5 | 2,001 |
+
+GC object counts exclude Rust allocator traffic, root records, vectors and leases.
+Thus zero script allocations does not mean zero host allocation. Arithmetic spends
+only 41/3,998 (1.03%) reported leaf samples in `numeric::binary`; shared arithmetic
+helpers are not the primary measured cost. Dynamic instruction counts have different
+meanings across VMs and are not themselves a speed ratio.
+
+Current arm64 headers are `Value = 104 bytes` and
+`BytecodeInstruction<DefinitionId> = 136 bytes`, excluding owned payloads. Arithmetic
+executes 250,003 LoadLocal, 100,002 StoreLocal and 100,003 LoadConst instructions:
+450,008/750,014 instructions (60.0%) are those transfers/constant loads. The code
+uses registers but still transports most local values through separate local slots.
+Instruction-count inflation is about 3x here, while elapsed time is 704x; both the
+number of operations and their execution protocol need attention.
+
+Code inspection explains the measured paths:
+
+- `kagari-vm/src/executor/mod.rs` reacquires the current frame several times per
+  instruction, polls GC/cancellation and enters the observer lookup even when absent.
+- `kagari-runtime/src/session/store.rs` stores frame vectors in
+  `HashMap<SessionId, Vec<ExecutionFrame>>`. Repeated frame access rechecks the session
+  and hashes its identity. The samples confirm this cost in scalar code.
+- `kagari-runtime/src/frame.rs` routes registers and locals through `RootSet`,
+  validating execution again for each access. `gc/roots.rs` checks owner/generation
+  and lease identity; its entry lookup temporarily creates a Weak through
+  `Arc::downgrade`. That exact atomic cost was not isolated by this sampling run.
+- Fetch clones the instruction enum. Operations with owned vectors/type records can
+  additionally clone payloads; header size alone is not a full traffic measurement.
+- Script frames allocate slot vectors/root leases/metadata. Collection samples also
+  reach module retention, type normalization and Rust allocation paths. The arrays
+  report has only one GC object allocation per call, despite substantial allocator
+  samples. Maps allocate an ordinary Option result for each of 2,000 lookups.
+
+Raw diagnostic evidence is under
+`target/lua-comparison/20261005T230954Z-macos-profile/{workload}/`:
+`sample.txt`, `execution.log`, sampler/error logs and top-level metadata. This evidence
+supports priorities below; it does not isolate the speedup of any proposed change.
+
+### Architectural direction
+
+The central runtime ownership and checked host API remain the right boundary.
+The problem is that internal instruction execution repeatedly traverses services
+intended for externally retained values and reentrant calls. Keep host leases,
+generations and validation, but give verified execution its own efficient storage
+and access discipline.
+
+Two primary-source references inform the proposal:
+
+- [Lua 5.4 opcodes](https://www.lua.org/source/5.4/lopcodes.h.html) use compact 32-bit
+  instructions. [Lua's interpreter](https://www.lua.org/source/5.4/lvm.c.html) keeps
+  current code/constants/base locally, gates tracing through a trap flag and
+  publishes/restores state around operations that can error, collect or relocate
+  the stack. [GC thread traversal](https://www.lua.org/source/5.4/lgc.c.html) visits
+  the execution stack directly. These public pages currently show 5.4.9; the
+  measured dependency is 5.4.8, whose vendored sources contain the same mechanisms.
+- [V8's Ignition design](https://v8.dev/blog/ignition-interpreter) describes a compact
+  register/accumulator interpreter with fewer unnecessary register transfers.
+  The relevant lesson is execution-oriented representation and lowering, not adding
+  a JavaScript-style speculative JIT to this interpreter task.
+
+Apply those ideas to Kagari's static typing and existing checked contracts:
+
+1. **Execution storage and access.** Runtime owns a reusable contiguous value stack
+   with frame windows. The VM acquires a validated execution cursor instead of
+   resolving session identity for every operand. GC traces active and suspended
+   frame windows directly; persistent host roots remain in the checked lease table.
+   Publish PC/roots and release transient borrows before allocation, observation,
+   native calls and reentry; reacquire and validate on return. No references may
+   survive stack growth, GC or nested execution. Preserve current cancellation and
+   observer program points initially, making disabled paths cheap. Changing their
+   frequency requires a separate explicit semantic decision.
+2. **Compact executable code and slots.** Lower verified facts into small typed
+   operations and indexed constant/type/call tables. Dispatch does not clone owned
+   semantic records. Use checked i32 operations for statically known i32 registers;
+   generic values retain tags and validated boundaries. Choose compact slot layout
+   together with tracing/stack maps and exact integer/float/handle requirements;
+   do not mandate NaN boxing or truncate generations. Keep wire validation and
+   debug origins; do not add a second semantic implementation.
+3. **Register allocation and script calls.** Keep ordinary locals in their assigned
+   register window; eliminate redundant copies/constant traffic through a general
+   lowering pass. Calls use stack windows plus return destinations rather than
+   per-call root tables and metadata vectors. Preserve aliased/captured cells,
+   left-to-right evaluation, checked-arithmetic traps and generation-pinned callees.
+   Verify debug-variable locations and observable points after coalescing.
+4. **Prepared native and collection boundaries.** Reuse linked call descriptors,
+   instantiated type evidence and pinned dependency scopes through the execution
+   scope. Typed native ergonomics stay intact; temporary in-call views should not
+   manufacture durable host roots repeatedly. Only escaping values need persistent
+   leases. Profile again before selecting ordinary enum/Option representation work;
+   preserve allocation failure, identity and mutation commit semantics. Do not
+   introduce a HashMap-specific shortcut in generic VM dispatch.
+
+The [roadmap](../../docs/implementation-roadmap.md#interpreter-performance-follow-up)
+owns these proposed implementation checkpoints. This benchmark task does not claim
+that one stage, a GC replacement, a different hash function or inlining alone will
+close a hundreds-fold gap. Collector algorithm replacement, JIT expansion and source
+compilation optimization are outside this measured interpreter work.
+
+Acceptance target: interpreter/Lua median time <= 1.0 on each nontrivial paired
+workload in repeatable same-machine release runs, with setup reported separately
+and no hidden native execution. Near parity, expand samples/processes and quantify
+uncertainty before declaring success; do not hide a regression in a geometric mean.
+Track host-entry latency separately and retain its own improvement target. Extend
+coverage to strings, objects, closures, traits and real host callbacks before making
+any whole-language parity claim. Required correctness includes traps/side effects,
+roots under forced collection, cancellation, observer PCs, synchronous reentry,
+call depth, old-generation calls and source-free verification.
+
 ## Measured baseline: 2026-10-03
 
 Base revision: `45aa927d` plus this benchmark checkpoint; language/runtime code
@@ -248,9 +479,9 @@ use the general value/root representation. Arithmetic alone performs 250,003
 to 200,001 binary operations and loop branches/jumps.
 
 Calls/recursion add frame/root allocation costs. Map lookup also constructs
-heap-backed `Option` results: [`map_get`](../../crates/kagari-runtime/src/native/foundation/hash.rs)
-calls [`option`](../../crates/kagari-runtime/src/native/foundation.rs), which
-allocates an enum object. This fixture performs 2,000 gets plus one map allocation,
+heap-backed `Option` results: [`map_get`](../../crates/kagari-stdlib/src/bindings/hash.rs)
+calls [`option`](../../crates/kagari-stdlib/src/bindings.rs), which
+allocates an enum object (links follow their current stdlib owners). This fixture performs 2,000 gets plus one map allocation,
 matching the measured 2,001 allocations and five collections per call. The zero
 GC collections in scalar/call workloads exclude GC pauses as the cause of their
 large gaps. Both container workloads still spend substantial samples in the same

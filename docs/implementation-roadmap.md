@@ -1,8 +1,9 @@
 # Kagari Implementation Roadmap
 
 This is the single queue and progress owner for pending work. GO01-GO06 are complete,
-as are the earlier AC, CR, LR and EN tracks. Other queued proposals require separate
-activation; this completed goal does not start another architecture migration.
+as are the earlier AC, CR, LR and EN tracks. The subsequent interpreter benchmark checkpoint is complete. Proposed performance
+implementation stages below are not marked active by the completed GO goal; other
+queued proposals still require separate activation.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -21,8 +22,71 @@ are complete.
 Immutable preparation, foundation registration reuse and shared interface metadata
 are implemented. Remaining measured costs and reproduction commands live in
 [performance measurements](performance-baseline.md). No carried build/test error
-remains after GO06 final integration. Performance changes from this cleanup
-have not been measured.
+remains after GO06 final integration. A fresh post-GO06 interpreter baseline is recorded below; the ownership cleanup
+itself has not been compared against its parent on the same machine.
+
+## Interpreter performance follow-up
+
+The user targets interpreted execution at least as fast as Lua on equivalent
+source workloads and prioritizes architectural improvements over local patches.
+[The 2026-10-06 report](../benchmarks/lua-comparison/README.md#interpreter-baseline-after-go06-2026-10-06)
+owns the evidence, primary-source references and detailed proposed design.
+Current scope is measurement, diagnosis and implementation sequencing. Production
+interpreter replacement is proposed below, not silently included in this benchmark
+checkpoint. No claim of meeting the performance goal is made.
+
+- [x] **IP00: Current baseline and diagnosis.** Add an explicit interpreter-only
+  benchmark route and macOS execution sampler. Run seven paired workloads in two
+  fresh release processes with checked results and separate setup timings. Profile
+  six nontrivial cases independently and count bytecodes/GC activity. Post-GO06
+  production revision `97804fe7` on M1 Max/macOS shows 308.28–764.12x VM/Lua
+  median times on those six cases. 24,143 stack samples identify repeated session
+  hashing, frame/termination checks, instruction cloning and native allocation
+  paths. There is no production optimization or historical speedup claim.
+- [ ] **IP01: Execution stack ownership and direct access.** Runtime owns reusable
+  contiguous execution slots and frame windows; VM acquires validated cursors.
+  Separate frame tracing from persistent host root leases, avoid per-operand
+  session lookup, and publish/reacquire state at GC/observer/native/reentry
+  boundaries. Preserve cancellation and observer program points initially. Verify
+  forced GC across active/suspended frames, nested calls, call-depth failure,
+  sticky cancellation, cleanup, quarantine and generation-pinned reload. Benchmark
+  scalar and call workloads after this coherent ownership change.
+- [ ] **IP02: Compact typed interpreter representation.** Bytecode/execution
+  preparation owns compact operations plus indexed constant/type/call tables;
+  runtime owns compact slots and their tracing contract. Use verified operand types
+  without cloning owned semantic metadata during dispatch. Preserve bounded
+  source-free validation, numeric overflow/traps, generic boundaries, complete
+  scalar precision and generation checks. Do not assume a fixed NaN-boxed encoding
+  before its type/handle requirements are proven. Measure header sizes, instruction
+  fetch cost and scalar throughput; retain debug origin mapping.
+- [ ] **IP03: Register allocation and script call convention.** Compiler lowering
+  coalesces ordinary locals/temporaries and removes redundant moves/constants using
+  general dataflow; VM calls use reusable register windows and return destinations.
+  Keep mutable captured cells and alias semantics, left-to-right evaluation, trap
+  order, observer variable locations and exact callee versions. Measure dynamic
+  instruction counts and call allocation traffic separately from timing.
+- [ ] **IP04: Prepared native/collection paths and acceptance.** Runtime links
+  reusable descriptors/type evidence; typed native calls use scoped views and
+  create persistent leases for escaping values. Stdlib continues ordinary
+  registration. Reprofile collection/enum allocation before choosing representation
+  changes; preserve nominal semantics, allocation/commit order and host borrows.
+  Repeat matched interpreter/Lua runs and the correctness/feature matrix. Publish
+  any remaining gap instead of relaxing the target or bypassing checks.
+
+IP01-IP04 are ordered proposed checkpoints, not approved performance claims.
+Acceptance is interpreter/Lua median <= 1.0 for each nontrivial matched workload in
+repeatable same-machine release runs; near parity needs more independent samples
+and uncertainty analysis. Entry overhead is reported separately. Add representative
+strings, objects, closures, traits and host-callback workloads before any general
+language parity claim. No JIT expansion, collector algorithm replacement or source
+compilation optimization is activated by this report. Keep one implementation
+checkpoint commit per phase, with `Roadmap-Step: IPxx`, if implementation proceeds.
+
+IP00 validation: both timing processes and all six profiling/counting passes
+completed with correct results; the existing benchmark test checks empty/single
+inputs on interpreter/Lua and supported native routes. Structure, formatting,
+focused strict Clippy, Python syntax and report consistency checks are recorded at
+this checkpoint. No production crate changes or carried build errors are introduced.
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
 

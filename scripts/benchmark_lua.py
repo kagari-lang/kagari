@@ -35,6 +35,10 @@ def machine() -> dict:
         )
         encoded = command("powershell", "-NoProfile", "-Command", script)
         info.update(json.loads(base64.b64decode(encoded).decode("utf-8")))
+    elif platform.system() == "Darwin":
+        info.update(cpu=command("sysctl", "-n", "machdep.cpu.brand_string"),
+                    memory_bytes=int(command("sysctl", "-n", "hw.memsize")),
+                    os_version=command("sw_vers", "-productVersion"))
     return info
 
 
@@ -53,6 +57,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="One checked sample per route, without warmup")
     parser.add_argument("--runs", type=int, default=2, help="Sequential fresh processes; default: 2")
+    parser.add_argument("--interpreter-only", action="store_true",
+                        help="Skip native backend preparation and execution")
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
@@ -70,6 +76,7 @@ def main() -> None:
                 "warmups_per_route": 0 if args.check else 3,
                 "setup_samples_per_workload": 1 if args.check else 3,
                 "runs": args.runs, "check": args.check,
+                "interpreter_only": args.interpreter_only,
                 "environment": {key: os.environ[key] for key in (
                     "CARGO_BUILD_JOBS", "CARGO_TARGET_DIR", "RUSTFLAGS", "CFLAGS", "CC"
                 ) if key in os.environ}}
@@ -94,6 +101,8 @@ def main() -> None:
         argv = [str(executable)]
         if args.check:
             argv.append("--check")
+        if args.interpreter_only:
+            argv.append("--interpreter-only")
         if run % 2:
             argv.append("--reverse")
         start = time.perf_counter()
@@ -117,7 +126,7 @@ def main() -> None:
         vm, lua = results[name, "kagari_vm"], results[name, "lua54"]
         jit = results.get((name, "kagari_jit"))
         print(f"{name}: Kagari VM={vm:.3f}; Lua={lua:.3f}; VM/Lua={vm/lua:.2f}; "
-              f"Kagari JIT={f'{jit:.3f}' if jit is not None else 'unsupported'}")
+              f"Kagari JIT={f'{jit:.3f}' if jit is not None else ('disabled' if args.interpreter_only else 'unsupported')}")
     print(f"Build wall time (excluded from execution): {metadata['build_wall_seconds']:.3f}s")
 
 

@@ -4,7 +4,38 @@ Keep workload, baseline/candidate, environment, timing scope and reproduction
 together. These are finite observations, not language-wide guarantees. Build,
 preparation and execution times are separate; allocation requests are not RSS.
 Older superseded tables and successful test logs remain in Git history.
-Nothing below was rerun by the documentation cleanup.
+Historical sections were not rerun by the documentation cleanup. The post-GO06
+interpreter section is a new measurement on its explicitly recorded revision.
+
+## Post-GO06 interpreter baseline, 2026-10-06
+
+[The current Lua comparison](../benchmarks/lua-comparison/README.md#interpreter-baseline-after-go06-2026-10-06)
+measures production revision `97804fe7` on Apple M1 Max/macOS 26.6.2 with Rust
+1.98.1, workspace release/default Cargo parallelism, PUC Lua 5.4.8 and explicitly
+disabled native execution/preparation. Two sequential processes provide 22 samples
+per route; all 308 timed batches pass independent checksums. Setup is excluded.
+Six nontrivial paired workloads show VM/Lua median elapsed-time ratios of
+308.28–764.12. Arithmetic is 274.713 ms versus 0.390 ms; arrays are 66.749 ms
+versus 0.087 ms. The separate entry benchmark is 3.097 us versus 0.030 us.
+This is not a controlled regression comparison with the earlier Windows baseline.
+
+Independent macOS stack sampling collects 24,143 main-thread samples. Arithmetic
+has no GC object allocation/collection: reported leaf shares include 13.78% in
+SipHash reached through session-frame lookup, 22.81% frame/session access, 15.56%
+termination/allowed checks and 12.76% instruction fetch/clone. Samples are diagnostic,
+with optimized/duplicate-symbol attribution limits, not exact CPU accounting.
+Arithmetic executes 750,014 Kagari versus 250,007 Lua bytecodes. Current Value and
+instruction headers are 104 and 136 bytes. Collection paths additionally show
+native retention/type work and Rust allocation; map lookup allocates ordinary
+Option results. The report retains all sample ranges, GC/instruction counts,
+environment, primary-source comparisons, limitations and raw-output locations.
+
+Reproduce with `uv run python scripts/benchmark_lua.py --interpreter-only`, followed
+by `uv run python scripts/profile_lua_macos.py` on macOS. The
+[performance follow-up](implementation-roadmap.md#interpreter-performance-follow-up)
+proposes direct execution-stack access/tracing, compact typed instructions/slots,
+register allocation/call windows and prepared native boundaries, in that order.
+No production speedup is implemented or inferred from these measurements.
 
 ## Scoped identity pipeline, 2026-10-03
 

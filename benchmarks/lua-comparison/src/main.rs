@@ -20,6 +20,7 @@ struct Options {
     warmups: usize,
     setup_samples: usize,
     reverse: bool,
+    interpreter_only: bool,
     profile: Option<String>,
 }
 
@@ -30,6 +31,7 @@ impl Options {
             warmups: 3,
             setup_samples: 3,
             reverse: false,
+            interpreter_only: false,
             profile: None,
         };
         for argument in env::args().skip(1) {
@@ -40,12 +42,13 @@ impl Options {
                     options.setup_samples = 1;
                 }
                 "--reverse" => options.reverse = true,
+                "--interpreter-only" => options.interpreter_only = true,
                 _ if argument.starts_with("--profile=") => {
                     options.profile = Some(argument["--profile=".len()..].to_owned());
                     options.setup_samples = 1;
                 }
                 _ => panic!(
-                    "unknown argument: {argument}; supported: --check, --reverse, --profile=WORKLOAD"
+                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --profile=WORKLOAD"
                 ),
             }
         }
@@ -96,14 +99,19 @@ struct ExecutionRoutes {
     module: LoadedModule,
     context: ExecutionContext,
     lua_entry: Function,
-    native: PreparedNativeEntry,
+    native: Option<PreparedNativeEntry>,
 }
 
 impl ExecutionRoutes {
     fn kagari(&mut self, native: bool) -> i32 {
         let report = if native {
-            self.runtime
-                .execute_prepared(&self.module, "main", &[], &self.context, &self.native)
+            self.runtime.execute_prepared(
+                &self.module,
+                "main",
+                &[],
+                &self.context,
+                self.native.as_ref().expect("prepared native entry"),
+            )
         } else {
             self.runtime
                 .execute(&self.module, "main", &[], &self.context)
@@ -142,7 +150,7 @@ impl ExecutionRoutes {
             return;
         }
         let mut engines = vec!["kagari_vm", "lua54"];
-        if matches!(self.native, PreparedNativeEntry::Native(_)) {
+        if matches!(self.native, Some(PreparedNativeEntry::Native(_))) {
             engines.push("kagari_jit");
         }
         for _ in 0..options.warmups {
@@ -215,28 +223,33 @@ fn run(workload: &Workload, options: &Options) {
         let lua_entry = record.setup("module_init", "lua54", || {
             chunk.call::<Function>(()).expect("Lua module setup")
         });
-        let mut backend = record.setup("native_backend_init", "kagari_jit", || {
-            CraneliftBackend::for_host().unwrap()
-        });
-        let start = Instant::now();
-        let native = runtime
-            .prepare_native(&program, &module, "main", &mut backend, &Default::default())
-            .expect("native preparation");
-        let elapsed = start.elapsed().as_nanos();
-        let phase = match &native {
-            PreparedNativeEntry::Native(_) => "native_prepare",
-            PreparedNativeEntry::Unsupported { diagnostics, .. } => {
-                if sample == 0 {
-                    eprintln!(
-                        "JIT unsupported {}: {}",
-                        workload.name,
-                        diagnostics.join("; ")
-                    );
+        let native = if options.interpreter_only {
+            None
+        } else {
+            let mut backend = record.setup("native_backend_init", "kagari_jit", || {
+                CraneliftBackend::for_host().unwrap()
+            });
+            let start = Instant::now();
+            let native = runtime
+                .prepare_native(&program, &module, "main", &mut backend, &Default::default())
+                .expect("native preparation");
+            let elapsed = start.elapsed().as_nanos();
+            let phase = match &native {
+                PreparedNativeEntry::Native(_) => "native_prepare",
+                PreparedNativeEntry::Unsupported { diagnostics, .. } => {
+                    if sample == 0 {
+                        eprintln!(
+                            "JIT unsupported {}: {}",
+                            workload.name,
+                            diagnostics.join("; ")
+                        );
+                    }
+                    "native_unsupported_probe"
                 }
-                "native_unsupported_probe"
-            }
+            };
+            record.emit(phase, "kagari_jit", 1, elapsed, 0);
+            Some(native)
         };
-        record.emit(phase, "kagari_jit", 1, elapsed, 0);
         if sample + 1 == options.setup_samples {
             if options.profile.is_some() {
                 profile::count_lua(&lua, &lua_entry, (workload.reference)(workload.size));
@@ -286,6 +299,7 @@ mod tests {
             warmups: 0,
             setup_samples: 1,
             reverse: false,
+            interpreter_only: false,
             profile: None,
         };
         for size in [0, 1] {
