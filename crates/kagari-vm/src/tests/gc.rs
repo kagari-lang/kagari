@@ -49,7 +49,11 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             } else {
                 vm.execute(&loaded, "main").unwrap()
             };
-            let Value::Array(array) = report.return_value else {
+            let Value::Array(array) = report
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")
+            else {
                 panic!("array result")
             };
             assert!(vm.runtime().gc().stats().collections > 0);
@@ -57,8 +61,8 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
                 vm.runtime().gc().array_snapshot(array),
                 Some(vec![Value::I32(42)])
             );
-            assert_eq!(vm.runtime().gc().active_roots(), 0);
-            let retained = vm.runtime().root_value(Value::Array(array)).unwrap();
+            assert_eq!(vm.runtime().gc().active_roots(), 1);
+            let retained = report.return_value;
             vm.runtime().collect_garbage().unwrap();
             assert_eq!(vm.runtime().gc().allocated_objects(), 1);
             assert_eq!(vm.runtime().gc().array_get(array, 0), Some(Value::I32(42)));
@@ -94,8 +98,15 @@ fn main() -> i32 {
     let loaded = runtime.load_program("closure_gc.kgr", module).unwrap();
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").unwrap();
-    assert_eq!(report.return_value, Value::I32(43));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(43)
+    );
     assert!(vm.runtime().gc().stats().collections > 0);
+    drop(report);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
 
@@ -108,7 +119,12 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
         .load_program("closure_handles.kgr", module)
         .unwrap();
     let vm = Vm::new(owner_runtime);
-    let value = vm.execute(&loaded, "make").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let Value::Closure(_) = value else {
         panic!("closure result")
     };
@@ -148,7 +164,12 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
     let mut runtime = runtime();
     let loaded = runtime.load_program("closure_epoch.kgr", old).unwrap();
     let mut vm = Vm::new(runtime);
-    let closure = vm.execute(&loaded, "make").unwrap().return_value;
+    let closure = vm
+        .execute(&loaded, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let rooted = vm.runtime().root_value(closure.clone()).unwrap();
     let replacement = vm
         .runtime_mut()
@@ -180,7 +201,13 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let vm = Vm::new(runtime);
     let report = vm.execute_prepared(&loaded, "main", &native).unwrap();
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
-    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
     assert!(vm.runtime().gc().stats().collections > 0);
     assert!(vm.runtime().gc().array_len(dead).is_none());
 }

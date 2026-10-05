@@ -63,7 +63,12 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
     })
     .to_vec();
     let vm = Vm::new(runtime);
-    let runner = vm.execute(&loaded, "runner").unwrap().return_value;
+    let runner = vm
+        .execute(&loaded, "runner")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     (vm, loaded, runner, methods)
 }
 

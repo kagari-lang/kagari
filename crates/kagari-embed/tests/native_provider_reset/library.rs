@@ -28,7 +28,9 @@ fn foundation_algorithms_are_available_from_normal_engine_construction() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(1)
     );
 }
@@ -68,7 +70,9 @@ fn explicit_empty_application_modules_keep_the_foundation() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }

@@ -1,14 +1,16 @@
-use kagari_common::identity::table::DefinitionId;
 pub mod native;
+mod typed;
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::reference::DefinitionReference;
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 use kagari_runtime::{
     Runtime,
+    error::RuntimeError,
     error_trace::ResultFailure,
+    gc::roots::RootedValue,
     module::LoadedModule,
     reload::ReloadValidationError,
     session::{ExecutionSession, ExecutionTrace},
@@ -40,7 +42,9 @@ pub struct ExecutionReport {
     pub module_name: String,
     pub epoch: u64,
     pub entry: String,
-    pub return_value: Value,
+    /// Owning retention transfers with this field and survives later calls/GC.
+    /// Inspect through the owning runtime's heap; clones share the root lease.
+    pub return_value: RootedValue,
     pub failure: Option<ResultFailure>,
     pub jit: Option<JitExecutionReport>,
     pub trace: Option<ExecutionTrace>,
@@ -137,12 +141,17 @@ impl Vm {
         let entry = find_function_ref(&module.bytecode, &entry_name)?;
         let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
         let return_value = executor.run()?;
+        let failure = self.runtime.result_failure(&return_value);
+        let return_value = self
+            .runtime
+            .root_value(return_value)
+            .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
 
         Ok(ExecutionReport {
             module_name: module.name.clone(),
             epoch: module.epoch.0,
             entry: entry_name,
-            failure: self.runtime.result_failure(&return_value),
+            failure,
             return_value,
             jit: None,
             trace: _session.trace(),

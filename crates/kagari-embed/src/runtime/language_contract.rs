@@ -302,6 +302,7 @@ fn run_routes(case: &Case<'_>) {
 }
 
 fn assert_outcome(
+    runtime: &Runtime,
     case: &Case<'_>,
     route: Route,
     attempt: usize,
@@ -309,7 +310,11 @@ fn assert_outcome(
 ) {
     match (&case.expected, outcome.as_ref().map_err(VmError::cause)) {
         (Expected::Value(expected), Ok(report)) => assert_eq!(
-            &report.return_value, expected,
+            &report
+                .return_value
+                .value(runtime.gc())
+                .expect("retained execution result"),
+            expected,
             "{} ({route:?}, attempt {attempt})",
             case.name
         ),
@@ -490,7 +495,7 @@ fn run(
     let mut backend = CraneliftBackend::for_host().unwrap();
     for attempt in 0..case.repeat {
         let outcome = execute_route(&vm, module, &loaded, case, route, &mut backend);
-        assert_outcome(case, route, attempt, outcome);
+        assert_outcome(vm.runtime(), case, route, attempt, outcome);
     }
     if let Some(candidate) = case.published_reload {
         let program = candidate_program.expect("published candidate must compile");
@@ -512,6 +517,7 @@ fn run(
         assert_ne!(current.key(), loaded.key());
         assert_eq!(vm.runtime().execution_root().unwrap().key(), loaded.key());
         assert_outcome(
+            vm.runtime(),
             case,
             route,
             case.repeat,
@@ -519,6 +525,7 @@ fn run(
         );
         drop(outer);
         assert_outcome(
+            vm.runtime(),
             candidate,
             route,
             0,
@@ -539,6 +546,7 @@ fn run(
             before - stale_members
         );
         assert_outcome(
+            vm.runtime(),
             candidate,
             route,
             1,

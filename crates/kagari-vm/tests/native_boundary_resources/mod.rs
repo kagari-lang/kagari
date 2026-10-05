@@ -113,6 +113,8 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
         .execute(&fixture.loaded, "main")
         .unwrap()
         .return_value
+        .value(fixture.vm.runtime().gc())
+        .expect("retained execution result")
     else {
         panic!("Option")
     };
@@ -155,6 +157,8 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
         .execute(&fixture.loaded, "main")
         .unwrap()
         .return_value
+        .value(fixture.vm.runtime().gc())
+        .expect("retained execution result")
     else {
         panic!("containers")
     };
@@ -198,7 +202,9 @@ use std::hash::{Hash};
                 .vm
                 .execute(&fixture.loaded, "main")
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(fixture.vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(2)
         );
         let heap = fixture.vm.runtime().gc();

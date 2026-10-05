@@ -55,7 +55,13 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
-        assert_eq!(report.return_value, Value::I32(42));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
         let trace = report.trace.unwrap();
         assert_eq!(trace.code_fingerprint, loaded.program_fingerprint());
         assert_eq!(trace.inputs, context.inputs);
@@ -130,7 +136,9 @@ fn dependency_bindings_are_checked_before_execution() {
         runtime
             .execute(&loaded, "main", &[], &ExecutionContext::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert!(calls.lock().unwrap().is_empty());
@@ -176,7 +184,9 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
             runtime
                 .execute(&active, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         // Rejection leaves the baseline active, so a valid reload can still publish.
@@ -245,7 +255,9 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
             runtime
                 .execute(module, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(value)
         );
     }
@@ -273,7 +285,9 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
         runtime
             .execute(&new, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(2)
     );
 }

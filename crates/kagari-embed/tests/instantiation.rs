@@ -329,7 +329,10 @@ fn execute_contextual_source_with_writes(source: &str, expected: i32, _reflectio
         }
         .unwrap();
         assert_eq!(
-            result.return_value,
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             kagari_runtime::value::Value::I32(expected)
         );
     }

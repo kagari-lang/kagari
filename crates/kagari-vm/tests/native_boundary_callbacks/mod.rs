@@ -70,14 +70,22 @@ fn function_arguments_call_captured_script_closures_synchronously() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert!(vm.execute(&loaded, "trapped").is_err());
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(
-        vm.execute(&loaded, "healthy").unwrap().return_value,
+        vm.execute(&loaded, "healthy")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -136,7 +144,11 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
     let (vm, loaded) = compile(old, Some(&module));
     let old_key = loaded.key();
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     let replacement = vm
@@ -150,11 +162,19 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
     assert_eq!(
-        vm.execute(&replacement, "run").unwrap().return_value,
+        vm.execute(&replacement, "run")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(
-        vm.execute(&replacement, "main").unwrap().return_value,
+        vm.execute(&replacement, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(100)
     );
     held.lock().unwrap().take();
@@ -225,7 +245,11 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -294,7 +318,11 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -338,7 +366,11 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }

@@ -123,7 +123,14 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 vm.execute(&loaded, "main")
             }
             .unwrap();
-            assert_eq!(report.return_value, Value::I32(42));
+            assert_eq!(
+                report
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
+            drop(report);
             assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
             assert!(vm.runtime().execution_root().is_none());
             assert_eq!(
@@ -296,7 +303,11 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let loaded = runtime.load_program("inputs.kgr", module).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert!(foreign.gc().validate_value(&retained_foreign_value));
@@ -380,7 +391,11 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -451,7 +466,11 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             vm.runtime().collect_garbage().unwrap();
             assert_eq!(vm.runtime().gc().allocated_objects(), 0);
             assert_eq!(
-                vm.execute(&loaded, "ready").unwrap().return_value,
+                vm.execute(&loaded, "ready")
+                    .unwrap()
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
                 Value::I32(7)
             );
             assert!(!vm.runtime().is_quarantined());

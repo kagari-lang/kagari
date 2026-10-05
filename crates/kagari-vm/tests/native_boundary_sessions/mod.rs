@@ -17,7 +17,13 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     .unwrap();
     let baseline = runtime.load_program("main", program.clone()).unwrap();
     let mut vm = Vm::new(runtime);
-    let Value::Tuple(values) = vm.execute(&baseline, "containers").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&baseline, "containers")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("container tuple")
     };
     let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {

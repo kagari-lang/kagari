@@ -1140,7 +1140,7 @@ Phase order and progress:
   edge writes, including initialization, frame/root slots and metadata links.
 - [x] **GO03: Runtime thread transfer.** Send runtime, exclusive access,
   callback/payload constraints, deterministic thread handoff and Tokio task coverage.
-- [ ] **GO04: Typed registration and results.** Recursive conversion, argument
+- [x] **GO04: Typed registration and results.** Recursive conversion, argument
   tuples, complete registration docs/generated KGR, typed entry arguments and
   automatically retained public results with source-free support.
 - [ ] **GO05: Host objects and checked calls.** Fields/collections, scoped native
@@ -1162,6 +1162,53 @@ is assumed. Open implementation errors and resumption state belong here.
 
 #### GO progress ledger
 
+- GO04 complete: KagariType/IntoKagari/FromKagari provide one fallible conversion
+  boundary for scalar widths, owned UTF-8 String, Vec, installed ordinary
+  Option/Result and value/argument tuples of arity 0-12. Conversion scopes pin the
+  program, protect unpublished values, snapshot owned inputs before custom
+  conversion/reentry, poll cancellation and bound depth/work/string bytes. Owned
+  cycles reject; identity-preserving adapters can retain them. Error/panic cleanup
+  releases temporary roots. Nominal origins and declared access remain exact;
+  conversion does not erase readonly qualifiers or implicitly install providers.
+- NativeBinding::typed/typed_method use NativeContext, outer tuple arguments and a
+  separate method receiver. ModuleBuilder::add_function generates concrete types
+  from Rust while FunctionSpec supplies names and full Markdown parameter/return
+  documentation. It validates the candidate before publishing declarations or
+  bindings. Generated KGR parsing, materialized file content, docs and navigation
+  have integration coverage. Concrete results use the compiler-selected interface
+  adapter, without post-callback trait lookup. NativeContext::collect polls around
+  iterator steps and checks capacity growth. The typed_native example runs this
+  ordinary String/Vec registration and typed host-entry path.
+- VM/SDK execute_typed converts host arguments and returns owned data or retained
+  handles using the same runtime scope. Known signature failures precede script
+  effects; data-dependent failures preserve completed effects. It consumes existing
+  closed entry metadata, without source-time specialization. Explicit named-entry
+  policy is unchanged; cached visibility-checked function/member bindings are GO05.
+  ExecutionReport::return_value is now RootedValue for interpreter and prepared
+  native/fallback execution. Moving it out of the report transfers retention;
+  cloning/dropping follows the central lease model. Consumers, examples and
+  benchmarks were updated directly, with no raw-result compatibility alias.
+- GO04 acceptance: the runtime/VM/embed subsystem command
+  `cargo test -p kagari-runtime -p kagari-vm -p kagari-embed --no-fail-fast`
+  exercised 953 tests plus one pre-existing ignored manual measurement. Its 100
+  failures in 19 targets were obsolete cleanup expectations or redundant manual
+  rooting after reports gained ownership. Those targets were corrected and rerun:
+  all 173 tests in the 18 affected embed targets and all 107 VM unit tests passed.
+  Cleanup assertions still require zero roots after result release. Together with
+  the added collect-cancellation test, 954 distinct tests pass. Final focused
+  conversion (10), typed/source-free VM (8), materialized docs and Tokio handoff
+  checks pass; the handoff now moves the returned root without manual registration.
+  Workspace all-target check, strict all-target runtime/VM/embed Clippy, structure
+  check (824 Rust files, zero violations/exceptions), formatting, documentation
+  links and diff checks passed. Production imports, visibility, macro boundaries,
+  ownership and affected file responsibilities were reviewed. No carried build/
+  test error or structural debt remains. Logs under target/go04/ are disposable.
+- GO05 is next: retained object/collection/payload access and cached checked calls.
+  Existing low-level scalar/view NativeFunction/NativeOutput/CallArguments callers
+  remain migration consumers until GO05 supplies their retained handle/call forms;
+  GO06 owns their standard-library adoption and removal. They are not aliases or a
+  separate runtime graph, and the new ordinary API uses only the fallible shared
+  adapter. Final workspace/feature/backend matrices remain GO06 acceptance.
 - GO01 complete: root values now live in a heap-owned generational table.
   gc::roots::RootedValue and RootSet hold checked identities and Arc leases;
   reads require the owning heap. Expired entries are pruned at registration/GC,

@@ -60,7 +60,9 @@ fn execute(source: &str) {
             runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -278,7 +280,13 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
         runtime.runtime().attach_execution_observer().unwrap();
         match runtime.execute(&loaded, "main", &[], &context) {
             Ok(report) => {
-                assert_eq!(report.return_value, Value::I32(42));
+                assert_eq!(
+                    report
+                        .return_value
+                        .value(runtime.runtime().gc())
+                        .expect("retained execution result"),
+                    Value::I32(42)
+                );
                 finished = true;
             }
             Err(error) => {

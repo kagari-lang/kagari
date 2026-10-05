@@ -130,8 +130,15 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(report.return_value, Value::I32(42));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
         assert_eq!(*trace.lock().unwrap(), ["root", "read"]);
+        drop(report);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }
@@ -322,7 +329,13 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(report.return_value, Value::I32(13));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(13)
+        );
         assert_eq!(state.load(Ordering::SeqCst), 13);
         assert_eq!(
             *trace.lock().unwrap(),

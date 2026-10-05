@@ -452,13 +452,50 @@ that ExecutionSession::host_scope_count returns to zero before ending the root.
 The `scoped_execution` embedding example demonstrates independent execution sessions and
 cancellation: `cargo run -p kagari-embed --example scoped_execution`.
 
-Execution reports contain raw Value results. Retain a heap result with
-`runtime.runtime().root_value(report.return_value)` before a subsequent execution
-or explicit collection. Keep the returned RootedValue in host state; cloning Value
-does not extend lifetime. RootedValue clones share retention and release it on last
-drop. Shared callbacks require Send + Sync; a captured owning root retains its
+Execution reports contain an owning RootedValue result. Moving `report.return_value`
+into host state or cloning it preserves retention across subsequent execution and
+collection. Inspect it through `value(runtime.runtime().gc())`, which validates the
+owning heap and root generation; a raw Value copied from that inspection does not
+extend lifetime. RootedValue clones share retention and release it on last drop.
+Shared callbacks require Send + Sync; a captured owning root retains its
 script object until the registration releases it.
 The rooted_values runtime example demonstrates retention and collection pause reporting.
+
+`execute_typed` accepts an outer Rust argument tuple and returns owned Rust data or
+an owning handle. It uses the installed entry's closed semantic signature; missing
+generic execution evidence is rejected without source analysis. Argument and return
+type mismatches fail before entry, while a data-dependent return conversion failure
+preserves completed script effects. Conversion and execution share the active
+session's cancellation and pinned program. The explicit named-entry policy matches
+`execute`; cached visibility-checked public function bindings belong to GO05.
+
+## Typed native registration
+
+ModuleBuilder::add_function takes a FunctionSpec and a callback of the form
+`|cx: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<Vec<String>>`.
+Rust types supply the concrete signature, while FunctionSpec supplies parameter
+names and full Markdown documentation. Parameter and return documentation are
+rendered into the existing declaration documentation, then the normal generated
+KGR and materialized navigation files. Explicit generic declarations and
+NativeBinding::typed use the same catalog and checked binding mechanism.
+NativeBinding::typed_method passes the receiver separately from the argument tuple.
+
+The common KagariType/IntoKagari/FromKagari adapters support scalars, owned String,
+Vec, ordinary installed Option/Result and tuples of arity 0-12. The outer tuple is
+the argument list: `()` means no arguments and `((a, b),)` means one tuple argument.
+Owned conversion copies data, bounds recursion/work and rejects unrepresentable
+cycles; identity-preserving adapters retain the original object instead. Input
+and output capabilities are independent, and no borrowed input reference escapes.
+NativeResult is the runtime-failure channel; a nested business Result remains data.
+Conversion does not implicitly install nominal providers or ignore type origins.
+
+An explicitly declared interface result can differ from the callback's concrete
+Rust result. Compilation selects its existing result adapter before execution;
+invocation validates the concrete value and applies that adapter without trait
+lookup. NativeContext::collect polls cancellation around each iterator step and
+checks Vec capacity growth. Individual blocking iterator steps are not preempted.
+See the [typed_native example](../../crates/kagari-embed/examples/typed_native.rs)
+for registration and a host entry with owned arguments and results.
 
 ## Host Registry API
 

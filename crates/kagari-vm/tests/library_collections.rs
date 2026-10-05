@@ -73,10 +73,12 @@ fn run(text: &str) -> Value {
     let loaded = runtime
         .load_program("sort", program(text, &[&library]))
         .unwrap();
-    Vm::new(runtime)
-        .execute(&loaded, "main")
+    let vm = Vm::new(runtime);
+    vm.execute(&loaded, "main")
         .unwrap()
         .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
 }
 
 #[test]

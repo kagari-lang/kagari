@@ -77,7 +77,12 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
     let native = module(&faults);
     let source = "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }";
     let (vm, loaded) = compile(source, Some(&native));
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value.clone()).unwrap();
     vm.reload_program(&loaded, "boundary", compile_program(source, Some(&native)))
         .unwrap();
@@ -114,7 +119,12 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
         "use fixture::payload::{Payload, new}; fn main() -> (Payload, Payload) { (new(), new()) }",
         Some(&module(&faults)),
     );
-    let values = vm.execute(&loaded, "main").unwrap().return_value;
+    let values = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     faults.drop.store(true, Ordering::SeqCst);
     let error = vm.runtime().collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
@@ -148,7 +158,12 @@ fn root_and_collection_leases_do_not_keep_heap_payloads_alive_after_teardown() {
         .runtime()
         .begin_execution(&loaded, vm.runtime().execution_options())
         .unwrap();
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value).unwrap();
     let array = vm
         .runtime()

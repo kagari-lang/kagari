@@ -49,8 +49,15 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         let report = runtime
             .execute_prepared(&loaded, "main", &[], &context, &prepared)
             .unwrap();
-        assert_eq!(report.return_value, Value::I32(42));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+        drop(report.return_value);
 
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
@@ -94,11 +101,18 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
         let report = runtime
             .execute_prepared(&loaded, "main", &[], &context, &prepared)
             .unwrap();
-        assert_eq!(report.return_value, Value::I32(expected));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(expected)
+        );
         assert_eq!(
             report.jit.unwrap().status,
             JitExecutionStatus::InterpreterFallback
         );
+        drop(report.return_value);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }
@@ -182,8 +196,15 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     let report = runtime
         .execute_prepared(&old, "main", &[], &context, &old_native)
         .unwrap();
-    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+    drop(report.return_value);
     drop(outer);
     for (module, native, value) in [(&old, &old_native, 42), (&current, &current_native, 43)] {
         let dead = runtime
@@ -194,8 +215,15 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         let report = runtime
             .execute_prepared(module, "main", &[], &context, native)
             .unwrap();
-        assert_eq!(report.return_value, Value::I32(value));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(value)
+        );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+        drop(report.return_value);
         assert!(runtime.runtime().gc().stats().collections > collections);
         assert!(runtime.runtime().gc().array_len(dead).is_none());
         assert_eq!(runtime.runtime().gc().active_roots(), 0);

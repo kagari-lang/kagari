@@ -123,7 +123,12 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         .load_program("map", program(source, &[&library, &probe.module]))
         .unwrap();
     let vm = Vm::new(runtime);
-    let iterator = vm.execute(&loaded, "make").unwrap().return_value;
+    let iterator = vm
+        .execute(&loaded, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(iterator.clone()).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
     assert!(vm.invoke_interface_method(&iterator, &next, &[]).is_err());
@@ -160,7 +165,12 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
     .unwrap();
     let loaded = runtime.load_program("map", program("use std::collections::map; fn make() -> Iterator<Item = i32> { map([42], |item| item) }", &[&library])).unwrap();
     let vm = Vm::new(runtime);
-    let iterator = vm.execute(&loaded, "make").unwrap().return_value;
+    let iterator = vm
+        .execute(&loaded, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(iterator.clone()).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
     let before = vm.runtime().gc().stats();
@@ -236,7 +246,12 @@ fn retained_map_uses_its_original_callback_after_reload() {
         .unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
-    let iterator = vm.execute(&old, "make").unwrap().return_value;
+    let iterator = vm
+        .execute(&old, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(iterator.clone()).unwrap();
     let replacement = vm
         .reload_program(
@@ -256,7 +271,12 @@ fn retained_map_uses_its_original_callback_after_reload() {
         vm.runtime().gc().enum_snapshot(id).unwrap().fields,
         vec![Value::I32(11)]
     );
-    let fresh = vm.execute(&replacement, "make").unwrap().return_value;
+    let fresh = vm
+        .execute(&replacement, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let Value::Enum(id) = vm.invoke_interface_method(&fresh, &next, &[]).unwrap() else {
         panic!("Option");
     };

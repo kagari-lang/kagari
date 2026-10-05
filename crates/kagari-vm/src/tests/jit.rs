@@ -66,7 +66,13 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             } else {
                 vm.execute(&loaded, "main").unwrap()
             };
-            assert_eq!(report.return_value, Value::I32(7));
+            assert_eq!(
+                report
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(7)
+            );
             assert_eq!(
                 *calls.lock().unwrap(),
                 vec![vec![Value::Str("linked".into())]]
@@ -98,7 +104,13 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
         .execute_prepared(&loaded, "main", &prepared)
         .expect("unsupported JIT compilation should fall back");
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     let jit = report.jit.expect("JIT attempt should be reported");
     assert_eq!(jit.backend, BackendId::new("test-unsupported-jit"));
     assert_eq!(jit.function, FunctionRef::new(0));
@@ -130,7 +142,10 @@ fn main() -> (usize, usize, i32) {
         .expect("unsupported JIT compilation should fall back");
 
     assert_eq!(
-        report.return_value,
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::Tuple(vec![Value::U64(3), Value::U64(2), Value::I32(7)])
     );
     let jit = report.jit.expect("JIT attempt should be reported");
@@ -144,14 +159,31 @@ fn remainder_uses_interpreter_fallback_with_identical_result() {
     let module = common::compile_test_bytecode("fn main() -> i32 { 42 % 5 }");
     let (runtime, loaded) = common::load_bytecode_program("jit_remainder", module.clone());
     let vm = Vm::new(runtime);
-    let interpreted = vm.execute(&loaded, "main").unwrap().return_value;
+    let interpreted = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let (runtime, loaded) =
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_remainder", module);
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
     let report = vm.execute_prepared(&loaded, "main", &prepared).unwrap();
-    assert_eq!(report.return_value, interpreted);
-    assert_eq!(report.return_value, Value::I32(2));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        interpreted
+    );
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(2)
+    );
     assert_eq!(
         report.jit.unwrap().status,
         JitExecutionStatus::InterpreterFallback
@@ -172,14 +204,31 @@ fn main() -> i32 {
     );
     let (runtime, loaded) = common::load_bytecode_program("jit_closure", module.clone());
     let vm = Vm::new(runtime);
-    let interpreted = vm.execute(&loaded, "main").unwrap().return_value;
+    let interpreted = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let (runtime, loaded) =
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_closure", module);
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
     let report = vm.execute_prepared(&loaded, "main", &prepared).unwrap();
-    assert_eq!(report.return_value, Value::I32(42));
-    assert_eq!(report.return_value, interpreted);
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        interpreted
+    );
     assert_eq!(
         report.jit.unwrap().status,
         JitExecutionStatus::InterpreterFallback
@@ -201,7 +250,13 @@ fn ordinary_interpreter_execution_has_no_jit_report() {
         .execute(&loaded, "main")
         .expect("interpreter execution should succeed");
 
-    assert_eq!(report.return_value, Value::Unit);
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::Unit
+    );
     assert!(report.jit.is_none());
 }
 
@@ -232,7 +287,13 @@ fn jit_native_execution_reports_installed_artifact() {
         .execute_prepared(&loaded, "main", &prepared)
         .expect("native JIT execution should succeed");
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     let jit = report.jit.expect("JIT execution should be reported");
     assert_eq!(jit.backend, BackendId::new("test-native-jit"));
     assert_eq!(jit.status, JitExecutionStatus::Native);
@@ -267,7 +328,13 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
         .execute_prepared(&loaded, "main", &prepared)
         .expect("installed JIT implementation should execute");
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     let jit = report.jit.expect("native execution should be reported");
     assert_eq!(jit.status, JitExecutionStatus::Native);
     assert!(jit.artifact.is_some());
@@ -294,7 +361,13 @@ fn jit_debug_session_falls_back_without_safe_debug_metadata() {
         .execute_prepared(&loaded, "main", &prepared)
         .expect("debugger should force interpreter fallback when JIT metadata is missing");
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     let jit = report.jit.expect("JIT attempt should be reported");
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none());
@@ -325,7 +398,13 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
         .execute_prepared(&loaded, "main", &prepared)
         .expect("metadata alone cannot supply native debug callbacks");
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     let jit = report.jit.expect("JIT execution should be reported");
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none());

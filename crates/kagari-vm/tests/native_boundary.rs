@@ -30,6 +30,7 @@ use {kagari_stdlib as foundation, kagari_stdlib::declarations::StandardDeclarati
 mod native_boundary_artifacts;
 mod native_boundary_callbacks;
 mod native_boundary_control;
+mod native_boundary_conversion;
 mod native_boundary_gc;
 mod native_boundary_host;
 mod native_boundary_interfaces;
@@ -112,7 +113,11 @@ fn scalar_function_executes_through_the_checked_registration() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -141,7 +146,11 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
     );
     assert!(vm.execute(&loaded, "main").is_err());
     assert_eq!(
-        vm.execute(&loaded, "healthy").unwrap().return_value,
+        vm.execute(&loaded, "healthy")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -164,7 +173,11 @@ fn foundation_defaults_execute_without_optional_modules() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -193,7 +206,11 @@ use std::hash::{Hash};
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -265,7 +282,11 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
     );
     for entry in ["main", "shared"] {
         assert_eq!(
-            vm.execute(&loaded, entry).unwrap().return_value,
+            vm.execute(&loaded, entry)
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -368,12 +389,21 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         "use example::objects::{Counter, new, read}; fn main() -> Counter<i32> { new() } fn answer() -> i32 { read(new()) }",
         Some(&module),
     );
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let rooted = vm.runtime().gc().root_value(value).unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     assert_eq!(
-        vm.execute(&loaded, "answer").unwrap().return_value,
+        vm.execute(&loaded, "answer")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     drop(rooted);
@@ -464,7 +494,11 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -519,7 +553,11 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -603,12 +641,20 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert!(vm.execute(&loaded, "guarded").is_err());
     assert_eq!(
-        vm.execute(&loaded, "healthy").unwrap().return_value,
+        vm.execute(&loaded, "healthy")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -619,7 +665,12 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         "struct Node { val value: i32 } fn values() -> Vec<i32> { [1, 2, 3, 4] } fn nodes() -> Vec<Node> { [Node { value: 42 }] }",
         None,
     );
-    let value = vm.execute(&loaded, "values").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "values")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let rooted = vm.runtime().root_value(value.clone()).unwrap();
     let Value::Array(id) = value else {
         panic!("array result");
@@ -703,7 +754,12 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         vec![Value::I32(2), Value::I32(7), Value::I32(2), Value::I32(7)]
     );
     drop(rooted);
-    let nodes = vm.execute(&loaded, "nodes").unwrap().return_value;
+    let nodes = vm
+        .execute(&loaded, "nodes")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(nodes.clone()).unwrap();
     vm.runtime().collect_garbage().unwrap();
     let Value::Array(id) = nodes else {
@@ -786,7 +842,11 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
         format!("use example::scalar_arrays::*; fn main() -> bool {{ {statements} true }}");
     let (vm, loaded) = compile(&source, Some(&module));
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::Bool(true)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 42);
@@ -854,7 +914,11 @@ use std::hash::{Hash};
     assert!(vm.execute(&loaded, "failing").is_err());
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
-        vm.execute(&loaded, "healthy").unwrap().return_value,
+        vm.execute(&loaded, "healthy")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert!(count.load(Ordering::SeqCst) > 10);
@@ -879,13 +943,33 @@ use std::hash::{Hash};
     "#,
         None,
     );
-    let map = vm.execute(&loaded, "empty_map").unwrap().return_value;
+    let map = vm
+        .execute(&loaded, "empty_map")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let map_root = vm.runtime().root_value(map.clone()).unwrap();
-    let set = vm.execute(&loaded, "empty_set").unwrap().return_value;
+    let set = vm
+        .execute(&loaded, "empty_set")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let set_root = vm.runtime().root_value(set.clone()).unwrap();
-    let custom = vm.execute(&loaded, "custom").unwrap().return_value;
+    let custom = vm
+        .execute(&loaded, "custom")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let custom_root = vm.runtime().root_value(custom.clone()).unwrap();
-    let key = vm.execute(&loaded, "key").unwrap().return_value;
+    let key = vm
+        .execute(&loaded, "key")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let key_root = vm.runtime().root_value(key.clone()).unwrap();
     let Value::Map(map_id) = map else {
         panic!("map");
@@ -957,20 +1041,37 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     "#,
         Some(&module),
     );
-    let value = vm.execute(&loaded, "cursor").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "cursor")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     *slot.lock().unwrap() = Some(vm.runtime().root_value(value).unwrap());
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
-        vm.execute(&loaded, "first").unwrap().return_value,
+        vm.execute(&loaded, "first")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(20)
     );
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
-        vm.execute(&loaded, "rest").unwrap().return_value,
+        vm.execute(&loaded, "rest")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(22)
     );
     assert_eq!(
-        vm.execute(&loaded, "rest").unwrap().return_value,
+        vm.execute(&loaded, "rest")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(0)
     );
     *slot.lock().unwrap() = None;
@@ -1060,12 +1161,21 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         panic!("expected storage allocation error");
     };
     assert!(error.message().contains("explicitly supplied payload"));
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value).unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     assert_eq!(
-        vm.execute(&loaded, "healthy").unwrap().return_value,
+        vm.execute(&loaded, "healthy")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     drop(root);

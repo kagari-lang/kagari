@@ -29,7 +29,9 @@ fn execute(source: &str) {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::Bool(true)
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);

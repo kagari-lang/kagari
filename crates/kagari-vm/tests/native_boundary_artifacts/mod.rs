@@ -103,7 +103,11 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         let loaded = runtime.load_program("native-imports", program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
-            vm.execute(&loaded, "main").unwrap().return_value,
+            vm.execute(&loaded, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -230,7 +234,11 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         let loaded = runtime.load_program("native-collections", program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
-            vm.execute(&loaded, "main").unwrap().return_value,
+            vm.execute(&loaded, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -291,7 +299,11 @@ pub fn answer() -> i32 {
         .unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(vm.runtime().gc().active_roots(), 0);

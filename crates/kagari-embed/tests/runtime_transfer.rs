@@ -23,11 +23,10 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let value = runtime
+    let root = runtime
         .execute(&loaded, "main", &[], &context)
         .unwrap()
         .return_value;
-    let root = runtime.runtime().root_value(value).unwrap();
     drop(program);
     drop(engine);
     let origin = thread::current().id();
@@ -55,7 +54,13 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
                     .array_set(array, 0, Value::I32(previous + 1))
                     .unwrap();
                 let report = runtime.execute(&loaded, "healthy", &[], &context).unwrap();
-                assert_eq!(report.return_value, Value::I32(42));
+                assert_eq!(
+                    report
+                        .return_value
+                        .value(runtime.runtime().gc())
+                        .expect("retained execution result"),
+                    Value::I32(42)
+                );
                 assert!(runtime.runtime().execution_root().is_none());
                 assert_eq!(
                     runtime.runtime().resources().counters().current_call_depth,
@@ -86,7 +91,9 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
         runtime
             .execute(&loaded, "healthy", &[], &Default::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     drop(root);

@@ -122,7 +122,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        let retained = runtime.runtime().root_value(report.return_value).unwrap();
+        let retained = report.return_value;
         runtime.runtime().collect_garbage().unwrap();
         let Value::Tuple(values) = retained.value(runtime.runtime().gc()).unwrap() else {
             panic!("composite return")
@@ -271,7 +271,13 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
                 runtime.execute(&loaded, "main", &[], &context)
             }
             .unwrap();
-            assert_eq!(report.return_value, Value::I32(42));
+            assert_eq!(
+                report
+                    .return_value
+                    .value(runtime.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
             assert_eq!(*count.lock().unwrap(), expected_calls);
         }
     }

@@ -39,7 +39,13 @@ fn main() -> i32 {
         .execute(&loaded, "main")
         .expect("debugged function should execute");
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     let debug = vm
         .debug_session()
         .expect("debug session should be attached");
@@ -115,7 +121,11 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session).unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(2)
     );
     let debug = vm.debug_session().unwrap();

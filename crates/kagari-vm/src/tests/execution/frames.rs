@@ -19,7 +19,11 @@ fn foreign_loaded_module_is_rejected_before_execution() {
         matches!(vm.execute(&foreign, "main"), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
     assert_eq!(
-        vm.execute(&local, "main").unwrap().return_value,
+        vm.execute(&local, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(7)
     );
 }
@@ -30,7 +34,13 @@ fn executes_simple_arithmetic_function() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(3));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(3)
+    );
     assert_eq!(
         vm.runtime()
             .modules()
@@ -169,7 +179,13 @@ fn executes_if_control_flow() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(1));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(1)
+    );
 }
 
 #[test]
@@ -183,7 +199,13 @@ fn main() -> i32 { callee() }
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
 }
 
 #[test]
@@ -205,7 +227,13 @@ fn main() -> i32 {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(12));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(12)
+    );
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
 
@@ -277,7 +305,13 @@ fn executes_array_index_access() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(2));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(2)
+    );
 }
 
 #[test]
@@ -295,7 +329,13 @@ fn main() -> i32 {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(2));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(2)
+    );
 }
 
 #[test]
@@ -305,7 +345,10 @@ fn executes_tuple_literal_return() {
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(
-        report.return_value,
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::Tuple(vec![Value::Bool(true), Value::Bool(false)])
     );
 }
@@ -324,7 +367,11 @@ fn main() -> Point {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    let Value::Struct(handle) = report.return_value else {
+    let Value::Struct(handle) = report
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("expected struct return value");
     };
     assert_eq!(
@@ -360,7 +407,11 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
     let vm = Vm::new(runtime);
     vm.execute(&loaded, "init").unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(7)
     );
     let slot = ModuleSlot::new(0);
@@ -370,14 +421,22 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
             .is_err()
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(7)
     );
     vm.runtime()
         .write_module_slot(&loaded, slot, Value::I32(9))
         .unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(9)
     );
     assert!(!vm.runtime().is_quarantined());
@@ -435,9 +494,21 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
 
     assert_eq!(second_loaded.epoch, latest.epoch);
     assert_eq!(old_report.epoch, first_loaded.epoch.0);
-    assert_eq!(old_report.return_value, Value::I32(1));
+    assert_eq!(
+        old_report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(1)
+    );
     assert_eq!(latest_report.epoch, second_loaded.epoch.0);
-    assert_eq!(latest_report.return_value, Value::I32(2));
+    assert_eq!(
+        latest_report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(2)
+    );
 
     drop(retention);
     assert_eq!(

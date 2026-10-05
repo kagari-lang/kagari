@@ -53,7 +53,13 @@ fn execute(artifact: BytecodeArtifact) {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
     }
 }
 
@@ -154,7 +160,9 @@ fn main() -> i32 { read(Number { value: 20 }) + direct(Number { value: 22 }) }
             runtime
                 .execute(&program, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -206,7 +214,9 @@ fn main() -> i32 {
         runtime
             .execute(&program, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -235,7 +245,9 @@ fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
         runtime
             .execute(&program, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -298,7 +310,12 @@ fn main() -> i32 { boxed().read() }
         .runtime_mut()
         .load_program("inheritance", artifact.program)
         .unwrap();
-    let value = vm.execute(&loaded, "boxed").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "boxed")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value.clone()).unwrap();
     use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
     let method = DefinitionPath {
@@ -333,7 +350,11 @@ fn main() -> i32 { boxed().read() }
         .reload_artifact(&loaded, "inheritance", replacement, &Default::default())
         .unwrap();
     assert_eq!(
-        vm.execute(&new, "main").unwrap().return_value,
+        vm.execute(&new, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(43)
     );
     assert_eq!(

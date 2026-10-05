@@ -115,7 +115,11 @@ impl ExecutionRoutes {
                 JitExecutionStatus::Native
             );
         }
-        let Value::I32(value) = report.return_value else {
+        let Value::I32(value) = report
+            .return_value
+            .value(self.runtime.runtime().gc())
+            .expect("retained execution result")
+        else {
             panic!("expected i32 result")
         };
         value

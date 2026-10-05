@@ -190,7 +190,13 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
         assert_eq!(*trace.lock().unwrap(), [0, 20, 0, 22]);
     }
 }
@@ -251,7 +257,9 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -414,7 +422,12 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .runtime_mut()
         .load_program("host-interfaces", artifact.program)
         .unwrap();
-    let value = vm.execute(&loaded, "boxed").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "boxed")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let rooted = vm.runtime().root_value(value.clone()).unwrap();
     vm.runtime().collect_garbage().unwrap();
     let method = host.trait_implementations[0].methods[0]
@@ -450,7 +463,12 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     let new = vm
         .reload_artifact(&loaded, "host-interfaces", artifact, &Default::default())
         .unwrap();
-    let new_value = vm.execute(&new, "boxed").unwrap().return_value;
+    let new_value = vm
+        .execute(&new, "boxed")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let new_root = vm.runtime().root_value(new_value.clone()).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
@@ -616,7 +634,9 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -666,7 +686,12 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         .runtime_mut()
         .load_program("permissions", artifact.program.clone())
         .unwrap();
-    let value = vm.execute(&loaded, "boxed").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "boxed")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let rooted = vm.runtime().root_value(value).unwrap();
     let method = &host.trait_implementations[0].methods[0].trait_method;
 
@@ -782,13 +807,17 @@ fn interface_method_results_validate_nested_host_roots() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     let value = runtime
         .execute(&loaded, "boxed", &[], &context)
         .unwrap()
-        .return_value;
+        .return_value
+        .value(runtime.runtime().gc())
+        .expect("retained execution result");
     let method = runtime
         .runtime()
         .resolve_interface_method(

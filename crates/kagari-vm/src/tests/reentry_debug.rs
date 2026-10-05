@@ -82,7 +82,13 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                 vm.execute(&loaded, "main")
             }
             .unwrap();
-            assert_eq!(report.return_value, Value::I32(42));
+            assert_eq!(
+                report
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
             let debug = vm.debug_session().unwrap();
             for reason in [
                 DebugPauseReason::Breakpoint(breakpoint),

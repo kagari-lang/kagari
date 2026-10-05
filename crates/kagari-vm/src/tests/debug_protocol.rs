@@ -52,7 +52,13 @@ fn main() -> i32 {
     let report = vm
         .execute(&loaded, "main")
         .expect("debugged module should execute");
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     let flushed = adapter
         .handle_request(&mut vm, DebugAdapterRequest::FlushEvents)
         .expect("adapter should flush debug events");

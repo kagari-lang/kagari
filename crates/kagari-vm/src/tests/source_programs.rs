@@ -73,7 +73,13 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                     continue;
                 }
                 let report = report.unwrap();
-                assert_eq!(report.return_value, Value::I32(42));
+                assert_eq!(
+                    report
+                        .return_value
+                        .value(vm.runtime().gc())
+                        .expect("retained execution result"),
+                    Value::I32(42)
+                );
                 if jit {
                     assert_eq!(
                         report.jit.unwrap().status,
@@ -107,7 +113,11 @@ fn cross_module_debug_frames_keep_their_member_identity() {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session).unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     let session = vm.debug_session().unwrap();

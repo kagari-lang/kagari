@@ -160,7 +160,14 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
                     matches!(result, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
                 );
             } else {
-                assert_eq!(result.unwrap().return_value, Value::I32(7));
+                assert_eq!(
+                    result
+                        .unwrap()
+                        .return_value
+                        .value(vm.runtime().gc())
+                        .expect("retained execution result"),
+                    Value::I32(7)
+                );
             }
             assert_eq!(*effects.lock().unwrap(), 0);
             assert_clean(&vm);
@@ -204,7 +211,11 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(vm.runtime().gc().allocated_objects(), 0);
         assert_eq!(
-            vm.execute(&loaded, "ready").unwrap().return_value,
+            vm.execute(&loaded, "ready")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(7)
         );
     }
@@ -353,7 +364,11 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
             .unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
-            vm.execute(&loaded, "main").unwrap().return_value,
+            vm.execute(&loaded, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(
@@ -406,7 +421,12 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             .unwrap();
         let old_key = old.key();
         let vm = Vm::new(runtime);
-        let closure = vm.execute(&old, "make").unwrap().return_value;
+        let closure = vm
+            .execute(&old, "make")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result");
         let rooted = vm.runtime().root_value(closure.clone()).unwrap();
         *retained.lock().unwrap() = Some(closure);
         let new = vm
@@ -424,7 +444,11 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         );
         assert_ne!(new.key(), old_key);
         assert_eq!(
-            vm.execute(&new, "main").unwrap().return_value,
+            vm.execute(&new, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(0)
         );
         assert_eq!(*observed.lock().unwrap(), [Value::I32(41)]);
@@ -469,7 +493,13 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             vm.runtime().attach_execution_observer().unwrap();
             match vm.execute(&loaded, "main") {
                 Ok(report) => {
-                    assert_eq!(report.return_value, Value::I32(42));
+                    assert_eq!(
+                        report
+                            .return_value
+                            .value(vm.runtime().gc())
+                            .expect("retained execution result"),
+                        Value::I32(42)
+                    );
                     assert_eq!(*effects.lock().unwrap(), 1);
                 }
                 Err(error) => {
@@ -485,7 +515,11 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             drop(session);
             assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
             assert_eq!(
-                vm.execute(&loaded, "ready").unwrap().return_value,
+                vm.execute(&loaded, "ready")
+                    .unwrap()
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
                 Value::I32(7)
             );
             if vm

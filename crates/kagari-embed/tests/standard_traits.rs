@@ -59,7 +59,14 @@ fn execute(source: &str) {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
+        drop(result);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }
@@ -540,7 +547,12 @@ fn make()->(Test,HashSet<Key>) {
         .unwrap();
     let vm = Vm::new(runtime);
     for mode in 1..=4 {
-        let value = vm.execute(&loaded, "make").unwrap().return_value;
+        let value = vm
+            .execute(&loaded, "make")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result");
         let root = vm.runtime().root_value(value.clone()).unwrap();
         let Value::Tuple(values) = value else {
             panic!("tuple")
@@ -581,7 +593,12 @@ fn make()->(Test,HashSet<Key>) {
     }
 
     // Nested reads use a second guard; dropping it must preserve the outer guard.
-    let value = vm.execute(&loaded, "make").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value.clone()).unwrap();
     let Value::Tuple(values) = value else {
         panic!("tuple")
@@ -598,7 +615,12 @@ fn make()->(Test,HashSet<Key>) {
     drop(root);
 
     for limit in [2, 12, 24, 40] {
-        let value = vm.execute(&loaded, "make").unwrap().return_value;
+        let value = vm
+            .execute(&loaded, "make")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result");
         let root = vm.runtime().root_value(value.clone()).unwrap();
         let Value::Tuple(values) = value else {
             panic!("tuple")
@@ -687,7 +709,9 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
             runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -749,7 +773,9 @@ fn composed_enum_hash_uses_variant_identity_instead_of_version_local_slots() {
             runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
         );
     }
     assert_eq!(hashes[0], hashes[1]);

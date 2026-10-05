@@ -60,11 +60,11 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     let report = runtime
         .execute(&loaded, "main", &[], &Default::default())
         .unwrap();
-    let root = runtime
-        .runtime()
-        .root_value(report.return_value.clone())
-        .unwrap();
-    let Value::Enum(handle) = report.return_value else {
+    let root = report.return_value;
+    let Value::Enum(handle) = root
+        .value(runtime.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("constructed enum")
     };
     assert_eq!(
@@ -238,7 +238,9 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
         runtime
             .execute(&loaded, "main", &[], &Default::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         kagari_runtime::value::Value::Bool(true)
     );
 }

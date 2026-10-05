@@ -197,7 +197,13 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 runtime.execute(&loaded, "main", &[], &context)
             }
             .unwrap();
-            assert_eq!(result.return_value, Value::I32(expected));
+            assert_eq!(
+                result
+                    .return_value
+                    .value(runtime.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(expected)
+            );
         }
         assert_eq!(
             *trace.lock().unwrap(),
@@ -314,8 +320,15 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(report.return_value, Value::I32(42));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
         assert_eq!(*trace.lock().unwrap(), ["make", "take"]);
+        drop(report);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }
@@ -370,7 +383,9 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
         runtime
             .execute(&loaded, "main", &[], &Default::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(7)
     );
     let mut invalid = artifact.program;

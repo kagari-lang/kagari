@@ -144,8 +144,8 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         assert_eq!(failure.message, expected_message);
         assert_eq!(failure.trace.frames[0].function_name, expected_origin);
         assert_eq!(failure.trace.frames[0].line, Some(expected_line));
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        let root = runtime.runtime().root_value(report.return_value).unwrap();
+        assert_eq!(runtime.runtime().gc().active_roots(), 1);
+        let root = report.return_value;
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(
             runtime
@@ -155,6 +155,7 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
             failure
         );
         drop(root);
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(failure.trace.frames[0].function_name, expected_origin);
     }
@@ -315,7 +316,7 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
         .load_program(&old_program, Default::default())
         .unwrap();
     let report = runtime.execute(&old, "main", &[], &context).unwrap();
-    let root = runtime.runtime().root_value(report.return_value).unwrap();
+    let root = report.return_value;
     let failure = report.failure.unwrap();
     let new = runtime
         .reload_program(
@@ -445,7 +446,9 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
         runtime
             .execute(&loaded, "main", &[], &ExecutionContext::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         kagari_runtime::value::Value::I32(1000)
     );
 }

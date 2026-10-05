@@ -55,7 +55,14 @@ fn execute(source: &str) {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
+        drop(result);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }

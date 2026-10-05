@@ -92,11 +92,16 @@ impl Vm {
                 None,
             ),
         };
+        let failure = self.runtime.result_failure(&return_value);
+        let return_value = self
+            .runtime
+            .root_value(return_value)
+            .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
         Ok(ExecutionReport {
             module_name: module.name.clone(),
             epoch: module.epoch.0,
             entry: entry.to_owned(),
-            failure: self.runtime.result_failure(&return_value),
+            failure,
             return_value,
             jit: Some(JitExecutionReport {
                 backend,

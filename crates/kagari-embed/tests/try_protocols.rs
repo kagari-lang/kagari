@@ -26,7 +26,9 @@ fn execute(source: &str) {
         runtime
             .execute(&loaded, "main", &[], &Default::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -164,7 +166,9 @@ fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
             runtime
                 .execute(&loaded, "main", &[], &Default::default())
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(runtime.runtime().gc().active_roots(), 0);

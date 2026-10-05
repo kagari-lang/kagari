@@ -47,7 +47,13 @@ fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
     }
 }
 

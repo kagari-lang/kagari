@@ -43,7 +43,13 @@ fn main() -> i32 {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(13));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(13)
+    );
 }
 
 #[test]
@@ -197,7 +203,13 @@ fn main() -> i32 {
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
     let report = vm.execute(&loaded, "main").expect("vm should execute");
-    assert_eq!(report.return_value, Value::I32(12));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(12)
+    );
 
     let debug = vm
         .debug_session()
@@ -308,7 +320,13 @@ fn main() -> i32 {
         .expect("debug attach should be allowed");
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(3));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(3)
+    );
     let debug = vm
         .debug_session()
         .expect("debug session should be attached");

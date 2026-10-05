@@ -193,7 +193,10 @@ fn main() -> (usize, usize, usize, bool, i32) {
         .expect("builtin surface should execute through embedding API");
 
     assert_eq!(
-        report.return_value,
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::Tuple(vec![
             Value::U64(3),
             Value::U64(2),
@@ -262,7 +265,13 @@ pub fn main() -> usize {
     let report = runtime
         .execute(&reloaded, "main", &[], &context)
         .expect("reloaded standard artifact should execute");
-    assert_eq!(report.return_value, Value::U64(2));
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::U64(2)
+    );
 
     let error = PreparedProgram::from_artifact(invalid, &Default::default(), &context.cancellation)
         .expect_err("invalid standard artifact should fail before publication");

@@ -204,9 +204,20 @@ fn main() {
                 if use_native {
                     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
                 }
-                assert_eq!(report.return_value, Value::I32(42));
+                assert_eq!(
+                    report
+                        .return_value
+                        .value(runtime.runtime().gc())
+                        .expect("retained execution result"),
+                    Value::I32(42)
+                );
                 checksum += 42;
-                black_box(report.return_value);
+                black_box(
+                    report
+                        .return_value
+                        .value(runtime.runtime().gc())
+                        .expect("retained execution result"),
+                );
             },
             if use_native {
                 "sdk_native_call"

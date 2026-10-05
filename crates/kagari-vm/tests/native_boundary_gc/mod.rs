@@ -28,7 +28,12 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
     "#,
         None,
     );
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(Value::Tuple(vec![value])).unwrap();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 4);
     let live_units = vm.runtime().gc().stats().current_heap_units;
@@ -62,7 +67,12 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
     "#,
         None,
     );
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value).unwrap();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 20_001);
     drop(root);
@@ -92,7 +102,13 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("containers")
     };
     let [Value::Map(map), Value::Set(set), Value::Bool(found)] = values.as_slice() else {
@@ -169,7 +185,13 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("containers")
     };
     let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
@@ -217,7 +239,13 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     "#,
         None,
     );
-    let Value::Array(object) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Array(object) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("array")
     };
     let runtime = vm.runtime();
@@ -290,7 +318,12 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         "struct Item { val value: i32 } fn main() -> Vec<Item> { [Item { value: 42 }] }",
         None,
     );
-    let value = vm.execute(&old, "main").unwrap().return_value;
+    let value = vm
+        .execute(&old, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let Value::Array(array) = value else {
         panic!("typed array")
     };
@@ -318,7 +351,11 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     assert!(vm.runtime().gc().array_push(array, Value::I32(7)).is_err());
     assert_eq!(vm.runtime().gc().array_len(array), Some(2));
     assert_eq!(
-        vm.execute(&replacement, "main").unwrap().return_value,
+        vm.execute(&replacement, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(99)
     );
     drop(root);
@@ -337,7 +374,12 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         }
     "#;
     let (vm, old) = compile(source, None);
-    let old_value = vm.execute(&old, "main").unwrap().return_value;
+    let old_value = vm
+        .execute(&old, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let old_root = vm.runtime().root_value(old_value.clone()).unwrap();
     let replacement = source
         .replace("val value: i32", "val value: i32, val extra: bool")
@@ -345,7 +387,12 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
     let current = vm
         .reload_program(&old, "boundary", compile_program(&replacement, None))
         .unwrap();
-    let new_value = vm.execute(&current, "main").unwrap().return_value;
+    let new_value = vm
+        .execute(&current, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let new_root = vm.runtime().root_value(new_value.clone()).unwrap();
     let (Value::Array(old_array), Value::Array(new_array)) = (old_value, new_value) else {
         panic!("typed arrays");

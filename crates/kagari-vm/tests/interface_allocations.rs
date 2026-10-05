@@ -72,7 +72,12 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             "m0",
         );
         let vm = Vm::new(runtime);
-        let receiver = vm.execute(&loaded, "make").unwrap().return_value;
+        let receiver = vm
+            .execute(&loaded, "make")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result");
         let root = vm.runtime().root_value(receiver.clone()).unwrap();
         for _ in 0..5 {
             assert_eq!(
@@ -136,7 +141,12 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
                 .to_path(),
             "identity",
         );
-        let receiver = vm.execute(&loaded, "make").unwrap().return_value;
+        let receiver = vm
+            .execute(&loaded, "make")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result");
         let root = vm.runtime().root_value(receiver.clone()).unwrap();
         for _ in 0..5 {
             assert_eq!(
@@ -236,7 +246,12 @@ fn make() -> List<i32> { Sequence { items: [3, 1, 2] } }
         .members()
         .map(|member| member.key())
         .collect::<Vec<_>>();
-    let receiver = vm.execute(&loaded, "make").unwrap().return_value;
+    let receiver = vm
+        .execute(&loaded, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(receiver.clone()).unwrap();
     for _ in 0..3 {
         let reversed = vm

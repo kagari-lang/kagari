@@ -6,11 +6,14 @@ use kagari_embed::{
 };
 use kagari_runtime::{
     native::{
+        binding::NativeResult,
         builder::ModuleBuilder,
         context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
+        registration::FunctionSpec,
         storage::{NativePayload, NativeStorage},
+        typed::NativeContext,
         types::Type,
     },
     value::Value,
@@ -24,6 +27,78 @@ use std::{
 
 const DOC: &str = "# Registered API\n\nParagraph with [a link](https://example.com).\n\n- First item\n- Second item\n\n```kgr\nfn sample() -> i32 { 42 }\n```\n\n中文 😀";
 static NEXT: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn typed_registration_preserves_parameter_and_return_docs_in_materialized_navigation() {
+    let cache = Cache::new();
+    let mut builder = KagariEngine::builder().unwrap();
+    let mut module = ModuleBuilder::new("application::typed", builder.declarations());
+    module.documentation("# Text tools\n\nOwned Unicode text conversions.");
+    module
+        .add_function(
+            FunctionSpec::new("duplicate")
+                .parameter_names(["text"])
+                .documentation(DOC)
+                .parameter_documentation("text", "Input text.\n\nUnicode is preserved.")
+                .return_documentation("Two independent strings.\n\n```kgr\nduplicate(\"雪\")\n```"),
+            |_: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<(String, String)> {
+                Ok((text.clone(), text))
+            },
+        )
+        .unwrap();
+    builder.install(module.finish().unwrap()).unwrap();
+    builder.declaration_cache(&cache.0);
+    let engine = builder.build().unwrap();
+    let text =
+        "use application::typed::duplicate; fn main() -> (String, String) { duplicate(\"雪\") }";
+    let file = engine
+        .set_source("memory://typed.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = engine
+        .analyze(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    snapshot.check_program(file, &Default::default()).unwrap();
+    let doc = snapshot
+        .documentation_at(file, text.rfind("duplicate(").unwrap())
+        .unwrap();
+    assert!(doc.documentation.starts_with(DOC));
+    assert!(
+        doc.documentation
+            .contains("# Parameters\n\n## `text`\n\nInput text.\n\nUnicode is preserved.")
+    );
+    assert!(
+        doc.documentation
+            .contains("# Returns\n\nTwo independent strings.\n\n```kgr\nduplicate(\"雪\")\n```")
+    );
+    let target = snapshot.source(doc.declaration.location.file).unwrap();
+    assert_eq!(
+        fs::read_to_string(physical_path(target.name())).unwrap(),
+        target.text()
+    );
+    let range = target.local_range(doc.declaration.location).unwrap();
+    assert_eq!(&target.text()[range.start..range.end], "duplicate");
+    assert!(
+        target.text().contains("text: alloc::string::String"),
+        "{}",
+        target.text()
+    );
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("memory://typed-run.kgr", text),
+            Default::default(),
+        )
+        .unwrap();
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let result: (String, String) = runtime
+        .execute_typed(&loaded, "main", (), &context)
+        .unwrap();
+    assert_eq!(result, ("雪".into(), "雪".into()));
+}
+
 struct Cache(PathBuf);
 impl Cache {
     fn new() -> Self {
@@ -160,7 +235,9 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -228,7 +305,9 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }

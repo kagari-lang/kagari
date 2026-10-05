@@ -54,7 +54,13 @@ fn execute(source: &str) {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
     }
 }
 
@@ -318,7 +324,9 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -720,7 +728,9 @@ fn shared_helpers_are_materialized_in_their_declaring_module() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }

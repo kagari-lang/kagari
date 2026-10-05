@@ -80,7 +80,9 @@ fn portable_artifact_executes_without_source_compilation() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -100,7 +102,9 @@ fn source_free_native_bindings_execute_and_release_scopes() {
             runtime
                 .execute(&loaded, "required_methods", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -128,7 +132,9 @@ fn source_free_native_enums_retain_nested_payloads() {
             runtime
                 .execute(&loaded, "native_enum_values", &[], &Default::default())
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -152,7 +158,9 @@ fn source_free_try_carriers_execute_with_selected_residual_calls() {
                 runtime
                     .execute(&loaded, entry, &[], &Default::default())
                     .unwrap()
-                    .return_value,
+                    .return_value
+                    .value(runtime.runtime().gc())
+                    .expect("retained execution result"),
                 Value::I32(42)
             );
             assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -211,7 +219,9 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
             runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -335,7 +345,13 @@ mod native {
         let report = runtime
             .execute_prepared(&loaded, "main", &[], &context, &prepared)
             .unwrap();
-        assert_eq!(report.return_value, Value::I32(42));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     }
 }
@@ -365,7 +381,13 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     let report = runtime
         .execute_prepared(&loaded, "main", &[], &context, &prepared)
         .unwrap();
-    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     let prepared = runtime
         .prepare_native(
@@ -380,7 +402,13 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     let report = runtime
         .execute_prepared(&loaded, "required_methods", &[], &context, &prepared)
         .unwrap();
-    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
     assert_eq!(
         report.jit.unwrap().status,
         JitExecutionStatus::InterpreterFallback
@@ -402,7 +430,14 @@ fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
         let result = runtime
             .execute(&loaded, "library_and_object", &[], &context)
             .unwrap();
-        assert_eq!(result.return_value, Value::I32(42));
+        assert_eq!(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42)
+        );
+        drop(result);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
         assert_eq!(drops.load(Ordering::SeqCst), expected);
@@ -471,6 +506,7 @@ fn source_free_converted_residual_keeps_its_original_failure_origin() {
             .source_uri
             .ends_with("feature-artifact.kgr")
     );
+    drop(report.return_value);
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(runtime.runtime().gc().allocated_objects(), 0);

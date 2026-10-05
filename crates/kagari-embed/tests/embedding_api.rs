@@ -262,7 +262,13 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let report = runtime
         .execute(&loaded, "main", &[], &context)
         .expect("entry should execute");
-    assert_eq!(report.return_value, Value::I32(1));
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(1)
+    );
 
     let reloaded = runtime
         .reload_program(
@@ -280,7 +286,13 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let report = runtime
         .execute(&reloaded, "main", &[], &context)
         .expect("reloaded entry should execute");
-    assert_eq!(report.return_value, Value::I32(2));
+    assert_eq!(
+        report
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(2)
+    );
 }
 
 #[test]
@@ -350,7 +362,9 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
             runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -367,7 +381,9 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
         runtime
             .execute(&loaded, "main", &[], &ExecutionContext::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert!(!runtime.runtime().is_quarantined());
@@ -409,7 +425,9 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(1)
     );
 }
@@ -565,7 +583,9 @@ fn installed_host_path_mutation_uses_declared_access() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::Unit
     );
 }
@@ -617,7 +637,9 @@ fn installed_host_path_reads_need_no_permission_flags() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(10)
     );
 }
@@ -670,14 +692,18 @@ fn installed_host_and_reflection_helpers_are_available() {
         runtime
             .execute(&print_module, "main", &[], &ExecutionContext::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::Unit
     );
     assert_eq!(
         runtime
             .execute(&type_of_module, "main", &[], &ExecutionContext::default())
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::Str("i32".into())
     );
 }

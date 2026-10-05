@@ -28,7 +28,15 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
-    let root = runtime.runtime().root_value(result.return_value).unwrap();
+    let root = runtime
+        .runtime()
+        .root_value(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+        )
+        .unwrap();
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 0);
     drop(runtime);
@@ -61,7 +69,9 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);

@@ -194,7 +194,11 @@ fn native_operation_guards_release_on_unwind() {
         Some(&native),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(84)
     );
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -225,7 +229,11 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         })
         .unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     let old_key = loaded.key();
@@ -246,7 +254,11 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
             .unwrap();
         assert!(vm.runtime().attach_execution_observer().unwrap());
         assert_eq!(
-            vm.execute(&replacement, "run").unwrap().return_value,
+            vm.execute(&replacement, "run")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(43)
         );
         assert!(vm.runtime().modules().loaded(old_key).is_some());
@@ -269,11 +281,19 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         let receiving = thread::current().id();
         assert_ne!(receiving, previous_thread);
         assert_eq!(
-            vm.execute(&replacement, "run").unwrap().return_value,
+            vm.execute(&replacement, "run")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(44)
         );
         assert_eq!(
-            vm.execute(&replacement, "main").unwrap().return_value,
+            vm.execute(&replacement, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(101)
         );
         vm.runtime().collect_garbage().unwrap();

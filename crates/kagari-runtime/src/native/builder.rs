@@ -66,6 +66,12 @@ impl ModuleBuilder {
         self.declaration.module_documentation = text.into();
     }
 
+    /// Provider declarations plus local types/traits that have finished validation.
+    /// Use this catalog when preparing an explicit typed binding.
+    pub fn declarations(&self) -> &DeclarationCatalog {
+        &self.providers
+    }
+
     pub fn with_modules(mut self, modules: &[&NativeModule]) -> NativeResult<Self> {
         self.providers
             .merge(&DeclarationCatalog::from_modules(modules)?)?;

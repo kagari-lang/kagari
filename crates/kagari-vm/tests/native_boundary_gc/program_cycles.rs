@@ -53,7 +53,12 @@ fn generic_operation_environment_does_not_root_its_obsolete_program_cycle() {
         .runtime_mut()
         .load_program("generic-cycle", code.clone())
         .unwrap();
-    let closure = vm.execute(&old, "make").unwrap().return_value;
+    let closure = vm
+        .execute(&old, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     assert!(
         vm.runtime()
             .resolve_closure(&closure)
@@ -88,10 +93,20 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .runtime_mut()
         .load_program("environment", code.clone())
         .unwrap();
-    let value = vm.execute(&old, "make").unwrap().return_value;
+    let value = vm
+        .execute(&old, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let old_snapshot = (*vm.runtime().resolve_closure(&value).unwrap()).clone();
     let current = vm.reload_program(&old, "environment", code).unwrap();
-    let value = vm.execute(&current, "make").unwrap().return_value;
+    let value = vm
+        .execute(&current, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let current_root = vm.runtime().root_value(value.clone()).unwrap();
     let snapshot = (*vm.runtime().resolve_closure(&value).unwrap()).clone();
     assert!(
@@ -162,7 +177,12 @@ fn assert_reclaimed(runtime: &Runtime, old: &LoadedModule, reclaimed: &HashSet<M
 fn old_module_closure_cycle_is_retained_only_by_external_roots() {
     let mut vm = vm();
     let old = vm.runtime_mut().load_program("cycle", program(42)).unwrap();
-    let closure = vm.execute(&old, "make").unwrap().return_value;
+    let closure = vm
+        .execute(&old, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     vm.runtime()
         .write_module_slot(&old, ModuleSlot::new(0), closure.clone())
         .unwrap();
@@ -176,7 +196,11 @@ fn old_module_closure_cycle_is_retained_only_by_external_roots() {
     let implementation = snapshot.implementation.clone();
     drop(snapshot);
     assert_eq!(
-        vm.execute(&implementation, "answer").unwrap().return_value,
+        vm.execute(&implementation, "answer")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     drop(root);
@@ -201,8 +225,18 @@ fn cycles_between_obsolete_programs_are_collected_together() {
         .runtime_mut()
         .load_program("right", code.clone())
         .unwrap();
-    let from_left = vm.execute(&left, "make").unwrap().return_value;
-    let from_right = vm.execute(&right, "make").unwrap().return_value;
+    let from_left = vm
+        .execute(&left, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
+    let from_right = vm
+        .execute(&right, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     vm.runtime()
         .write_module_slot(&left, ModuleSlot::new(0), from_right)
         .unwrap();

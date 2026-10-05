@@ -59,7 +59,12 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
         .expect("module should load");
     let host_vm = Vm::new(host_runtime);
     assert_eq!(
-        host_vm.execute(&host_module, "main").unwrap().return_value,
+        host_vm
+            .execute(&host_module, "main")
+            .unwrap()
+            .return_value
+            .value(host_vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 
@@ -94,7 +99,9 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
         reflection_vm
             .execute(&reflection_module, "main")
             .unwrap()
-            .return_value,
+            .return_value
+            .value(reflection_vm.runtime().gc())
+            .expect("retained execution result"),
         Value::Str("i32".into())
     );
     DebugSession::new(&standard_runtime(Default::default())).unwrap();

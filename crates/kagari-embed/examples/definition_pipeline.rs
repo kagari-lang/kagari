@@ -157,7 +157,11 @@ fn main() {
     );
     let vm = Vm::new(first_runtime);
     assert!(matches!(
-        vm.execute(&first, "main").unwrap().return_value,
+        vm.execute(&first, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(31)
     ));
     black_box((vm, second_runtime, first, second));

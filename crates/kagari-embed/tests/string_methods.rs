@@ -23,7 +23,14 @@ fn run(source: &str, expected_error: Option<&str>) {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let result = runtime.execute(&loaded, "main", &[], &context);
     match expected_error {
-        None => assert_eq!(result.unwrap().return_value, Value::Bool(true)),
+        None => assert_eq!(
+            result
+                .unwrap()
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::Bool(true)
+        ),
         Some(message) => {
             let error = result.unwrap_err();
             assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");

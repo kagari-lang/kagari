@@ -73,7 +73,13 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     );
     let loaded = runtime.load_program("host-composites", program).unwrap();
     let mut vm = Vm::new(runtime);
-    let Value::Tuple(values) = vm.execute(&loaded, "fixtures").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "fixtures")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("fixtures")
     };
     let [array, wrong_array, map, wrong_map, set, wrong_set] = values.as_slice() else {
@@ -361,7 +367,13 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     );
     let loaded = runtime.load_program("host-storage", program).unwrap();
     let mut vm = Vm::new(runtime);
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("containers")
     };
     let [Value::Map(map), Value::Set(set)] = values.as_slice() else {

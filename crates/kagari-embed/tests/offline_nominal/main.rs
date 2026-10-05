@@ -241,7 +241,13 @@ fn assert_source_index_path(field_prefix: bool) {
             runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
-        assert_eq!(report.return_value, Value::I32(12));
+        assert_eq!(
+            report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(12)
+        );
         assert_eq!(state.load(Ordering::SeqCst), 12);
         assert_eq!(
             *trace.lock().unwrap(),

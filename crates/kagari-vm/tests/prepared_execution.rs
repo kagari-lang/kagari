@@ -113,7 +113,13 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
     assert_eq!(module.bytecode.functions[0].instructions.len(), 2);
     let preparation = prepared(&vm, &module, native_unit);
     let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
-    assert_eq!(report.return_value, Value::Unit);
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::Unit
+    );
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::Native);
     assert_eq!(jit.artifact.unwrap().function, FunctionRef::new(0));
@@ -130,7 +136,13 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
         diagnostics: vec!["unsupported operation".into()],
     };
     let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
-    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none());
@@ -184,7 +196,15 @@ fn optimized_execution_preserves_results_traps_and_source_origins() {
             let b = after.execute(&b, "main");
             match (a, b) {
                 (Ok(a), Ok(b)) => {
-                    assert_eq!(a.return_value, b.return_value, "{source}")
+                    assert_eq!(
+                        a.return_value
+                            .value(before.runtime().gc())
+                            .expect("retained execution result"),
+                        b.return_value
+                            .value(after.runtime().gc())
+                            .expect("retained execution result"),
+                        "{source}"
+                    )
                 }
                 (Err(a), Err(b)) => {
                     let describe = |error: &VmError| match error.cause() {

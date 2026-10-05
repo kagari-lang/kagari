@@ -79,7 +79,15 @@ fn execute(
     let result = runtime
         .execute(module, "main", &[], context)
         .expect("profile execution");
-    assert_eq!(black_box(result.return_value), Value::I32(expected));
+    assert_eq!(
+        black_box(
+            result
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result")
+        ),
+        Value::I32(expected)
+    );
 }
 
 pub(super) fn run(

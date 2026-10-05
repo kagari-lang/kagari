@@ -148,7 +148,11 @@ fn source_call_boxes_a_concrete_argument_for_an_interface_parameter() {
     );
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -160,7 +164,11 @@ fn source_call_boxes_an_interface_with_methods() {
     );
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -172,7 +180,11 @@ fn source_interface_method_call_dispatches_through_the_linked_slot() {
     );
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(8)
     );
 }
@@ -184,7 +196,11 @@ fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
     );
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -399,7 +415,11 @@ fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     assert!(vm.invoke_interface_method(&boxed, &method, &[]).is_err());
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -412,13 +432,23 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
     let vm = Vm::new(runtime);
-    let right = vm.execute(&loaded, "make_a").unwrap().return_value;
+    let right = vm
+        .execute(&loaded, "make_a")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     assert_eq!(
         vm.invoke_interface_method(&boxed, &method, &[right])
             .unwrap(),
         Value::I32(5)
     );
-    let wrong = vm.execute(&loaded, "make_b").unwrap().return_value;
+    let wrong = vm
+        .execute(&loaded, "make_b")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     assert!(matches!(wrong, Value::Struct(_)));
     let error = vm
         .invoke_interface_method(&boxed, &method, &[wrong])
@@ -474,7 +504,12 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         .load_program("interface-instruction", decoded.program)
         .unwrap();
     let vm = Vm::new(runtime);
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     assert!(matches!(value, Value::Interface(_)));
     assert!(vm.runtime().gc().validate_value(&value));
 }
@@ -532,7 +567,12 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
         .unwrap();
     let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
     let vm = Vm::new(runtime);
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     assert!(matches!(value, Value::Interface(_)));
     let _root = vm.runtime().root_value(value).unwrap();
     vm.runtime().collect_garbage().unwrap();

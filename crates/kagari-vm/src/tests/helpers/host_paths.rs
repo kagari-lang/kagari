@@ -92,7 +92,13 @@ fn executes_runtime_host_helper_call() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
 }
 
 #[test]
@@ -308,11 +314,18 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 vm.execute(&loaded, "main")
             }
             .unwrap();
-            assert_eq!(report.return_value, Value::I32(42));
+            assert_eq!(
+                report
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
             assert_eq!(*hp.lock().unwrap(), 20);
             assert_eq!(*stages.lock().unwrap(), ["validate", "read", "prepare"]);
             assert_eq!(scope.host_scope_count(), 0);
             assert_eq!(scope.counters().current_call_depth, 0);
+            drop(report);
             assert_eq!(vm.runtime().gc().active_roots(), 0);
             drop(scope);
             vm.runtime().collect_garbage().unwrap();
@@ -384,7 +397,13 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").unwrap();
 
-    assert_eq!(report.return_value, Value::I32(7));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(7)
+    );
     assert_eq!(*hp.lock().unwrap(), 7);
     assert_eq!(vm.runtime().host_dirty_paths().len(), 2);
 }
@@ -460,7 +479,11 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
 
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(10)
     );
 }
@@ -566,7 +589,13 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             } else {
                 vm.execute(&loaded, "main").unwrap()
             };
-            assert_eq!(value.return_value, Value::I32(73));
+            assert_eq!(
+                value
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(73)
+            );
         }
     }
 }

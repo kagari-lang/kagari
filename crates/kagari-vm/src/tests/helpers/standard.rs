@@ -30,7 +30,13 @@ fn executes_source_lowered_declared_host_log() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::Unit);
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::Unit
+    );
     assert_eq!(
         *messages.lock().expect("message sink should lock"),
         vec!["hello".to_string()]
@@ -62,7 +68,10 @@ fn main()->(usize,bool,usize,bool){
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
     assert_eq!(
-        report.return_value,
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::Tuple(vec![
             Value::U64(1),
             Value::Bool(true),
@@ -87,7 +96,13 @@ fn main() -> usize {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::U64(3));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::U64(3)
+    );
 }
 
 #[test]
@@ -107,5 +122,11 @@ fn main() -> i32 {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(9));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(9)
+    );
 }

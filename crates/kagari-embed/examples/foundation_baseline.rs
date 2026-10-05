@@ -86,12 +86,24 @@ fn main() {
     let vm = Vm::new(first_runtime);
     const CALLS: u32 = 10_000;
     for _ in 0..100 {
-        black_box(vm.execute(&first_loaded, "main").unwrap().return_value);
+        black_box(
+            vm.execute(&first_loaded, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
+        );
     }
     let start = Instant::now();
     let mut checksum = 0_i64;
     for _ in 0..CALLS {
-        let Value::I32(value) = vm.execute(&first_loaded, "main").unwrap().return_value else {
+        let Value::I32(value) = vm
+            .execute(&first_loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result")
+        else {
             unreachable!("benchmark entry returns i32")
         };
         checksum += i64::from(value);

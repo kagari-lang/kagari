@@ -28,7 +28,9 @@ fn public_source_glob_reexports_members_through_artifacts() {
             runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -54,7 +56,9 @@ fn parent_module_can_execute_pub_super_child_function() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -89,7 +93,9 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
             runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap()
-                .return_value,
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -138,7 +144,9 @@ fn parent_module_can_call_pub_super_inherent_method() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -169,7 +177,9 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     let private = insert(
@@ -209,7 +219,9 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -241,7 +253,9 @@ fn wildcard_import_follows_a_public_module_alias() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -267,7 +281,9 @@ fn wildcard_import_follows_a_public_native_module_alias() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -308,7 +324,9 @@ fn declared_external_child_module_resolves_qualified_calls() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }

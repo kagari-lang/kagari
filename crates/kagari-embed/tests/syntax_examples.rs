@@ -270,7 +270,9 @@ fn standalone_language_examples_execute_from_source_and_artifact() {
             let actual = runtime
                 .execute(&loaded, "main", &[], &context)
                 .unwrap_or_else(|error| panic!("{path} should execute: {error:?}"))
-                .return_value;
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result");
             assert_eq!(actual, expected, "{path}, encoded={encoded}");
         }
     }
@@ -339,7 +341,9 @@ fn grouped_standard_globs_execute() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -367,7 +371,9 @@ fn nested_inline_modules_resolve_qualified_members() {
         runtime
             .execute(&loaded, "main", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -432,7 +438,13 @@ fn after_trap() -> i32 { 42 }
     let result = runtime
         .execute(&loaded, "after_trap", &[], &context)
         .unwrap();
-    assert_eq!(result.return_value, Value::I32(42));
+    assert_eq!(
+        result
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
 }
 
 #[test]
@@ -468,7 +480,9 @@ fn after() -> i32 { 42 }
         runtime
             .execute(&loaded, "after", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -504,14 +518,18 @@ fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
         runtime
             .execute(&loaded, "integer", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(2)
     );
     assert_eq!(
         runtime
             .execute(&loaded, "fractional", &[], &context)
             .unwrap()
-            .return_value,
+            .return_value
+            .value(runtime.runtime().gc())
+            .expect("retained execution result"),
         Value::F32(1.5)
     );
     for (name, message) in [

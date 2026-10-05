@@ -142,20 +142,36 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         .unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(
-        vm.execute(&loaded, "overridden").unwrap().return_value,
+        vm.execute(&loaded, "overridden")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
-        vm.execute(&loaded, "nested").unwrap().return_value,
+        vm.execute(&loaded, "nested")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(
-        vm.execute(&loaded, "bounded").unwrap().return_value,
+        vm.execute(&loaded, "bounded")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -212,7 +228,11 @@ fn registered_default_calls_the_selected_receiver_operation() {
     );
     for entry in ["main", "run_dynamic"] {
         assert_eq!(
-            vm.execute(&loaded, entry).unwrap().return_value,
+            vm.execute(&loaded, entry)
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
             Value::I32(42)
         );
     }
@@ -233,7 +253,11 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -253,11 +277,13 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     )
     .unwrap();
     let loaded = runtime.load_program("round-trip", decoded.program).unwrap();
+    let vm = Vm::new(runtime);
     assert_eq!(
-        Vm::new(runtime)
-            .execute(&loaded, "main")
+        vm.execute(&loaded, "main")
             .unwrap()
-            .return_value,
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     let (owner, table) = program
@@ -336,12 +362,20 @@ fn dynamic_iteration_preserves_gc_roots_and_mutation_guards() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert!(vm.execute(&loaded, "trap").is_err());
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -376,7 +410,11 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -409,7 +447,11 @@ fn default_map_and_set_iterate_through_readonly_parent_views() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -487,11 +529,13 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     let loaded = runtime
         .load_program("native-constraint", decoded.program)
         .unwrap();
+    let vm = Vm::new(runtime);
     assert_eq!(
-        Vm::new(runtime)
-            .execute(&loaded, "main")
+        vm.execute(&loaded, "main")
             .unwrap()
-            .return_value,
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -527,7 +571,11 @@ fn main() -> i32 {
         .unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -610,7 +658,12 @@ fn runner() -> Run { 7 }
         .load_program("native-scope", compile_program(source, Some(&module)))
         .unwrap();
     let mut vm = Vm::new(runtime);
-    let receiver = vm.execute(&old, "receiver").unwrap().return_value;
+    let receiver = vm
+        .execute(&old, "receiver")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(receiver.clone()).unwrap();
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
@@ -624,7 +677,12 @@ fn runner() -> Run { 7 }
         )
         .unwrap();
     let current = vm.runtime_mut().publish_staged_reload(candidate).unwrap();
-    let runner = vm.execute(&current, "runner").unwrap().return_value;
+    let runner = vm
+        .execute(&current, "runner")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let method = current
         .bytecode
         .interface_tables
@@ -723,7 +781,11 @@ fn main() -> i32 {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }
@@ -794,7 +856,11 @@ fn main() -> i32 {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main").unwrap().return_value,
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
         Value::I32(42)
     );
 }

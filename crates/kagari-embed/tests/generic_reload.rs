@@ -75,7 +75,12 @@ fn make() -> Run {{
         );
         let old_key = old.key();
         let vm = Vm::new(runtime);
-        let saved = vm.execute(&old, "make").unwrap().return_value;
+        let saved = vm
+            .execute(&old, "make")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result");
         let root = vm.runtime().root_value(saved.clone()).unwrap();
         let current = vm
             .reload_program(&old, "generic-reload", replacement)
@@ -83,7 +88,12 @@ fn make() -> Run {{
         drop(old);
         vm.runtime().collect_garbage().unwrap();
         assert!(vm.runtime().modules().loaded(old_key).is_some());
-        let fresh = vm.execute(&current, "make").unwrap().return_value;
+        let fresh = vm
+            .execute(&current, "make")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result");
         let fresh_root = vm.runtime().root_value(fresh.clone()).unwrap();
         assert_eq!(
             vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
@@ -166,17 +176,37 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
     );
     let old_key = old.key();
     let vm = Vm::new(runtime);
-    let saved = vm.execute(&old, "make").unwrap().return_value;
+    let saved = vm
+        .execute(&old, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(saved.clone()).unwrap();
-    let stopped = vm.execute(&old, "make_stopped").unwrap().return_value;
+    let stopped = vm
+        .execute(&old, "make_stopped")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let stopped_root = vm.runtime().root_value(stopped.clone()).unwrap();
     let current = vm.reload_program(&old, "try-reload", replacement).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
-    let fresh = vm.execute(&current, "make").unwrap().return_value;
+    let fresh = vm
+        .execute(&current, "make")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let fresh_root = vm.runtime().root_value(fresh.clone()).unwrap();
-    let fresh_stopped = vm.execute(&current, "make_stopped").unwrap().return_value;
+    let fresh_stopped = vm
+        .execute(&current, "make_stopped")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let fresh_stopped_root = vm.runtime().root_value(fresh_stopped.clone()).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&saved, &run, &[]).unwrap(),

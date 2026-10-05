@@ -1,0 +1,129 @@
+//! Concrete Rust callbacks share the checked conversion boundary with host access.
+mod receiver;
+use crate::{
+    Runtime,
+    error::RuntimeError,
+    gc::GcCollection,
+    native::{
+        binding::{Codec, NativeBinding, NativeResult},
+        catalog::DeclarationCatalog,
+        context::CallContext,
+        conversion::{
+            FromKagari, IntoKagari, arguments::FromKagariArguments, context::ConversionContext,
+        },
+        typed::receiver::ReceiverArguments,
+    },
+    value::Value,
+};
+
+/// One synchronous native invocation. Arguments are owned Rust data or retained
+/// handles; no argument-slot or payload borrow spans the callback.
+pub struct NativeContext<'call> {
+    conversion: ConversionContext<'call>,
+}
+
+impl<'call> NativeContext<'call> {
+    pub fn runtime(&self) -> &'call Runtime {
+        self.conversion.runtime()
+    }
+
+    pub fn poll(&self) -> NativeResult<()> {
+        self.conversion.poll()
+    }
+
+    pub fn collect_garbage(&self) -> NativeResult<GcCollection> {
+        self.runtime().collect_garbage()
+    }
+
+    /// Collect owned Rust values with cooperative cancellation and checked
+    /// capacity growth. An iterator's individual `next` call is not preemptible.
+    pub fn collect<T>(&self, values: impl IntoIterator<Item = T>) -> NativeResult<Vec<T>> {
+        let mut result = Vec::new();
+        let mut values = values.into_iter();
+        loop {
+            self.poll()?;
+            let Some(value) = values.next() else { break };
+            self.poll()?;
+            result
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("native collected values"))?;
+            result.push(value);
+        }
+        Ok(result)
+    }
+}
+
+impl NativeBinding {
+    /// Instance callbacks receive their receiver separately from the outer
+    /// argument tuple. The checked declaration still owns the receiver's type.
+    pub fn typed_method<S, A, R>(
+        catalog: &DeclarationCatalog,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> NativeResult<Self>
+    where
+        S: FromKagari,
+        A: FromKagariArguments,
+        R: IntoKagari,
+    {
+        Self::typed(
+            catalog,
+            move |cx, ReceiverArguments(receiver, arguments)| entry(cx, receiver, arguments),
+        )
+    }
+
+    /// Bind an outer argument tuple and one fallibly converted result. The
+    /// declaration builder checks this binding against the exported signature.
+    pub fn typed<A, R>(
+        catalog: &DeclarationCatalog,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> NativeResult<Self>
+    where
+        A: FromKagariArguments,
+        R: IntoKagari,
+    {
+        let arguments = A::argument_types(catalog)?
+            .into_iter()
+            .map(|ty| Codec::Scalar(ty.0))
+            .collect::<Vec<_>>();
+        let result = Codec::Scalar(R::kagari_type(catalog)?.0);
+        Ok(Self::new(arguments, result, move |call| {
+            invoke(call, &entry)
+        }))
+    }
+}
+
+fn invoke<A: FromKagariArguments, R: IntoKagari>(
+    call: &mut CallContext<'_>,
+    entry: &impl Fn(&mut NativeContext<'_>, A) -> NativeResult<R>,
+) -> NativeResult<Value> {
+    let mut context = NativeContext {
+        conversion: ConversionContext::new(call.runtime, call.owner)?,
+    };
+    let result_type = call.result_type_argument()?;
+    // A mismatch known before invocation cannot run any argument converter or
+    // callback. The final value is still checked: user adapters are not trusted.
+    context.conversion.check_type::<R>(&result_type)?;
+    let mut types = Vec::new();
+    let mut values = Vec::new();
+    types
+        .try_reserve_exact(call.arguments.len())
+        .map_err(|_| RuntimeError::resource_limit("native argument types"))?;
+    values
+        .try_reserve_exact(call.arguments.len())
+        .map_err(|_| RuntimeError::resource_limit("native argument values"))?;
+    for slot in 0..call.arguments.len() {
+        types.push(call.argument_type_argument(slot)?);
+        values.push(call.argument(slot)?);
+    }
+    let arguments = A::from_arguments(&mut context.conversion, &types, &values)?;
+    let result = entry(&mut context, arguments)?;
+    context.conversion.encode_value(&result_type, result)
+    // No safepoint occurs between dropping this scope and the caller publishing
+    // the returned value. LinkedResultAdapter protects it before allocating.
+}

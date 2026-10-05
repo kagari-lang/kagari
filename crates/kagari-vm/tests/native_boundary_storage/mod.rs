@@ -21,15 +21,28 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
     );
     let valid = vm.execute(&loaded, "valid").unwrap();
     assert_eq!(
-        index_bound(vm.runtime().gc(), &valid.return_value).unwrap(),
+        index_bound(
+            vm.runtime().gc(),
+            &valid
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")
+        )
+        .unwrap(),
         Bound::Unbounded
     );
     for name in ["wrong_argument", "wrong_owner"] {
         let invalid = vm.execute(&loaded, name).unwrap();
         assert_eq!(
-            index_bound(vm.runtime().gc(), &invalid.return_value)
-                .unwrap_err()
-                .kind(),
+            index_bound(
+                vm.runtime().gc(),
+                &invalid
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result")
+            )
+            .unwrap_err()
+            .kind(),
             RuntimeErrorKind::ScriptTrap
         );
     }
@@ -47,7 +60,13 @@ fn assigns_stable_object_identity_and_kind() {
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("tuple")
     };
     let [
@@ -93,7 +112,12 @@ fn hash_map_replaces_duplicates_and_accounts_units() {
 fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new(); map.insert("b", 2); map.insert("a", 1); map.insert("b", 3); map }"#,
         None,
     );
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value.clone()).unwrap();
     let Value::Map(map) = value else {
         panic!("container")
@@ -148,7 +172,12 @@ fn hash_set_replaces_duplicates_and_accounts_units() {
 fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.insert("b"); set.insert("a"); set.insert("b"); set }"#,
         None,
     );
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value.clone()).unwrap();
     let Value::Set(set) = value else {
         panic!("container")
@@ -192,7 +221,13 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("tuple")
     };
     let [Value::Struct(record), Value::Set(set)] = values.as_slice() else {
@@ -234,7 +269,13 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
     "#,
         None,
     );
-    let Value::Array(array) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Array(array) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("array")
     };
     let heap = vm.runtime().gc();
@@ -255,7 +296,13 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("tuple")
     };
     let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
@@ -329,7 +376,13 @@ fn native_array_helpers_mutate_and_return_options() {
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("tuple")
     };
     let [
@@ -370,7 +423,13 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("tuple")
     };
     let [
@@ -416,7 +475,13 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
     "#,
         None,
     );
-    let Value::Tuple(values) = vm.execute(&loaded, "main").unwrap().return_value else {
+    let Value::Tuple(values) = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
         panic!("tuple")
     };
     let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
@@ -477,7 +542,12 @@ fn native_map_and_set_allocations_update_resource_counters() {
     "#,
         None,
     );
-    let value = vm.execute(&loaded, "main").unwrap().return_value;
+    let value = vm
+        .execute(&loaded, "main")
+        .unwrap()
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result");
     let root = vm.runtime().root_value(value.clone()).unwrap();
     let Value::Tuple(values) = value else {
         panic!("tuple")
