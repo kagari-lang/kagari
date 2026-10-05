@@ -1,7 +1,7 @@
 //! Call-scoped handles borrow existing frame roots; buffer access stays scoped.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, RootedValue},
+    gc::{GcHeap, HeapObjectId, roots::RootedValue},
     native::{
         binding::NativeResult,
         context::{ArgumentView, CallContext},

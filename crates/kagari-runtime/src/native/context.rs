@@ -9,7 +9,7 @@ use crate::{
         arguments::{ScopedSignature, TypeArgument, type_parameter},
         compatibility::TypeView,
     },
-    gc::{GcCollection, GcHeap, HeapObjectId, RootSet},
+    gc::{GcCollection, GcHeap, HeapObjectId, roots::RootSet},
     module::{LoadedModule, RetainedRuntimeProgram},
     native::{
         arguments::CallArguments,
@@ -43,13 +43,19 @@ pub enum ArgumentSlots<'call> {
 
 #[derive(Clone, Copy)]
 pub struct ArgumentView<'call> {
+    heap: &'call GcHeap,
     roots: Option<&'call RootSet>,
     slots: ArgumentSlots<'call>,
 }
 
 impl<'call> ArgumentView<'call> {
-    pub(crate) fn new(roots: &'call RootSet, slots: ArgumentSlots<'call>) -> Self {
+    pub(crate) fn new(
+        heap: &'call GcHeap,
+        roots: &'call RootSet,
+        slots: ArgumentSlots<'call>,
+    ) -> Self {
         Self {
+            heap,
             roots: Some(roots),
             slots,
         }
@@ -79,8 +85,10 @@ impl<'call> ArgumentView<'call> {
         if let ArgumentSlots::Scalars(values) = self.slots {
             return index < values.len();
         }
-        self.rooted_slot(index)
-            .is_some_and(|slot| self.roots.is_some_and(|roots| roots.contains_slot(slot)))
+        self.rooted_slot(index).is_some_and(|slot| {
+            self.roots
+                .is_some_and(|roots| roots.contains_slot(self.heap, slot))
+        })
     }
 
     /// Read rooted immutable slot data without an owning clone. The closure cannot
@@ -89,14 +97,15 @@ impl<'call> ArgumentView<'call> {
         if let ArgumentSlots::Scalars(values) = self.slots {
             return values.get(index).map(read);
         }
-        self.roots?.with_value(self.rooted_slot(index)?, read)
+        self.roots?
+            .with_value(self.heap, self.rooted_slot(index)?, read)
     }
 
     pub fn get(&self, index: usize) -> Option<Value> {
         if let ArgumentSlots::Scalars(values) = self.slots {
             return values.get(index).cloned();
         }
-        self.roots?.get(self.rooted_slot(index)?)
+        self.roots?.get(self.heap, self.rooted_slot(index)?)
     }
 }
 
@@ -500,6 +509,7 @@ impl<'call> CallContext<'call> {
                     owner: &owner,
                     function: &function,
                     arguments: ArgumentView {
+                        heap: self.heap(),
                         roots: None,
                         slots: ArgumentSlots::Scalars(arguments),
                     },

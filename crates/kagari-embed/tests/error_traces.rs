@@ -148,7 +148,10 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         let root = runtime.runtime().root_value(report.return_value).unwrap();
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(
-            runtime.runtime().result_failure(&root.value()).unwrap(),
+            runtime
+                .runtime()
+                .result_failure(&root.value(runtime.runtime().gc()).unwrap())
+                .unwrap(),
             failure
         );
         drop(root);
@@ -339,10 +342,13 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     );
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(
-        runtime.runtime().result_failure(&root.value()).unwrap(),
+        runtime
+            .runtime()
+            .result_failure(&root.value(runtime.runtime().gc()).unwrap())
+            .unwrap(),
         failure
     );
-    let raw = root.value();
+    let raw = root.value(runtime.runtime().gc()).unwrap();
     drop(root);
     drop(old);
     drop(new);

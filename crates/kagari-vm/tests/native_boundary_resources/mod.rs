@@ -2,7 +2,7 @@ use super::compile_program;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeError,
-    gc::RootedValue,
+    gc::roots::RootedValue,
     module::LoadedModule,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
@@ -75,7 +75,12 @@ impl MutationFixture {
     }
 
     fn value(&self) -> Value {
-        self.retained.borrow().as_ref().unwrap().value()
+        self.retained
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .value(self.vm.runtime().gc())
+            .unwrap()
     }
 
     fn contents(&self) -> Vec<Value> {

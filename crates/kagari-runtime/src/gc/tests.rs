@@ -270,7 +270,7 @@ fn roots_are_explicit_storable_slots() {
         .unwrap();
     let root = heap.root_value(Value::Array(object)).unwrap();
 
-    assert_eq!(root.value(), Value::Array(object));
+    assert_eq!(root.value(heap).unwrap(), Value::Array(object));
     assert_eq!(heap.active_roots(), 1);
     assert_eq!(heap.trace_roots().unwrap(), vec![object]);
 
@@ -282,7 +282,7 @@ fn roots_are_explicit_storable_slots() {
     );
     assert_eq!(heap.active_roots(), 1);
 
-    let bare_copy = root.value();
+    let bare_copy = root.value(heap).unwrap();
     let retained = root.clone();
     drop(root);
     assert_eq!(heap.collect(&[]).unwrap().live_objects, 1);

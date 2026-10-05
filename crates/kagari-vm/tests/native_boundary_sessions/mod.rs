@@ -68,7 +68,11 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     heap.array_push(local, Value::I32(2)).unwrap();
     assert_eq!(heap.array_len(local), Some(2));
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().validate_value(&retained.value()));
+    assert!(
+        runtime
+            .gc()
+            .validate_value(&retained.value(runtime.gc()).unwrap())
+    );
     drop(session);
     assert_eq!(heap.array_snapshot(array).unwrap(), vec![Value::I32(7)]);
     assert_eq!(

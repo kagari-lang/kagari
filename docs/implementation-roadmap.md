@@ -1,8 +1,8 @@
 # Kagari Implementation Roadmap
 
-This is the single queue and progress owner for pending work. AC01-AC05 are
-complete, including final replacement acceptance under the continuous goal.
-Other queued proposals remain outside that goal.
+This is the single queue and progress owner for pending work. GO01-GO06 are active
+under the continuous goal. Earlier AC, CR, LR and EN tracks remain complete.
+Other queued proposals remain outside the active goal.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -1105,6 +1105,83 @@ layouts, scoped signatures, selected calls and generation-pinned facts. Separate
 crate metadata, dynamic Try interfaces and broader backend expansion remain outside
 this completed track.
 
+### Runtime ownership and host objects (GO01-GO06, active)
+
+Status: implementation authorized under the continuous goal on 2026-10-05. The
+[runtime ownership and host object API design](runtime-ownership-and-host-api-design.md)
+defines central stores and checked IDs, automatic host retention, a Send runtime
+with exclusive execution, typed native registration, object mutation and checked
+function/trait calls. EN01-EN05 remain complete. Execute GO01 through GO06 in order,
+with one accepted commit per phase as authorized by the user.
+
+The existing nonmoving mark-sweep collector remains the starting algorithm. This
+track replaces the surrounding Rc/Weak ownership graph, not the ordinary nominal
+enum model. It owns the shared conversion/root/call foundation previously proposed
+under RI/HA. RI retains DTO derives, Serde and external Opaque ownership; HA retains
+the prepare/load/reload facade and proposed latest-version entry policy. Async and
+task-scope designs remain separate and adopt this thread-transfer contract.
+
+The accepted [GC boundary design](runtime-ownership-and-host-api-design.md#gc-boundaries-and-extension)
+separates host adapters, object semantics, storage and collection. Common root
+enumeration, registered reference traversal and controlled reference writes are
+required foundations. Traced payloads use restricted editing rather than arbitrary
+&mut access. Ordinary new registrations must not require mark/sweep changes.
+Additional collector algorithms and a configurable GC framework remain deferred.
+
+Phase order and progress:
+
+- [x] **GO01: Central roots and checked identities.** Runtime-owned root storage,
+  common root enumeration, automatic host leases, stale/foreign identity checks
+  and teardown semantics.
+- [ ] **GO02: Central execution and metadata ownership.** Session/frame/program/
+  environment stores, synchronous reentry, coordinated reachability and pinned
+  version reclamation, including cycles and escaped generic environments. Separate
+  object policy from collection; establish storage traversal and controlled internal
+  edge writes, including initialization, frame/root slots and metadata links.
+- [ ] **GO03: Runtime thread transfer.** Send runtime, exclusive access,
+  callback/payload constraints, deterministic thread handoff and Tokio task coverage.
+- [ ] **GO04: Typed registration and results.** Recursive conversion, argument
+  tuples, complete registration docs/generated KGR, typed entry arguments and
+  automatically retained public results with source-free support.
+- [ ] **GO05: Host objects and checked calls.** Fields/collections, scoped native
+  payload edits with restricted traced-field views, prepared/cached member bindings,
+  direct declaration-handle binding, functions/closures and ordinary/generic/interface
+  trait methods.
+  Route public reference mutations through the GO02 storage boundary and reject
+  unrestricted mutable access to traced payloads.
+  Optional generated Rust views consume this path as later tooling work.
+- [ ] **GO06: Standard library and final integration.** Exercise public adapters
+  in standard bindings and new registered types/payloads without collector changes;
+  verify reference replacement/removal and cyclic reclamation, remove obsolete
+  APIs, update specs and pass the design's complete behavior/feature/backend matrix.
+
+The design owns detailed contracts and acceptance criteria.
+Use one accepted commit per phase with `Roadmap-Step: GO01` through `GO06`; keep
+checkpoints building and perform final integration at GO06. No performance gain
+is assumed. Open implementation errors and resumption state belong here.
+
+#### GO progress ledger
+
+- GO01 complete: root values now live in a heap-owned generational table.
+  gc::roots::RootedValue and RootSet hold checked identities and Arc leases;
+  reads require the owning heap. Expired entries are pruned at registration/GC,
+  exhausted generations retire slots, and borrowed slot conflicts reject safely.
+  Frame/native/debug roots share this path. Leases are Send + Sync and do not own
+  storage; runtime teardown releases a retained native payload exactly once.
+- GO01 validation passed: cargo check --workspace --all-targets; strict all-target
+  Clippy for kagari-runtime/kagari-vm/kagari-embed; structure check (774 Rust files,
+  no violations); cargo fmt --all -- --check; git diff --check; 226 local doc links.
+  The following command passed 283 tests, including language-contract routes,
+  root identity/reuse/transfer/teardown, GC/reentry and native callbacks:
+  `cargo test -p kagari-runtime -p kagari-vm -p kagari-embed --lib --test gc_ownership --test runtime_substrate --test execution_sessions --test native_boundary --test native_provider_reset`.
+  Initial test/example root-read signature errors were resolved. No carried build
+  or test error remains. Logs under target/go01-* are disposable.
+- GO02 next: centralize sessions/frames, programs and environments; separate object
+  policy and collector/storage responsibilities. Preserve reentry cleanup, exact
+  dependency ownership and escaped environments while replacing Rc/Weak graphs.
+  GO01 does not make Runtime Send or replace the public native authoring API;
+  those remain GO03-GO05, with final integration at GO06.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and
@@ -1113,10 +1190,10 @@ not prerequisites to replay.
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Rust interoperability](rust-interop-design.md) — RI00-RI05 | Recursive typed value conversion, optional schema-backed Serde and retained opaque objects. Preserve host-managed mutation; exposing Rust borrows is separate. |
-| [Host API](host-api-refactor.md) — HA00-HA05 | Preparation/load/call/reload facade; depends on RI conversion/root contracts. Package identity and update compatibility must be frozen before affected phases, without requiring both entire tracks first. |
+| [Rust interoperability](rust-interop-design.md) — RI00-RI05 | DTO derives, optional schema-backed Serde and independently retained opaque objects; reuse GO conversion/root contracts. External host mutation remains distinct from GO managed-payload editing. |
+| [Host API](host-api-refactor.md) — HA00-HA05 | Preparation/load/reload facade and logical entry policy; reuse GO typed calls/roots and RI value extensions. Package identity and update compatibility must be frozen before affected phases, without requiring both entire tracks first. |
 | [Packages](package-design.md) — PK00-PK04 | Cargo-style manifests, exact dependency graphs and source/module identities. First source kinds, single-selection policy and defaults remain review choices. |
-| [Update model](update-model-design.md) — UP00-UP05 | Compatible publication versus explicit state replacement. RI supplies conversion/roots, PK identities and HA the facade; lower-level cutover belongs to UP. |
+| [Update model](update-model-design.md) — UP00-UP05 | Compatible publication versus explicit state replacement. GO supplies calls/roots, RI value extensions, PK identities and HA the facade; lower-level cutover belongs to UP. |
 | [Async execution](async-execution-design.md) | Host-driven awaited native IO and owned execution lifetimes. Task/completion contracts need review; synchronous acceptance does not require async. |
 | [Host task scopes](host-task-scope-design.md) | Scope-owned work launched by synchronous handlers, host/Actor dispatch and bounded driving; no Actor/Tokio policy inside the VM. |
 

@@ -6,8 +6,8 @@ use crate::{
         BoundOperation, TypeEnvironment, arguments::ScopedSignature, operations::ReceiverOperations,
     },
     gc::{
-        RootedValue,
         interfaces::{InterfaceResultBinding, InterfaceValueSnapshot, MethodApplication},
+        roots::RootedValue,
     },
     module::LoadedModule,
     value::Value,

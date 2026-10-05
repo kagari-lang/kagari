@@ -2,7 +2,10 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     frame::types::{TypeEnvironment, compatibility::TypeView},
-    gc::interfaces::InterfaceValueSnapshot,
+    gc::{
+        interfaces::InterfaceValueSnapshot,
+        roots::{RootTable, RootedValue},
+    },
     module::{LoadedModule, ModuleKey, RetainedRuntimeProgram, StructLayoutRef},
     native::{
         hashed::{MapPayload, SetPayload},
@@ -22,7 +25,7 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
-    rc::{Rc, Weak},
+    rc::Rc,
     slice,
     sync::{
         Arc,
@@ -45,6 +48,7 @@ pub(crate) mod interfaces;
 mod iter;
 mod iteration;
 pub mod mutations;
+pub mod roots;
 mod sequence_edit;
 mod string_iter;
 
@@ -94,63 +98,6 @@ impl HeapObjectId {
 
     pub fn generation(self) -> u64 {
         self.generation
-    }
-}
-
-/// Owning root for host retention. Clones share one root; the last drop releases it.
-#[must_use = "retain this handle for as long as the host needs the value"]
-#[derive(Debug, Clone)]
-pub struct RootedValue {
-    roots: RootSet,
-}
-
-impl RootedValue {
-    pub fn value(&self) -> Value {
-        self.roots.get(0).expect("single root")
-    }
-
-    pub fn set(&self, heap: &GcHeap, value: Value) -> Option<()> {
-        if !value.is_storable() {
-            return None;
-        }
-        self.roots.set(heap, 0, value)
-    }
-}
-
-/// A registered set of execution slots. Values in it remain live until last drop.
-#[must_use = "retain the registered slots until execution resources are released"]
-#[derive(Debug, Clone)]
-pub struct RootSet {
-    owner: u64,
-    values: Rc<RefCell<Vec<Value>>>,
-}
-
-impl PartialEq for RootSet {
-    fn eq(&self, other: &Self) -> bool {
-        self.owner == other.owner && Rc::ptr_eq(&self.values, &other.values)
-    }
-}
-
-impl RootSet {
-    pub(crate) fn contains_slot(&self, index: usize) -> bool {
-        index < self.values.borrow().len()
-    }
-
-    pub fn get(&self, index: usize) -> Option<Value> {
-        self.values.borrow().get(index).cloned()
-    }
-
-    pub(crate) fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
-        let values = self.values.try_borrow().ok()?;
-        values.get(index).map(read)
-    }
-
-    pub fn set(&self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
-        if self.owner != heap.owner || !heap.validate_value(&value) {
-            return None;
-        }
-        *self.values.borrow_mut().get_mut(index)? = value;
-        Some(())
     }
 }
 
@@ -350,7 +297,7 @@ pub struct GcHeap {
     config: GcHeapConfig,
     objects: RefCell<Vec<ObjectSlot>>,
     free: RefCell<Vec<usize>>,
-    roots: RefCell<Vec<Weak<RefCell<Vec<Value>>>>>,
+    roots: RefCell<RootTable>,
     stats: RefCell<CollectorStats>,
     resources: Rc<ResourceState>,
     next_collection: Cell<usize>,
@@ -406,7 +353,7 @@ impl GcHeap {
             ),
             objects: RefCell::new(Vec::new()),
             free: RefCell::new(Vec::new()),
-            roots: RefCell::new(Vec::new()),
+            roots: RefCell::new(RootTable::default()),
             stats: RefCell::new(CollectorStats::default()),
             resources,
             next_collection: Cell::new(config.collection_threshold.unwrap_or(usize::MAX).max(1)),
@@ -435,11 +382,7 @@ impl GcHeap {
     }
 
     pub fn active_roots(&self) -> usize {
-        self.roots
-            .borrow()
-            .iter()
-            .filter(|root| root.strong_count() > 0)
-            .count()
+        self.roots.borrow().active()
     }
 
     pub(crate) fn alloc_struct(
@@ -846,45 +789,12 @@ impl GcHeap {
         }
     }
 
-    pub fn root_value(&self, value: Value) -> Option<RootedValue> {
-        if !value.is_storable() {
-            return None;
-        }
-        Some(RootedValue {
-            roots: self.root_execution_values(vec![value])?,
-        })
-    }
-
-    pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
-        self.ensure_execution_allowed().ok()?;
-        if !values.iter().all(|value| self.validate_value(value)) {
-            return None;
-        }
-        let values = Rc::new(RefCell::new(values));
-        let mut roots = self.roots.borrow_mut();
-        roots.retain(|root| root.strong_count() > 0);
-        roots.push(Rc::downgrade(&values));
-        Some(RootSet {
-            owner: self.owner,
-            values,
-        })
-    }
-
     pub fn trace_roots(&self) -> Option<Vec<HeapObjectId>> {
-        self.trace_values(&self.root_snapshots())
+        self.trace_values(&self.root_snapshots()?)
     }
 
     pub fn trace_value(&self, value: &Value) -> Option<Vec<HeapObjectId>> {
         self.trace_values(slice::from_ref(value))
-    }
-
-    fn root_snapshots(&self) -> Vec<Value> {
-        self.roots
-            .borrow()
-            .iter()
-            .filter_map(Weak::upgrade)
-            .flat_map(|root| root.borrow().clone())
-            .collect()
     }
 
     pub fn collection_due(&self) -> bool {
@@ -896,7 +806,7 @@ impl GcHeap {
     /// module state; registered host/frame roots are always included.
     pub(crate) fn collect(&self, additional_roots: &[Value]) -> Option<GcCollection> {
         let started = Instant::now();
-        let mut values = self.root_snapshots();
+        let mut values = self.root_snapshots()?;
         values.extend_from_slice(additional_roots);
         let live = self
             .trace_values(&values)?
@@ -925,9 +835,7 @@ impl GcHeap {
         }
         drop(objects);
         self.release_heap_units(reclaimed_units);
-        self.roots
-            .borrow_mut()
-            .retain(|root| root.strong_count() > 0);
+        self.roots.borrow_mut().prune();
         let pause = started.elapsed();
         let mut stats = self.stats.borrow_mut();
         stats.collections += 1;

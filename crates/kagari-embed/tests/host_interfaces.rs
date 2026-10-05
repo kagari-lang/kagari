@@ -403,7 +403,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
                         .id;
                     let value = reenter(ctx, &version, answer, &[]).unwrap();
                     ctx.runtime().collect_garbage().unwrap();
-                    return Ok(value.value());
+                    return Ok(value.value(ctx.runtime().gc()).unwrap());
                 }
                 Ok(Value::I32(*amount))
             })
@@ -671,8 +671,12 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
     let method = &host.trait_implementations[0].methods[0].trait_method;
 
     assert_eq!(
-        vm.invoke_interface_method(&rooted.value(), method, &[Value::I32(42)])
-            .unwrap(),
+        vm.invoke_interface_method(
+            &rooted.value(vm.runtime().gc()).unwrap(),
+            method,
+            &[Value::I32(42)]
+        )
+        .unwrap(),
         Value::I32(42)
     );
     assert_eq!(*calls.borrow(), 1);

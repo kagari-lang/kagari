@@ -217,7 +217,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
         assert_eq!(scope.host_scope_count(), 2);
         let value = reenter(call, &root, function, &[]).unwrap();
         call.runtime().collect_garbage().unwrap();
-        let Value::Array(array) = value.value() else {
+        let Value::Array(array) = value.value(call.runtime().gc()).unwrap() else {
             panic!("array")
         };
         assert_eq!(call.runtime().gc().array_get(array, 0), Some(Value::I32(7)));

@@ -100,7 +100,13 @@ fn main() {
     assert_eq!(session.host_scope_count(), 0);
     drop(session);
     runtime.runtime().collect_garbage().unwrap();
-    let Value::Array(id) = retained.borrow().as_ref().unwrap().value() else {
+    let Value::Array(id) = retained
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .value(runtime.runtime().gc())
+        .unwrap()
+    else {
         panic!("array result")
     };
     assert_eq!(

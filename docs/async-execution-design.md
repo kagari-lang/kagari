@@ -11,6 +11,12 @@ activation through the [roadmap](implementation-roadmap.md) and resolution of th
 design gates below. Existing specifications remain authoritative until an
 implementation updates them.
 
+The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
+owns centralized stores, automatic retention and movement of an exclusively driven
+runtime between host threads. References below to the owning VM thread mean the
+current exclusive driver, not permanent OS-thread affinity. This async proposal
+still owns suspension and completion protocols; GO alone does not implement them.
+
 The [host task scope design](host-task-scope-design.md) defines synchronous handlers
 launching Actor-owned async work, scope admission and mailbox-driven resumption.
 It refines the original root-bound task proposal without introducing script threads

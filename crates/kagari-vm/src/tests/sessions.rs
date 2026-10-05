@@ -86,7 +86,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                             .validate(token, HostBorrowKind::Unique)
                             .unwrap();
                         runtime.collect_garbage().unwrap();
-                        let Value::Array(id) = value.value() else {
+                        let Value::Array(id) = value.value(runtime.gc()).unwrap() else {
                             panic!("array result")
                         };
                         assert_eq!(
@@ -136,7 +136,12 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 .borrow_unique(HostObjectId(1), TypeId::new(0))
                 .unwrap();
             vm.runtime().collect_garbage().unwrap();
-            let raw = retained.borrow().as_ref().unwrap().value();
+            let raw = retained
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .value(vm.runtime().gc())
+                .unwrap();
             assert!(vm.runtime().gc().validate_value(&raw));
             assert!(!Runtime::default().gc().validate_value(&raw));
             retained.borrow_mut().take();
@@ -323,7 +328,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             for version in targets.borrow().iter() {
                 let result = reenter(context, version, function, &[]);
                 if version.key() == root.key() {
-                    values.borrow_mut().push(result.unwrap().value());
+                    values.borrow_mut().push(result.unwrap().value(context.runtime().gc()).unwrap());
                 } else {
                     assert!(matches!(result, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
                 }

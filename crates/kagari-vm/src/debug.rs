@@ -9,7 +9,7 @@ use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    gc::RootSet,
+    gc::roots::RootSet,
     module::{LoadedModule, ModuleId},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,

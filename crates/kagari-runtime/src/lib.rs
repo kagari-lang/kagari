@@ -10,8 +10,8 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionStack,
     gc::{
-        GcCollection, GcHeap, GcHeapConfig, HeapObjectId, RootedValue,
-        interfaces::MethodApplication,
+        GcCollection, GcHeap, GcHeapConfig, HeapObjectId, interfaces::MethodApplication,
+        roots::RootedValue,
     },
     host::{
         FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostFunction, HostFunctionId,

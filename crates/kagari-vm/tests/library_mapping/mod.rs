@@ -78,7 +78,14 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     let mut vm = Vm::new(runtime);
     let error = vm.execute(&loaded, "main").unwrap_err();
     assert!(format!("{error:?}").contains("structural modification during iteration"));
-    let Value::Array(array) = probe.retained.borrow().as_ref().unwrap().value() else {
+    let Value::Array(array) = probe
+        .retained
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .value(vm.runtime().gc())
+        .unwrap()
+    else {
         panic!("array");
     };
     assert_eq!(vm.runtime().gc().array_len(array), Some(2));

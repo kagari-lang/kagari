@@ -218,12 +218,20 @@ while explicit runtime collection remains available. Heap units are accounting u
 not byte measurements. Stats report live/peak units, live objects, collection count,
 reclaimed object count and the last pause. Incremental and generational GC remain deferred.
 
-Host retention uses RootedValue, returned by Runtime::root_value. Its clones share a
-registered root and the last drop releases it. Value::clone only copies a script value;
-it does not keep heap objects alive. RootedValue::set checks the destination heap and
-replacement references. The former GcRootId/update/release APIs are removed. Frame
-storage uses RootSet with short validated accesses. Root handles and runtime callbacks
-are local to one thread; callbacks may capture rooted values without Send/Sync bounds.
+Host retention uses gc::roots::RootedValue, returned by Runtime::root_value. The
+heap owns a generational root table containing the values; handles contain checked
+heap/root identities and Arc leases. Clones share one entry. Dropping the last lease
+removes retention eligibility; expired entries are pruned on registration and
+collection. A concurrent last drop may retain an object for one extra collection.
+RootedValue::value and set require the owning heap and validate identity/generation;
+replacement also validates incoming references. Value::clone alone does not retain
+heap objects. Frame/native/debug slots use the same table through RootSet.
+
+Root leases are Send + Sync and can be cloned/dropped on other threads without
+accessing values. They do not own the heap or payload storage; runtime teardown
+releases that storage even if leases survive, and use against another runtime is
+rejected. The runtime and callbacks still use the current single-thread ownership
+model until GO02/GO03 complete. Callbacks currently need no Send/Sync bounds.
 
 ## Type Registry
 

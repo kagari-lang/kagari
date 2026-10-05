@@ -88,7 +88,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
                 let owner = context.runtime().execution_root().unwrap();
                 let payload = reenter(context, &owner, payload, &[])
                     .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
-                Ok(payload.value())
+                Ok(payload.value(context.runtime().gc()).unwrap())
             }))
             .unwrap();
         let calls = trace.clone();
@@ -124,7 +124,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         .unwrap();
         let retained = runtime.runtime().root_value(report.return_value).unwrap();
         runtime.runtime().collect_garbage().unwrap();
-        let Value::Tuple(values) = retained.value() else {
+        let Value::Tuple(values) = retained.value(runtime.runtime().gc()).unwrap() else {
             panic!("composite return")
         };
         let [

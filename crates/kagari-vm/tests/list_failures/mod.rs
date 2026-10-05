@@ -18,7 +18,14 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let mut vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
     assert_eq!(probe.calls.get(), calls);
-    let Value::Array(array) = probe.retained.borrow().as_ref().unwrap().value() else {
+    let Value::Array(array) = probe
+        .retained
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .value(vm.runtime().gc())
+        .unwrap()
+    else {
         panic!("array")
     };
     assert_eq!(

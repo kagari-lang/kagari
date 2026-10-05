@@ -656,7 +656,8 @@ retain such a value explicitly:
 ```rust,ignore
 let value = vm.runtime().make_interface(&loaded_impl, table_index, concrete_value)?;
 let rooted = vm.runtime().root_value(value).expect("valid runtime-owned value");
-let result = vm.invoke_interface_method(&rooted.value(), &method_id, &[])?;
+let value = rooted.value(vm.runtime().gc()).expect("owning runtime");
+let result = vm.invoke_interface_method(&value, &method_id, &[])?;
 ```
 
 The root must remain alive while the host retains the value. The table index

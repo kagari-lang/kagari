@@ -553,6 +553,12 @@ while a snapshot is retained currently copies the table's index containers.
 
 ## Runtime Model
 
+The active [runtime ownership and host object API](runtime-ownership-and-host-api-design.md)
+replaces distributed Rc ownership with central checked stores and automatic host
+leases, and targets exclusive execution in a Send runtime. It also owns typed
+registration, managed object mutation and checked host function/trait calls. The
+following paragraphs describe the implemented baseline until GO phases land.
+
 The runtime owns values, the script GC heap, explicit roots, host registry,
 module versions, installed native code owners and execution sessions. The VM
 drives verified bytecode against these services. GC does not scan or own Rust
@@ -560,6 +566,13 @@ host state. Host calls use scoped borrow validation; deep host mutation uses
 checked typed paths rather than retained Rust references or reflective field lookup.
 See [runtime](spec/runtime.md), [host interop](spec/host-interop.md) and
 [typed path mutation](spec/typed-path-mutation.md).
+
+Root values live in a heap-owned generational table. Host/frame/debug handles carry
+Arc leases and checked root identities; value access requires the owning heap.
+Leases can move across threads and outlive runtime teardown without owning heap
+storage. Execution/program/environment ownership and Runtime transfer remain the
+following GO phases; transferable leases alone do not make the runtime Send.
+
 
 Installation determines exposed native/host APIs; declared visibility, writeability,
 storage access, ownership and generations remain checked. Root cancellation is

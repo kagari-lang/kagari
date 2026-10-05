@@ -1,8 +1,41 @@
 //! Source-side consumer of the same application-owned registration fixture.
-use super::{artifact, engine};
+use super::{artifact, engine, provider};
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_embed::{context::ExecutionContext, engine::EngineConfig, program::PreparedProgram};
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
+use std::{cell::Cell, rc::Rc};
+
+#[test]
+fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown() {
+    let program = PreparedProgram::from_artifact(
+        artifact("fn main() -> native::Handler<i32> { native::hold(42, |value| value) }"),
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap();
+    let drops = Rc::new(Cell::new(0));
+    let mut builder = KagariEngine::builder().unwrap();
+    builder.install(provider::module(drops.clone())).unwrap();
+    let engine = builder.build().unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
+    let root = runtime.runtime().root_value(result.return_value).unwrap();
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(drops.get(), 0);
+    drop(runtime);
+    assert_eq!(drops.get(), 1);
+    let other = engine.runtime(context);
+    assert!(root.value(other.runtime().gc()).is_none());
+    assert!(root.set(other.runtime().gc(), Value::Unit).is_none());
+    drop(root);
+    assert_eq!(drops.get(), 1);
+}
 
 #[test]
 fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {

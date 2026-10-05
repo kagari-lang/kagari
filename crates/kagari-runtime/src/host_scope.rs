@@ -1,7 +1,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::RootSet,
+    gc::roots::RootSet,
     host::{HostBorrowKind, HostCallGuard},
     session::ExecutionSession,
     value::{EphemeralValue, Value},

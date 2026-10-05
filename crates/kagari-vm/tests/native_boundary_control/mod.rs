@@ -322,7 +322,10 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
                 let root = context.runtime().execution_root().unwrap();
                 if args == [Value::Str("outer".into())] {
                     assert_eq!(
-                        reenter(context, &root, inner, &[]).unwrap().value(),
+                        reenter(context, &root, inner, &[])
+                            .unwrap()
+                            .value(context.runtime().gc())
+                            .unwrap(),
                         Value::I32(7)
                     );
                     assert!(reenter(context, &root, fail, &[]).is_err());
@@ -386,7 +389,8 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
                 let value = callback.borrow().as_ref().unwrap().clone();
                 let root = context.runtime().execution_root().unwrap();
                 let result = reenter(context, &root, consume, &[value]).unwrap();
-                sink.borrow_mut().push(result.value());
+                sink.borrow_mut()
+                    .push(result.value(context.runtime().gc()).unwrap());
                 context.runtime().collect_garbage().unwrap();
                 Ok(Value::Unit)
             }))
@@ -406,7 +410,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
             vm.runtime()
-                .resolve_closure(&rooted.value())
+                .resolve_closure(&rooted.value(vm.runtime().gc()).unwrap())
                 .unwrap()
                 .implementation
                 .key(),

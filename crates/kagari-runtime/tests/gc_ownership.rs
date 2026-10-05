@@ -150,7 +150,7 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
     assert!(root.set(runtime.gc(), Value::Array(other)).is_none());
     let slots = runtime
         .gc()
-        .root_execution_values(vec![root.value()])
+        .root_execution_values(vec![root.value(runtime.gc()).unwrap()])
         .unwrap();
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
@@ -182,7 +182,11 @@ fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_stora
     runtime
         .register_host_function(HostFunction::new(
             HostFunctionDeclaration::new("host.retained", vec![], HostValueType::Bool),
-            move |_, _| Ok(Value::Bool(retained.value() == Value::Array(object))),
+            move |cx, _| {
+                Ok(Value::Bool(
+                    retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
+                ))
+            },
         ))
         .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);

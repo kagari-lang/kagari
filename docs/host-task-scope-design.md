@@ -17,6 +17,11 @@ Both documents remain design-only work built on current
 owns activation; the async proposal owns implementation sequencing.
 All API names and examples below are illustrative and require review before coding.
 
+The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
+owns the Send runtime and centralized retention model. Scope/Actor ownership stays
+logical and serialized when its runtime moves between host workers. Completing GO
+does not implement the async launch/drive protocol in this document.
+
 The execution contract supplies the baseline: installed APIs authorize
 use, root cancellation and call-depth limits control execution, and the host manages task
 admission, deadlines and service limits. Scope/operation identities below are
@@ -245,9 +250,12 @@ mailbox address is reused.
 
 The engine sees a serialized execution domain, not an Actor implementation or a
 Tokio thread pool. IO may run elsewhere, but only owned host payloads and opaque
-notifications cross threads. The runtime, script heap, captured Values and parked
-frames stay with their owner. The current Runtime uses thread-local ownership
-structures; this design does not make it Send or permit moving it between workers.
+notifications cross threads. The runtime, script heap, captured values and parked
+frames remain owned by the same logical driver. Current Runtime is not Send.
+After the GO ownership migration, the driver may move its exclusively owned runtime
+between workers; completion threads still cannot directly drive or access it.
+Async suspension and transfer of parked executions additionally require the
+contracts in the async proposal.
 
 A host may run Actor/VM instances on local executors and use other workers for IO.
 Executing on the same OS thread is not sufficient isolation: unrelated local tasks

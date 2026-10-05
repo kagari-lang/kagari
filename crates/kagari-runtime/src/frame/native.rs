@@ -74,6 +74,7 @@ impl ExecutionStack {
             function: &function,
             invoke_script,
             arguments: ArgumentView::new(
+                &self.heap,
                 &roots,
                 ArgumentSlots::Contiguous {
                     start: 1,
@@ -112,7 +113,7 @@ impl ExecutionStack {
             owner: &loaded,
             function: &function,
             invoke_script,
-            arguments: ArgumentView::new(&roots, ArgumentSlots::Registers(arguments)),
+            arguments: ArgumentView::new(&self.heap, &roots, ArgumentSlots::Registers(arguments)),
         };
         let value = function.invoke(&mut context)?;
         if let Some(destination) = destination {

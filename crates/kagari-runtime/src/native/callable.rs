@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::{ClosureValueSnapshot, GcObjectKind, RootedValue},
+    gc::{ClosureValueSnapshot, GcObjectKind, roots::RootedValue},
     native::{
         arguments::CallArguments,
         binding::NativeResult,

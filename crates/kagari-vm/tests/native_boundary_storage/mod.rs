@@ -220,7 +220,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     root.set(heap, Value::GcHandle(leaf)).unwrap();
     assert_eq!(heap.trace_roots().unwrap(), vec![leaf]);
 
-    assert_eq!(root.value(), Value::GcHandle(leaf));
+    assert_eq!(root.value(heap).unwrap(), Value::GcHandle(leaf));
     drop(root);
     assert_eq!(heap.trace_roots().unwrap(), Vec::<HeapObjectId>::new());
 }

@@ -11,6 +11,12 @@ The object model and latest-version function handles are the proposed design to
 review at activation. This document authorizes neither implementation nor commits.
 Existing specifications remain authoritative until implementation updates them.
 
+The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
+owns automatic roots, common typed calls/conversion, object access and the Send
+runtime contract. HA consumes that foundation. Its Function below remains a
+proposed logical latest-version entry; GO PinnedFunction handles retain one checked
+version and do not activate HA's update policy.
+
 The later [package proposal](package-design.md) refines package identity and inputs.
 The [update model](update-model-design.md) owns the compatible-update versus state-
 replacement boundary and refines the compatibility gates below. These are contract
@@ -20,13 +26,16 @@ handoffs, not circular requirements to finish both implementations first.
 
 Build on current [native registration](spec/standard-declarations.md) and
 [execution control](spec/execution.md). The queued
-[Rust interoperability](rust-interop-design.md) supplies conversion/root contracts.
+[runtime ownership design](runtime-ownership-and-host-api-design.md) supplies
+conversion/root/call contracts; [Rust interoperability](rust-interop-design.md)
+extends them with DTO derives, Serde and external opaque ownership.
 The [roadmap](implementation-roadmap.md) owns activation and scheduling.
 
 This track owns the coherent host-facing facade, default workflows, call argument
-adapter and reload-aware entry handles. Rust interop owns value conversion, opaque
-retention and binding generation; execution policy owns resource semantics; native
-providers own linked invocation. Reuse those implementations and contracts.
+adapter and reload-aware entry handles. GO owns common conversion/retention and
+object APIs; Rust interop owns DTO/Serde/opaque extensions; execution policy owns
+resource semantics; native providers own linked invocation. Reuse those
+implementations and contracts.
 
 Synchronous acceptance does not require implementing async. The
 [async execution](async-execution-design.md) and [host task scope](host-task-scope-design.md)
@@ -339,13 +348,15 @@ async design, not a second loader or a second host interface catalog. Synchronou
 async entry usage before starting it. Async admission establishes version ownership
 according to the async task contract; later polls/resumes cannot switch generations.
 
-No Tokio dependency or blanket `Send + Sync` requirement is introduced in the
-core SDK by this facade plan. Background workers may deliver owned validated
-completion data; only the owning scheduler drives script execution.
+No Tokio dependency is introduced in the core SDK by this facade plan. GO owns the
+Send runtime and callback/payload transfer requirements; it does not require Sync
+for exclusively accessed runtime state. Background workers may deliver owned
+validated completion data; only the owning scheduler drives script execution.
 
 ## Implementation phases
 
-All phases are unstarted. Re-audit predecessor APIs before choosing changes.
+All phases are unstarted. Re-audit predecessor APIs before choosing changes and
+reuse accepted GO typed call/root contracts rather than rebuilding them.
 
 - [ ] HA00: Confirm latest-version entry policy, public compatibility rules,
   handle lifetimes, tuple arity, configuration precedence, error/panic behavior and

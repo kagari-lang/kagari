@@ -5,7 +5,7 @@ use kagari_hir::{
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    gc::RootedValue,
+    gc::roots::RootedValue,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
         declarations::FunctionDecl, module::NativeModule, types::Type, views::ValueHandle,
@@ -209,7 +209,14 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let mut vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
     assert_eq!(probe.calls.get(), 3);
-    let Value::Array(array) = probe.retained.borrow().as_ref().unwrap().value() else {
+    let Value::Array(array) = probe
+        .retained
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .value(vm.runtime().gc())
+        .unwrap()
+    else {
         panic!("array");
     };
     let values = vm.runtime().gc().array_snapshot(array).unwrap();
@@ -290,7 +297,14 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             format!("{error:?}").contains("guarded callback"),
             "{error:?}"
         );
-        let Value::Array(array) = probe.retained.borrow().as_ref().unwrap().value() else {
+        let Value::Array(array) = probe
+            .retained
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .value(vm.runtime().gc())
+            .unwrap()
+        else {
             panic!("array");
         };
         assert_eq!(

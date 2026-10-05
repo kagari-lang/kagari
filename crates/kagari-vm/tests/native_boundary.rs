@@ -927,16 +927,16 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     let hold = builder
         .define_function(FunctionDecl::new("hold").returns(language.collection_cursor(Type::i32())))
         .unwrap();
-    let slot = Rc::new(RefCell::new(None::<kagari_runtime::gc::RootedValue>));
+    let slot = Rc::new(RefCell::new(None::<kagari_runtime::gc::roots::RootedValue>));
     let capture = slot.clone();
     builder
         .bind_with(
             hold,
-            NativeBinding::new(vec![], Codec::Iterator, move |_| {
+            NativeBinding::new(vec![], Codec::Iterator, move |cx| {
                 capture
                     .borrow()
                     .as_ref()
-                    .map(|root| root.value())
+                    .and_then(|root| root.value(cx.heap()))
                     .ok_or_else(|| RuntimeError::module_validation("missing retained cursor"))
             }),
         )

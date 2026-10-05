@@ -4,11 +4,12 @@ use crate::{
     frame::types::{TypeEnvironment, arguments::TypeArgument},
     gc,
     gc::{
-        HeapObjectId, RootedValue,
+        HeapObjectId,
         interfaces::{
             InterfaceMethodBinding, InterfaceParentBinding, InterfaceResultBinding,
             InterfaceValueSnapshot,
         },
+        roots::RootedValue,
     },
     module,
     module::LoadedModule,

@@ -191,7 +191,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     let value = rt
         .iter_operation(
             &loaded,
-            &root.value(),
+            &root.value(rt.gc()).unwrap(),
             &Ty::Array(Box::new(item), CollectionAccess::Mutable),
             IterOp::New,
         )
@@ -205,7 +205,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     for expected in [20, 22] {
         let session = rt.begin_execution(&loaded, Default::default()).unwrap();
         let Value::Enum(id) = rt
-            .iter_operation(&loaded, &iter.value(), &ty, IterOp::Next)
+            .iter_operation(&loaded, &iter.value(rt.gc()).unwrap(), &ty, IterOp::Next)
             .unwrap()
         else {
             panic!("Option")
@@ -220,7 +220,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     rt.gc().array_push(array, Value::I32(1)).unwrap();
     let session = rt.begin_execution(&loaded, Default::default()).unwrap();
     assert!(
-        rt.iter_operation(&loaded, &iter.value(), &ty, IterOp::Next)
+        rt.iter_operation(&loaded, &iter.value(rt.gc()).unwrap(), &ty, IterOp::Next)
             .is_err()
     );
     drop(session);
@@ -237,7 +237,12 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     assert!(
         other
             .runtime()
-            .iter_operation(&other_loaded, &iter.value(), &ty, IterOp::Next)
+            .iter_operation(
+                &other_loaded,
+                &iter.value(rt.gc()).unwrap(),
+                &ty,
+                IterOp::Next
+            )
             .is_err()
     );
     drop(session);

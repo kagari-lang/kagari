@@ -2,7 +2,7 @@
 //! frames between these operations, never inside a borrowed hash table.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, GcObjectKind, HeapObjectId, RootSet},
+    gc::{GcHeap, GcObjectKind, HeapObjectId, roots::RootSet},
     value::{MapKey, Value},
 };
 

@@ -30,7 +30,7 @@ fn fill(
         .heap()
         .root_value(value)
         .ok_or_else(|| RuntimeError::module_validation("output root"))?;
-    let Value::Array(array) = output.value() else {
+    let Value::Array(array) = output.value(cx.heap()).unwrap() else {
         return Err(RuntimeError::module_validation("array output"));
     };
     for index in 0..count {
@@ -41,9 +41,10 @@ fn fill(
             .root_value(value)
             .ok_or_else(|| RuntimeError::module_validation("callback result root"))?;
         cx.collect_garbage()?;
-        cx.heap().array_push(array, value.value())?;
+        cx.heap()
+            .array_push(array, value.value(cx.heap()).unwrap())?;
     }
-    Ok(output.value())
+    Ok(output.value(cx.heap()).unwrap())
 }
 
 pub fn module(drops: Rc<Cell<usize>>) -> NativeModule {

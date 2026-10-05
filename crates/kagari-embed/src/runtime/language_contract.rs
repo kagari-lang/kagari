@@ -454,7 +454,7 @@ fn run(
             )
             .unwrap();
         let rooted = runtime.root_value(Value::Array(array)).unwrap();
-        *observed_array.borrow_mut() = Some(rooted.value());
+        *observed_array.borrow_mut() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
     });
     let iteration = case.iterating.then(|| {
@@ -464,7 +464,8 @@ fn run(
                 &retained
                     .as_ref()
                     .expect("iteration fixture needs an array")
-                    .value(),
+                    .value(runtime.gc())
+                    .unwrap(),
             )
             .unwrap()
     });
@@ -556,7 +557,8 @@ fn run(
             "only the explicit observer root remains"
         );
         vm.runtime().collect_garbage().unwrap();
-        let Value::Array(array) = retained.as_ref().unwrap().value() else {
+        let Value::Array(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
+        else {
             unreachable!()
         };
         assert_eq!(
@@ -567,7 +569,8 @@ fn run(
         );
     }
     if case.iterating {
-        let Value::Array(array) = retained.as_ref().unwrap().value() else {
+        let Value::Array(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
+        else {
             unreachable!()
         };
         vm.runtime().gc().array_push(array, Value::I32(99)).unwrap();

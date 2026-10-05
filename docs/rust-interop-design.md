@@ -6,6 +6,14 @@ the agreed behavior and proposed binding API; the examples are target API sketch
 not interfaces that exist today. Implementation and commits are not authorized by
 this documentation task.
 
+The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
+owns central runtime storage, automatic script-object roots, the Send runtime
+contract, common typed native adapters and managed-payload editing. RI reuses that
+foundation and retains DTO derives, Serde and independently retained external
+Opaque objects. Its phases extend accepted GO capabilities rather than implement
+a second conversion or root system. Editing a runtime-owned payload does not grant
+exclusive access to an externally shared Opaque object.
+
 Build on the current [native registration](spec/standard-declarations.md) and
 [installation-based access model](spec/execution.md). Activation and scheduling
 belong to the [roadmap](implementation-roadmap.md). Synchronous interop does not
@@ -43,10 +51,10 @@ The [host interop specification](spec/host-interop.md) already separates portabl
 declarations from runtime bindings. The following are useful foundations, not
 proof that this proposed SDK exists:
 
-- [Host value declarations](../crates/kagari-common/src/host_interface/value_type.rs)
+- [Host value declarations](../crates/kagari-types/src/host_interface/value_type.rs)
   include primitives, containers and opaque declaration identities, but not a
   complete portable ordinary struct/enum binding model for this proposal.
-- [Type and member declarations](../crates/kagari-common/src/host_interface/type_declaration.rs)
+- [Type and member declarations](../crates/kagari-types/src/host_interface/type_declaration.rs)
   describe fields and methods; method contracts include a typed receiver.
 - [Host handles and callbacks](../crates/kagari-runtime/src/host.rs) provide nominal
   type and registry checks. Current callbacks receive low-level script values.
@@ -262,8 +270,12 @@ methods; references obtained there never become script values in this design.
 
 Objects must not contain borrowed data with a lifetime shorter than their retention;
 the proposed first binding requires `T: 'static`. This does not mean the object
-lives forever. Do not impose universal `Send + Sync`: single-threaded objects are
-valid in a single-threaded isolate. Cross-thread retention/transfer is separate work.
+lives forever. The GO thread-transfer contract requires Send for runtime-owned
+payloads. An independently shared Opaque owner must additionally satisfy the
+requirements of its storage and access model; for example, sharing Arc<T> across
+threads requires T: Send + Sync. Thread-affine objects remain in external host
+services. This replaces the earlier assumption that every Opaque payload can stay
+inside a fixed-thread isolate without transfer constraints.
 
 Observable lifetime requirements are:
 
@@ -388,8 +400,8 @@ keeping a payload alive does not authorize an old handle under an incompatible t
 
 The [async design](async-execution-design.md) may retain owned values and valid opaque
 handles in suspended executions, subject to its root and lifecycle rules. This plan
-adds no suspension support. A single-threaded opaque object stays on its owning
-execution thread; external completion threads do not access it or the script heap.
+adds no suspension support. Thread-affine external objects stay with their host
+service; external completion threads do not directly access the script heap.
 
 ## Architecture and failure boundaries
 
@@ -419,8 +431,9 @@ existing scoped borrow protections or typed-path behavior outside this scope.
 
 ## Implementation phases
 
-All phases are unstarted. Activate only after predecessor acceptance and review of
-the concrete API gates below.
+All phases are unstarted. Reconcile the accepted GO foundation before activation;
+already implemented nominal declarations, roots and typed adapters are reused.
+Review the remaining RI-specific API gates below.
 
 - [ ] RI00: Re-audit the completed predecessor and existing tests. Decide trait
   signatures, supported numeric/collection/enum forms, field exposure/writeability,
@@ -429,8 +442,9 @@ the concrete API gates below.
 - [ ] RI01: Introduce portable nominal value schemas and registration graph
   validation. Integrate ordinary HIR types, checked contracts, linking and artifact
   validation. Test offline registration, missing dependencies and atomic rejection.
-- [ ] RI02: Implement directional conversion contexts, manual bindings and typed
-  synchronous Native adapters. Cover nested composites, roots, limits and failures.
+- [ ] RI02: Extend GO directional conversion contexts and typed Native adapters
+  to the RI value-schema subset. Cover nested DTO conversion, limits and failures
+  without adding another root or invocation implementation.
 - [ ] RI03: Implement retained opaque storage and `Opaque<T>` without `T: Clone`.
   Add methods/properties through common Native bindings, identity/lifetime checks
   and safe host-managed mutation. Keep borrowed adapters out of this phase.

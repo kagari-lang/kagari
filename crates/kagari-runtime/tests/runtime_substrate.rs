@@ -150,7 +150,7 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
     assert_eq!(runtime.trace_roots().unwrap(), vec![record, leaf]);
     root.set(runtime.gc(), Value::GcHandle(leaf)).unwrap();
     assert_eq!(runtime.trace_roots().unwrap(), vec![leaf]);
-    assert_eq!(root.value(), Value::GcHandle(leaf));
+    assert_eq!(root.value(runtime.gc()).unwrap(), Value::GcHandle(leaf));
     drop(root);
     assert!(runtime.trace_roots().unwrap().is_empty());
 }

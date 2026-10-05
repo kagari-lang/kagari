@@ -156,7 +156,10 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
         .unwrap();
     drop(loaded);
     vm.runtime().collect_garbage().unwrap();
-    let snapshot = vm.runtime().resolve_closure(&rooted.value()).unwrap();
+    let snapshot = vm
+        .runtime()
+        .resolve_closure(&rooted.value(vm.runtime().gc()).unwrap())
+        .unwrap();
     vm.runtime()
         .validate_loaded_module(&snapshot.implementation)
         .unwrap();

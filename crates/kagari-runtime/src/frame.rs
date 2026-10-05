@@ -2,7 +2,7 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{arguments::FrameArguments, types::TypeEnvironment},
-    gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, RootSet},
+    gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, roots::RootSet},
     module::LoadedModule,
     resource::ResourceState,
     session::ExecutionSession,
@@ -599,7 +599,7 @@ impl ExecutionFrame {
 
     pub fn native_return(&self) -> Option<Value> {
         matches!(self.native_entry, NativeEntryState::Complete)
-            .then(|| self.slots.get(0))
+            .then(|| self.slots.get(&self.heap, 0))
             .flatten()
     }
 
@@ -666,7 +666,7 @@ impl ExecutionFrame {
             return Err(self.resources.quarantine("invalid frame register"));
         }
         self.slots
-            .get(register.index())
+            .get(&self.heap, register.index())
             .ok_or_else(|| self.resources.quarantine("invalid frame register"))
     }
 
@@ -682,7 +682,7 @@ impl ExecutionFrame {
 
     pub fn read_local(&self, local: LocalSlot) -> Result<Value, RuntimeError> {
         self.slots
-            .get(self.register_count + local.index())
+            .get(&self.heap, self.register_count + local.index())
             .ok_or_else(|| self.resources.quarantine("invalid frame local"))
     }
 

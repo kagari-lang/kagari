@@ -36,6 +36,12 @@ One script heap is driven on one host thread. Independent isolates may run on
 different host threads; shared mutable heap access and script threading are outside
 the current model. Host services own resource lifecycle, synchronization and IO.
 
+The queued [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
+targets a Send runtime that can move between host workers while retaining exclusive
+execution, centralized ownership and automatic host-value retention. This is a
+proposed replacement of the fixed-thread implementation, not concurrent script
+heap access or a claim that current runtime values are transferable.
+
 `val` prevents slot rebinding, `var` permits writes and `const` denotes a checked
 compile-time value. Readonly collection views are shallow; aliases may mutate the
 same referent. Typed host mutation validates receiver/member/index contracts and

@@ -1,6 +1,7 @@
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    error::RuntimeError, gc::RootedValue, host::HostCallContext, module::LoadedModule, value::Value,
+    error::RuntimeError, gc::roots::RootedValue, host::HostCallContext, module::LoadedModule,
+    value::Value,
 };
 
 use crate::{error::VmError, executor::Executor};

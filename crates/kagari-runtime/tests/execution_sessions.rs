@@ -374,7 +374,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
         runtime
             .register_host_function(HostFunction::new(declaration, move |context, _| {
                 if symbol == "old" {
-                    return Ok(retained.value());
+                    return Ok(retained.value(context.runtime().gc()).unwrap());
                 }
                 let owner = context
                     .runtime()
@@ -420,8 +420,16 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let fresh = runtime.invoke_host("fresh", &[]).unwrap();
     let fresh = runtime.root_value(fresh).unwrap();
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().validate_value(&fresh.value()));
-    assert!(runtime.gc().validate_value(&root.value()));
+    assert!(
+        runtime
+            .gc()
+            .validate_value(&fresh.value(runtime.gc()).unwrap())
+    );
+    assert!(
+        runtime
+            .gc()
+            .validate_value(&root.value(runtime.gc()).unwrap())
+    );
     drop(session);
     runtime.publish_staged_reload(candidate).unwrap();
     assert!(runtime.invoke_host("old", &[]).is_ok());

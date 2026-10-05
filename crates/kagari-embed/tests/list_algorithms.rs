@@ -197,7 +197,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
     };
     use {
         kagari_runtime::{
-            gc::RootedValue,
+            gc::roots::RootedValue,
             native::{
                 binding::NativeResult, builder::ModuleBuilder, context::CallContext,
                 declarations::FunctionDecl, views::ValueHandle,
@@ -273,7 +273,13 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             "KG_RUNTIME_CANCELLED"
         );
         assert_eq!(calls.get(), 3);
-        let Value::Array(array) = retained.borrow().as_ref().unwrap().value() else {
+        let Value::Array(array) = retained
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .value(runtime.runtime().gc())
+            .unwrap()
+        else {
             panic!("array")
         };
         let mut actual = runtime

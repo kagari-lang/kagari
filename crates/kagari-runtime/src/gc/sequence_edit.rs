@@ -1,7 +1,7 @@
 //! Exclusive sequence storage leases restore completed edits on every exit path.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObject, HeapObjectId, RootSet},
+    gc::{GcHeap, HeapObject, HeapObjectId, roots::RootSet},
     native::{
         binding::NativeResult,
         sequence::{SequencePayload, SequenceStorage},
