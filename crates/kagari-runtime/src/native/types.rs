@@ -254,6 +254,12 @@ pub struct MethodRef {
     pub(crate) id: DefinitionPath,
 }
 
+impl MethodRef {
+    pub fn id(&self) -> &DefinitionPath {
+        &self.id
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionRef {
     pub(crate) id: DefinitionPath,

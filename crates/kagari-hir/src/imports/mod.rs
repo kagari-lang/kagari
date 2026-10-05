@@ -3,10 +3,7 @@
 use crate::{
     hir::{
         ids::ModuleId,
-        item::{
-            function::FunctionKind,
-            storage::{ExportItem, Visibility},
-        },
+        item::{function::FunctionKind, storage::ExportItem},
     },
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     imports::catalog::SourceCatalog,
@@ -22,7 +19,7 @@ use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::{FileId, Revision},
 };
-use kagari_types::collection::CollectionAccess;
+use kagari_types::{collection::CollectionAccess, visibility::Visibility};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry},
     sync::Arc,

@@ -243,6 +243,7 @@ pub fn requirement_signature(
         })
         .ok_or(TypeTransformError::InvalidContract)?;
     let call = InterfaceCallContract {
+        normalizations: vec![],
         receiver: Some(requirement.receiver.clone()),
         operations: vec![],
         interface: requirement.interface.clone(),

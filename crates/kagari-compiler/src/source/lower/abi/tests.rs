@@ -2,7 +2,7 @@ use super::collect_module_abi;
 use kagari_common::identity::associated_type_id;
 use kagari_contract::{
     types as abi,
-    types::{PublicItem, verify},
+    types::{PublicItem, inherent::native_signatures_match, verify},
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
@@ -224,12 +224,27 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
             );
         }
         for item in &abi.public_items {
+            // Inherent receiver ownership requires the native constructor's
+            // declaration from this same module.
+            let mut context = vec![item.clone()];
+            if matches!(item, PublicItem::InherentTable(_)) {
+                context.extend(
+                    abi.public_items
+                        .iter()
+                        .filter(|item| matches!(item, PublicItem::Type(_)))
+                        .cloned(),
+                );
+            }
             assert!(
-                verify::validate(std::slice::from_ref(item), identity, &Default::default()).is_ok(),
+                verify::validate(&context, identity, &Default::default()).is_ok(),
                 "invalid public declaration {identity}: {item:#?}"
             );
         }
         verify::validate(&abi.public_items, identity, &Default::default()).unwrap();
+        assert!(native_signatures_match(
+            &abi.public_items,
+            &abi.native_declarations
+        ));
     }
 }
 

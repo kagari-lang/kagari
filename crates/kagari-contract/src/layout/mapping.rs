@@ -115,6 +115,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructFieldLayout<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(StructFieldLayout {
+            visibility: self.visibility,
             declaration: mapper.reference(&self.declaration)?,
             name: self.name.clone(),
             ty: self.ty.map_identities(mapper)?,

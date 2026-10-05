@@ -1,6 +1,6 @@
 mod aggregate_ops;
 mod dispatch;
-mod native;
+pub(crate) mod native;
 mod value_ops;
 
 use kagari_bytecode::{

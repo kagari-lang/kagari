@@ -3,6 +3,7 @@ use kagari_common::identity::{DefinitionPath, DefinitionPathSegment, ModuleIdent
 use kagari_types::{
     declaration::{TypeDef, native::NativeTypeConstructor},
     range::RangeKind,
+    visibility::Visibility,
 };
 use {
     crate::types::{PublicItem, verify},
@@ -66,6 +67,7 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
         assert!(valid(ty.clone()), "{kind:?}");
         let mut wrong = ty.clone();
         wrong.fields.push(FieldDef {
+            visibility: Visibility::Public,
             name: "injected".into(),
             ty: Ty::Builtin(BuiltinType::I32),
             mutable: false,

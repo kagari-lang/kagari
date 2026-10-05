@@ -14,6 +14,15 @@ use crate::{
 
 pub trait KagariArguments {
     fn argument_types(catalog: &DeclarationCatalog) -> NativeResult<Vec<Type>>;
+
+    fn check_types(cx: &ConversionContext<'_>, expected: &[TypeArgument]) -> NativeResult<()> {
+        let types = Self::argument_types(&cx.runtime().native_entries.catalog)?;
+        check_arity(expected, types.len())?;
+        for (expected, ty) in expected.iter().zip(types) {
+            cx.check_declared_type(expected, ty)?;
+        }
+        Ok(())
+    }
 }
 
 pub trait IntoKagariArguments: KagariArguments + Sized {
@@ -34,6 +43,27 @@ pub trait FromKagariArguments: KagariArguments + Sized {
     ) -> NativeResult<Self>;
 }
 
+/// Own the argument roots until the backend result has been retained or decoded.
+pub(crate) fn encode_arguments<A: IntoKagariArguments>(
+    cx: &mut ConversionContext<'_>,
+    expected: &[TypeArgument],
+    arguments: A,
+) -> NativeResult<(RootSet, Vec<Value>)> {
+    let roots = arguments.into_arguments(cx, expected)?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(expected.len())
+        .map_err(|_| RuntimeError::resource_limit("typed call arguments"))?;
+    for slot in 0..expected.len() {
+        values.push(
+            roots
+                .get(cx.runtime().gc(), slot)
+                .ok_or_else(|| RuntimeError::module_validation("typed call argument root"))?,
+        );
+    }
+    Ok((roots, values))
+}
+
 fn check_arity(expected: &[TypeArgument], actual: usize) -> NativeResult<()> {
     if expected.len() != actual {
         return Err(RuntimeError::module_validation(
@@ -47,12 +77,7 @@ pub(crate) fn check_types<A: KagariArguments>(
     cx: &ConversionContext<'_>,
     expected: &[TypeArgument],
 ) -> NativeResult<()> {
-    let types = A::argument_types(&cx.runtime().native_entries.catalog)?;
-    check_arity(expected, types.len())?;
-    for (expected, ty) in expected.iter().zip(types) {
-        cx.check_declared_type(expected, ty)?;
-    }
-    Ok(())
+    A::check_types(cx, expected)
 }
 
 macro_rules! arguments {
@@ -60,6 +85,12 @@ macro_rules! arguments {
         impl<$($ty: KagariType),*> KagariArguments for ($($ty,)*) {
             fn argument_types(_catalog: &DeclarationCatalog) -> NativeResult<Vec<Type>> {
                 Ok(vec![$($ty::kagari_type(_catalog)?),*])
+            }
+
+            fn check_types(_cx: &ConversionContext<'_>, expected: &[TypeArgument]) -> NativeResult<()> {
+                check_arity(expected, $count)?;
+                $(_cx.check_type::<$ty>(&expected[$slot])?;)*
+                Ok(())
             }
         }
 

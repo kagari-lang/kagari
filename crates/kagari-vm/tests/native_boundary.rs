@@ -31,9 +31,13 @@ mod native_boundary_artifacts;
 mod native_boundary_callbacks;
 mod native_boundary_control;
 mod native_boundary_conversion;
+mod native_boundary_enums;
+mod native_boundary_functions;
 mod native_boundary_gc;
+mod native_boundary_hash_handles;
 mod native_boundary_host;
 mod native_boundary_interfaces;
+mod native_boundary_payload;
 mod native_boundary_resources;
 mod native_boundary_sessions;
 mod native_boundary_storage;
@@ -255,7 +259,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
                     let Value::I32(count) = cx.argument(1)? else {
                         unreachable!()
                     };
-                    let target = cx.selected(selected)?;
+                    let target = cx.selected(&selected)?;
                     let mut value = Value::I32(0);
                     for _ in 0..count {
                         cx.poll()?;

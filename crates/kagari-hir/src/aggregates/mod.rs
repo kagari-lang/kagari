@@ -8,7 +8,7 @@ use kagari_common::{
 use crate::{
     aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
     declarations::{Declaration, DeclarationId, Declarations},
-    hir::{item::storage::Visibility, writeability::Writeability},
+    hir::writeability::Writeability,
     host::HostDeclarations,
     imports::{ModuleGraph, functions::SourceFunctionId},
     language::semantics as builtin_traits,
@@ -18,7 +18,10 @@ use crate::{
     typeck::{GenericBounds, ModuleSignatures, TypedFunction},
     types::{GenericParameterType, NominalType, TypeId},
 };
-use kagari_types::language::{Protocol, role::LangRole};
+use kagari_types::{
+    language::{Protocol, role::LangRole},
+    visibility::Visibility,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,

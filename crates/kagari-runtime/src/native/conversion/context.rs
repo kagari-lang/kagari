@@ -156,6 +156,16 @@ impl<'runtime> ConversionContext<'runtime> {
         value: T,
     ) -> NativeResult<Value> {
         self.check_type::<T>(expected)?;
+        self.encode_prepared(expected, value)
+    }
+
+    /// The owning binding has already checked the Rust mapping. Value checks,
+    /// roots and conversion limits still apply on every access.
+    pub(crate) fn encode_prepared<T: IntoKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: T,
+    ) -> NativeResult<Value> {
         let (value, root) = {
             let mut frame = self.enter(None)?;
             let value = value.into_kagari(&mut frame, expected)?;
@@ -179,6 +189,14 @@ impl<'runtime> ConversionContext<'runtime> {
         value: &Value,
     ) -> NativeResult<T> {
         self.check_type::<T>(expected)?;
+        self.decode_prepared(expected, value)
+    }
+
+    pub(crate) fn decode_prepared<T: FromKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<T> {
         self.check_value(expected, value)?;
         let _root = self.protect(value)?;
         let tracked = if T::PRESERVES_IDENTITY {
@@ -238,8 +256,8 @@ impl<'runtime> ConversionContext<'runtime> {
 
     /// Validate a requested Rust type before executing user code or converters.
     pub fn check_type<T: KagariType>(&self, expected: &TypeArgument) -> NativeResult<()> {
-        let ty = T::kagari_type(&self.runtime.native_entries.catalog)?;
-        self.check_declared_type(expected, ty)
+        expected.validate(self.runtime)?;
+        T::check_type(self, expected)
     }
 
     pub(crate) fn check_declared_type(

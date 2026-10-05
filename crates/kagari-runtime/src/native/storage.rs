@@ -10,14 +10,17 @@ use crate::{
     },
     gc::GcHeap,
     module::LoadedModule,
-    native::storage_type::StorageType,
     native::{
         binding::NativeResult,
         context::{LinkedCallable, LinkedOperation},
+        payload::{data::NativeData, managed::ManagedSchema},
+        storage_type::StorageType,
+        stored_selection::StoredSelection,
     },
     value::Value,
 };
 use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
     any::{Any, TypeId},
@@ -128,6 +131,8 @@ struct StorageEntries {
     trace: Box<Trace>,
     iteration_sources: Box<Trace>,
     units: Box<Units>,
+    editable_data: bool,
+    managed: Option<Arc<ManagedSchema>>,
 }
 
 /// An immutable checked erasure of one Rust payload type. Clone shares entries.
@@ -146,6 +151,35 @@ impl Debug for NativeStorage {
 }
 
 impl NativeStorage {
+    pub(crate) fn with_managed_schema(mut self, schema: ManagedSchema) -> Self {
+        Arc::get_mut(&mut self.entries)
+            .expect("new storage descriptor")
+            .managed = Some(Arc::new(schema));
+        self
+    }
+
+    pub(crate) fn managed_schema(&self) -> Option<&Arc<ManagedSchema>> {
+        self.entries.managed.as_ref()
+    }
+
+    /// Safe direct editing is available only for recursively checked fixed data.
+    /// Handwritten traced payload registrations do not receive this capability.
+    pub fn data<S: NativeData>() -> Self {
+        let mut storage = Self::payload::<S>();
+        Arc::get_mut(&mut storage.entries)
+            .expect("new storage descriptor")
+            .editable_data = true;
+        storage
+    }
+
+    pub(crate) fn is_editable_data(&self) -> bool {
+        self.entries.editable_data
+    }
+
+    pub(crate) fn accepts_payload<S: NativePayload>(&self) -> bool {
+        self.entries.rust_type == TypeId::of::<S>()
+    }
+
     pub fn new<S: NativePayload>(
         factory: impl for<'call> Fn(&StorageContext<'call>) -> NativeResult<S> + Send + Sync + 'static,
     ) -> Self {
@@ -201,6 +235,8 @@ impl NativeStorage {
                         .expect("factory and size entries share the sealed Rust payload type")
                         .units()
                 }),
+                editable_data: false,
+                managed: None,
             }),
         }
     }
@@ -216,11 +252,24 @@ impl NativeStorage {
             )
         })?;
         let payload = factory(context)?;
-        self.object(context.heap(), context.ty, payload, context.owner)
-            .map(|mut object| {
-                object.scope = context.scope.cloned();
-                object
-            })
+        let mut object = self.object(context.heap(), context.ty, payload, context.owner)?;
+        object.scope = context.scope.cloned();
+        if matches!(
+            self.layout(),
+            NativeStorageLayout::Map { .. } | NativeStorageLayout::Set { .. }
+        ) {
+            let hash = context.selected(0)?;
+            let equal = context.selected(1)?;
+            if hash.primitive != Some(RuntimePrimitive::ValueHash)
+                || equal.primitive != Some(RuntimePrimitive::ValueEq)
+            {
+                object.selected = Arc::from([
+                    StoredSelection::new(context.owner, hash)?,
+                    StoredSelection::new(context.owner, equal)?,
+                ]);
+            }
+        }
+        Ok(object)
     }
 
     pub(crate) fn prepare_payload<S: NativePayload>(
@@ -263,12 +312,14 @@ impl NativeStorage {
             ty: ty.clone(),
             _owner: owner.clone(),
             scope: None,
+            selected: Arc::from([]),
         })
     }
 }
 
 /// GC owns the payload and immutable type metadata. Only actual executable
-/// values (such as stored callbacks) retain module instances; data alone must not
+/// dependencies (stored callbacks or selected key operations) retain module instances;
+/// data alone must not
 /// create a module-state -> data -> module-instance retention cycle.
 pub(crate) struct NativeObject {
     pub(crate) storage: NativeStorage,
@@ -276,6 +327,7 @@ pub(crate) struct NativeObject {
     pub(crate) ty: Ty<DefinitionId>,
     _owner: LoadedModule,
     pub(crate) scope: Option<TypeArgument>,
+    pub(crate) selected: Arc<[StoredSelection]>,
 }
 
 impl Debug for NativeObject {
@@ -335,6 +387,7 @@ impl NativeObject {
             ty: self.ty.clone(),
             _owner: self._owner.clone(),
             scope: self.scope.clone(),
+            selected: self.selected.clone(),
         })
     }
 

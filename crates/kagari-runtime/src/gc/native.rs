@@ -1,4 +1,5 @@
 //! Scoped access to one registered Rust payload. A borrow cannot escape its closure.
+mod managed;
 use crate::{
     error::RuntimeError,
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
@@ -6,14 +7,16 @@ use crate::{
     module::LoadedModule,
     native::{
         binding::NativeResult,
+        payload::data::NativeData,
         sequence::{NativeElement, SequencePayload},
         storage::{NativeObject, NativePayload, NativeStorage},
+        stored_selection::StoredSelection,
     },
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
-use std::cell::Cell;
+use std::{cell::Cell, sync::Arc};
 
 struct NativeBorrow<'heap>(&'heap Cell<usize>);
 
@@ -24,6 +27,60 @@ impl Drop for NativeBorrow<'_> {
 }
 
 impl GcHeap {
+    pub(crate) fn with_native_data_mut<S: NativeData, R>(
+        &self,
+        id: HeapObjectId,
+        edit: impl for<'payload> FnOnce(&'payload mut S) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        self.ensure_no_native_borrow()?;
+        self.ensure_execution_allowed()?;
+        self.ensure_structure_mutable(id)?;
+        let mut objects = self.objects_mut()?;
+        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+            return Err(RuntimeError::module_validation(
+                "invalid native edit receiver",
+            ));
+        };
+        if !object.storage.is_editable_data() || !object.storage.accepts_payload::<S>() {
+            return Err(RuntimeError::module_validation(
+                "storage does not permit direct data editing",
+            ));
+        }
+        let revision = objects[id.slot]
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| RuntimeError::module_validation("native revision exhausted"))?;
+        // Publish the revision before lending data so unwind preserves both the
+        // completed writes and their invalidation. Size and graph edges are fixed.
+        objects[id.slot].revision = revision;
+        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+            return Err(RuntimeError::module_validation(
+                "invalid native edit receiver",
+            ));
+        };
+        let data = object.payload_mut::<S>()?;
+        self.native_borrows.set(self.native_borrows.get() + 1);
+        let _borrow = NativeBorrow(&self.native_borrows);
+        edit(data)
+    }
+
+    pub(crate) fn native_selections(
+        &self,
+        id: HeapObjectId,
+    ) -> NativeResult<Arc<[StoredSelection]>> {
+        self.ensure_execution_allowed()?;
+        let objects = self
+            .objects
+            .try_borrow()
+            .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
+        match self.readable_object(&objects, id) {
+            Some(HeapObject::Native(object)) => Ok(object.selected.clone()),
+            _ => Err(RuntimeError::module_validation(
+                "invalid native selection receiver",
+            )),
+        }
+    }
+
     pub(crate) fn try_enter_native_operation(
         &self,
         id: HeapObjectId,

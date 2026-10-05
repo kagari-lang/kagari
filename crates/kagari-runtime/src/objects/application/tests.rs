@@ -64,7 +64,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
                     Codec::Scalar(Type::i32().abi().clone()),
                     move |cx| {
                         let receiver = cx.argument(0)?;
-                        let target = cx.selected(selected)?;
+                        let target = cx.selected(&selected)?;
                         let Value::I32(value) = cx.call_values(target, &[receiver])? else {
                             return Err(RuntimeError::module_validation("checked Read result"));
                         };
@@ -134,7 +134,9 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
                 snapshot.interface_type.clone(),
             )
             .unwrap();
-            runtime.apply_interface_method(method, &[]).unwrap()
+            runtime
+                .apply_interface_method(method, &[], Default::default())
+                .unwrap()
         };
         let first = prepare();
         let second = prepare();

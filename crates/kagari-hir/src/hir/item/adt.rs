@@ -1,11 +1,9 @@
 use crate::hir::{
     ids::{EnumId, FieldId, ImplId, MethodId, OpaqueTypeId, StructId, TypeRefId, VariantId},
-    item::{
-        behavior::{GenericParam, TraitBound, TraitRef},
-        storage::Visibility,
-    },
+    item::behavior::{GenericParam, TraitBound, TraitRef},
     writeability::Writeability,
 };
+use kagari_types::visibility::Visibility;
 
 /// A declaration whose storage is supplied by an installed native provider.
 /// Its representation is checked separately from its ordinary generic syntax.

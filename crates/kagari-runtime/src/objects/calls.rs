@@ -59,24 +59,39 @@ pub(super) fn interface_binding(
     })
 }
 
+struct OperationScope<'a> {
+    owner: &'a LoadedModule,
+    environment: Option<TypeEnvironment>,
+}
+
+impl OperationScope<'_> {
+    fn resolve(&self, ty: &Ty<DefinitionId>) -> Result<Ty<DefinitionId>, RuntimeError> {
+        if ty.is_concrete() {
+            return Ok(ty.clone());
+        }
+        self.environment
+            .as_ref()
+            .ok_or_else(|| RuntimeError::module_validation("missing generic call environment"))?
+            .types
+            .resolve(ty)
+    }
+}
+
 fn resolve_requirement(
-    frame: &ExecutionFrame,
+    scope: &OperationScope<'_>,
     required: &NativeCallableRequirement<DefinitionId>,
 ) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
-    let Ty::Trait(interface) = frame
-        .resolve_type(&Ty::Trait(required.interface.clone()))?
-        .into_owned()
-    else {
+    let Ty::Trait(interface) = scope.resolve(&Ty::Trait(required.interface.clone()))? else {
         return Err(RuntimeError::module_validation("constraint interface type"));
     };
     Ok(NativeCallableRequirement {
-        receiver: frame.resolve_type(&required.receiver)?.into_owned(),
+        receiver: scope.resolve(&required.receiver)?,
         interface,
         member: required.member,
         arguments: required
             .arguments
             .iter()
-            .map(|ty| frame.resolve_type(ty).map(|ty| ty.into_owned()))
+            .map(|ty| scope.resolve(ty))
             .collect::<Result<_, _>>()?,
     })
 }
@@ -116,16 +131,11 @@ impl Runtime {
                     .map(|environment| environment.types.clone()),
                 &contract.arguments,
             )?;
-            let mut method = self.apply_interface_method(method, &arguments)?;
-            if !contract.operations.is_empty()
-                && let Some(environment) = &mut method.environment
-            {
-                *environment = self.gc.extend_environment(
-                    environment,
-                    self.bind_operations(frame, &contract.operations)?,
-                )?;
-            }
-            method.refresh_roots(self)?;
+            let method = self.apply_interface_method(
+                method,
+                &arguments,
+                self.bind_operations(frame, &contract.operations)?,
+            )?;
             return Ok(method);
         }
         let arguments = self.type_arguments(
@@ -135,11 +145,12 @@ impl Runtime {
                 .map(|environment| environment.types.clone()),
             &contract.arguments,
         )?;
-        let mut method = self.resolve_interface_method_slot(
+        let method = self.prepare_interface_method_slot(
             receiver,
             &interface,
             contract.method_slot as usize,
             &arguments,
+            self.bind_operations(frame, &contract.operations)?,
         )?;
         let compatible = {
             let view = method.view(self)?;
@@ -161,15 +172,6 @@ impl Runtime {
         if !compatible {
             return Err(invalid());
         }
-        if !contract.operations.is_empty()
-            && let Some(environment) = &mut method.environment
-        {
-            *environment = self.gc.extend_environment(
-                environment,
-                self.bind_operations(frame, &contract.operations)?,
-            )?;
-        }
-        method.refresh_roots(self)?;
         Ok(method)
     }
 
@@ -178,27 +180,40 @@ impl Runtime {
         frame: &ExecutionFrame,
         witnesses: &[OperationWitness<DefinitionId>],
     ) -> Result<OperationBindings, RuntimeError> {
+        self.bind_operations_in(frame.loaded(), frame.environment(), witnesses)
+    }
+
+    /// Bind already-verified witnesses in their lexical executable scope. Host
+    /// bindings use this same path without manufacturing an execution frame.
+    pub(crate) fn bind_operations_in(
+        &self,
+        owner: &LoadedModule,
+        environment: Option<TypeEnvironment>,
+        witnesses: &[OperationWitness<DefinitionId>],
+    ) -> Result<OperationBindings, RuntimeError> {
+        let scope = OperationScope { owner, environment };
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         let mut operations = OperationBindings::default();
         for witness in witnesses {
             let operation = match witness {
                 OperationWitness::SharedMethod(selected) => {
-                    self.bind_shared_method(frame, selected)?
+                    self.bind_shared_method(&scope, selected)?
                 }
                 OperationWitness::Forward(required) => {
-                    let required = resolve_requirement(frame, required)?;
-                    frame
-                        .environment()
+                    let required = resolve_requirement(&scope, required)?;
+                    scope
+                        .environment
+                        .as_ref()
                         .and_then(|environment| environment.operation(&self.gc, &required))
                         .ok_or_else(invalid)?
                 }
                 OperationWitness::Selected(selected) => {
-                    let module = frame
-                        .loaded()
+                    let module = scope
+                        .owner
                         .definition(selected.instance.declaration)?
                         .module();
-                    let owner = frame
-                        .loaded()
+                    let owner = scope
+                        .owner
                         .members()
                         .find(|owner| &owner.bytecode.identity == module)
                         .ok_or_else(invalid)?;
@@ -222,8 +237,8 @@ impl Runtime {
                         _ => None,
                     }
                     .ok_or_else(invalid)?;
-                    let module = frame
-                        .loaded()
+                    let module = scope
+                        .owner
                         .definition(selected.requirement.interface.declaration)?
                         .module();
                     let slot = owner
@@ -316,15 +331,15 @@ impl Runtime {
 impl Runtime {
     fn bind_shared_method(
         &self,
-        frame: &ExecutionFrame,
+        scope: &OperationScope<'_>,
         selected: &SharedMethodWitness<DefinitionId>,
     ) -> Result<OperationId, RuntimeError> {
         let binding = interface_binding(
-            frame.loaded(),
+            scope.owner,
             &selected.implementation,
-            frame.environment(),
+            scope.environment.clone(),
         )?;
-        let required = resolve_requirement(frame, &selected.requirement)?;
+        let required = resolve_requirement(scope, &selected.requirement)?;
         let group = self.bind_table_operations(&binding)?;
         self.gc
             .operation_group(group)

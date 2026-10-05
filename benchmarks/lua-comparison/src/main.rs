@@ -133,7 +133,7 @@ impl ExecutionRoutes {
         let expected = (workload.reference)(workload.size);
         if options.profile.is_some() {
             profile::run(
-                &mut self.runtime,
+                &self.runtime,
                 &self.module,
                 &self.context,
                 workload.name,

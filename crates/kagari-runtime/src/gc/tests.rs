@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     Runtime,
+    closure::ClosureTarget,
     host::{
         DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
         HostPathSegmentRegistration, HostRootHandle, HostSchemaEpoch, HostTypeRegistration,
@@ -35,7 +36,7 @@ fn foreign_executable_edges_abort_collection_before_any_storage_is_detached() {
         .gc()
         .alloc_closure(ClosureValueSnapshot {
             implementation: foreign_owner,
-            function: FunctionRef::new(0),
+            target: ClosureTarget::Script(FunctionRef::new(0)),
             captures: vec![],
             environment: None,
         })

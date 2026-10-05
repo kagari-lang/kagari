@@ -6,7 +6,7 @@ use crate::{
 use kagari_contract::{
     host, layout,
     layout::{LayoutValidationError, validate_layouts},
-    types::verify as abi_verify,
+    types::{inherent::native_signatures_match, verify as abi_verify},
 };
 use kagari_types::{
     declaration::verify::validate_native_declarations, host_interface::HostInterface,
@@ -68,6 +68,9 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         context.cancel,
     )
     .map_err(|_| context.error(Error::InvalidPublicAbi))?;
+    if !native_signatures_match(&module.abi.public_items, &module.abi.native_declarations) {
+        return Err(context.error(Error::InvalidPublicAbi));
+    }
     abi_verify::validate_trait_contracts(
         &module.abi.trait_contracts,
         &module.abi.public_items,

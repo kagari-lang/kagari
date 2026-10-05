@@ -2,7 +2,7 @@
 mod enums;
 pub mod operations;
 use crate::{
-    Runtime,
+    RootedInterfaceMethod, Runtime,
     error::RuntimeError,
     frame::types::{
         TypeEnvironment,
@@ -17,6 +17,7 @@ use crate::{
         callable::{CallableHandle, PreparedClosure},
         context::operations::NativeKeyLookupGuard,
         declarations::SelectedCall,
+        function_handle::PreparedFunction,
         scalar::NativeScalar,
         sequence::{NativeElement, SequencePayload},
         storage::{NativePayload, StorageContext},
@@ -160,6 +161,8 @@ impl LinkedOperation {
 pub enum ScriptCall<'target> {
     Selected(&'target LinkedCallable),
     Closure(&'target PreparedClosure),
+    Pinned(&'target PreparedFunction),
+    Interface(&'target RootedInterfaceMethod),
 }
 
 pub type ScriptInvoker =
@@ -438,7 +441,8 @@ impl<'call> CallContext<'call> {
         &self.function.signature.result
     }
 
-    pub fn selected(&self, key: SelectedCall) -> NativeResult<&'call LinkedCallable> {
+    pub fn selected(&self, key: &SelectedCall) -> NativeResult<&'call LinkedCallable> {
+        self.function.check_requirement(self.owner, key)?;
         self.selected_at(key.slot)
     }
 

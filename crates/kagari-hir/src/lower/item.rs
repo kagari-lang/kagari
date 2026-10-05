@@ -10,7 +10,7 @@ use crate::{
             },
             function::{Function, FunctionKind, Param},
             module::{Import, ModuleDecl},
-            storage::{ConstItem, ConstOwner, Export, ExportItem, Visibility},
+            storage::{ConstItem, ConstOwner, Export, ExportItem},
         },
         ty::{TypeData, TypeKind},
         writeability::Writeability,
@@ -25,6 +25,7 @@ use kagari_syntax::ast::{
     },
     misc::{GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
 };
+use kagari_types::visibility::Visibility;
 
 use kagari_common::span::Span;
 

@@ -2,7 +2,11 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, FrameDispatch, arguments::FrameArguments, types::EnvironmentRecord},
+    frame::{
+        ExecutionStack, FrameDispatch,
+        arguments::FrameArguments,
+        types::{EnvironmentRecord, TypeEnvironment},
+    },
     module::LoadedModule,
     native::context::LinkedCallable,
     value::Value,
@@ -11,6 +15,8 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, Register},
     module::CallableTarget,
 };
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::callable::shared::SharedCall;
 
 impl ExecutionStack<'_> {
     pub fn push_selected_call(
@@ -73,32 +79,13 @@ impl ExecutionStack<'_> {
             }
             let loaded = caller.loaded().member(*module).ok_or_else(invalid)?;
             runtime.validate_loaded_module(&loaded)?;
-            let body = match target {
-                CallableTarget::Script(target) => loaded
-                    .bytecode
-                    .functions
-                    .get(target.index())
-                    .and_then(|function| function.metadata.semantic.generic.as_ref()),
-                CallableTarget::Native(target) => loaded
-                    .bytecode
-                    .native_imports
-                    .get(target.index())
-                    .and_then(|import| import.generic.as_ref()),
-            }
-            .ok_or_else(invalid)?;
-            let arguments = runtime.type_arguments(
+            let environment = runtime.prepare_shared_environment(
                 caller.loaded(),
-                caller
-                    .environment()
-                    .map(|environment| environment.types.clone()),
-                &contract.arguments,
+                caller.environment(),
+                &loaded,
+                *target,
+                contract,
             )?;
-            let mut environment = EnvironmentRecord::new(
-                runtime.definition_context(),
-                body.parameters.clone(),
-                arguments,
-            )?;
-            environment.extend_operations(runtime.bind_operations(&caller, &contract.operations)?);
             if args.len() != contract.signature.params.len() {
                 return Err(invalid());
             }
@@ -128,5 +115,50 @@ impl ExecutionStack<'_> {
                 environment: Some(environment),
             },
         )
+    }
+}
+
+impl Runtime {
+    pub(crate) fn prepare_shared_environment(
+        &self,
+        caller: &LoadedModule,
+        caller_environment: Option<TypeEnvironment>,
+        owner: &LoadedModule,
+        target: CallableTarget,
+        contract: &SharedCall<DefinitionId>,
+    ) -> Result<EnvironmentRecord, RuntimeError> {
+        self.validate_loaded_module(caller)?;
+        self.validate_loaded_module(owner)?;
+        let body = match target {
+            CallableTarget::Script(target) => owner
+                .bytecode
+                .functions
+                .get(target.index())
+                .and_then(|function| function.metadata.semantic.generic.as_ref()),
+            CallableTarget::Native(target) => owner
+                .bytecode
+                .native_imports
+                .get(target.index())
+                .and_then(|import| import.generic.as_ref()),
+        }
+        .ok_or_else(|| RuntimeError::module_validation("shared call body"))?;
+        let arguments = self.type_arguments(
+            caller,
+            caller_environment
+                .as_ref()
+                .map(|environment| environment.types.clone()),
+            &contract.arguments,
+        )?;
+        let mut environment = EnvironmentRecord::new(
+            self.definition_context(),
+            body.parameters.clone(),
+            arguments,
+        )?;
+        environment.extend_operations(self.bind_operations_in(
+            caller,
+            caller_environment,
+            &contract.operations,
+        )?);
+        Ok(environment)
     }
 }

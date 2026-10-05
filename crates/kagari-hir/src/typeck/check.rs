@@ -7,7 +7,6 @@ use crate::{
         item::{
             Module,
             function::{Function, FunctionKind},
-            storage::Visibility,
         },
         writeability::Writeability,
     },
@@ -33,6 +32,7 @@ use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, s
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, TypePosition};
 use kagari_types::{
     scalar::BuiltinType, surface as standard_surface, surface::StandardTypeConstraint,
+    visibility::Visibility,
 };
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
@@ -249,7 +249,15 @@ pub(crate) fn check_signatures(
             None if function.body.is_some() => FunctionImplementation::Script,
             None => FunctionImplementation::Required,
         };
+        let inherent_member = lowered.module.impls.iter().any(|implementation| {
+            implementation.trait_ref.is_none()
+                && implementation
+                    .methods
+                    .iter()
+                    .any(|method| method.function == function.id)
+        });
         if function.visibility != Visibility::Private
+            && !inherent_member
             && !function.generic_params.is_empty()
             && !matches!(
                 implementation,

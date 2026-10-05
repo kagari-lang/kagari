@@ -5,7 +5,7 @@ use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
     declarations::{DeclarationId, Declarations},
-    hir::item::{Item, storage::Visibility},
+    hir::item::Item,
     lower::{AttributeValue, LoweredModule},
     resolver::resolved::ResolvedName,
     typeck::table::ConstraintTarget,
@@ -16,7 +16,10 @@ use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     literal::decode_string_literal,
 };
-use kagari_types::{declaration::TraitDef, language, language::role::LangRole, ty::Constraint};
+use kagari_types::{
+    declaration::TraitDef, language, language::role::LangRole, ty::Constraint,
+    visibility::Visibility,
+};
 use std::collections::{BTreeMap, btree_map::Entry};
 
 pub(crate) fn collect(

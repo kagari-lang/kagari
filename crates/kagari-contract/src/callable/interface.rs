@@ -28,6 +28,10 @@ use serde::{Deserialize, Serialize};
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct InterfaceCallContract<I = DefinitionPath> {
+    /// Associated projections resolved by the compiler for this application.
+    /// Linked verification checks every fact against the supplying declarations.
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub normalizations: Vec<TypeNormalization<I>>,
     /// None dispatches a boxed interface; Some invokes the caller's checked
     /// constraint operation on an unboxed value of this type.
     pub receiver: Option<Ty<I>>,
@@ -38,6 +42,16 @@ pub struct InterfaceCallContract<I = DefinitionPath> {
     /// Arguments for this method only. The interface owns its trait arguments.
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<Ty<I>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "I: DefinitionReference + serde::Serialize",
+    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
+))]
+pub struct TypeNormalization<I = DefinitionPath> {
+    pub source: Ty<I>,
+    pub result: Ty<I>,
 }
 
 pub struct InterfaceMethodSignature<I = DefinitionPath> {
@@ -85,6 +99,40 @@ impl InterfaceCallContract {
     /// shared caller may forward its own parameters; check() verifies their scope
     /// and required bounds independently of this substitution.
     pub fn signature(
+        &self,
+        contract: &TraitDef,
+        cancel: &CancellationToken,
+    ) -> Result<InterfaceMethodSignature, TypeTransformError> {
+        let mut signature = self.declared_signature(contract, cancel)?;
+        if self.normalizations.len() > 4096 {
+            return Err(TypeTransformError::LimitExceeded);
+        }
+        for (index, fact) in self.normalizations.iter().enumerate() {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            if fact.source == fact.result
+                || !fact.source.within_wire_limits()
+                || !fact.result.within_wire_limits()
+                || self.normalizations[..index]
+                    .iter()
+                    .any(|previous| previous.source == fact.source)
+                || !signature
+                    .params
+                    .iter()
+                    .chain([&signature.result])
+                    .any(|ty| ty == &fact.source)
+            {
+                return Err(TypeTransformError::InvalidContract);
+            }
+        }
+        for ty in signature.params.iter_mut().chain([&mut signature.result]) {
+            if let Some(fact) = self.normalizations.iter().find(|fact| &fact.source == ty) {
+                *ty = fact.result.clone();
+            }
+        }
+        Ok(signature)
+    }
+
+    fn declared_signature(
         &self,
         contract: &TraitDef,
         cancel: &CancellationToken,
@@ -192,6 +240,11 @@ impl InterfaceCallContract {
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let mut signature = self.signature(contract, cancel)?;
+        for fact in &self.normalizations {
+            if catalog.normalize(&fact.source, cancel)? != fact.result {
+                return Ok(false);
+            }
+        }
         if !types_in_scope(
             self.arguments
                 .iter()

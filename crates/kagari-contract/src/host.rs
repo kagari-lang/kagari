@@ -288,6 +288,10 @@ pub fn references(
                 &[]
             }
             PublicItem::Trait(ty) => &ty.methods,
+            PublicItem::InherentTable(table) => {
+                pending.push(&table.for_type);
+                &table.methods
+            }
             PublicItem::InterfaceTable(table) => {
                 pending.extend([&table.trait_type, &table.for_type]);
                 &table.methods

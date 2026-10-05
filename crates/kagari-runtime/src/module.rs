@@ -430,6 +430,25 @@ pub struct StructLayoutRef {
 }
 
 impl StructLayoutRef {
+    /// Clones of one immutable layout can be checked without walking its type
+    /// graph, including layouts carrying a generic lexical environment.
+    fn same_instance(&self, other: &Self) -> bool {
+        self.module.registry_owner == other.module.registry_owner
+            && Arc::ptr_eq(&self.module.program, &other.module.program)
+            && self.module.slot == other.module.slot
+            && self.id == other.id
+            && match (&self.applied, &other.applied) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
+            && match (&self.environment, &other.environment) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
+    }
+
     pub fn layout(&self) -> &StructLayout<DefinitionId> {
         self.applied
             .as_deref()
@@ -441,18 +460,9 @@ impl StructLayoutRef {
     }
 
     pub(crate) fn matches(&self, other: &Self) -> bool {
-        self.module.registry_owner == other.module.registry_owner
-            && ((self.environment.is_none()
-                && other.environment.is_none()
-                && Arc::ptr_eq(&self.module.program, &other.module.program)
-                && self.module.slot == other.module.slot
-                && self.id == other.id
-                && match (&self.applied, &other.applied) {
-                    (None, None) => true,
-                    (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-                    _ => false,
-                })
-                || self.matches_type(
+        self.same_instance(other)
+            || (self.module.registry_owner == other.module.registry_owner
+                && self.matches_type(
                     &other.type_expression(),
                     &other.module,
                     other.environment.as_deref(),

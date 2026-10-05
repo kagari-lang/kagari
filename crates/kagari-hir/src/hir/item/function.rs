@@ -1,11 +1,9 @@
 use crate::hir::{
     ids::{BlockId, FunctionId, ParamId, TypeRefId},
-    item::{
-        behavior::{GenericParamBuffer, TraitBoundBuffer},
-        storage::Visibility,
-    },
+    item::behavior::{GenericParamBuffer, TraitBoundBuffer},
     writeability::Writeability,
 };
+use kagari_types::visibility::Visibility;
 
 #[derive(Debug, Clone)]
 pub struct Function {

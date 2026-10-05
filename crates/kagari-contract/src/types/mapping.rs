@@ -63,6 +63,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PublicItem<I> {
             Self::Const(field0) => PublicItem::Const((field0).map_identities(mapper)?),
             Self::Type(field0) => PublicItem::Type((field0).map_identities(mapper)?),
             Self::Trait(field0) => PublicItem::Trait((field0).map_identities(mapper)?),
+            Self::InherentTable(table) => {
+                PublicItem::InherentTable(Box::new(table.map_identities(mapper)?))
+            }
             Self::InterfaceTable(field0) => {
                 PublicItem::InterfaceTable(Box::new(((field0).as_ref()).map_identities(mapper)?))
             }
@@ -88,6 +91,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PublicItem<I> {
             Self::Trait(field0) => {
                 (field0).visit_definitions(visit, cancel)?;
             }
+            Self::InherentTable(table) => table.visit_definitions(visit, cancel)?,
             Self::InterfaceTable(field0) => {
                 ((field0).as_ref()).visit_definitions(visit, cancel)?;
             }

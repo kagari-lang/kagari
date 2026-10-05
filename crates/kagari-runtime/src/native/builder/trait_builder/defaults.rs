@@ -18,7 +18,7 @@ impl TraitBuilder<'_> {
         let cancel = CancellationToken::default();
         let invalid = |_| RuntimeError::metadata_conflict("invalid native default substitution");
         let receiver = Ty::SelfType(self.id.clone());
-        let mut interface = NominalTy {
+        let interface = NominalTy {
             declaration: self.id.clone(),
             arguments: self
                 .declaration
@@ -37,9 +37,8 @@ impl TraitBuilder<'_> {
                 member: output.declaration.clone(),
                 arguments: vec![],
             };
-            interface
-                .associated_types
-                .insert(output.declaration.clone(), projection.clone());
+            // The receiver bound supplies its associated outputs. Equating an
+            // output to its own projection makes generated source recursive.
             if !output.bounds.is_empty() {
                 assumptions.push(GenericBound {
                     ty: projection,

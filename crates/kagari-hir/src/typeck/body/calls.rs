@@ -49,6 +49,10 @@ impl<'a> BodyChecker<'a> {
             );
             if !local
                 && !imported.signature.generic_params.is_empty()
+                && !self
+                    .aggregates
+                    .inherent_methods()
+                    .any(|method| method.declaration == imported.declaration)
                 && !matches!(
                     imported.signature.implementation,
                     FunctionImplementation::Native(NativeBinding::Entry(_))

@@ -47,7 +47,6 @@ impl OperationBindings {
         self.associated.clone()
     }
 
-    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }

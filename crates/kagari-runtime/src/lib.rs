@@ -22,7 +22,11 @@ use crate::{
         LoadedModule, ModuleEpochRetention, ModuleKey, ModuleStore, VerifiedProgram,
         staging::StagedProgram,
     },
-    native::{callable::PreparedClosure, registry::NativeRegistry},
+    native::{
+        callable::PreparedClosure, function_handle::cache::FunctionCache,
+        interfaces::binding::InterfaceCache, objects::cache::BindingCache,
+        registry::NativeRegistry,
+    },
     objects::method::BoundReceiver,
     reflection::ReflectionError,
     resource::{ResourceState, RuntimeLimits},
@@ -125,11 +129,15 @@ pub struct Runtime {
 
     modules: ModuleStore,
     interpreter_caches: InterpreterCacheRegistry,
+    object_bindings: RefCell<BindingCache>,
+    function_bindings: RefCell<FunctionCache>,
+    interface_bindings: RefCell<InterfaceCache>,
     observer: RefCell<Option<Box<dyn ExecutionObserver>>>,
 }
 
 /// A resolved dynamic method whose interface receiver stays rooted across
 /// safepoints and synchronous host reentry.
+#[derive(Clone)]
 pub struct RootedInterfaceMethod {
     selection: MethodSelection,
     bound_receiver: BoundReceiver,
@@ -154,6 +162,9 @@ impl Runtime {
 
             modules: ModuleStore::default(),
             interpreter_caches: InterpreterCacheRegistry::default(),
+            object_bindings: RefCell::default(),
+            function_bindings: RefCell::default(),
+            interface_bindings: RefCell::default(),
             observer: RefCell::new(None),
         }
     }
@@ -320,7 +331,10 @@ impl Runtime {
                 });
             if !root_dependency
                 && !caller_dependency
-                && !matches!(entry, ExecutionEntry::RetainedClosure)
+                && !matches!(
+                    entry,
+                    ExecutionEntry::RetainedClosure | ExecutionEntry::RetainedFunction
+                )
             {
                 return Err(RuntimeError::module_validation(
                     "nested execution must use the pinned dependency program",

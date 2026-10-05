@@ -10,6 +10,7 @@ use crate::{
     },
     value::{EnumTag, Value},
 };
+use kagari_common::identity::DefinitionPath;
 use kagari_types::{collection::CollectionAccess, language::binding, ty::Ty};
 use std::sync::Arc;
 
@@ -19,6 +20,15 @@ impl<T: KagariType> KagariType for Vec<T> {
             Box::new(T::kagari_type(catalog)?.abi().clone()),
             CollectionAccess::Mutable,
         )))
+    }
+
+    fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
+        if !matches!(expected.ty(), Ty::Array(_, CollectionAccess::Mutable)) {
+            return Err(RuntimeError::module_validation(
+                "Vec conversion requires a mutable array type",
+            ));
+        }
+        cx.check_type::<T>(&cx.parameter(expected, 0)?)
     }
 }
 
@@ -101,6 +111,11 @@ impl<T: KagariType> KagariType for Option<T> {
             .type_reference(&binding::option_declaration())?
             .apply([T::kagari_type(catalog)?])
     }
+
+    fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
+        check_enum_type(cx, expected, &binding::option_declaration(), 1)?;
+        cx.check_type::<T>(&cx.parameter(expected, 0)?)
+    }
 }
 
 impl<T: IntoKagari> IntoKagari for Option<T> {
@@ -144,6 +159,38 @@ impl<T: KagariType, E: KagariType> KagariType for Result<T, E> {
             .type_reference(&binding::result_declaration())?
             .apply([T::kagari_type(catalog)?, E::kagari_type(catalog)?])
     }
+
+    fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
+        check_enum_type(cx, expected, &binding::result_declaration(), 2)?;
+        cx.check_type::<T>(&cx.parameter(expected, 0)?)?;
+        cx.check_type::<E>(&cx.parameter(expected, 1)?)
+    }
+}
+
+fn check_enum_type(
+    cx: &ConversionContext<'_>,
+    expected: &TypeArgument,
+    declaration: &DefinitionPath,
+    arity: usize,
+) -> NativeResult<()> {
+    // The standard provider must be installed even for an empty Option or an
+    // unselected Result arm. Nominal identity is never inferred from variant names.
+    cx.runtime()
+        .native_entries
+        .catalog
+        .type_reference(declaration)?;
+    if let Ty::Enum(nominal) = expected.ty()
+        && nominal.arguments.len() == arity
+        && expected
+            .definitions()
+            .resolve(nominal.declaration)
+            .is_ok_and(|view| view.to_path() == *declaration)
+    {
+        return Ok(());
+    }
+    Err(RuntimeError::module_validation(
+        "conversion requires the installed standard enum type",
+    ))
 }
 
 impl<T: IntoKagari, E: IntoKagari> IntoKagari for Result<T, E> {

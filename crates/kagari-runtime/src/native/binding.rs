@@ -10,6 +10,7 @@ use crate::{
     native::{
         catalog::DeclarationCatalog,
         context::{CallContext, LinkedCallable, LinkedOperation},
+        declarations::SelectedCall,
         result::LinkedResultAdapter,
     },
     value::Value,
@@ -118,6 +119,7 @@ pub struct NativeBinding {
     pub(crate) result: Codec,
     pub(crate) entry: Arc<NativeEntry>,
     pub(crate) converted_result: bool,
+    pub(crate) requirement_owner: Option<DefinitionPath>,
 }
 
 impl fmt::Debug for NativeBinding {
@@ -145,6 +147,7 @@ impl NativeBinding {
             result,
             entry: Arc::new(entry),
             converted_result: false,
+            requirement_owner: None,
         }
     }
 
@@ -171,6 +174,7 @@ impl NativeBinding {
 
 #[derive(Debug, Clone)]
 pub struct LinkedNativeFunction {
+    pub(crate) declaration: DefinitionId,
     pub(crate) binding: NativeBinding,
     pub(crate) signature: Signature<DefinitionId>,
     pub(crate) scoped_signature: Option<Arc<ScopedSignature>>,
@@ -179,6 +183,23 @@ pub struct LinkedNativeFunction {
 }
 
 impl LinkedNativeFunction {
+    pub(crate) fn check_requirement(
+        &self,
+        owner: &LoadedModule,
+        key: &SelectedCall,
+    ) -> NativeResult<()> {
+        let declaration = match &self.binding.requirement_owner {
+            Some(declaration) => declaration.clone(),
+            None => owner.definition(self.declaration)?.to_path(),
+        };
+        if declaration != key.declaration {
+            return Err(RuntimeError::module_validation(
+                "foreign native callable requirement",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn apply(
         &self,
         runtime: &Runtime,
@@ -208,6 +229,7 @@ impl LinkedNativeFunction {
         let scoped_signature = (result.has_origin() || params.iter().any(TypeArgument::has_origin))
             .then(|| Arc::new(ScopedSignature { params, result }));
         Ok(Self {
+            declaration: self.declaration,
             binding: self.binding.clone(),
             signature,
             scoped_signature,

@@ -1,7 +1,7 @@
 use crate::{
     hir::{
         expr::ExprKind,
-        item::{Item, function::FunctionKind, storage::Visibility},
+        item::{Item, function::FunctionKind},
         pattern::PatternKind,
         place::PlaceKind,
         stmt::StmtKind,
@@ -12,6 +12,7 @@ use crate::{
 };
 use kagari_source::source::SourceFile;
 use kagari_syntax::parser;
+use kagari_types::visibility::Visibility;
 use std::sync::Arc;
 
 #[test]

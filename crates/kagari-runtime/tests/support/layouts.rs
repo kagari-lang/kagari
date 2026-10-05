@@ -12,7 +12,7 @@ use kagari_runtime::{
     module::{LoadedModule, StructLayoutRef},
     value::Value,
 };
-use kagari_types::ty::Ty;
+use kagari_types::{ty::Ty, visibility::Visibility};
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value(runtime: &mut Runtime) -> Value {
@@ -115,6 +115,7 @@ pub fn layout(runtime: &mut Runtime, name: &str, fields: &[(&str, Ty, bool)]) ->
                 occurrence: 0,
             });
             StructFieldLayout {
+                visibility: Visibility::Public,
                 declaration: id,
                 name: (*name).into(),
                 ty: ty.clone(),

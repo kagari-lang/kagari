@@ -1,9 +1,11 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
-    closure::ClosureValueSnapshot,
+    closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId, links::MetadataCache},
-    frame::types::{EnvironmentRecord, TypeEnvironment, arguments::TypeArgument},
+    frame::types::{
+        EnvironmentRecord, TypeEnvironment, arguments::TypeArgument, operations::OperationBindings,
+    },
     gc::{
         HeapObjectId,
         interfaces::{
@@ -493,7 +495,7 @@ impl Runtime {
         let snapshot = ClosureValueSnapshot {
             environment,
             implementation: implementation.clone(),
-            function,
+            target: ClosureTarget::Script(function),
             captures,
         };
         self.validate_metadata(MetadataEdge::Closure(&snapshot))?;
@@ -658,6 +660,7 @@ impl Runtime {
             return self.apply_interface_method(
                 RootedInterfaceMethod::from_interface(self, root, id, slot)?,
                 &[],
+                OperationBindings::default(),
             );
         }
         let owner = snapshot
@@ -688,6 +691,7 @@ impl Runtime {
                 return self.apply_interface_method(
                     RootedInterfaceMethod::from_interface(self, root, id, slot)?,
                     &[],
+                    OperationBindings::default(),
                 );
             }
         }
@@ -731,6 +735,23 @@ impl Runtime {
         slot: usize,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        self.prepare_interface_method_slot(
+            value,
+            interface,
+            slot,
+            arguments,
+            OperationBindings::default(),
+        )
+    }
+
+    pub(crate) fn prepare_interface_method_slot(
+        &self,
+        value: &Value,
+        interface: &NominalTy<DefinitionId>,
+        slot: usize,
+        arguments: &[TypeArgument],
+        operations: OperationBindings,
+    ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let (root, id) = self.rooted_interface_snapshot(value)?;
         let snapshot = self
             .gc
@@ -746,6 +767,7 @@ impl Runtime {
         self.apply_interface_method(
             RootedInterfaceMethod::from_interface(self, root, id, slot)?,
             arguments,
+            operations,
         )
     }
 

@@ -9,6 +9,7 @@ use kagari_common::{
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind, verify::DeclarationValidationError},
     ty::{Ty, substitution::TypeSubstitution},
+    visibility::Visibility,
 };
 use std::collections::{HashMap, HashSet};
 mod applications;
@@ -67,6 +68,7 @@ pub fn struct_abi_matches(
         for (field, abi) in layout.fields.iter().zip(&template.fields) {
             cancel.check()?;
             if field.name != abi.name
+                || field.visibility != abi.visibility
                 || field.mutable != abi.mutable
                 || TypeSubstitution::for_owner(&layout.declaration, &layout.arguments)
                     .apply(&abi.ty, cancel)
@@ -350,6 +352,7 @@ impl StructLayout {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct StructFieldLayout<I = DefinitionPath> {
+    pub visibility: Visibility,
     pub declaration: I,
     pub name: String,
     pub ty: Ty<I>,

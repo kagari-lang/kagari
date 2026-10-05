@@ -1,4 +1,7 @@
-use crate::{callable::interface::InterfaceCallContract, representation::semantic_representation};
+use crate::{
+    callable::interface::InterfaceCallContract, representation::semantic_representation,
+    types::inherent::InherentTable,
+};
 use bincode::{DefaultOptions, Options};
 use kagari_abi::representation::ValueType;
 use kagari_common::{
@@ -19,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
 pub mod applications;
+pub mod inherent;
 pub mod matching;
 pub mod proofs;
 pub mod verify;
@@ -48,6 +52,7 @@ pub enum PublicItem<I = DefinitionPath> {
     Type(TypeDef<I>),
     Trait(TraitDef<I>),
     InterfaceTable(Box<InterfaceTable<I>>),
+    InherentTable(Box<InherentTable<I>>),
 }
 
 impl PublicItem {
@@ -58,6 +63,7 @@ impl PublicItem {
             Self::Type(item) => &item.name,
             Self::Trait(item) => &item.name,
             Self::InterfaceTable(item) => &item.name,
+            Self::InherentTable(item) => &item.name,
         }
     }
 
@@ -68,17 +74,23 @@ impl PublicItem {
             Self::Type(_) => "type",
             Self::Trait(_) => "trait",
             Self::InterfaceTable(_) => "interface_table",
+            Self::InherentTable(_) => "inherent_table",
         }
     }
 
     pub fn fingerprint_name(&self) -> String {
-        if let Self::InterfaceTable(table) = self {
+        let declaration = match self {
+            Self::InterfaceTable(table) => Some(&table.declaration),
+            Self::InherentTable(table) => Some(&table.declaration),
+            _ => None,
+        };
+        if let Some(declaration) = declaration {
             let encoded = DefaultOptions::new()
                 .with_fixint_encoding()
                 .with_little_endian()
-                .serialize(&table.declaration)
+                .serialize(declaration)
                 .expect("validated interface declaration identity");
-            let mut name = String::from("interface_table:");
+            let mut name = format!("{}:", self.category());
             for byte in encoded {
                 write!(name, "{byte:02x}").expect("writing to a String cannot fail");
             }
@@ -237,6 +249,7 @@ pub fn interface_method_semantics(
     }
     let contract = trait_contract(owner, public_items, trait_contracts, &interface.declaration)?;
     let call = InterfaceCallContract {
+        normalizations: vec![],
         receiver: None,
         operations: vec![],
         interface: interface.clone(),

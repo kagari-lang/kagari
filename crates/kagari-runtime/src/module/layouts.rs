@@ -201,7 +201,7 @@ impl StructLayoutRef {
         &self.module.bytecode.structures[self.id.index()]
     }
 
-    pub(super) fn type_expression(&self) -> Ty<DefinitionId> {
+    pub(crate) fn type_expression(&self) -> Ty<DefinitionId> {
         Ty::Struct(NominalTy {
             declaration: self.layout().declaration,
             arguments: if self.environment.is_some() {

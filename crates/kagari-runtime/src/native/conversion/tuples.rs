@@ -9,12 +9,20 @@ use crate::{
     },
     value::Value,
 };
+use kagari_types::ty::Ty;
 
 macro_rules! tuple {
     ($count:expr; $($ty:ident:$slot:tt),+) => {
         impl<$($ty: KagariType),+> KagariType for ($($ty,)+) {
             fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
                 Ok(Type::tuple([$($ty::kagari_type(catalog)?),+]))
+            }
+            fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
+                if !matches!(expected.ty(), Ty::Tuple(items) if items.len() == $count) {
+                    return Err(RuntimeError::module_validation("tuple conversion type"));
+                }
+                $(cx.check_type::<$ty>(&cx.parameter(expected, $slot)?)?;)+
+                Ok(())
             }
         }
         impl<$($ty: IntoKagari),+> IntoKagari for ($($ty,)+) {

@@ -10,7 +10,10 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
-    operations::IterOp, standard::RuntimePrimitive as S, types as abi, types::PublicItem,
+    operations::IterOp,
+    standard::RuntimePrimitive as S,
+    types as abi,
+    types::{PublicItem, inherent::executable_signature_matches},
 };
 use kagari_types::{
     collection::CollectionAccess as Access,
@@ -110,6 +113,9 @@ pub(super) fn verify(
         }
     }
     if let Some(identity) = &function.identity {
+        if !executable_signature_matches(&module.public_items, identity, semantic) {
+            return Err(invalid());
+        }
         let name = identity
             .declaration
             .path

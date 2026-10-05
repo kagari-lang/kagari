@@ -1,9 +1,8 @@
 use crate::{
     aggregates::implementations::ImplementationSearchError,
     hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
-    native::NativeBinding,
     typeck::{
-        BodyTypeEnv, FunctionImplementation,
+        BodyTypeEnv,
         body::BodyChecker,
         completion, inference, members,
         table::{
@@ -207,22 +206,6 @@ impl<'a> BodyChecker<'a> {
         }
         let (function, mut substitution, target) =
             candidates.into_iter().next().expect("one method");
-        if matches!(target, CallTarget::SourceFunction(_))
-            && !function.generic_params.is_empty()
-            && !matches!(
-                function.implementation,
-                FunctionImplementation::Native(NativeBinding::Entry(_))
-            )
-        {
-            self.infer_call_args(args, env);
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::PublicGenericFunction {
-                    name: function.name.clone(),
-                })
-                .with_span(self.lowered.source_map.expr_span(callee)),
-            );
-            return Some(TypeId::Error);
-        }
         let explicit_parameters = function
             .generic_params
             .iter()

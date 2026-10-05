@@ -144,6 +144,10 @@ pub(super) fn validate(
                 } => {
                     validator.trait_application(&contract.interface)?;
                     validator.types(&contract.arguments)?;
+                    for fact in &contract.normalizations {
+                        validator.validate_type(&fact.source)?;
+                        validator.validate_type(&fact.result)?;
+                    }
                 }
                 _ => {}
             }

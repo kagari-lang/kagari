@@ -14,9 +14,11 @@ use kagari_runtime::{
         binding::{NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
+        collections::vector::ScriptVec,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         declarations::MethodDecl,
         module::NativeModule,
+        objects::Object,
         registration::FunctionSpec,
         typed::NativeContext,
         types::Type,
@@ -30,6 +32,75 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+#[test]
+fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let module = ModuleBuilder::new("example::typed", &catalog)
+        .finish()
+        .unwrap();
+    let (vm, loaded) = source_free_vm(
+        r#"
+        pub struct Player { pub var hp: i32 }
+        pub fn make() -> Player { Player { hp: 100 } }
+        pub fn damage(player: Player, damage: i32) -> i32 { player.hp -= damage; player.hp }
+    "#,
+        &module,
+    );
+    let player: Object = vm.execute_typed(&loaded, "make", ()).unwrap();
+    let hp = vm
+        .runtime()
+        .bind_field::<i32>(player.object_type(), "hp")
+        .unwrap();
+    assert_eq!(
+        vm.execute_typed::<_, i32>(&loaded, "damage", (player.clone(), 15i32))
+            .unwrap(),
+        85
+    );
+    vm.runtime().collect_garbage().unwrap();
+    let mut cx = NativeContext::new(vm.runtime(), &loaded).unwrap();
+    assert_eq!(player.get(&mut cx, &hp).unwrap(), 85);
+    player.set(&mut cx, &hp, 42).unwrap();
+    assert_eq!(
+        vm.execute_typed::<_, i32>(&loaded, "damage", (player.clone(), 2i32))
+            .unwrap(),
+        40
+    );
+    drop(player);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles() {
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut module = ModuleBuilder::new("example::typed", &catalog);
+    module
+        .add_function(
+            FunctionSpec::new("append").parameter_names(["values"]),
+            |cx: &mut NativeContext<'_>,
+             (values,): (ScriptVec<i32>,)|
+             -> NativeResult<ScriptVec<i32>> {
+                values.push(cx, 42)?;
+                cx.collect_garbage()?;
+                Ok(values)
+            },
+        )
+        .unwrap();
+    let (vm, loaded) = source_free_vm(
+        r#"
+        use example::typed::append;
+        pub fn main() -> Vec<i32> { val values = [1, 2]; append(values); values }
+    "#,
+        &module.finish().unwrap(),
+    );
+    let values: ScriptVec<i32> = vm.execute_typed(&loaded, "main", ()).unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    let mut cx = NativeContext::new(vm.runtime(), &loaded).unwrap();
+    assert_eq!(values.len(&cx).unwrap(), 3);
+    assert_eq!(values.get(&mut cx, 2).unwrap(), Some(42));
+    drop(values);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+}
 
 #[test]
 fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments() {

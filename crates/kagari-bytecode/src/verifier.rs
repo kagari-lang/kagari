@@ -23,7 +23,7 @@ use kagari_contract::{
     layout::StructFieldLayout,
     operations::BinaryOp as MirBinaryOp,
     standard::RuntimePrimitive,
-    types::{InterfaceTable, PublicItem, verify},
+    types::{InterfaceTable, PublicItem, inherent::native_signatures_match, verify},
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -215,6 +215,9 @@ pub(super) fn verify_module_with_program(
         &Default::default(),
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    if !native_signatures_match(&module.public_items, &module.native_declarations) {
+        return Err(BytecodeVerificationError::InvalidPublicAbi);
+    }
     verify::validate_trait_contracts(
         &module.trait_contracts,
         &module.public_items,

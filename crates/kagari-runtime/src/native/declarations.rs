@@ -176,8 +176,9 @@ impl CallableRequirement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectedCall {
+    pub(crate) declaration: DefinitionPath,
     pub(crate) slot: usize,
 }
 
@@ -234,6 +235,9 @@ impl FunctionBuilder<'_> {
     pub fn requires(&mut self, requirement: CallableRequirement) -> SelectedCall {
         let slot = self.requirements.len();
         self.requirements.push(requirement.requirement);
-        SelectedCall { slot }
+        SelectedCall {
+            declaration: self.id.clone(),
+            slot,
+        }
     }
 }

@@ -13,10 +13,12 @@ use crate::{
             trait_builder::TraitBuilder, type_builder::TypeBuilder,
         },
         catalog::DeclarationCatalog,
+        conversion::{IntoKagari, arguments::FromKagariArguments},
         declarations::{FunctionBuilder, FunctionDecl, normalize_bounds},
         functions::NativeFunction,
         module::NativeModule,
         storage::NativeStorage,
+        typed::NativeContext,
         types::{FunctionRef, Receiver},
     },
 };
@@ -173,6 +175,31 @@ impl ModuleBuilder {
         }
         self.bindings.insert(function.id, binding);
         Ok(())
+    }
+
+    /// Bind against the authored signature, including generic parameters and
+    /// contextual handles. Rust mappings are checked against each concrete
+    /// application before any argument converter or callback runs.
+    pub fn bind_typed<A: FromKagariArguments, R: IntoKagari>(
+        &mut self,
+        function: FunctionRef,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> NativeResult<()> {
+        let declaration = self
+            .declaration
+            .native_declarations()
+            .into_iter()
+            .find(|declaration| declaration.declaration == function.id)
+            .ok_or_else(|| {
+                RuntimeError::metadata_conflict("unknown native function declaration")
+            })?;
+        self.bind_with(
+            function,
+            NativeBinding::contextual(declaration.function.params.len(), entry),
+        )
     }
 
     pub fn finish(self) -> NativeResult<NativeModule> {

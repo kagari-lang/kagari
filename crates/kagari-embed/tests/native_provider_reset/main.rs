@@ -198,6 +198,11 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
                         change_result(method);
                     }
                 }
+                PublicItem::InherentTable(table) => {
+                    for method in &mut table.methods {
+                        change_result(method);
+                    }
+                }
                 PublicItem::InterfaceTable(table) => {
                     for method in &mut table.methods {
                         change_result(method);

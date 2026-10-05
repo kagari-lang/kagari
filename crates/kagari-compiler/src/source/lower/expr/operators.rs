@@ -259,9 +259,13 @@ impl FunctionLowerer<'_, '_> {
                 &method_arguments,
                 self.function.debug.source_span,
             )?;
+            let normalizations =
+                self.planner
+                    .method_normalizations(method, &interface, &ty, &method_arguments)?;
             self.emit(Instruction::Call {
                 dst: Some(dst),
                 callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                    normalizations,
                     receiver: matches!(&ty, TypeId::Generic(_)).then(|| lower_type(&ty)),
                     operations,
                     arguments: method_arguments.iter().map(lower_type).collect(),

@@ -11,6 +11,7 @@ use kagari_types::{
     },
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty, substitution::MAX_TYPE_NODES},
+    visibility::Visibility,
 };
 
 fn declaration() -> (DefinitionPath, TraitDef) {
@@ -172,6 +173,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
             bounds: vec![],
             variants: vec![],
             fields: vec![FieldDef {
+                visibility: Visibility::Public,
                 name: "hidden".into(),
                 ty: unknown.clone(),
                 mutable: false,

@@ -1,17 +1,35 @@
 //! Typed entry conversion uses checked semantic facts from the installed product.
 use crate::{
     error::VmError,
-    executor::Executor,
+    executor::{Executor, native::invoke_script},
     vm::{Vm, find_function_ref},
 };
 use kagari_runtime::{
     error::RuntimeError,
     module::LoadedModule,
-    native::conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
+    native::{
+        conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
+        function_handle::PinnedFunction,
+        typed::NativeContext,
+    },
 };
 use std::slice;
 
 impl Vm {
+    /// Access and call typed handles with the interpreter's synchronous service.
+    pub fn context<'a>(&'a self, owner: &'a LoadedModule) -> Result<NativeContext<'a>, VmError> {
+        NativeContext::with_invoker(&self.runtime, owner, invoke_script).map_err(VmError::from)
+    }
+
+    pub fn call<A: IntoKagariArguments, R: FromKagari>(
+        &self,
+        function: &PinnedFunction<A, R>,
+        arguments: A,
+    ) -> Result<R, VmError> {
+        let mut cx = self.context(function.owner())?;
+        function.call(&mut cx, arguments).map_err(VmError::from)
+    }
+
     /// Execute a named entry with one outer argument tuple and an owned result.
     /// This uses the same explicit entry policy as `execute`. Cached public
     /// function/member binding is a separate, visibility-checked operation.

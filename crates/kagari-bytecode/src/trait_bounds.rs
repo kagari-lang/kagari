@@ -114,6 +114,7 @@ fn executable_interface(
         };
         for (slot, method) in record.methods.iter().enumerate() {
             let call = InterfaceCallContract {
+                normalizations: vec![],
                 receiver: None,
                 operations: vec![],
                 interface: view.clone(),

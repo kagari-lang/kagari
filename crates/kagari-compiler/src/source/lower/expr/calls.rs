@@ -313,6 +313,9 @@ impl FunctionLowerer<'_, '_> {
                 let operations = self
                     .planner
                     .method_operations(&method, &interface, &ty, &arguments, span)?;
+                let normalizations = self
+                    .planner
+                    .method_normalizations(&method, &interface, &ty, &arguments)?;
                 (
                     TypeckCallTarget::TraitMethod {
                         method,
@@ -321,6 +324,7 @@ impl FunctionLowerer<'_, '_> {
                     Vec::new(),
                     Some(CallTarget::InterfaceMethod(Box::new(
                         InterfaceCallContract {
+                            normalizations,
                             receiver: None,
                             operations,
                             arguments: arguments.iter().map(lower_type).collect(),
@@ -688,6 +692,15 @@ impl FunctionLowerer<'_, '_> {
                             }
                         }
                         TypeckCallTarget::SourceFunction(id) => {
+                            let arguments = self.planner.arguments(
+                                &impl_arguments
+                                    .iter()
+                                    .chain(&call.type_arguments)
+                                    .cloned()
+                                    .collect::<Vec<_>>(),
+                                &self.instance.substitution,
+                                span,
+                            )?;
                             let imported = self.analyzed.imported_functions.target(&id).ok_or(
                                 MirLoweringError::MissingBinding("source function contract"),
                             )?;
@@ -705,7 +718,7 @@ impl FunctionLowerer<'_, '_> {
                             let return_type = self.value_type(&signature.return_type)?;
                             CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                                 declaration: imported.declaration.clone(),
-                                arguments: Vec::new(),
+                                arguments: arguments.iter().map(lower_type).collect(),
                                 params,
                                 return_type,
                             }))

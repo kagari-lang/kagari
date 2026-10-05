@@ -90,6 +90,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 ..
             } = instruction
                 && (!add(contract.arguments.len())
+                    || !add(contract.normalizations.len())
                     || !add_operations(&contract.operations, &mut add))
             {
                 return false;
@@ -222,6 +223,19 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                             && add(member.generic_params.len())
                             && add_abi_bounds(&member.parameter_bounds, &mut add)
                     })
+                    && add(item.methods.len())
+                    && item.methods.iter().all(|method| {
+                        add(method.generic_params.len())
+                            && add(method.bounds.len())
+                            && add_abi_bounds(&method.bounds, &mut add)
+                            && add(method.params.len())
+                            && add_function_contract(method, &mut add)
+                    })
+            }
+            PublicItem::InherentTable(item) => {
+                add(item.generic_params.len())
+                    && add(item.bounds.len())
+                    && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.methods.len())
                     && item.methods.iter().all(|method| {
                         add(method.generic_params.len())
@@ -437,6 +451,16 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
             PublicItem::Trait(item) => {
                 associated_identity_limit(&item.associated_types)
                     && generic_identity_limit(&item.generic_params, &item.bounds)
+                    && item.methods.iter().all(|method| {
+                        function_abi_identity_limit(method)
+                            && method.params.iter().all(|param| valid(&param.ty))
+                            && valid(&method.return_type)
+                    })
+            }
+            PublicItem::InherentTable(item) => {
+                item.declaration.within_path_limit()
+                    && generic_identity_limit(&item.generic_params, &item.bounds)
+                    && valid(&item.for_type)
                     && item.methods.iter().all(|method| {
                         function_abi_identity_limit(method)
                             && method.params.iter().all(|param| valid(&param.ty))

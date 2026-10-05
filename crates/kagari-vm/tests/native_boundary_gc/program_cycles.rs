@@ -121,7 +121,7 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .runtime()
         .make_closure(
             &snapshot.implementation,
-            snapshot.function,
+            snapshot.script_function().unwrap(),
             snapshot.captures.clone(),
             old_snapshot.environment.clone(),
         )
@@ -133,7 +133,7 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         vm.runtime()
             .make_closure(
                 &snapshot.implementation,
-                snapshot.function,
+                snapshot.script_function().unwrap(),
                 snapshot.captures.clone(),
                 snapshot.environment.clone(),
             )
@@ -149,7 +149,7 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .runtime()
         .make_closure(
             &snapshot.implementation,
-            snapshot.function,
+            snapshot.script_function().unwrap(),
             snapshot.captures.clone(),
             snapshot.environment.clone(),
         )

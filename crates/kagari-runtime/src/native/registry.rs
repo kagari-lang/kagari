@@ -89,6 +89,7 @@ pub(crate) fn link_host(
         },
     );
     Arc::new(LinkedNativeFunction {
+        declaration: import.instance.declaration,
         binding: entry,
         signature,
         scoped_signature: None,
@@ -290,6 +291,7 @@ impl NativeRegistry {
             })
             .collect::<NativeResult<Vec<_>>>()?;
         Ok(Arc::new(LinkedNativeFunction {
+            declaration: import.instance.declaration,
             binding: entry.binding.clone(),
             signature,
             result_adapter: LinkedResultAdapter::link(import, program)?,

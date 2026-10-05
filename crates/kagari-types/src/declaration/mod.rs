@@ -15,6 +15,7 @@ use crate::{
         requirement::NativeCallableRequirement,
     },
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    visibility::Visibility,
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
 use serde::{Deserialize, Serialize};
@@ -119,6 +120,7 @@ impl TypeDefKind {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub struct FieldDef<I = DefinitionPath> {
+    pub visibility: Visibility,
     pub name: String,
     pub ty: Ty<I>,
     pub mutable: bool,

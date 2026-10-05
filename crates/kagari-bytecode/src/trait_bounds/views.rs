@@ -84,6 +84,7 @@ pub fn links(
                     .find(|raw| raw.name == method.name)
                     .ok_or(invalid)?;
                 let call = InterfaceCallContract {
+                    normalizations: vec![],
                     receiver: None,
                     operations: vec![],
                     interface: view.clone(),

@@ -159,6 +159,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldDef<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(FieldDef {
+            visibility: self.visibility,
             name: self.name.clone(),
             ty: self.ty.map_identities(mapper)?,
             mutable: self.mutable,

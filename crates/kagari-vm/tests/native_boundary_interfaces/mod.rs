@@ -204,7 +204,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
                 Codec::Scalar(Type::i32().abi().clone()),
                 move |cx| {
                     let receiver = cx.argument(0)?;
-                    let target = cx.selected(selected)?;
+                    let target = cx.selected(&selected)?;
                     let Value::I32(value) = cx.call_values(target, &[receiver])? else {
                         return Err(RuntimeError::module_validation("checked Read result"));
                     };
@@ -487,7 +487,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
                 Codec::Value,
                 move |cx| {
                     let args = [cx.argument(1)?, cx.argument(2)?];
-                    let target = cx.selected(selected)?;
+                    let target = cx.selected(&selected)?;
                     cx.call_values(target, &args)
                 },
             ),
@@ -580,7 +580,7 @@ fn main() -> i32 {
     );
 }
 
-fn generic_identity_module() -> NativeModule {
+pub(super) fn generic_identity_module() -> NativeModule {
     let language = StandardDeclarations::default();
     let mut module = ModuleBuilder::new(
         "example::generic_helper",
@@ -746,7 +746,7 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
             echo,
             NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
                 let receiver = cx.argument(0)?;
-                let target = cx.selected(selected)?;
+                let target = cx.selected(&selected)?;
                 if cx.call_values(target, &[receiver])? != Value::I32(42) {
                     return Err(RuntimeError::module_validation(
                         "selected receiver returned wrong value",
@@ -831,7 +831,7 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
             invoke,
             NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
                 let arguments = [cx.argument(0)?, cx.argument(1)?];
-                cx.call_values(cx.selected(selected)?, &arguments)
+                cx.call_values(cx.selected(&selected)?, &arguments)
             }),
         )
         .unwrap();

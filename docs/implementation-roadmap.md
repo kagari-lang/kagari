@@ -1143,7 +1143,7 @@ Phase order and progress:
 - [x] **GO04: Typed registration and results.** Recursive conversion, argument
   tuples, complete registration docs/generated KGR, typed entry arguments and
   automatically retained public results with source-free support.
-- [ ] **GO05: Host objects and checked calls.** Fields/collections, scoped native
+- [x] **GO05: Host objects and checked calls.** Fields/collections, scoped native
   payload edits with restricted traced-field views, prepared/cached member bindings,
   direct declaration-handle binding, functions/closures and ordinary/generic/interface
   trait methods.
@@ -1162,6 +1162,421 @@ is assumed. Open implementation errors and resumption state belong here.
 
 #### GO progress ledger
 
+- GO05 accepted on 2026-10-06. The substep entries below record implementation
+  history; all GO05 work is included in one accepted phase commit. Fields, sequences,
+  hash collections, enums, native data/managed payloads and prepared script/native/
+  interface/selected calls use retained typed handles and checked storage boundaries.
+  Generic application evidence and lexical type scopes survive source-free loading
+  and reload; weak binding caches retain no retired program by themselves.
+  Final phase evidence: all 157 native-boundary tests pass; previous unchanged
+  runtime unit (132), runtime doctest (11), compiler/HIR and embedding focused
+  checks are recorded below. Workspace all-target strict Clippy, structure (892
+  Rust files, zero violations/exceptions), formatting and diff checks pass. Changed
+  module ownership, imports, public declarations, macros and retained graph edges
+  were reviewed. No carried failure or structural exemption remains. No performance
+  claim is made. GO06 owns standard-library adoption, obsolete public adapter cleanup,
+  extension acceptance and the full workspace/feature/backend matrix.
+
+- GO05 in progress (uncommitted): source field visibility now belongs to
+  kagari-types and is retained in declarations and executable struct layouts.
+  MIR/bytecode verification rejects declaration/layout access mismatches, and
+  source-free artifact round trips preserve private, parent and public access.
+  No compatibility reader or routine format identifier bump was introduced.
+- GO05 object foundation: Object<S>/dynamic Object retain host roots; ObjectType,
+  ObjectField and Field<T> prepare public field access and exact applied types.
+  Runtime binding caches contain weak records; live handles pin the program,
+  while dead caches retain no version. Field access compares prepared identities
+  and uses indexed checked storage operations. Layout clones carrying lexical
+  environments now also have a pointer-identity fast path. ObjectBuilder retains
+  initializers, rejects duplicate/missing/private fields and publishes only a
+  complete object. Conversion failures preserve previous successful mutations.
+  Contextual type checks support dynamic handles inside Vec/Option/Result/tuples
+  without a language Any type or erased expected signature.
+- ScriptVec<T> now retains a collection view and its element scope. Its public
+  get/set/push/insert/remove/pop/clear/truncate and bounded for_each operations use
+  existing checked storage mutations and iteration leases. Explicit readonly
+  views cannot widen on conversion. Factories retain every initializer until
+  publication; removed objects gain an independent host lease before a safepoint.
+  Typed native registration can accept and return ScriptVec directly, preserving
+  script aliases. Dynamic Object also crosses typed VM entries with no raw IDs.
+- GO05 hash collection access (uncommitted): ScriptMap<K, V>/ScriptSet<T>
+  retain exact key/value scopes, outer access and the Hash/Eq implementation chosen
+  at construction. Get/contains/insert/remove/clear and rooted snapshot traversal
+  use the existing storage commits, key lookup guards and iteration leases.
+  Custom comparisons run outside storage borrows through checked retained calls;
+  owned adapters never substitute Rust Hash/Eq. Clones preserve aliases; readonly
+  views reject writes and cannot widen on conversion. Removal commits before
+  result conversion, matching the documented host mutation failure policy.
+  Hash factories now preserve custom selected evidence on the native object as
+  ordinary executable graph edges. Stored records contain no host root lease;
+  host handles promote those edges to retained calls. Builtin-key data needs no
+  executable retention. Payload replacement preserves the selected evidence.
+  This adds native storage metadata traversal, without changing collector policy.
+- Hash handle evidence: five source-free VM tests pass for typed native arguments
+  and results, builtin/custom keys, applied key types, aliases/readonly/foreign
+  runtime rejection, independent removal retention, snapshot retention during
+  replacement and GC, mutation rejection during Hash/Eq, trap cleanup and old
+  selected code after reload. The old map/module cycle is reclaimed after the
+  final external handle drops. A generic-impl fixture needed identical Eq/Hash
+  bounds as required by the language; the fixed fixture passes. It uses a closed
+  applied implementation, so no claim is made that this test exercises an erased
+  method environment. Dedicated generic/interface call coverage remains GO05.
+  Runtime check, strict runtime/VM all-target Clippy, structure (846 Rust files,
+  zero violations/exceptions), format and diff checks pass. The complete native
+  boundary regression passes all 103 tests. Logs are under target/go05/hash-*.
+  Standalone construction is now covered by the checked factory boundary below;
+  these earlier tests exercised the collection operations through KGR entries.
+- GO05 callable foundation (uncommitted): PinnedFunction<A, R> wraps public
+  closed script/native entries or retained closures. Runtime binds names or
+  declaration identities against verified executable evidence; weak descriptor
+  caching retains no dead program. NativeContext inherits the invoking backend,
+  and VM/SDK call entrypoints use the same rooted typed conversion and existing
+  execution stack. Explicit root options preserve SDK cancellation/JIT policy.
+  Checked retained-function entry permits old versions outside the caller's
+  current dependency graph while rejecting external entries during candidate
+  initialization. Closures keep captures and environments alive; their calls,
+  parameters and results use scoped signatures. Script entry handles can convert
+  back to function values. Boxing a native entry still requires a checked script
+  wrapper; it does not synthesize bytecode at runtime.
+- GO05 generic function applications (uncommitted): bind_function_application
+  and its declaration-identity form check supplied type scopes and select only
+  installed concrete entries or closed shared-call witnesses. Missing applications,
+  private declarations, wrong arity and incompatible Rust signatures fail before
+  native/script effects. Cache identity includes the owning generation, target
+  and shared witness location; steady-state calls reuse the retained descriptor.
+  Shared environment/operation preparation now has a lexical-scope entry used by
+  both the execution stack and host binding. Runtime argument validation still
+  precedes environment publication. Plain entries retain only their existing
+  program lease; shared entries additionally root their executable environment.
+- Application evidence: four source-free native application tests cover direct
+  declaration/name binding, missing applications, selected trait operations with
+  GC, object/vector/closure returns, failed schema publication, pinned old values
+  after compatible reload and weak-cache release. A fifth artifact test removes
+  the specialized native import and emits a verified closed call of its shared
+  template; binding and repeated calls survive GC, and dropping the last handle
+  releases the environment. Existing source restrictions on exported script
+  generic free functions remain enforced; tests use supported registered exports.
+  An initial broad regression found redundant root records on plain function
+  bindings. Preparation now creates additional metadata roots only for shared
+  environments, and all eleven then-current callable tests pass with their
+  original zero-temporary-root assertions. Logs: target/go05/application-* and
+  target/go05/shared-application-tests.log. The final native-boundary regression
+  passes all 108 tests. Strict runtime/VM all-target Clippy, structure checks
+  (849 Rust files, zero violations/exceptions), formatting and diff checks pass.
+  No carried build/test failure or new structural exception remains.
+- GO05 inherent member metadata (uncommitted): portable InherentTable records
+  preserve declaring impl identities, receiver types, binder scopes, bounds and
+  public methods. Private and parent-visible methods remain absent. Native
+  members retain the original registered templates, including projections;
+  module validation matches their recombined scopes/signatures against native
+  declarations. Script bodies are checked against exported signatures in both
+  MIR and bytecode. Definition mapping, artifact limits, type applications,
+  host-reference traversal and ABI fingerprints include the new records.
+  Compiler tests cover source-free round trips, signature/receiver/native-template
+  tampering, distinct same-named members and private signature changes.
+- GO05 closed object methods (uncommitted): ObjectType::method resolves an opaque
+  InherentMember declaration handle; bind_method[_declaration] produces Method<A, R>
+  with arguments excluding self, and Object::call checks the exact retained
+  applied type/generation before converting arguments. Associated functions use
+  bind_associated_function[_declaration] and ordinary PinnedFunction handles.
+  Preparation shares the existing weak function cache and checked entry evidence;
+  repeated calls prepend a rooted receiver to the existing typed argument path.
+  No collector or backend call semantics were added. Three source-free VM tests
+  pass for access/signature rejection, unrelated/foreign receivers, aliases, GC
+  during native callbacks, committed mutations before traps, pinned reload and
+  reclamation after the final old binding drops. Compiler regression passes all
+  180 tests (166 unit and 14 integration); the native boundary suite passes all
+  111 tests. Strict all-target Clippy for runtime/compiler/VM/SDK, structure checks
+  (853 Rust files, zero violations/exceptions), formatting and diff checks pass.
+  The module-level declaration validation test now includes native constructor
+  declarations when checking an inherent table, since receiver ownership depends
+  on those declarations; its previous isolated-record assumption was invalid.
+  Workspace all-target checks also pass. Full SDK tests pass all 442 tests
+  (`cargo test -p kagari-embed`, including the multi-route language contract).
+  Logs for this boundary are target/go05/method-* and target/go05/object-method-*.
+- GO05 interface value foundation (uncommitted): Interface<S> retains the existing
+  boxed interface and its declared lexical type scope. DynamicInterface accepts
+  only contextual trait applications, while named schemas supply a precise
+  registered trait type. Cloning preserves aliases; conversions neither infer a
+  new implementation nor widen access. The existing heap snapshot retains the
+  selected implementation and inherited/generic metadata; the host view also
+  leases its declared type's program. Three source-free VM tests pass for generic
+  trait applications, Option-wrapped handles, typed native input/output with GC,
+  readonly rejection, foreign runtimes, thread transfer, old dispatch after
+  changed code/data publication and last-handle version reclamation. Logs:
+  target/go05/interface-handle-*. These tests invoke retained interfaces through
+  checked script entries; direct host calls are covered separately below. Runtime
+  check, strict runtime/VM all-target Clippy, structure (855 Rust files, zero
+  violations/exceptions), formatting and diff checks pass.
+- GO05 interface member calls (uncommitted): InterfaceMember resolves public
+  applied trait members and inherited declarations; Runtime also prepares members
+  from an installed TypeArgument without constructing a receiver. Declaration
+  binding accepts registration MethodRef identities through its new id accessor.
+  bind_interface_method<A, R> validates the complete Rust mapping and weakly caches
+  a descriptor scoped to the applied interface and owning program generation.
+  Interface::call uses the existing verified method ordinal and dispatch snapshot
+  for each receiver, including default methods and native result adapters.
+  Rooted selections retain their environment while the normal runtime/VM frame
+  executes; cloned selections share the same immutable selection and root lease.
+  Ordinary and interface calls now share rooted argument encoding. No new
+  collector policy or open-ended implementation search was added.
+  Five source-free tests pass for descriptor reuse across receivers, inherited and
+  default calls, direct registration identity binding, private access rejection,
+  associated object outputs, native iterator adapters, GC/reentry, cancellation,
+  traps, candidate isolation and pinned reload/cache reclamation. Runtime/VM
+  checks and strict all-target Clippy pass; the full native-boundary regression
+  passes all 119 tests. Structure checks pass for 858 Rust files with zero
+  violations/exceptions; formatting and diff checks pass.
+  Logs: target/go05/interface-method-*.
+- GO05 generic interface applications (uncommitted):
+  bind_interface_method_application accepts method-local TypeArguments only when
+  an installed nongeneric carrier contains a checked closed interface call.
+  Binding prepares and roots its selected operations and lexical type scopes;
+  calls reuse those operations with the receiver's verified dispatch selection.
+  Missing applications and mismatched mappings fail before effects. Two tests
+  cover inherited generic defaults, object/closure results, bound operations,
+  GC/reentry, pinned reload and last-descriptor reclamation. The full native
+  boundary passes 121 tests; strict runtime/VM all-target Clippy, structure
+  (860 Rust files, zero violations/exceptions), formatting and diff checks pass.
+  Logs: target/go05/interface-application-*. Generic inherent applications
+  remain pending.
+- GO05 selected native calls (uncommitted): NativeContext::selected_method
+  promotes a registered requirement to SelectedMethod<A, R>, retaining the exact
+  selected target, environment and lexical signature. It reuses PinnedFunction
+  execution/conversion, including prepared primitive operations; no runtime trait
+  search or integer-slot authoring is added. SelectedCall now checks its authoring
+  declaration, preserving that identity through native-default lowering.
+  ModuleBuilder::bind_typed checks concrete contextual mappings before converters
+  and callbacks; TraitBuilder::bind_default_method supplies its receiver separately
+  from the tuple. Three tests pass for generic/default/static/primitive operations,
+  wrong token/type/application/runtime rejection, GC, reentry, trap cleanup,
+  candidate isolation, pinned reload and last-handle reclamation. Selected calls
+  preserve the existing cross-version layout-compatibility rules for arguments;
+  compatible old data can enter newer selected code without rebinding that code.
+- GO05 generic value adapter (uncommitted): ScriptValue retains the exact declared
+  TypeArgument, access view and root for a generic native parameter/result. It
+  forwards values through selected calls or decodes them to owned Rust data and
+  retained handles; it introduces no erased script type or raw storage access.
+  Its successful source-free test covers generic scalar/string/object/collection/
+  interface/closure forwarding, nested retained reads, readonly upgrade rejection,
+  wrong destination/foreign runtime rejection and last-handle collection.
+- GO05 associated-call normalization (uncommitted, carried regression resolved):
+  native default lowering now keeps the ordinary receiver bound and independent
+  associated-output constraints instead of emitting an equality between an
+  associated type and its own projection. InterfaceCallContract retains bounded
+  source/result normalization facts for applied signature types. Compiler lowering
+  supplies them; linked ProofCatalog validation proves every equality against the
+  installed declarations/implementations. Identity mapping, decoding limits,
+  application validation and artifact accounting include these facts. Missing,
+  duplicate, disconnected, identity and forged same-representation facts reject;
+  neither a claimed signature nor a physical register shape establishes validity.
+  Runtime method preparation now adds receiver and call-selected operation facts
+  before resolving the applied signature. The resulting entry environment keeps
+  those operations and their supplying scopes. Call-specific operations do not
+  enter a receiver-only application cache. Superseded late environment extension
+  was removed; the storage lifecycle tests still exercise immutable record forks.
+  The formerly failing associated-collection case passes source-free script calls
+  and direct host generic-interface binding, including GC and typed mutation of
+  its returned objects. Two compiler tests cover MIR/KBC round trips and tampered
+  facts; a contract test independently rejects an invented normalization equality.
+  Validation passes all 126 native-boundary tests, the expanded direct-host case,
+  all 365 unit tests across contract/bytecode/MIR/compiler/runtime, seven focused
+  environment tests and six interface-contract tests. Strict all-target Clippy for
+  those crates plus VM, structure (865 Rust files, zero violations/exceptions),
+  formatting and diff checks pass. Logs: target/go05/associated-normalization-*.
+  No carried failure remains in this boundary; GO05 is not yet accepted/committed.
+- GO05 inherent applications now bind instance and static members using receiver-
+  inferred impl arguments and explicit method-local arguments. Name and declaration
+  APIs share the existing callable cache and require installed concrete entries or
+  closed shared-call witnesses, including selected bound operations. Bounded receiver
+  matching is shared with semantic template matching; inferred argument scopes stay
+  intact, and repeated parameters reject incompatible nominal layouts. Concrete
+  struct bindings additionally reject incompatible supplied argument scopes instead
+  of attaching an ineffective environment to an already specialized layout.
+  Public script inherent templates are now permitted locally and across source
+  modules; public generic script free functions remain rejected. Imported concrete
+  calls retain their arguments during lowering so existing instance planning can
+  find the required body. No runtime proof search or compilation was added.
+  Four source-free VM tests cover arity/mapping/missing evidence, generic static
+  members, nested nominal outputs, selected bounds, cache reuse, GC, old-code calls
+  and mixed scopes in both concrete and shared struct layouts. A source/artifact
+  cross-module test covers the frontend/lowering path. Validation passes 620 unit
+  tests across types/HIR/compiler, 38 source-module/type-inference tests, all 130
+  native-boundary tests and ten runtime host-object tests. Strict all-target Clippy
+  for types/HIR/compiler/runtime/VM/embed, structure (867 Rust files, zero violations
+  or exceptions), formatting and diff checks pass. Logs: target/go05/inherent-*.
+  Initial diagnostics and the scope regression are resolved. GO05 remains unaccepted
+  and uncommitted; collection and enum constructors are recorded below, with native
+  factories and restricted payload editing still pending.
+- GO05 collection factories (uncommitted): `bind_map_constructor` and
+  `bind_set_constructor` prepare the installed public zero-argument `new`
+  application as an ordinary cached PinnedFunction. Key/value scopes are explicit,
+  Rust mappings are checked, and a concrete entry or closed shared-call witness
+  supplies the constructor's selected Hash/Eq evidence. The NativeContext
+  `create_map`/`create_set` convenience APIs infer static Rust mappings; explicit
+  scoped-type forms support dynamic Object handles. Constructors execute registered
+  code through the existing adapter, without assembling raw storage or searching
+  for new trait proofs. Missing applications fail before allocation.
+  Three new source-free VM tests cover independent allocations, cache reuse,
+  convenience and explicit forms, custom key callbacks collecting during Hash/Eq,
+  trap cleanup, typed native reentry, old-factory behavior after reload, foreign
+  runtime rejection and old-program reclamation. All eight hash-handle tests pass,
+  as do strict runtime/VM all-target Clippy, structure (870 Rust files, zero
+  violations/exceptions), format and diff checks. Initial fixture syntax mistakes
+  were corrected; no implementation failure remains. Logs: target/go05/hash-factory-*.
+  Applied enum constructors are recorded below. Native payload construction and
+  restricted editing remain; GO05 has no accepted phase commit yet.
+- GO05 enum factories (uncommitted): EnumType/EnumMember/EnumVariant prepare public
+  nominal enum applications and full Rust payload tuples. Name lookup and direct
+  TypeRef/VariantRef declaration identities share preparation. Cloned variant
+  handles reuse their scoped payload descriptor and program retention. `create`
+  converts and roots fields before ordinary enum allocation, then returns an exact
+  retained ScriptValue. Empty `()` and one-unit `((),)` payload packs remain distinct;
+  existing failure-provenance allocation is reused. No raw IDs or Values are needed
+  at the host call site. Concrete layouts require compatible supplied scopes;
+  retained declaration templates preserve each generic argument's original scope.
+  Registered unconstrained templates need no script constructor roots. Declared
+  bounds additionally require a compatible installed concrete layout, including
+  when a shared open layout is available, rather than accepting arbitrary new
+  bounded applications from representation alone.
+  Six source-free factory tests cover access/arity/type/foreign checks, aliasing,
+  GC during failed conversion and cleanup, empty/unit variants, direct registration
+  identities, Option decoding, scoped layout rejection, constrained shared templates,
+  old-layout retention/reclamation and exclusive runtime thread transfer. Validation
+  passes all 139 native-boundary tests, 18 runtime enum-declaration/conversion tests,
+  and 16 SDK enum/Option/Result tests. Strict runtime/VM all-target Clippy, structure
+  (873 Rust files, zero violations/exceptions), formatting and diff checks pass.
+  A redundant clone and integration-test discovery issue found by Clippy were fixed.
+  Logs: target/go05/enum-factory-*. No carried failure remains in this boundary.
+  Native construction and fixed-data editing are recorded below. Traced payload
+  setters, callable boxing completion and GO05 acceptance remain pending.
+- GO05 native payload handles and fixed-data editing (uncommitted): NativeType<T>
+  prepares an installed opaque native type from its registration identity and
+  scoped arguments; NativeObject<T> retains the object and exact applied type.
+  Clones share the descriptor/root. Factories validate the Rust representation
+  and traced edges before allocation and root before collection. Typed callbacks
+  use `cx.create_native(payload)` with their declared result scope. Contextual
+  conversion rejects a different registered nominal type, incompatible argument
+  layout or foreign runtime even when the Rust payload type is identical.
+  `read` lends a short shared reference. `native_data!` defines a complete struct
+  and checks every field against the recursive NativeData contract; supported
+  scalars, fixed arrays and tuples receive empty tracing and fixed accounting.
+  Only NativeStorage::data registration enables `edit`. Arbitrary hand-authored
+  NativePayload registrations do not grant mutable access. Manual unsafe NativeData
+  implementations are explicitly trusted storage contracts, not ordinary safe
+  registration. An edit publishes its revision before lending data, preserves
+  completed writes on error/unwind and releases its exclusive borrow on every exit.
+  It cannot grow allocation or overwrite script edges. This intentionally leaves
+  variable-sized fields and script references to the checked setter boundary.
+  Six source-free tests cover typed constructors, shared aliases, rejection before
+  publication, tracing/cleanup, nominal and runtime identity, exact generic layout
+  scope, GC/reentry rejection during borrows, completed edit effects after failures,
+  unchanged heap accounting, explicit capability checks, old-version retention and
+  exclusive runtime thread transfer. All 145 native-boundary tests and nine runtime
+  doctests pass; compile-fail examples reject a heap identity in ordinary data and
+  an escaping mutable reference. Strict runtime/VM all-target Clippy, structure
+  (878 Rust files, zero violations/exceptions), formatting and diff checks pass.
+  Logs: target/go05/payload-*. No carried implementation failure remains.
+  Managed traced storage and its cycle exercise are recorded below. Native callable
+  boxing and GO05 acceptance remain. No substep commit was made.
+- GO05 managed traced payloads (uncommitted): ManagedStorage<T> fixes private field
+  declarations and opaque registration tokens before native type installation.
+  NativeType<Managed<T>>::bind_field checks each Rust mapping against its scoped
+  field application; cloned bindings reuse the descriptor. Generic fields preserve
+  the source of each native type argument. Managed<T> keeps fixed NativeData and
+  private Values separately, with no public mutable field/payload view or embedded
+  host root lease. ManagedBuilder retains each initializer until construction or
+  replacement commits, rejects missing fields, and preserves prior values when a
+  later conversion fails. Typed native constructors use result_native_type to build
+  against their declared application without capturing an installation-specific
+  handle. `get` returns ordinary converted data or retained handles. `set` and whole
+  builder replacement validate new values before overwriting; their storage commit
+  boundaries retain access to the old edges for future barriers. `edit_data` lends
+  only fixed data, preserving accounting and completed effects on error/unwind.
+  These additions use existing payload tracing and metadata traversal; no collector
+  algorithm, graph marker or sweep code changed.
+  Five source-free integration tests cover alias visibility, failed and incomplete
+  construction/replacement, conversion with GC, callback reentry after releasing
+  storage, borrow cleanup, old-code calls, foreign runtime/schema rejection, and
+  incompatible same-ID generic layout scopes. A payload/closure cycle remains live
+  through an exported callback and is reclaimed after external roots disappear;
+  its obsolete program is reclaimed as well. Compile-fail examples reject whole
+  Managed mutation and escaped data borrows. All 150 native-boundary tests and 11
+  runtime doctests pass. Strict runtime/VM all-target Clippy, structure (884 Rust
+  files, zero violations/exceptions), formatting and diff checks pass. A nested
+  mutable borrow in a new test was corrected before acceptance; no carried failure
+  remains. Logs: target/go05/managed-*. Native callable boxing is recorded below;
+  GO05 remains unaccepted and uncommitted.
+- GO05 native callable boxing (uncommitted): the closure representation now
+  distinguishes script and checked native targets. Converting a PinnedFunction
+  for a native entry records its import, exact signature and applied environment,
+  then uses the ordinary closure roots and native execution frame. No script wrapper,
+  source specialization or secondary interpreter is required. The heap stores no
+  LinkedCallable root lease: existing closure program/environment graph edges retain
+  executable dependencies. Signature inspection and the advanced borrowed-call
+  adapter support both targets. Diagnostic snapshots no longer assume every closure
+  has a script FunctionRef; copies still cannot republish released metadata.
+  Four new source-free tests cover native value round trips, script captures,
+  typed and advanced native reentry with GC, exact generic nominal scopes, failure
+  and cancellation cleanup, missing nested application rejection, old-version
+  execution and module-state/native-closure cycle reclamation. The existing shared
+  application artifact test now boxes an entry whose specialized import is absent,
+  executes it from script and host, and verifies environment release after the last
+  handle. All 154 native-boundary tests and 132 runtime unit tests pass. Workspace
+  all-target compilation, strict runtime/VM all-target Clippy, structure (886 Rust
+  files, zero violations/exceptions), formatting and diff checks pass. The expanded
+  advanced-call test also passes its focused rerun. Logs: target/go05/native-box-*.
+  No carried build or test failure remains. Acceptance review identified a remaining
+  designed API gap: NativeObject does not yet share the prepared inherent-member
+  call surface implemented for script Object. Complete native payload instance and
+  associated member binding through the same checked evidence/cache path, including
+  generic applications and direct declaration binding, before GO05 acceptance.
+  Then perform phase integration and make the single GO05 commit; GO06 owns standard
+  library adoption, obsolete API removal and the final feature/backend matrix.
+- GO05 native inherent members (uncommitted): script ObjectType and native
+  NativeType now share InherentMember/Method resolution and checked entry caching.
+  Both support name and full declaration-identity binding, instance calls and
+  associated functions, impl parameters and method-local applications. NativeObject
+  rejects reentry during payload borrows and retains exact receiver/program scopes.
+  InherentMethodsBuilder offers typed receiver/argument callbacks and FunctionBuilder
+  configuration; later impl groups substitute receiver facts in signatures, bounds,
+  concrete results and selected requirements while preserving method-local binders.
+  Three new source-free tests cover native/script calls, repeated binding, different
+  generic applications, method parameters, selected trait operations with GC,
+  registration identities, foreign runtimes, borrowed payloads and pinned reload.
+  All 157 native-boundary tests pass, including the preexisting script member and
+  cache-release cases. Structure checks pass (892 Rust files, zero violations or
+  exceptions). Phase-wide Clippy found an obsolete mutable borrow in the benchmark
+  caller of the shared execution facade; the caller was updated. Stage acceptance
+  follows below; no substep commit was made. Logs: target/go05/native-method-*.
+- Callable evidence so far: source-free tests cover visibility/signature rejection
+  before effects, object results, closure/native reentry, returned captures,
+  old-version calls and weak-cache reclamation, script function value conversion,
+  direct registered native declaration binding, cancellation/depth/trap cleanup
+  and candidate isolation. The SDK context/retained-result test passes. A native
+  binding test found that import operands belong to their using module, not the
+  declaration module; lookup now retains that checked carrier while checking
+  public visibility at the declaration. All seven callable tests and the SDK
+  typed-call test pass, as does strict runtime/VM/embed all-target Clippy. Structure
+  checks report 840 Rust files with zero violations/exceptions; fmt and diff
+  checks pass. The full native-boundary regression passes all 98 tests, including
+  existing reentry, borrow, cleanup, GC, artifact and thread-transfer coverage.
+  No phase acceptance or commit yet.
+- GO05 focused evidence so far: two compiler visibility tests, all 33 HIR import
+  tests and ten runtime
+  host-object tests pass, along with all ten existing conversion tests. Coverage
+  includes aliases, private/readonly access, foreign runtimes, nominal mismatch,
+  applied fields, source-free loading, failed construction/conversion, retained
+  nested reads, cyclic reclamation and old-version retention/cache release, plus
+  collection identity/access, removal retention, iteration cleanup and transfer
+  of live typed handles/bindings with exclusive runtime ownership. All ten
+  VM native-conversion tests pass, including source-free typed Object entries
+  and ScriptVec native callbacks sharing script storage.
+  The initial workspace all-target visibility check and runtime object check
+  passed. Strict runtime/VM all-target Clippy and the structure check (834 Rust
+  files, zero violations/exceptions) passed. Logs are under target/go05/.
+  GO05 is not accepted: native factories, restricted payload edits, callable boxing
+  completion and the full acceptance coverage remain pending.
 - GO04 complete: KagariType/IntoKagari/FromKagari provide one fallible conversion
   boundary for scalar widths, owned UTF-8 String, Vec, installed ordinary
   Option/Result and value/argument tuples of arity 0-12. Conversion scopes pin the
@@ -1203,7 +1618,7 @@ is assumed. Open implementation errors and resumption state belong here.
   links and diff checks passed. Production imports, visibility, macro boundaries,
   ownership and affected file responsibilities were reviewed. No carried build/
   test error or structural debt remains. Logs under target/go04/ are disposable.
-- GO05 is next: retained object/collection/payload access and cached checked calls.
+- GO05 continues with retained collection/payload access and cached checked calls.
   Existing low-level scalar/view NativeFunction/NativeOutput/CallArguments callers
   remain migration consumers until GO05 supplies their retained handle/call forms;
   GO06 owns their standard-library adoption and removal. They are not aliases or a

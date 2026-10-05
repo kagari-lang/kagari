@@ -26,6 +26,11 @@ pub(super) fn alter_bindings(artifact: &mut KbcArtifact, alter: impl Fn(&mut Def
                         alter_function(method, &alter);
                     }
                 }
+                PublicItem::InherentTable(table) => {
+                    for method in &mut table.methods {
+                        alter_function(method, &alter);
+                    }
+                }
                 PublicItem::InterfaceTable(table) => {
                     for method in &mut table.methods {
                         alter_function(method, &alter);

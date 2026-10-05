@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{arguments::TypeArgument, bindings::TypeBindings},
+    frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
     module::{EnumVariantRef, LoadedModule},
     native::{binding::NativeResult, context::CallContext, types::VariantRef},
     value::{EnumTag, EnumValueSnapshot, Value},
@@ -54,7 +54,12 @@ impl Runtime {
             if !template.arguments.iter().enumerate().all(|(position, ty)| {
                 matches!(ty, Ty::Parameter { owner, position: slot } if *owner == nominal.declaration && *slot == position)
             }) {
-                return Err(RuntimeError::module_validation("scoped enum payload requires its declaration template"));
+                if template.arguments.iter().zip(&arguments).all(|(compiled, supplied)| {
+                    compiled.is_concrete() && supplied.view(fallback).compatible(TypeView::new(compiled, &owner, None))
+                }) {
+                    return Ok(layout);
+                }
+                return Err(RuntimeError::module_validation("scoped enum payload differs from its concrete layout"));
             }
             let parameters = (0..arguments.len())
                 .map(|position| GenericParam {

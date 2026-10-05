@@ -69,11 +69,21 @@ impl<'module> ImplementationBuilder<'module> {
             documentation: BTreeMap::new(),
             methods: BTreeMap::new(),
             bindings: BTreeMap::new(),
+            method_parameters: BTreeMap::new(),
+            requirements: BTreeMap::new(),
+            concrete_results: BTreeMap::new(),
         };
         let result = configure(&mut methods)?;
         let mut signatures = Vec::new();
         for mut signature in methods.methods.into_values() {
-            signature.generic_params = parameters.clone();
+            let mut combined = parameters.clone();
+            combined.append(&mut signature.generic_params);
+            signature.generic_params = combined;
+            signature.bounds = substitution
+                .apply_bounds(&signature.bounds, &cancel)
+                .map_err(|_| {
+                    RuntimeError::metadata_conflict("invalid inherent bounds substitution")
+                })?;
             for parameter in &mut signature.params {
                 parameter.ty = substitution.apply(&parameter.ty, &cancel).map_err(|_| {
                     RuntimeError::metadata_conflict("invalid inherent argument substitution")
@@ -86,6 +96,34 @@ impl<'module> ImplementationBuilder<'module> {
                 })?;
             signatures.push(signature);
         }
+        let concrete_results = methods
+            .concrete_results
+            .into_iter()
+            .map(|(id, ty)| {
+                substitution
+                    .apply(&ty, &cancel)
+                    .map(|ty| (id, ty))
+                    .map_err(|_| {
+                        RuntimeError::metadata_conflict(
+                            "invalid inherent concrete result substitution",
+                        )
+                    })
+            })
+            .collect::<NativeResult<BTreeMap<_, _>>>()?;
+        let requirements = methods
+            .requirements
+            .into_iter()
+            .map(|(id, requirements)| {
+                requirements
+                    .iter()
+                    .map(|requirement| requirement.apply(&substitution, &cancel))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|requirements| (id, requirements))
+                    .map_err(|_| {
+                        RuntimeError::metadata_conflict("invalid inherent requirement substitution")
+                    })
+            })
+            .collect::<NativeResult<BTreeMap<_, _>>>()?;
         self.module.declaration.implementations.push(ImplDecl {
             generic_params: parameters,
             bounds: vec![],
@@ -98,6 +136,17 @@ impl<'module> ImplementationBuilder<'module> {
             .documentation
             .extend(methods.documentation);
         self.module.bindings.extend(methods.bindings);
+        self.module
+            .function_parameters
+            .extend(methods.method_parameters);
+        self.module
+            .declaration
+            .concrete_results
+            .extend(concrete_results);
+        self.module
+            .declaration
+            .callable_requirements
+            .extend(requirements);
         Ok(result)
     }
 

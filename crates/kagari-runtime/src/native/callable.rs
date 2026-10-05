@@ -23,6 +23,12 @@ pub struct PreparedClosure {
 }
 
 impl PreparedClosure {
+    pub(crate) fn from_value(runtime: &Runtime, value: Value) -> NativeResult<Self> {
+        let closure = Self { value };
+        closure.validate(runtime)?;
+        Ok(closure)
+    }
+
     pub(crate) fn validate(&self, runtime: &Runtime) -> NativeResult<()> {
         runtime.gc().ensure_no_native_borrow()?;
         let Value::Closure(id) = self.value else {
@@ -78,43 +84,24 @@ impl PreparedClosure {
 
     fn call_values(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
         cx.heap().ensure_no_native_borrow()?;
-        let (owner, function, captures, environment) = {
+        let (owner, signature) = {
             let closure = self.snapshot(cx.runtime)?;
             (
                 closure.implementation.clone(),
-                closure.function,
-                closure.captures.len(),
-                closure.environment.clone(),
+                closure.signature(cx.runtime)?,
             )
         };
-        let function = owner
-            .bytecode
-            .functions
-            .get(function.index())
-            .ok_or_else(|| RuntimeError::module_validation("native callback function"))?;
-        let environment = environment
-            .as_ref()
-            .map(|environment| environment.types.as_ref());
-        if captures.checked_add(arguments.len()) != Some(function.metadata.params.len())
-            || !arguments.iter().enumerate().all(|(index, value)| {
-                function
-                    .metadata
-                    .semantic
-                    .params
-                    .get(&(captures + index))
-                    .is_some_and(|ty| cx.runtime.matches_type_in(value, ty, &owner, environment))
-            })
+        if arguments.len() != signature.params.len()
+            || signature
+                .params
+                .iter()
+                .zip(arguments)
+                .any(|(ty, value)| !ty.matches(cx.runtime, value, &owner))
         {
             return Err(RuntimeError::module_validation("native callback arguments"));
         }
         let value = self.invoke(cx, arguments)?;
-        if !function
-            .metadata
-            .semantic
-            .result
-            .as_ref()
-            .is_some_and(|ty| cx.runtime.matches_type_in(&value, ty, &owner, environment))
-        {
+        if !signature.result.matches(cx.runtime, &value, &owner) {
             return Err(RuntimeError::module_validation("native callback result"));
         }
         Ok(value)

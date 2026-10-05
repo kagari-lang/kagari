@@ -223,8 +223,13 @@ Reachable aggregate instances use layouts keyed by declaration plus arguments.
 They share the configurable instantiation budget with function instances, including
 across module boundaries. Recursive growth is rejected before execution. Explicit
 constructor arguments and contextual inference can supply parameters absent from
-fields/payloads; arguments that remain unknown produce a diagnostic. Public generic type templates are permitted, while public
-function entries still require concrete signatures.
+fields/payloads; arguments that remain unknown produce a diagnostic. Public generic
+type templates and public inherent method templates are permitted. Inherent
+methods, including static associated functions, instantiate from checked calls
+within the compiled source graph. A host can bind a generic member only when the
+installed product contains executable evidence for that exact application;
+public metadata alone does not create an executable specialization. Public script
+free-function entries still require concrete signatures.
 
 ## Ordinary Associated Types
 

@@ -18,6 +18,14 @@ use crate::{
 /// This describes a type, never a sample value or a second declaration registry.
 pub trait KagariType {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type>;
+
+    /// Check an installed expected type before conversion. Dynamic retained
+    /// handles use its exact nominal scope instead of inventing an `Any` type.
+    /// This never replaces validation of the converted value against that scope.
+    fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
+        let ty = Self::kagari_type(&cx.runtime().native_entries.catalog)?;
+        cx.check_declared_type(expected, ty)
+    }
 }
 
 /// Convert owned Rust data. Composite adapters use `encode_value` for children,

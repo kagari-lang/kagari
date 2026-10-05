@@ -1,10 +1,8 @@
-use crate::hir::{
-    ids::{
-        ConstId, FunctionId, GenericParamId, ImplId, MethodId, StructId, TraitId, TraitMethodId,
-        TypeRefId,
-    },
-    item::storage::Visibility,
+use crate::hir::ids::{
+    ConstId, FunctionId, GenericParamId, ImplId, MethodId, StructId, TraitId, TraitMethodId,
+    TypeRefId,
 };
+use kagari_types::visibility::Visibility;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiverKind {

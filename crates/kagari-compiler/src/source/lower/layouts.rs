@@ -218,6 +218,7 @@ pub(super) fn collect(
                         .remove(0);
                     planner.value_type(&ty, &substitution, span)?;
                     fields.push(StructFieldLayout {
+                        visibility: field.visibility,
                         declaration: field.id.clone(),
                         name: field.name.clone(),
                         ty: lower_type(&ty),

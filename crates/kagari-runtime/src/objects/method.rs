@@ -17,6 +17,7 @@ use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty};
 
+#[derive(Clone)]
 pub(crate) struct BoundReceiver {
     receiver: Value,
     concrete_type: Ty<DefinitionId>,

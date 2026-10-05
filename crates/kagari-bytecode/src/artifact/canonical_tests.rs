@@ -4,7 +4,7 @@ use crate::{
     module::{BytecodeFunction, FunctionRecord},
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
-use kagari_types::host_interface::path::HostPathSegmentDeclaration;
+use kagari_types::{host_interface::path::HostPathSegmentDeclaration, visibility::Visibility};
 
 #[test]
 fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
@@ -483,6 +483,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
         arguments: Vec::new(),
         fields: vec![
             StructFieldLayout {
+                visibility: Visibility::Public,
                 declaration: field_id.clone(),
                 name: "field".into(),
                 ty: Ty::Builtin(BuiltinType::I32),
@@ -531,6 +532,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
                 bounds: Vec::new(),
                 fields: vec![
                     FieldDef {
+                        visibility: Visibility::Public,
                         name: "field".into(),
                         ty: Ty::Builtin(BuiltinType::I32),
                         mutable: false,

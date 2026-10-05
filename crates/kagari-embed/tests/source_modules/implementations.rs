@@ -689,3 +689,46 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
         );
     }
 }
+
+#[test]
+fn public_generic_inherent_members_execute_across_source_and_artifact_modules() {
+    let engine = KagariEngine::default();
+    insert(
+        &engine,
+        "provider",
+        r#"
+        pub struct Holder<T> { pub val value: T }
+        impl<T> Holder<T> {
+            pub fn new(value: T) -> Holder<T> { Holder { value: value } }
+            pub fn get(self) -> T { self.value }
+            pub fn choose<U>(self, value: U) -> U { value }
+        }
+    "#,
+    );
+    let root = insert(
+        &engine,
+        "root",
+        r#"
+        use pkg::provider::Holder;
+        fn main() -> i32 { val holder = Holder::new(40); holder.get() + holder.choose(2) }
+    "#,
+    );
+    let artifact = compile(&engine, root);
+    let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    for artifact in [artifact, encoded] {
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let prepared =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+        assert_eq!(
+            runtime
+                .execute(&loaded, "main", &[], &context)
+                .unwrap()
+                .return_value
+                .value(runtime.runtime().gc()),
+            Some(Value::I32(42))
+        );
+    }
+}

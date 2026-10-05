@@ -1,6 +1,8 @@
 use crate::source::types::lower_native_kind;
 use kagari_common::identity;
-use kagari_contract::types::{InterfaceTable, ModuleContract, PublicItem, TraitContract};
+use kagari_contract::types::{
+    InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
+};
 use kagari_hir::{
     AnalyzedModule,
     aggregates::traits::MethodDefault,
@@ -9,7 +11,6 @@ use kagari_hir::{
         Item,
         behavior::{GenericParam as HirGenericParam, Impl},
         function::{Function, FunctionKind},
-        storage::Visibility,
     },
     native::NativeBinding,
     resolver::resolved::ResolvedName,
@@ -26,6 +27,7 @@ use kagari_types::{
         NativeDeclaration, Param, TraitDef, TypeDef, TypeDefKind, VariantDef,
     },
     ty::{Constraint, GenericBound, GenericParam, Ty},
+    visibility::Visibility,
 };
 
 #[cfg(test)]
@@ -104,6 +106,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                         .fields
                         .iter()
                         .map(|field| FieldDef {
+                            visibility: field.visibility,
                             name: field.name.clone(),
                             ty: abi_type(
                                 module,
@@ -324,6 +327,68 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
 
     for impl_block in &hir_module.impls {
         let Some(reference) = &impl_block.trait_ref else {
+            let methods = impl_block
+                .methods
+                .iter()
+                .filter_map(|method| {
+                    hir_module
+                        .functions
+                        .iter()
+                        .find(|function| {
+                            function.id == method.function
+                                && function.visibility == Visibility::Public
+                        })
+                        .and_then(|function| {
+                            inherent_method_abi(module, function, &impl_block.generic_params)
+                        })
+                })
+                .collect::<Vec<_>>();
+            if !methods.is_empty() {
+                let declaration = module
+                    .declarations
+                    .impl_identity(impl_block.id)
+                    .expect("checked inherent impl identity");
+                let for_type = &impl_block
+                    .for_type
+                    .and_then(|ty| module.typed.type_table.type_ref(ty))
+                    .expect("checked inherent receiver")
+                    .ty;
+                let mut bounds = parameter_bounds(module, &impl_block.generic_params);
+                for bound in &impl_block.bounds {
+                    bounds.push(GenericBound {
+                        ty: abi_type(
+                            module,
+                            &module
+                                .typed
+                                .type_table
+                                .type_ref(bound.target_ref)
+                                .expect("checked inherent bound target")
+                                .ty,
+                        ),
+                        constraints: bound
+                            .traits
+                            .iter()
+                            .map(|reference| {
+                                constraint_abi(
+                                    module
+                                        .typed
+                                        .type_table
+                                        .constraint(reference.ty)
+                                        .expect("checked inherent bound"),
+                                )
+                            })
+                            .collect(),
+                    });
+                }
+                public_items.push(PublicItem::InherentTable(Box::new(InherentTable {
+                    declaration: declaration.clone(),
+                    name: for_type.display_name(),
+                    generic_params: generic_param_abi(module, &impl_block.generic_params),
+                    bounds: canonical_bounds(bounds),
+                    for_type: abi_type(module, for_type),
+                    methods,
+                })));
+            }
             continue;
         };
         let trait_type = match module
@@ -669,6 +734,34 @@ fn native_implementation_abi(
 
 fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> Ty {
     lower_type(&module.aggregates.normalize_type(ty))
+}
+
+fn inherent_method_abi(
+    module: &AnalyzedModule,
+    function: &Function,
+    outer: &[HirGenericParam],
+) -> Option<FnDecl> {
+    let identity = &module
+        .declarations
+        .target(ResolvedName::Function(function.id))?
+        .id;
+    if let DeclarationId::Definition(identity) = identity
+        && let Some(registered) = module
+            .lowered
+            .registered_native_declarations()
+            .iter()
+            .find(|declaration| &declaration.declaration == identity)
+    {
+        // Keep the installed template's original projections and bounds. HIR's
+        // normalized signature must not redefine native declaration authority.
+        let mut method = registered.function.clone();
+        let inherited = generic_param_abi(module, outer);
+        method
+            .generic_params
+            .retain(|parameter| !inherited.contains(parameter));
+        return Some(method);
+    }
+    method_abi(module, function, outer)
 }
 
 fn method_abi(

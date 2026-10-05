@@ -5,7 +5,9 @@ use crate::source::lower::{
     instances::{Instance, InstancePlanner},
 };
 use kagari_common::{identity::DefinitionPath, span::Span};
-use kagari_contract::callable::{generic::GenericBody, witness::OperationWitness};
+use kagari_contract::callable::{
+    generic::GenericBody, interface::TypeNormalization, witness::OperationWitness,
+};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
     typeck::{GenericBounds, TypedFunction, table::ConstraintTarget},
@@ -17,6 +19,51 @@ use kagari_hir::{
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::GenericParam};
 
 impl InstancePlanner<'_> {
+    /// Preserve associated projections that disappear while applying a method's
+    /// checked signature. Executable verification rechecks these equalities.
+    pub(crate) fn method_normalizations(
+        &self,
+        method: &DefinitionPath,
+        interface: &NominalType,
+        receiver: &TypeId,
+        arguments: &[TypeId],
+    ) -> Result<Vec<TypeNormalization>, MirLoweringError> {
+        let invalid = || MirLoweringError::MissingBinding("interface signature normalization");
+        let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
+        if signature.generic_params.len() != interface.arguments.len() + arguments.len() {
+            return Err(invalid());
+        }
+        let mut substitution: TypeSubstitution = signature
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(interface.arguments.iter().chain(arguments).cloned())
+            .collect();
+        substitution.insert_receiver(interface.declaration.clone(), receiver.clone());
+        let mut facts = Vec::new();
+        for ty in signature
+            .params
+            .iter()
+            .filter(|param| param.name != "self")
+            .map(|param| &param.ty)
+            .chain([&signature.return_type])
+        {
+            let source = ty
+                .instantiate(&substitution)
+                .with_associated_types(interface);
+            let result = lower_type(&self.catalog.normalize_type(&source));
+            let source = lower_type(&source);
+            if source != result
+                && !facts
+                    .iter()
+                    .any(|fact: &TypeNormalization| fact.source == source)
+            {
+                facts.push(TypeNormalization { source, result });
+            }
+        }
+        Ok(facts)
+    }
+
     /// Supply the member operations promised by receiver and method bounds.
     /// Receiver implementations may differ, so this follows the declaration's
     /// bounds rather than inspecting one selected default body.

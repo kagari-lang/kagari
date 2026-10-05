@@ -3,6 +3,7 @@ use crate::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     execution_metadata::{MetadataEdge, MetadataRoot},
+    frame::types::operations::OperationBindings,
     value::Value,
 };
 use kagari_abi::representation::ValueType;
@@ -11,6 +12,19 @@ use std::sync::Arc;
 
 fn empty(runtime: &Runtime) -> EnvironmentRecord {
     EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap()
+}
+
+fn extend(
+    heap: &GcHeap,
+    environment: &TypeEnvironment,
+    operations: OperationBindings,
+) -> Result<TypeEnvironment, RuntimeError> {
+    let mut record = heap
+        .environment(environment.id)
+        .ok_or_else(|| RuntimeError::module_validation("expired test environment"))?
+        .clone();
+    record.extend_operations(operations);
+    heap.alloc_environment(record)
 }
 
 #[test]
@@ -70,12 +84,7 @@ fn roots_trace_parents_but_retained_handles_do_not_prevent_reclamation() {
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert!(
-        runtime
-            .gc
-            .extend_environment(&child, OperationBindings::default())
-            .is_err()
-    );
+    assert!(extend(&runtime.gc, &child, OperationBindings::default()).is_err());
     assert!(runtime.gc.environment(replacement.id).is_some());
     assert!(!runtime.is_quarantined());
 }
@@ -113,10 +122,7 @@ fn extensions_publish_a_new_record_and_do_not_change_existing_handles() {
     let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut operations = OperationBindings::default();
     operations.receiver(&runtime.gc, group).unwrap();
-    let extended = runtime
-        .gc
-        .extend_environment(&original, operations)
-        .unwrap();
+    let extended = extend(&runtime.gc, &original, operations).unwrap();
     assert_ne!(original.id, extended.id);
     assert!(!Arc::ptr_eq(&original.types, &extended.types));
     assert!(
@@ -156,12 +162,7 @@ fn borrowed_view_rejects_allocation_and_sweeping_before_any_detachment() {
     let view = runtime.gc.environment(environment.id).unwrap();
     let before = runtime.gc.stats();
     assert!(runtime.gc.alloc_environment(empty(&runtime)).is_err());
-    assert!(
-        runtime
-            .gc
-            .extend_environment(&environment, OperationBindings::default())
-            .is_err()
-    );
+    assert!(extend(&runtime.gc, &environment, OperationBindings::default()).is_err());
     assert_eq!(runtime.gc.stats(), before);
     assert_eq!(
         runtime.collect_garbage().unwrap_err().kind(),

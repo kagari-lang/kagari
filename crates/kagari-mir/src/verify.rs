@@ -11,7 +11,10 @@ use kagari_common::{
     identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId},
     span::Span,
 };
-use kagari_contract::{contracts, contracts::ContractError, effects::EffectSet};
+use kagari_contract::{
+    contracts, contracts::ContractError, effects::EffectSet,
+    types::inherent::executable_signature_matches,
+};
 use kagari_types::ty::Ty;
 use std::{collections::HashSet, ops::Deref};
 
@@ -349,7 +352,11 @@ fn verify_function(
     context: Context<'_>,
     budget: &mut Budget,
 ) -> Result<FunctionAnalysis, MirVerificationError> {
-    if !function
+    if !executable_signature_matches(
+        &module.abi.public_items,
+        &function.instance,
+        &function.semantic,
+    ) || !function
         .semantic
         .types_valid(Some(&function.instance), &Default::default())
         || !function.semantic.generic_layout_valid(

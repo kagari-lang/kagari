@@ -1,5 +1,6 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
+    closure::ClosureTarget,
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::MetadataRoot,
     frame::{arguments::FrameArguments, types::TypeEnvironment},
@@ -197,11 +198,42 @@ impl<'runtime> ExecutionStack<'runtime> {
         self.validate_runtime(runtime)?;
         let closure = runtime.resolve_closure(value)?;
         runtime.validate_loaded_module(&closure.implementation)?;
+        let script_function = match &closure.target {
+            ClosureTarget::Native(native) => {
+                if !closure.captures.is_empty()
+                    || native.signature.params.len() != args.len()
+                    || native
+                        .signature
+                        .params
+                        .iter()
+                        .zip(args)
+                        .any(|(ty, value)| !ty.matches(runtime, value, &closure.implementation))
+                {
+                    return Err(RuntimeError::module_validation("native closure arguments"));
+                }
+                let owner = closure.implementation.clone();
+                let target = CallableTarget::Native(native.import);
+                let environment = closure.environment.clone();
+                drop(closure);
+                return self.push_arguments(
+                    runtime,
+                    owner,
+                    target,
+                    FrameArguments::plain(args),
+                    return_dst,
+                    FrameDispatch {
+                        interface_method: None,
+                        environment,
+                    },
+                );
+            }
+            ClosureTarget::Script(function) => *function,
+        };
         let function = closure
             .implementation
             .bytecode
             .functions
-            .get(closure.function.index())
+            .get(script_function.index())
             .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?;
         let all = FrameArguments::captured(&closure.captures, args)?;
         if all.len() != function.metadata.params.len()
@@ -243,7 +275,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         self.push_arguments(
             runtime,
             closure.implementation.clone(),
-            CallableTarget::Script(closure.function),
+            CallableTarget::Script(script_function),
             all,
             return_dst,
             FrameDispatch {

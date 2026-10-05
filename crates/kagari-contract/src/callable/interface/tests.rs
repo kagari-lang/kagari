@@ -52,6 +52,7 @@ fn fixture() -> (InterfaceCallContract, TraitDef) {
         }],
     };
     let call = InterfaceCallContract {
+        normalizations: vec![],
         receiver: None,
         operations: vec![],
         interface: NominalTy {
@@ -316,4 +317,24 @@ fn static_constraint_calls_do_not_invent_a_receiver_argument() {
             .check(&contract, &catalog, &[parameter], &[], &cancel)
             .unwrap()
     );
+}
+
+#[test]
+fn supplied_normalization_cannot_override_a_declared_signature() {
+    let (mut call, contract) = fixture();
+    let cancel = CancellationToken::default();
+    let source = call.signature(&contract, &cancel).unwrap().result;
+    let forged = Ty::Tuple(vec![
+        Ty::Builtin(BuiltinType::Bool),
+        Ty::Builtin(BuiltinType::String),
+    ]);
+    call.normalizations.push(TypeNormalization {
+        source,
+        result: forged.clone(),
+    });
+    // Structural use can read the supplied physical signature, but independent
+    // linked proof must reject the invented equality before execution.
+    assert_eq!(call.signature(&contract, &cancel).unwrap().result, forged);
+    let catalog = ProofCatalog::new(vec![], vec![], [], [], [], &cancel).unwrap();
+    assert!(!call.check(&contract, &catalog, &[], &[], &cancel).unwrap());
 }

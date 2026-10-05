@@ -1,5 +1,7 @@
 //! Contextual identity traversal of the owning metadata records.
-use crate::callable::interface::{InterfaceCallContract, InterfaceMethodSignature};
+use crate::callable::interface::{
+    InterfaceCallContract, InterfaceMethodSignature, TypeNormalization,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -19,6 +21,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceCallContract<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceCallContract {
+            normalizations: map_sequence(&self.normalizations, |fact| {
+                Ok(TypeNormalization {
+                    source: fact.source.map_identities(mapper)?,
+                    result: fact.result.map_identities(mapper)?,
+                })
+            })?,
             receiver: self
                 .receiver
                 .as_ref()
@@ -37,6 +45,10 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceCallContract<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for fact in &self.normalizations {
+            fact.source.visit_definitions(visit, cancel)?;
+            fact.result.visit_definitions(visit, cancel)?;
+        }
         if let Some(value0) = self.receiver.as_ref() {
             (value0).visit_definitions(visit, cancel)?;
         }

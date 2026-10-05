@@ -14,7 +14,7 @@ use kagari_types::declaration::verify::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, TraitDef, TypeDefKind},
+    declaration::{FnDecl, TraitDef, TypeDefKind, ownership::ReceiverOwners},
     ty::{
         Constraint, GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
@@ -38,6 +38,11 @@ pub fn validate(
     let mut aggregate_names = HashSet::new();
     let mut trait_names = HashSet::new();
     let mut interface_identities = HashSet::new();
+    let receivers = ReceiverOwners::from_types(items.iter().filter_map(|item| match item {
+        PublicItem::Type(ty) => Some((module, ty)),
+        _ => None,
+    }))
+    .map_err(|_| invalid())?;
     for item in items {
         cancel
             .check()
@@ -76,6 +81,38 @@ pub fn validate(
             }
             PublicItem::Trait(ty) => {
                 trait_names.insert(&ty.name) && trait_valid(ty, module, cancel)
+            }
+            PublicItem::InherentTable(table) => {
+                let owner = &table.declaration;
+                let params = (interface_identities.insert(owner)
+                    && owner.module == *module
+                    && owner.path.len() == 1
+                    && owner.path[0].kind == DefinitionKind::Impl
+                    && owner.path[0].name.is_empty()
+                    && owner.within_path_limit())
+                .then(|| parameters(&table.generic_params, owner, &Parameters::new()))
+                .flatten();
+                params.is_some_and(|params| {
+                    let mut names = HashSet::new();
+                    !table.methods.is_empty()
+                        && receivers.owner(&table.for_type).as_ref() == Some(module)
+                        && bounds_valid(&table.bounds, &params, cancel)
+                        && type_valid(&table.for_type, &params, None, cancel)
+                        && table.methods.iter().all(|method| {
+                            names.insert(&method.name)
+                                && method.params.first().is_none_or(|receiver| {
+                                    receiver.name != "self" || receiver.ty == table.for_type
+                                })
+                                && function_valid(
+                                    method,
+                                    module,
+                                    &owner.path,
+                                    &params,
+                                    None,
+                                    cancel,
+                                )
+                        })
+                })
             }
             PublicItem::InterfaceTable(table) => {
                 let owner = &table.declaration;

@@ -403,6 +403,7 @@ impl FunctionLowerer<'_, '_> {
                     self.emit(Instruction::Call {
                         dst: None,
                         callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                            normalizations: vec![],
                             receiver: None,
                             operations: vec![],
                             arguments: vec![],
@@ -449,6 +450,7 @@ impl FunctionLowerer<'_, '_> {
             ProjectionKind::InterfaceIndex { index, read, .. } => self.emit(Instruction::Call {
                 dst: Some(dst),
                 callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                    normalizations: vec![],
                     receiver: None,
                     operations: vec![],
                     arguments: vec![],

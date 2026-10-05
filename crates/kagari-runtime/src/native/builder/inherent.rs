@@ -3,15 +3,18 @@ use crate::{
     error::RuntimeError,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
-        declarations::MethodDecl,
+        conversion::{FromKagari, IntoKagari, arguments::FromKagariArguments},
+        declarations::{FunctionBuilder, MethodDecl, normalize_bounds},
         functions::NativeFunction,
+        typed::NativeContext,
         types::{FunctionRef, Type},
     },
 };
 use kagari_common::identity::DefinitionPath;
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, module::ModuleDecl},
+    declaration::{FnDecl, module::ModuleDecl, requirement::NativeCallableRequirement},
+    ty::Ty,
 };
 use std::collections::BTreeMap;
 
@@ -21,6 +24,9 @@ pub struct InherentMethodsBuilder {
     pub(crate) receiver_codec: Option<Codec>,
     pub(crate) methods: BTreeMap<DefinitionPath, FnDecl>,
     pub(crate) documentation: BTreeMap<DefinitionPath, String>,
+    pub(crate) method_parameters: BTreeMap<DefinitionPath, Vec<String>>,
+    pub(crate) requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
+    pub(crate) concrete_results: BTreeMap<DefinitionPath, Ty>,
     pub(crate) bindings: BTreeMap<DefinitionPath, NativeBinding>,
 }
 
@@ -40,6 +46,67 @@ impl InherentMethodsBuilder {
         signature.implementation = CallableImplementation::Native(id.clone());
         self.methods.insert(id.clone(), signature);
         Ok(FunctionRef { id })
+    }
+
+    /// Configure method-local parameters, bounds and selected callable requirements.
+    pub fn method<T>(
+        &mut self,
+        method: &FunctionRef,
+        configure: impl FnOnce(&mut FunctionBuilder<'_>) -> NativeResult<T>,
+    ) -> NativeResult<T> {
+        let signature = self.methods.get_mut(&method.id).ok_or_else(|| {
+            RuntimeError::metadata_conflict("unknown inherent method declaration")
+        })?;
+        let result = configure(&mut FunctionBuilder {
+            id: method.id.clone(),
+            concrete_results: &mut self.concrete_results,
+            signature,
+            requirements: self.requirements.entry(method.id.clone()).or_default(),
+            names: self.method_parameters.entry(method.id.clone()).or_default(),
+        })?;
+        normalize_bounds(signature);
+        Ok(result)
+    }
+
+    /// Bind a typed entry against the declared signature, including generic types.
+    pub fn bind_typed<A: FromKagariArguments, R: IntoKagari>(
+        &mut self,
+        method: FunctionRef,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> NativeResult<()> {
+        let signature = self.methods.get(&method.id).ok_or_else(|| {
+            RuntimeError::metadata_conflict("unknown inherent method declaration")
+        })?;
+        let arity = signature.params.len();
+        self.bind_with(method, NativeBinding::contextual(arity, entry))
+    }
+
+    /// Bind an instance entry with its receiver separate from the argument tuple.
+    pub fn bind_typed_method<S: FromKagari, A: FromKagariArguments, R: IntoKagari>(
+        &mut self,
+        method: FunctionRef,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> NativeResult<()> {
+        let signature = self.methods.get(&method.id).ok_or_else(|| {
+            RuntimeError::metadata_conflict("unknown inherent method declaration")
+        })?;
+        if !signature
+            .params
+            .first()
+            .is_some_and(|param| param.name == "self")
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "typed method requires a receiver",
+            ));
+        }
+        let arity = signature.params.len();
+        self.bind_with(method, NativeBinding::contextual_method(arity, entry))
     }
 
     pub fn bind<A, R>(

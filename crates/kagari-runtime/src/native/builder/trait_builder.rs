@@ -4,8 +4,10 @@ use crate::{
     native::{
         binding::{NativeBinding, NativeResult},
         builder::ModuleBuilder,
+        conversion::{FromKagari, IntoKagari, arguments::FromKagariArguments},
         declarations::{CallableRequirement, FunctionBuilder, MethodDecl, normalize_bounds},
         functions::NativeFunction,
+        typed::NativeContext,
         types::{AppliedTrait, FunctionRef, ParameterRef, TraitRef, Type},
     },
 };
@@ -247,7 +249,7 @@ impl<'module> TraitBuilder<'module> {
     pub fn bind_default_with(
         &mut self,
         method: FunctionRef,
-        binding: NativeBinding,
+        mut binding: NativeBinding,
     ) -> NativeResult<()> {
         if !self
             .declaration
@@ -264,8 +266,41 @@ impl<'module> TraitBuilder<'module> {
                 "duplicate trait default binding",
             ));
         }
+        // Lowering gives the body a private function identity. Requirement
+        // tokens continue to name the authored trait method.
+        binding.requirement_owner = Some(method.id.clone());
         self.defaults.insert(method.id, binding);
         Ok(())
+    }
+
+    /// Bind an instance default against its declared, possibly generic signature.
+    /// The receiver is separate from the argument tuple. Concrete Rust mappings
+    /// are checked before callback effects.
+    pub fn bind_default_method<S: FromKagari, A: FromKagariArguments, R: IntoKagari>(
+        &mut self,
+        method: FunctionRef,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> NativeResult<()> {
+        let signature = self
+            .declaration
+            .methods
+            .iter()
+            .find(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown trait method declaration"))?;
+        if !signature
+            .params
+            .first()
+            .is_some_and(|param| param.name == "self")
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "default requires an instance method",
+            ));
+        }
+        let arity = signature.params.len();
+        self.bind_default_with(method, NativeBinding::contextual_method(arity, entry))
     }
 
     pub fn finish(mut self) -> NativeResult<TraitRef> {

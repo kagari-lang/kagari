@@ -10,7 +10,10 @@ use crate::{
 
 use {
     crate::collection::CollectionAccess,
-    kagari_common::{cancellation::CancellationToken, identity::DefinitionPath},
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{DefinitionPath, reference::DefinitionReference},
+    },
 };
 
 /// The actual checked header, independently of its declaration/executable source.
@@ -51,9 +54,60 @@ pub fn match_pattern<'a>(
             Protocol::from_id(&implemented.declaration),
             Some(Protocol::Iterable | Protocol::Index)
         );
-    let mut bindings = TypeSubstitution::default();
     let mut pending = vec![(pattern.receiver, receiver)];
     pending.extend(implemented.arguments.iter().zip(&interface.arguments));
+    let Some(bindings) = match_pairs(pattern.parameters, pending, cancel)? else {
+        return Ok(None);
+    };
+    let target = bindings.apply(pattern.receiver, cancel)?;
+    if target != *receiver && !(readonly && target.can_weaken_to(receiver)) {
+        return Ok(None);
+    }
+    for (template, actual) in implemented.arguments.iter().zip(&interface.arguments) {
+        if bindings.apply(template, cancel)? != *actual {
+            return Ok(None);
+        }
+    }
+    for (member, expected) in &interface.associated_types {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        let Some(actual) = implemented.associated_types.get(member) else {
+            return Ok(None);
+        };
+        if bindings.apply(actual, cancel)? != *expected {
+            return Ok(None);
+        }
+    }
+    Ok(Some(bindings))
+}
+
+/// Match an inherent receiver without weakening access or resolving new proofs.
+pub fn match_receiver<'a, I: DefinitionReference>(
+    parameters: &'a [GenericParam<I>],
+    template: &'a Ty<I>,
+    actual: &'a Ty<I>,
+    cancel: &CancellationToken,
+) -> Result<Option<TypeSubstitution<'a, I>>, TypeTransformError> {
+    if parameters.len() > MAX_TYPE_NODES
+        || !template.within_wire_limits()
+        || !actual.within_wire_limits()
+    {
+        return Err(TypeTransformError::LimitExceeded);
+    }
+    let Some(bindings) = match_pairs(parameters, vec![(template, actual)], cancel)? else {
+        return Ok(None);
+    };
+    if bindings.apply(template, cancel)? != *actual {
+        return Ok(None);
+    }
+    Ok(Some(bindings))
+}
+
+fn match_pairs<'a, I: DefinitionReference>(
+    parameters: &'a [GenericParam<I>],
+    mut pending: Vec<(&'a Ty<I>, &'a Ty<I>)>,
+    cancel: &CancellationToken,
+) -> Result<Option<TypeSubstitution<'a, I>>, TypeTransformError> {
+    let mut bindings = TypeSubstitution::default();
     let mut remaining = MAX_TYPE_NODES * 2;
     while let Some((template, actual)) = pending.pop() {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -63,8 +117,7 @@ pub fn match_pattern<'a>(
         remaining -= 1;
         match (template, actual) {
             (Ty::Parameter { owner, position }, actual)
-                if pattern
-                    .parameters
+                if parameters
                     .iter()
                     .any(|p| p.owner == *owner && p.position == *position) =>
             {
@@ -131,24 +184,6 @@ pub fn match_pattern<'a>(
         }
         if pending.len() > MAX_TYPE_NODES * 2 {
             return Err(TypeTransformError::LimitExceeded);
-        }
-    }
-    let target = bindings.apply(pattern.receiver, cancel)?;
-    if target != *receiver && !(readonly && target.can_weaken_to(receiver)) {
-        return Ok(None);
-    }
-    for (template, actual) in implemented.arguments.iter().zip(&interface.arguments) {
-        if bindings.apply(template, cancel)? != *actual {
-            return Ok(None);
-        }
-    }
-    for (member, expected) in &interface.associated_types {
-        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        let Some(actual) = implemented.associated_types.get(member) else {
-            return Ok(None);
-        };
-        if bindings.apply(actual, cancel)? != *expected {
-            return Ok(None);
         }
     }
     Ok(Some(bindings))

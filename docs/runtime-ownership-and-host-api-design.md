@@ -303,6 +303,7 @@ input/output capabilities allow return-only types.
 | Object<S>, ScriptVec<T>, ScriptMap<K, V>, ScriptSet<T> | Retained reference to an existing script object, preserving aliases |
 | PinnedFunction<A, R> and Interface<S> | Retained callable/interface with a verified signature |
 | NativeObject<T> | Checked handle to a registered runtime-owned Rust payload |
+| ScriptValue | Retained value with the exact declared type and access view of a generic parameter or result |
 
 S is a registered schema/declaration marker, not a claim that a KGR object has
 Rust T's memory layout. Dynamic Object handles can bind typed members without a
@@ -311,6 +312,14 @@ operates on the original collection. Recursive owned conversion has depth/work
 bounds and rejects cycles it cannot represent. Handle conversion preserves them.
 Conversion of standard nominal types uses the installed declaration identities;
 absence of the required provider is an error, not implicit library installation.
+
+`ScriptValue` lets a generic Rust callback forward scalars, objects, collections,
+interfaces and closures through one adapter. It does not introduce an `Any` type
+into Kagari. Conversion keeps the installed type and access view; a different
+destination type or a readonly-to-mutable upgrade fails. `value.decode::<T>(cx)`
+checks that retained declaration before producing owned Rust data or a more
+specific retained handle. It never exposes a raw object identity or borrowed
+payload reference.
 
 The outer tuple is always the argument list, including native callback arguments.
 Receiver is passed separately for methods. () is zero arguments; ((a, b),) is one
@@ -375,6 +384,61 @@ element/key/value types; native factories take a registered Rust payload and its
 validated storage descriptor. Constructors never require raw object IDs or Value
 assembly. Existing constructor visibility and initialization rules remain enforced.
 
+Enum preparation uses `bind_enum_type` (or `bind_enum_type_declaration` with a
+registration's `TypeRef::id`) followed by `bind_enum_variant::<PayloadTuple>`:
+
+```rust
+let packet = runtime.bind_enum_type(
+    &loaded, "Packet", &[item_type.type_argument().clone()],
+)?;
+let data = runtime.bind_enum_variant::<(Object, String)>(&packet, "Data")?;
+let value = data.create(cx, (item.clone(), "payload".to_owned()))?;
+```
+
+The result is a retained `ScriptValue` with the exact applied enum type. It can be
+passed to a typed script call or decoded to a matching Rust mapping, including
+ordinary Option/Result mappings. It does not erase the enum's nominal identity.
+An empty variant takes `()`; a variant containing one unit value takes `((),)`.
+Binding checks the complete Rust payload tuple before any converter runs. Creation
+roots every converted field, then validates and publishes one ordinary enum using
+the shared allocator, including its existing failure-provenance behavior. Conversion
+failure releases temporaries and publishes no partially initialized enum.
+
+For a registered `VariantRef`, `packet.variant_declaration(runtime, variant.id())`
+produces an `EnumMember` for `bind_enum_variant_declaration`; the full identity must
+belong to that applied enum. Public access, arity, payload scopes, runtime ownership
+and program retention are checked. Reusing or cloning `EnumVariant` reuses its
+prepared payload descriptor; creation performs no variant-name lookup. Registered
+unconstrained enum templates may be applied without script constructor roots.
+Declared bounds require a compatible concrete layout in the installed product;
+an open representation template alone does not establish a new bounded application.
+Concrete layouts admit supplied scopes only when their complete layouts agree.
+
+For maps and sets, `NativeContext::create_map::<K, V>()` and `create_set::<T>()`
+use the installed public zero-argument `new` application. Dynamic object mappings
+use `create_map_with_types(&key, &value)` or `create_set_with_type(&element)` with
+explicit scoped `TypeArgument` values. Repeated construction can prepare once:
+
+```rust
+let factory = runtime.bind_map_constructor::<Object, i32>(
+    &loaded, key_type.type_argument(), &i32_type,
+)?;
+let map = factory.call(cx, ())?;
+map.insert(cx, key.clone(), 42)?;
+```
+
+`bind_set_constructor` follows the same model. These return ordinary cached
+`PinnedFunction` handles, with their usual owner, generation and execution checks.
+The installed program must contain a concrete constructor entry or a closed shared
+call for that application. Merely having a generic declaration does not supply its
+Hash/Eq evidence. Missing evidence, ambiguous constructors, incompatible supplying
+scopes and incorrect Rust mappings fail before allocation. Construction executes
+the registered `new`, preserving its selected operations, storage validation and
+failure behavior; the host adapter does not assemble raw hash storage. Each
+successful call returns a fresh, automatically retained collection. Stored key
+operations remain executable metadata edges, so releasing the host handles can
+reclaim an otherwise unreachable old program and collection graph.
+
 Member lookup produces a checked field or method handle from a registration or
 loaded program. Names are accepted at the explicit lookup boundary, not searched
 on every access. A handle records declaration identity, applied type, access,
@@ -394,6 +458,46 @@ let remaining = previous.saturating_sub(damage);
 player.set(cx, &bindings.hp, remaining)?;
 player.call(cx, &bindings.on_damage, (damage,))?;
 ```
+
+For direct declaration binding, `player_type.method("on_damage")` returns an
+`InherentMember`; `runtime.bind_method_declaration::<(i32,), ()>(&member)` prepares
+the same checked call without repeating the member-name lookup. The method tuple
+excludes `self`. Static members use `bind_associated_function` or its declaration
+form and return a `PinnedFunction<A, R>`; a public `Player::create(hp)` can therefore
+be bound as `(i32,) -> Object` and called through the ordinary VM/SDK call API.
+Both forms consume public inherent-member metadata from the installed product,
+including the declaring impl and receiver scope. A function body's presence alone
+does not grant host member access.
+
+Script `ObjectType` and registered `NativeType<T>` implement the same `InherentType`
+binding boundary. `NativeObject<T>::call` uses the same checked method descriptor,
+receiver conversion, execution stack and cache as `Object::call`. Calling while a
+payload borrow is active fails before execution. `method_declaration` accepts a
+full declaration identity, including the `FunctionRef::id()` returned by native
+registration, without a name lookup. Same Rust payload types do not make different
+nominal applications or program generations interchangeable.
+
+Native inherent registration uses `InherentMethodsBuilder::bind_typed_method` for
+`Fn(&mut NativeContext, receiver, arguments)` callbacks and `bind_typed` for static
+members or complete argument tuples. `method(&reference, configure)` supplies the
+ordinary `FunctionBuilder` for method-local parameters, bounds, concrete interface
+results and selected callable requirements. Impl parameters precede method-local
+parameters in the executable signature; moving a declaration into a later impl
+group substitutes all receiver-dependent facts together. Callback code uses retained
+handles and selected calls without decoding raw slots or managing roots manually.
+
+`bind_method_application` and `bind_associated_function_application` (and their
+`_declaration` forms) take method-local `TypeArgument` values. Impl parameters are
+inferred from the retained receiver, including nested receiver patterns. Each
+inferred argument preserves its supplying layout scope; repeated parameters must
+agree in that scope as well as nominal identity. Preparation requires an existing
+concrete entry or closed shared-call witness for the combined impl/method
+arguments. Bounds and selected operations come from that validated evidence.
+Missing applications and incorrect Rust mappings fail before execution. Public
+script inherent templates can be emitted by source analysis, while ordinary public
+generic script free functions remain unsupported. A compiled concrete struct
+layout cannot be rebound to incompatible type-argument layouts from another
+program with the same nominal IDs.
 
 This callback explicitly chooses saturating damage arithmetic; ordinary Kagari
 numeric operators retain their specified checked behavior. Object-valued reads
@@ -415,6 +519,19 @@ Managed Rust payload editing uses NativeObject<T> and a short borrow. In this
 example PlayerState is registered as containing no script references:
 
 ```rust
+native_data! {
+    pub struct PlayerState {
+        pub hp: i32,
+        pub position: [f32; 3],
+    }
+}
+
+let mut declaration = module.define_type("Player");
+declaration.native_storage(NativeStorage::data::<PlayerState>())?;
+let player_declaration = declaration.finish()?;
+// Prepare once for the installed program. Clones reuse this descriptor.
+let player_type = runtime.bind_native_type::<PlayerState>(&loaded, &player_declaration, &[])?;
+let player = player_type.create(cx, PlayerState { hp: 100, position: [0.0; 3] })?;
 player.edit(cx, |state: &mut PlayerState| {
     state.hp = state.hp.saturating_sub(damage);
     Ok(())
@@ -433,6 +550,28 @@ automatically apply this pattern; it receives a restricted non-reentrant context
 Complex methods receive the object handle and explicitly alternate edits and calls.
 Nested conflicting access produces a structured borrow error, not a RefCell panic.
 
+The implemented `native_data!` form defines the complete Rust struct and checks
+every field against `NativeData`. Supported scalars, fixed arrays and tuples compose
+recursively. Its blanket payload implementation supplies empty tracing and fixed
+heap accounting. `NativeStorage::data` explicitly enables direct editing;
+`NativeStorage::payload` alone does not. Direct edits do not permit variable-size
+owned containers or script handles. This keeps allocation accounting invariant,
+including when an edit fails or unwinds after completing writes. Manual unsafe
+`NativeData` implementations are part of the trusted storage boundary and must
+uphold the documented recursive field contract; ordinary users need no unsafe code.
+
+`NativeObject<T>::read` lends a shared payload reference only for its closure.
+`NativeType<T>::create` validates the registered Rust representation and traced
+edges before allocation, roots the result before a safepoint and retains its exact
+applied scope. `bind_native_type_declaration` accepts the portable registration
+identity directly. Typed constructor callbacks can use `cx.create_native(payload)`
+to inherit their checked result application, including generic arguments, without
+capturing a handle from a particular runtime installation. Contextual conversion
+checks both the Rust payload mapping and the Kagari nominal scope; registering the
+same Rust representation under two type names does not make them interchangeable.
+Handwritten `NativePayload` remains an advanced tracing interface and receives no
+unrestricted mutable access through these handles.
+
 This facility applies to a payload exclusively owned by runtime storage. Arbitrary
 KGR fields do not become Rust &mut T. Externally shared host state continues to use
 its declared host interface, typed paths or host-managed synchronization. Ordinary
@@ -444,6 +583,65 @@ produces a traceable internal edge through the common mutation boundary rather
 than embedding a host root lease. Replacing an entire payload must use that same
 checked path. Scanning after an unrestricted edit is not a substitute for this
 contract: an eventual barrier may need an old edge before it is overwritten.
+
+The checked representation is `Managed<T>`, where T is fixed `NativeData` and
+script-valued fields are private storage. Author the field schema before installing
+the native type. A registration token identifies its schema and slot; binding the
+token checks the Rust mapping against the installed field type and pins its scope:
+
+```rust
+let mut storage = ManagedStorage::<PlayerState>::new();
+let name = storage.field::<String>("name", String::kagari_type(&catalog)?)?;
+let on_damage = storage.field::<PinnedFunction<(i32,), ()>>(
+    "on_damage", Type::function([Type::i32()], Type::unit()),
+)?;
+let mut declaration = module.define_type("Player");
+declaration.native_storage(storage.finish())?;
+let player_declaration = declaration.finish()?;
+
+// After installation, retain these bindings for repeated access.
+let player_type = runtime.bind_native_type::<Managed<PlayerState>>(
+    &loaded, &player_declaration, &[],
+)?;
+let name = player_type.bind_field(&runtime, &name)?;
+let on_damage = player_type.bind_field(&runtime, &on_damage)?;
+let mut builder = player_type.build(PlayerState { hp: 100, position: [0.0; 3] })?;
+builder.set(cx, &name, "Player".to_owned())?;
+builder.set(cx, &on_damage, callback)?;
+let player = builder.finish(cx)?;
+
+player.edit_data(cx, |state| { state.hp = state.hp.saturating_sub(1); Ok(()) })?;
+player.set(cx, &name, "Renamed".to_owned())?;
+let callback = player.get(cx, &on_damage)?;
+callback.call(cx, (1,))?;
+```
+
+These are private Rust payload fields, not dynamically added Kagari members.
+They may use the registered native type's generic parameters. Applied field types
+retain the supplying argument scopes even when the caller uses another program
+version. Field bindings can be cloned and reused; shared schema records have an
+identity fast path, while independently prepared applications require compatibility
+validation. No binding cache or performance claim depends on names alone.
+
+`ManagedBuilder` roots each converted initializer. Missing fields or conversion
+failures cannot publish a partial object; an unsuccessful initializer replacement
+preserves the previous initializer. `builder.replace(cx, &player)` replaces the
+complete data/field set only after all values pass checks. Ordinary setters perform
+conversion and rooting before the individual commit. Both write paths see old and
+new edges before overwriting; they store Values traced through the existing payload
+descriptor, never public Object/Function root leases. Reading a function field
+returns a retained PinnedFunction, and its invocation occurs after the storage
+borrow ends. A payload/closure cycle is therefore retained by an external handle
+and reclaimed when no external roots remain.
+
+`edit_data` exposes only T. The complete Managed payload and its traced slots cannot
+be lent mutably, and the short data borrow cannot escape. Fixed data and field count
+keep heap accounting stable during edits and whole-payload replacement. Dynamic
+strings, collections, ordinary objects, interfaces and callbacks use checked field
+conversion instead of unrestricted Rust mutation. Typed native constructors can
+obtain this builder's applied type from `cx.result_native_type::<Managed<T>>()`.
+As with other source-free bindings, field types must have their required checked
+layouts in the installed product; binding does not compile missing declarations.
 
 ## Binding preparation and reuse
 
@@ -523,6 +721,23 @@ signature before running code, then retains the selected version. Concrete gener
 applications must have checked executable evidence. Source-free calls cannot ask
 HIR to specialize a missing instantiation. Unsupported bindings fail before script
 effects; they do not synthesize implementations or pick similarly named methods.
+Existing language export rules still apply: ordinary script generic free functions
+remain private templates exposed through concrete public wrappers. Registered
+native generic functions and supported generic trait members use their checked
+applications; host binding does not make a private declaration public.
+
+A PinnedFunction for an installed native entry converts to a script function value
+through the ordinary closure heap representation. It stores the checked native
+import, scoped signature and applied environment; it does not require a generated
+script wrapper. Script invocation enters the existing native frame, sharing argument
+checks, synchronous reentry, result adaptation, cancellation and call-depth cleanup.
+The closure traces its owning program and environment as graph edges, without an
+internal host ProgramLease or RootSet. It can be returned, captured by another
+closure or stored in a managed field, and obsolete module-state cycles remain
+collectable. Both concrete imports and installed closed shared-native applications
+are supported. An open template without application evidence still cannot be bound
+or boxed. Diagnostic closure snapshots distinguish script and native targets;
+copying a snapshot does not authorize execution or republish collected metadata.
 
 Trait calls support two existing forms:
 
@@ -543,6 +758,60 @@ slot. Associated outputs retain their supplying scope. Static trait functions us
 their actual argument list and a selected operation, without inventing a receiver.
 Trait implementation selection occurs during source checking or validated binding;
 execution does not perform open-ended trait search.
+
+For a native generic function, `FunctionBuilder::requires` returns an opaque
+`SelectedCall` token tied to the authoring declaration. Bind the callback with
+`ModuleBuilder::bind_typed`; its tuple mappings are checked against the concrete
+invocation before converters or callback effects. Within that callback:
+
+```rust
+let read = cx.selected_method::<(ScriptValue,), ScriptValue>(&required_read)?;
+let result = read.call(cx, (receiver,))?;
+```
+
+The returned `SelectedMethod<A, R>` owns the selected code version, generic
+environment and lexical signature. Retain or clone it for repeated calls, even
+after the native callback returns. Its tuple is the actual selected function
+signature: instance operations include the receiver first; static operations have
+only their declared arguments. Prepared primitive operations use the same typed
+conversion and execution policy. Source checking supplies all selection evidence.
+A token from another declaration is rejected even if its internal ordinal matches.
+Typed native trait defaults use `TraitBuilder::bind_default_method`, whose Rust
+callback receives `(cx, receiver, argument_tuple)` separately; its tokens keep the
+authored method identity when the body lowers to a private native function.
+
+The concrete interface binding API resolves an `InterfaceMember` and prepares
+`InterfaceMethod<A, R>`. A returned view can supply its applied type directly:
+
+```rust
+let member = target.member(runtime, "take_damage")?;
+let method = runtime.bind_interface_method::<(i32,), ()>(&member)?;
+target.call(cx, &method, (damage,))?;
+```
+
+For preparation before a value exists, use
+`runtime.interface_member(&loaded, &applied_interface, "take_damage")`, where
+`applied_interface` is a checked `TypeArgument`. The corresponding
+`interface_member_declaration` accepts a registered `MethodRef::id()` or another
+verified declaration identity. It resolves inherited members in the applied view
+and checks public access. Retain the resulting method for repeated calls on values
+of that view and program generation. Name lookup occurs during member preparation;
+calls use the existing checked dispatch ordinal and result adapters.
+
+Method-local type arguments use
+`runtime.bind_interface_method_application::<A, R>(&member, &type_arguments)`.
+The installed program must contain a checked closed call for that applied member
+and argument list. Binding retains its lexical type scopes and prepares the
+selected bound operations once; execution combines them with the receiver's
+dispatch selection. Missing executable evidence fails at preparation. This API
+does not request source specialization or infer an implementation at call time.
+
+Applied interface signatures retain the compiler's associated-type normalization
+facts when substitution alone leaves a projection. Artifact validation proves each
+source/result equality against the linked declarations and implementations before
+the VM or host binder consumes it. Receiver and call-selected operation facts must
+enter the method environment before its parameter and result scopes are resolved;
+adding them after signature preparation is too late for associated outputs.
 
 The invocation sequence is: validate/pin target and signature; convert/protect
 arguments left to right; release storage borrows; enter the existing execution

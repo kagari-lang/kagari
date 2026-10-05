@@ -13,3 +13,4 @@ pub mod range;
 pub mod scalar;
 pub mod surface;
 pub mod ty;
+pub mod visibility;

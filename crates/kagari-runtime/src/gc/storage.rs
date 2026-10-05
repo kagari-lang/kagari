@@ -55,6 +55,9 @@ impl HeapObject {
         match self {
             Self::Interface { snapshot, .. } => Some(MetadataEdge::Interface(*snapshot)),
             Self::Closure { snapshot } => Some(MetadataEdge::Closure(snapshot)),
+            Self::Native(object) if !object.selected.is_empty() => {
+                Some(MetadataEdge::Selections(&object.selected))
+            }
             _ => None,
         }
     }

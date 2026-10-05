@@ -146,8 +146,13 @@ identities remain separate unfinished R07/R08 work.
 
 Private generic functions are templates. Calls infer their parameters structurally
 from argument types and check declared bounds. Missing arguments produce
-`KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT`; public generic functions are rejected with
-`KG_TYPE_PUBLIC_GENERIC_FUNCTION`. Expose concrete wrappers as public entry points.
+`KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT`; public generic script free functions are
+rejected with `KG_TYPE_PUBLIC_GENERIC_FUNCTION`. Expose concrete wrappers for those
+entry points. Public inherent methods and static associated functions may retain
+generic templates, including across source modules. Host member binding infers
+impl arguments from the applied receiver, takes method arguments explicitly, and
+requires a checked concrete instance or closed shared-call witness in the installed
+product. Binding does not compile new instances or search for new trait proofs.
 Compiler source lowering starts from the currently callable
 non-generic functions, enqueues called instances, and deduplicates by declaration
 identity plus concrete arguments. MIR InstanceId is separate from HIR FunctionId.

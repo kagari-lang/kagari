@@ -23,12 +23,13 @@ use kagari_bytecode::artifact::ArtifactFingerprint;
 
 pub(crate) mod store;
 
-/// Only checked closure handles authorize entering a retained program outside
+/// Only checked callable handles authorize entering a retained program outside
 /// the current dependency graph. Candidate entry remains independently gated.
 pub(crate) enum ExecutionEntry {
     Program,
     Candidate,
     RetainedClosure,
+    RetainedFunction,
 }
 
 /// Restrictions attached to the root session and inherited by synchronous reentry.

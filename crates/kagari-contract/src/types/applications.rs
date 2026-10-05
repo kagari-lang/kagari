@@ -31,6 +31,13 @@ where
                 validator.types(record.variants.iter().flat_map(|variant| &variant.payload))?;
             }
             PublicItem::Trait(record) => validator.trait_definition(record)?,
+            PublicItem::InherentTable(table) => {
+                validator.validate_type(&table.for_type)?;
+                validator.bounds(&table.bounds)?;
+                for method in &table.methods {
+                    validator.function(method)?;
+                }
+            }
             PublicItem::InterfaceTable(table) => {
                 validator.validate_type(&table.for_type)?;
                 validator.validate_type(&table.trait_type)?;

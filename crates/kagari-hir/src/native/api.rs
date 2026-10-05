@@ -4,7 +4,7 @@ mod tests;
 use crate::{
     hir::{
         ids::FunctionId,
-        item::{function::FunctionKind, module::Import, storage::Visibility},
+        item::{function::FunctionKind, module::Import},
         ty::TypeKind,
     },
     lower::{LoweredModule, lower_module_controlled},
@@ -36,6 +36,7 @@ use kagari_types::{
         ownership::ReceiverOwners,
     },
     language,
+    visibility::Visibility,
 };
 use std::{collections::HashSet, sync::Arc};
 

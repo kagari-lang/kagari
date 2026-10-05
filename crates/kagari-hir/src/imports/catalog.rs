@@ -3,10 +3,7 @@ use crate::hir::ty::TypeKind;
 use crate::{
     hir::{
         ids::EnumId,
-        item::{
-            function::FunctionKind,
-            storage::{ExportItem, Visibility},
-        },
+        item::{function::FunctionKind, storage::ExportItem},
     },
     imports::{ImportTarget, ModuleImports, SourceImport},
     lower::LoweredModule,
@@ -16,7 +13,7 @@ use kagari_common::{
     identity::{DefinitionPath, ModuleIdentity},
 };
 use kagari_source::source::SourceFile;
-use kagari_types::collection::CollectionAccess;
+use kagari_types::{collection::CollectionAccess, visibility::Visibility};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashSet},

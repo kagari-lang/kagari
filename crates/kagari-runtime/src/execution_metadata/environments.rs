@@ -1,7 +1,7 @@
 //! Central executable environment storage; handles retain immutable type facts only.
 use crate::{
     error::RuntimeError,
-    frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
+    frame::types::{EnvironmentRecord, TypeEnvironment},
     gc::GcHeap,
 };
 use std::{
@@ -120,19 +120,6 @@ impl GcHeap {
             .insert(record)
             .map_err(|_| self.resource_limit("environment storage"))?;
         Ok(TypeEnvironment { id, types })
-    }
-
-    pub(crate) fn extend_environment(
-        &self,
-        environment: &TypeEnvironment,
-        operations: OperationBindings,
-    ) -> Result<TypeEnvironment, RuntimeError> {
-        let mut record = self
-            .environment(environment.id)
-            .ok_or_else(|| RuntimeError::module_validation("invalid executable environment"))?
-            .clone();
-        record.extend_operations(operations);
-        self.alloc_environment(record)
     }
 
     pub(crate) fn environment(&self, id: EnvironmentId) -> Option<Ref<'_, EnvironmentRecord>> {

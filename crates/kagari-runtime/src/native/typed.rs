@@ -4,10 +4,11 @@ use crate::{
     Runtime,
     error::RuntimeError,
     gc::GcCollection,
+    module::LoadedModule,
     native::{
-        binding::{Codec, NativeBinding, NativeResult},
+        binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::CallContext,
+        context::{CallContext, ScriptInvoker},
         conversion::{
             FromKagari, IntoKagari, arguments::FromKagariArguments, context::ConversionContext,
         },
@@ -19,10 +20,34 @@ use crate::{
 /// One synchronous native invocation. Arguments are owned Rust data or retained
 /// handles; no argument-slot or payload borrow spans the callback.
 pub struct NativeContext<'call> {
-    conversion: ConversionContext<'call>,
+    pub(crate) conversion: ConversionContext<'call>,
+    pub(crate) invoke_script: Option<ScriptInvoker>,
+    pub(crate) function: Option<&'call LinkedNativeFunction>,
 }
 
 impl<'call> NativeContext<'call> {
+    /// Open a synchronous host access scope for a retained program version.
+    pub fn new(runtime: &'call Runtime, owner: &'call LoadedModule) -> NativeResult<Self> {
+        Ok(Self {
+            conversion: ConversionContext::new(runtime, owner)?,
+            invoke_script: None,
+            function: None,
+        })
+    }
+
+    /// Backend integration: install synchronous execution for typed calls.
+    /// Native callbacks inherit this service from their invoking backend.
+    pub fn with_invoker(
+        runtime: &'call Runtime,
+        owner: &'call LoadedModule,
+        invoke_script: ScriptInvoker,
+    ) -> NativeResult<Self> {
+        Ok(Self {
+            conversion: ConversionContext::new(runtime, owner)?,
+            invoke_script: Some(invoke_script),
+            function: None,
+        })
+    }
     pub fn runtime(&self) -> &'call Runtime {
         self.conversion.runtime()
     }
@@ -54,6 +79,33 @@ impl<'call> NativeContext<'call> {
 }
 
 impl NativeBinding {
+    pub(crate) fn contextual_method<S: FromKagari, A: FromKagariArguments, R: IntoKagari>(
+        arity: usize,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self::contextual(arity, move |cx, ReceiverArguments(receiver, arguments)| {
+            entry(cx, receiver, arguments)
+        })
+    }
+
+    /// Contextual mappings inherit the checked declaration at invocation. Only
+    /// declaration builders supply the arity; all Rust types are checked before
+    /// argument conversion or callback effects.
+    pub(crate) fn contextual<A: FromKagariArguments, R: IntoKagari>(
+        arity: usize,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self::new(vec![Codec::Value; arity], Codec::Value, move |call| {
+            invoke(call, &entry)
+        })
+    }
+
     /// Instance callbacks receive their receiver separately from the outer
     /// argument tuple. The checked declaration still owns the receiver's type.
     pub fn typed_method<S, A, R>(
@@ -104,6 +156,8 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
 ) -> NativeResult<Value> {
     let mut context = NativeContext {
         conversion: ConversionContext::new(call.runtime, call.owner)?,
+        invoke_script: Some(call.invoke_script),
+        function: Some(call.function),
     };
     let result_type = call.result_type_argument()?;
     // A mismatch known before invocation cannot run any argument converter or
@@ -121,6 +175,7 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
         types.push(call.argument_type_argument(slot)?);
         values.push(call.argument(slot)?);
     }
+    A::check_types(&context.conversion, &types)?;
     let arguments = A::from_arguments(&mut context.conversion, &types, &values)?;
     let result = entry(&mut context, arguments)?;
     context.conversion.encode_value(&result_type, result)

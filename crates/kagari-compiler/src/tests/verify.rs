@@ -17,7 +17,7 @@ use kagari_mir::{
     instruction::{CallTarget, Constant, Instruction, MirValue, PathRef, Terminator},
     verify::{MirVerificationErrorKind as Error, verify_mir},
 };
-use kagari_types::collection::CollectionAccess;
+use kagari_types::{collection::CollectionAccess, visibility::Visibility};
 
 fn raw(source: &str) -> MirModule {
     lower_to_mir(&common::analyze_ok(source), &Default::default())
@@ -808,6 +808,7 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
                     payload: vec![],
                 }),
                 3 => template.fields.push(FieldDef {
+                    visibility: Visibility::Public,
                     name: "unexpected".into(),
                     ty: Ty::Builtin(BuiltinType::I32),
                     mutable: false,

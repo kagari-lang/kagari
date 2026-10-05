@@ -23,6 +23,14 @@ impl<S: KagariType, A: KagariArguments> KagariArguments for ReceiverArguments<S,
         types.insert(0, S::kagari_type(catalog)?);
         Ok(types)
     }
+
+    fn check_types(cx: &ConversionContext<'_>, expected: &[TypeArgument]) -> NativeResult<()> {
+        let (receiver, arguments) = expected
+            .split_first()
+            .ok_or_else(|| RuntimeError::module_validation("missing receiver type"))?;
+        cx.check_type::<S>(receiver)?;
+        A::check_types(cx, arguments)
+    }
 }
 
 impl<S: FromKagari, A: FromKagariArguments> FromKagariArguments for ReceiverArguments<S, A> {
