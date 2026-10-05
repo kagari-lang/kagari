@@ -20,7 +20,11 @@ use kagari_runtime::{
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::ty::Ty;
 use kagari_vm::{error::VmError, vm::Vm};
-use std::{cell::Cell, ops::Bound, rc::Rc, sync::Arc};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::{ops::Bound, sync::Arc};
 use {kagari_stdlib as foundation, kagari_stdlib::declarations::StandardDeclarations};
 
 mod native_boundary_artifacts;
@@ -32,6 +36,7 @@ mod native_boundary_interfaces;
 mod native_boundary_resources;
 mod native_boundary_sessions;
 mod native_boundary_storage;
+mod native_boundary_transfer;
 mod support;
 
 fn compile_program(text: &str, module: Option<&NativeModule>) -> BytecodeProgram {
@@ -269,7 +274,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
 #[derive(Debug)]
 struct TracedCounter {
     values: Value,
-    dropped: Rc<Cell<usize>>,
+    dropped: Arc<AtomicUsize>,
 }
 
 impl NativePayload for TracedCounter {
@@ -284,13 +289,13 @@ impl NativePayload for TracedCounter {
 
 impl Drop for TracedCounter {
     fn drop(&mut self) {
-        self.dropped.set(self.dropped.get() + 1);
+        self.dropped.fetch_add(1, Ordering::SeqCst);
     }
 }
 
 #[test]
 fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
-    let dropped = Rc::new(Cell::new(0));
+    let dropped = Arc::new(AtomicUsize::new(0));
     let factory_dropped = dropped.clone();
     let mut builder = ModuleBuilder::new(
         "example::objects",
@@ -366,14 +371,14 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
     let value = vm.execute(&loaded, "main").unwrap().return_value;
     let rooted = vm.runtime().gc().root_value(value).unwrap();
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(dropped.get(), 0);
+    assert_eq!(dropped.load(Ordering::SeqCst), 0);
     assert_eq!(
         vm.execute(&loaded, "answer").unwrap().return_value,
         Value::I32(42)
     );
     drop(rooted);
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(dropped.get(), 2);
+    assert_eq!(dropped.load(Ordering::SeqCst), 2);
 }
 
 #[test]
@@ -720,7 +725,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
         "example::scalar_arrays",
         &language.catalog().expect("explicit standard providers"),
     );
-    let calls = Rc::new(Cell::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
     let mut expressions = Vec::new();
     macro_rules! check {
         ($kind:ident, $rust:ty, $expected:expr, $literal:literal) => {{
@@ -743,7 +748,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
                             cx.with_sequence::<$rust, _>(0, |values| {
                                 assert!(values.is_empty() || values.len() == 2);
                                 assert!(values.iter().all(|value| *value == $expected));
-                                count.set(count.get() + 1);
+                                count.fetch_add(1, Ordering::SeqCst);
                                 Ok(Value::Bool(true))
                             })
                         },
@@ -784,7 +789,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::Bool(true)
     );
-    assert_eq!(calls.get(), 42);
+    assert_eq!(calls.load(Ordering::SeqCst), 42);
 }
 
 #[test]
@@ -798,14 +803,14 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
     let collect = builder
         .define_function(FunctionDecl::new("collect").returns(Type::i64()))
         .unwrap();
-    let count = Rc::new(Cell::new(0));
+    let count = Arc::new(AtomicUsize::new(0));
     let capture = count.clone();
     builder
         .bind(
             collect,
             move |cx: &mut CallContext<'_>| -> NativeResult<i64> {
                 cx.collect_garbage()?;
-                capture.set(capture.get() + 1);
+                capture.fetch_add(1, Ordering::SeqCst);
                 Ok(7)
             },
         )
@@ -852,7 +857,7 @@ use std::hash::{Hash};
         vm.execute(&loaded, "healthy").unwrap().return_value,
         Value::I32(42)
     );
-    assert!(count.get() > 10);
+    assert!(count.load(Ordering::SeqCst) > 10);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.live_objects, 0);
 }
@@ -918,7 +923,6 @@ use std::hash::{Hash};
 
 #[test]
 fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
-    use std::cell::RefCell;
     let language = StandardDeclarations::default();
     let mut builder = ModuleBuilder::new(
         "example::cursors",
@@ -927,14 +931,15 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     let hold = builder
         .define_function(FunctionDecl::new("hold").returns(language.collection_cursor(Type::i32())))
         .unwrap();
-    let slot = Rc::new(RefCell::new(None::<kagari_runtime::gc::roots::RootedValue>));
+    let slot = Arc::new(Mutex::new(None::<kagari_runtime::gc::roots::RootedValue>));
     let capture = slot.clone();
     builder
         .bind_with(
             hold,
             NativeBinding::new(vec![], Codec::Iterator, move |cx| {
                 capture
-                    .borrow()
+                    .lock()
+                    .unwrap()
                     .as_ref()
                     .and_then(|root| root.value(cx.heap()))
                     .ok_or_else(|| RuntimeError::module_validation("missing retained cursor"))
@@ -953,7 +958,7 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
         Some(&module),
     );
     let value = vm.execute(&loaded, "cursor").unwrap().return_value;
-    *slot.borrow_mut() = Some(vm.runtime().root_value(value).unwrap());
+    *slot.lock().unwrap() = Some(vm.runtime().root_value(value).unwrap());
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
         vm.execute(&loaded, "first").unwrap().return_value,
@@ -968,7 +973,7 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
         vm.execute(&loaded, "rest").unwrap().return_value,
         Value::I32(0)
     );
-    *slot.borrow_mut() = None;
+    *slot.lock().unwrap() = None;
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -985,7 +990,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .unwrap();
     let counter = declaration.finish().unwrap();
     let ty = counter.apply([]).unwrap();
-    let dropped = Rc::new(Cell::new(0));
+    let dropped = Arc::new(AtomicUsize::new(0));
     let new = builder
         .define_function(
             FunctionDecl::new("new")
@@ -1058,12 +1063,12 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     let value = vm.execute(&loaded, "main").unwrap().return_value;
     let root = vm.runtime().root_value(value).unwrap();
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(dropped.get(), 0);
+    assert_eq!(dropped.load(Ordering::SeqCst), 0);
     assert_eq!(
         vm.execute(&loaded, "healthy").unwrap().return_value,
         Value::I32(42)
     );
     drop(root);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(dropped.get(), 2);
+    assert_eq!(dropped.load(Ordering::SeqCst), 2);
 }

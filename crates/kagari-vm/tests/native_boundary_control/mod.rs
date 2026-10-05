@@ -28,7 +28,11 @@ use kagari_vm::{
     reentry::reenter,
     vm::Vm,
 };
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::sync::Arc;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn module() -> NativeModule {
     let mut module = ModuleBuilder::new(
@@ -138,11 +142,11 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             let mut runtime = runtime(RuntimeLimits {
                 max_call_depth: Some(1),
             });
-            let effects = Rc::new(RefCell::new(0));
+            let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
             runtime
                 .register_host_function(HostFunction::new(standard_log(), move |_, _| {
-                    *sink.borrow_mut() += 1;
+                    *sink.lock().unwrap() += 1;
                     Ok(Value::Unit)
                 }))
                 .unwrap();
@@ -158,7 +162,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             } else {
                 assert_eq!(result.unwrap().return_value, Value::I32(7));
             }
-            assert_eq!(*effects.borrow(), 0);
+            assert_eq!(*effects.lock().unwrap(), 0);
             assert_clean(&vm);
         }
     }
@@ -172,12 +176,12 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
     for encoded in [false, true] {
         let token = CancellationToken::default();
         let cancel = token.clone();
-        let effects = Rc::new(RefCell::new(0));
+        let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |_, _| {
-                *sink.borrow_mut() += 1;
+                *sink.lock().unwrap() += 1;
                 cancel.cancel();
                 Ok(Value::Unit)
             }))
@@ -193,7 +197,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         assert!(
             matches!(vm.execute(&loaded, "main"), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::Cancelled)
         );
-        assert_eq!(*effects.borrow(), 1);
+        assert_eq!(*effects.lock().unwrap(), 1);
         assert_clean(&vm);
         assert!(vm.execute(&loaded, "ready").is_err());
         drop(session);
@@ -229,11 +233,11 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         .unwrap();
     for encoded in [false, true] {
         let mut runtime = runtime(Default::default());
-        let effects = Rc::new(RefCell::new(0));
+        let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |_, _| {
-                *sink.borrow_mut() += 1;
+                *sink.lock().unwrap() += 1;
                 Ok(Value::Unit)
             }))
             .unwrap();
@@ -282,7 +286,7 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
                     .any(|binding| binding.name == "n" && binding.value == Value::I32(i32::MAX))
             );
         }
-        assert_eq!(*effects.borrow(), 1);
+        assert_eq!(*effects.lock().unwrap(), 1);
         // Debug snapshots intentionally retain values until the session is replaced.
         drop(debug);
         let empty_debug = DebugSession::new(vm.runtime()).unwrap();
@@ -314,12 +318,12 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         .unwrap()
         .id;
     for encoded in [false, true] {
-        let effects = Rc::new(RefCell::new(Vec::new()));
+        let effects = Arc::new(Mutex::new(Vec::new()));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |context, args| {
-                sink.borrow_mut().push(args[0].clone());
+                sink.lock().unwrap().push(args[0].clone());
                 let root = context.runtime().execution_root().unwrap();
                 if args == [Value::Str("outer".into())] {
                     assert_eq!(
@@ -353,7 +357,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
             Value::I32(42)
         );
         assert_eq!(
-            *effects.borrow(),
+            *effects.lock().unwrap(),
             [Value::Str("outer".into()), Value::Str("inner".into())]
         );
         assert_clean(&vm);
@@ -380,17 +384,18 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         .unwrap()
         .id;
     for encoded in [false, true] {
-        let retained = Rc::new(RefCell::new(None::<Value>));
+        let retained = Arc::new(Mutex::new(None::<Value>));
         let callback = retained.clone();
-        let observed = Rc::new(RefCell::new(Vec::new()));
+        let observed = Arc::new(Mutex::new(Vec::new()));
         let sink = observed.clone();
         let mut runtime = runtime(Default::default());
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |context, _| {
-                let value = callback.borrow().as_ref().unwrap().clone();
+                let value = callback.lock().unwrap().as_ref().unwrap().clone();
                 let root = context.runtime().execution_root().unwrap();
                 let result = reenter(context, &root, consume, &[value]).unwrap();
-                sink.borrow_mut()
+                sink.lock()
+                    .unwrap()
                     .push(result.value(context.runtime().gc()).unwrap());
                 context.runtime().collect_garbage().unwrap();
                 Ok(Value::Unit)
@@ -403,7 +408,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let vm = Vm::new(runtime);
         let closure = vm.execute(&old, "make").unwrap().return_value;
         let rooted = vm.runtime().root_value(closure.clone()).unwrap();
-        *retained.borrow_mut() = Some(closure);
+        *retained.lock().unwrap() = Some(closure);
         let new = vm
             .reload_program(&old, "native-control", route(&new_program, encoded))
             .unwrap();
@@ -422,8 +427,8 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             vm.execute(&new, "main").unwrap().return_value,
             Value::I32(0)
         );
-        assert_eq!(*observed.borrow(), [Value::I32(41)]);
-        retained.borrow_mut().take();
+        assert_eq!(*observed.lock().unwrap(), [Value::I32(41)]);
+        retained.lock().unwrap().take();
         drop(rooted);
         assert_clean(&vm);
         vm.runtime().collect_garbage().unwrap();
@@ -440,11 +445,11 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
         let mut cancellations = 0;
         for at in 0..80 {
             let mut runtime = runtime(Default::default());
-            let effects = Rc::new(RefCell::new(0));
+            let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
             runtime
                 .register_host_function(HostFunction::new(standard_log(), move |_, _| {
-                    *sink.borrow_mut() += 1;
+                    *sink.lock().unwrap() += 1;
                     Ok(Value::Unit)
                 }))
                 .unwrap();
@@ -452,20 +457,20 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();
             let options = runtime.execution_options();
-            let observer = Rc::new(crate::support::CancelAt {
-                seen: Default::default(),
-                at,
-                token: options.cancellation.clone(),
-            });
+            runtime
+                .set_execution_observer(crate::support::CancelAt {
+                    seen: Default::default(),
+                    at,
+                    token: options.cancellation.clone(),
+                })
+                .unwrap();
             let vm = Vm::new(runtime);
             let session = vm.runtime().begin_execution(&loaded, options).unwrap();
-            vm.runtime()
-                .attach_execution_observer(observer.clone())
-                .unwrap();
+            vm.runtime().attach_execution_observer().unwrap();
             match vm.execute(&loaded, "main") {
                 Ok(report) => {
                     assert_eq!(report.return_value, Value::I32(42));
-                    assert_eq!(*effects.borrow(), 1);
+                    assert_eq!(*effects.lock().unwrap(), 1);
                 }
                 Err(error) => {
                     cancellations += 1;
@@ -475,7 +480,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                     assert!(vm.execute(&loaded, "ready").is_err());
                 }
             }
-            assert!(*effects.borrow() <= 1);
+            assert!(*effects.lock().unwrap() <= 1);
             assert_clean(&vm);
             drop(session);
             assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -483,7 +488,14 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                 vm.execute(&loaded, "ready").unwrap().return_value,
                 Value::I32(7)
             );
-            if observer.seen.get() <= at {
+            if vm
+                .runtime()
+                .execution_observer::<crate::support::CancelAt>()
+                .unwrap()
+                .seen
+                .get()
+                <= at
+            {
                 break;
             }
         }
@@ -496,7 +508,7 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
     for swallow in [false, true] {
         let token = CancellationToken::default();
         let cancel = token.clone();
-        let visited = Rc::new(std::cell::Cell::new(0));
+        let visited = Arc::new(AtomicUsize::new(0));
         let observed = visited.clone();
         let mut native = ModuleBuilder::new(
             "test::polling",
@@ -516,7 +528,7 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
                     if let Err(error) = cx.poll() {
                         return if swallow { Ok(42) } else { Err(error) };
                     }
-                    observed.set(observed.get() + 1);
+                    observed.fetch_add(1, Ordering::SeqCst);
                 }
                 Ok(42)
             })
@@ -543,7 +555,7 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
         assert!(
             matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::Cancelled)
         );
-        assert_eq!(visited.get(), 3);
+        assert_eq!(visited.load(Ordering::SeqCst), 3);
         assert_eq!(vm.runtime().gc().active_roots(), 0);
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
         drop(session);

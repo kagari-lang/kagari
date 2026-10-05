@@ -1,7 +1,7 @@
 //! Native products paired with checked logical function and debug metadata.
 use crate::ids::{DebugPointId, FunctionRef};
 use kagari_abi::native::{BackendId, BackendTarget, NativeArtifact, NativeCodeOwner};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableSafepoint {
@@ -85,10 +85,10 @@ pub struct ExecutableDebugPoint {
 }
 
 /// Compiler output pairs executable metadata with its memory lifetime.
-/// Sharing is within the host thread, matching prepared programs and runtime
-/// installations; this contract does not authorize cross-thread execution.
+/// Finalized code and its owner may be shared across threads and installations.
+/// Each invocation still requires the owning runtime's checked execution context.
 #[derive(Debug, Clone)]
 pub struct NativeCompilationProduct {
     pub artifact: ExecutableFunctionArtifact,
-    pub owner: Rc<dyn NativeCodeOwner>,
+    pub owner: Arc<dyn NativeCodeOwner>,
 }

@@ -456,7 +456,8 @@ Execution reports contain raw Value results. Retain a heap result with
 `runtime.runtime().root_value(report.return_value)` before a subsequent execution
 or explicit collection. Keep the returned RootedValue in host state; cloning Value
 does not extend lifetime. RootedValue clones share retention and release it on last
-drop. Runtime callbacks are local to one thread and may capture this rooted state.
+drop. Shared callbacks require Send + Sync; a captured owning root retains its
+script object until the registration releases it.
 The rooted_values runtime example demonstrates retention and collection pause reporting.
 
 ## Host Registry API
@@ -619,7 +620,18 @@ The VM [debugger adapter boundary](debugger.md#adapter-boundary) exposes request
 ## Threading and Isolates
 
 A single Kagari runtime isolate is single-threaded from the script perspective.
-Hosts may run multiple isolates on different Rust threads.
+Hosts may run multiple isolates on different Rust threads. Runtime, Vm and
+KagariRuntime are Send and not Sync. A host can move a quiescent runtime, or own
+it across message-receive awaits in a Send task; synchronous calls and scoped
+borrows finish before transfer. Native payloads/observers require Send, while
+shared registrations require Send + Sync. Thread-affine services stay outside the
+runtime and use host message/ID boundaries.
+
+PreparedProgram remains preparation-side Rc ownership with a RefCell native cache;
+it is neither Send nor Sync and is not retained by KagariRuntime. Load/install code
+before transfer, or prepare independently on the receiving worker. Installed native
+products retain transferable finalized owners. This does not advertise concurrent
+shared native preparation or a portable shared Program API.
 
 Host APIs must not expose one mutable script heap concurrently to multiple script threads.
 Cross-isolate value sharing requires explicit serialization, host handles, or embedding-defined transfer rules.

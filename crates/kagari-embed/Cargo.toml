@@ -31,6 +31,7 @@ smallvec = { workspace = true, optional = true }
 [dev-dependencies]
 bincode.workspace = true
 kagari-codegen-cranelift.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 
 [[example]]
 name = "regenerate_feature_artifact"

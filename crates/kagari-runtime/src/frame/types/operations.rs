@@ -13,7 +13,7 @@ use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     ty::{NominalTy, Ty},
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 enum OperationSegment {
@@ -25,7 +25,7 @@ enum OperationSegment {
 pub(crate) struct OperationBindings {
     segments: Vec<OperationSegment>,
     // Type-only facts remain available without borrowing executable group storage.
-    associated: Rc<Vec<AssociatedInterface>>,
+    associated: Arc<Vec<AssociatedInterface>>,
 }
 
 impl OperationBindings {
@@ -43,7 +43,7 @@ impl OperationBindings {
         }));
     }
 
-    pub(crate) fn associated_interfaces(&self) -> Rc<Vec<AssociatedInterface>> {
+    pub(crate) fn associated_interfaces(&self) -> Arc<Vec<AssociatedInterface>> {
         self.associated.clone()
     }
 
@@ -56,7 +56,7 @@ impl OperationBindings {
         let operation = heap
             .bound_operation(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid selected operation"))?;
-        Rc::make_mut(&mut self.associated).push(AssociatedInterface {
+        Arc::make_mut(&mut self.associated).push(AssociatedInterface {
             receiver: operation.requirement.receiver.clone(),
             interface: operation.associated_interface.clone(),
             owner: operation.owner.clone(),
@@ -73,14 +73,14 @@ impl OperationBindings {
         let group = heap
             .operation_group(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid receiver group"))?;
-        Rc::make_mut(&mut self.associated).extend(group.associated_interfaces());
+        Arc::make_mut(&mut self.associated).extend(group.associated_interfaces());
         self.segments.push(OperationSegment::Receiver(id));
         Ok(())
     }
 
     pub(crate) fn extend(&mut self, other: Self) {
         self.segments.extend(other.segments);
-        Rc::make_mut(&mut self.associated).extend(other.associated.iter().cloned());
+        Arc::make_mut(&mut self.associated).extend(other.associated.iter().cloned());
     }
 
     pub(crate) fn operation_slot(

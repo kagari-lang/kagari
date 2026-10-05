@@ -1,8 +1,11 @@
 use super::*;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+};
 
 #[test]
 fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
-    use std::{cell::Cell, rc::Rc};
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
     let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
@@ -10,14 +13,14 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
         .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
         .unwrap();
     let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
-    let calls = Rc::new(Cell::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
     let read_calls = calls.clone();
     runtime
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
                 .with_read(move |_, _| {
-                    read_calls.set(read_calls.get() + 1);
+                    read_calls.fetch_add(1, Ordering::SeqCst);
                     Ok(Value::I32(10))
                 })
                 .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
@@ -35,7 +38,7 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
             .kind(),
         RuntimeErrorKind::HostBorrowConflict
     );
-    assert_eq!(calls.get(), 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
     drop(scope);
     let scope = runtime.host_scope(&[]).unwrap();
     scope
@@ -103,7 +106,6 @@ fn path_callback_borrows_cannot_escape_in_read_results() {
 
 #[test]
 fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchanged() {
-    use std::{cell::Cell, rc::Rc};
     for stage in ["read", "validation", "preparation"] {
         let mut runtime = path_mutation_runtime();
         let scalar = register_i32(&runtime);
@@ -112,10 +114,10 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
             .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
             .unwrap();
         let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
-        let target = Rc::new(Cell::new(10));
+        let target = Arc::new(AtomicI32::new(10));
         let read_target = target.clone();
         let prepare_target = target.clone();
-        let reject = Rc::new(Cell::new(true));
+        let reject = Arc::new(AtomicBool::new(true));
         let read_reject = reject.clone();
         let validate_reject = reject.clone();
         let prepare_reject = reject.clone();
@@ -124,26 +126,28 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
                 descriptor,
                 HostPathAdapter::new()
                     .with_validate(move |_, _, _, _| {
-                        if stage == "validation" && validate_reject.get() {
+                        if stage == "validation" && validate_reject.load(Ordering::SeqCst) {
                             return Err(HostError::new("rejected validation"));
                         }
                         Ok(())
                     })
                     .with_read(move |_, _| {
-                        if stage == "read" && read_reject.get() {
+                        if stage == "read" && read_reject.load(Ordering::SeqCst) {
                             return Err(HostError::new("rejected read"));
                         }
-                        Ok(Value::I32(read_target.get()))
+                        Ok(Value::I32(read_target.load(Ordering::SeqCst)))
                     })
                     .with_prepare_write(move |_, _, record| {
-                        if stage == "preparation" && prepare_reject.get() {
+                        if stage == "preparation" && prepare_reject.load(Ordering::SeqCst) {
                             return Err(HostError::new("rejected preparation"));
                         }
                         let Value::I32(next) = record.new_value else {
                             return Err(HostError::new("expected i32"));
                         };
                         let target = prepare_target.clone();
-                        Ok(PreparedHostPathWrite::new(move || target.set(next)))
+                        Ok(PreparedHostPathWrite::new(move || {
+                            target.store(next, Ordering::SeqCst)
+                        }))
                     }),
             )
             .unwrap();
@@ -165,16 +169,16 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
             };
             assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
             assert!(error.message().contains(stage));
-            assert_eq!(target.get(), 10);
+            assert_eq!(target.load(Ordering::SeqCst), 10);
             assert!(runtime.host_dirty_paths().is_empty());
             assert_eq!(runtime.gc().active_roots(), 0);
             assert!(!runtime.is_quarantined());
         }
-        reject.set(false);
+        reject.store(false, Ordering::SeqCst);
         runtime
             .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
             .unwrap();
-        assert_eq!(target.get(), 20);
+        assert_eq!(target.load(Ordering::SeqCst), 20);
         assert_eq!(runtime.host_dirty_paths().len(), 1);
     }
 }
@@ -183,7 +187,7 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
 fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
     use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
     use kagari_common::cancellation::CancellationToken;
-    use std::{cell::Cell, rc::Rc};
+
     let mut runtime = path_mutation_runtime();
     let module = runtime
         .load_program(
@@ -200,7 +204,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
         .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
         .unwrap();
     let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
-    let target = Rc::new(Cell::new(10));
+    let target = Arc::new(AtomicI32::new(10));
     let read_target = target.clone();
     let write_target = target.clone();
     let token = CancellationToken::default();
@@ -209,7 +213,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(read_target.get())))
+                .with_read(move |_, _| Ok(Value::I32(read_target.load(Ordering::SeqCst))))
                 .with_prepare_write(move |_, _, record| {
                     let Value::I32(next) = record.new_value else {
                         return Err(HostError::new("expected i32"));
@@ -217,7 +221,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
                     let target = write_target.clone();
                     let cancel = cancel.clone();
                     Ok(PreparedHostPathWrite::new(move || {
-                        target.set(next);
+                        target.store(next, Ordering::SeqCst);
                         cancel.cancel();
                     }))
                 }),
@@ -229,7 +233,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
     runtime
         .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
         .unwrap();
-    assert_eq!(target.get(), 20);
+    assert_eq!(target.load(Ordering::SeqCst), 20);
     assert_eq!(runtime.host_dirty_paths().len(), 1);
     assert_eq!(session.host_scope_count(), 0);
     assert_eq!(
@@ -278,7 +282,7 @@ fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
 #[test]
 fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
     use std::{
-        cell::{Cell, RefCell},
+        cell::RefCell,
         rc::{Rc, Weak},
     };
     for fault in ["panic", "execute", "allocate", "mutate", "collect", "root"] {
@@ -298,9 +302,12 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                 vec![Value::I32(1)],
             )
             .unwrap();
-        let access = Rc::new(RefCell::new(None::<Weak<Runtime>>));
-        let prepare_access = access.clone();
-        let committed = Rc::new(Cell::new(false));
+        // Fault injection only: the commit action intentionally tries forbidden
+        // runtime reentry. The shared adapter captures no runtime owner.
+        thread_local! {
+            static COMMIT_RUNTIME: RefCell<Option<Weak<Runtime>>> = const { RefCell::new(None) };
+        }
+        let committed = Arc::new(AtomicBool::new(false));
         let prepare_committed = committed.clone();
         runtime
             .register_host_path_adapter(
@@ -308,12 +315,13 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                 HostPathAdapter::new()
                     .with_read(|_, _| Ok(Value::I32(10)))
                     .with_prepare_write(move |_, _, _| {
-                        let access = prepare_access.clone();
                         let allocation = commit_allocation.clone();
                         let committed = prepare_committed.clone();
                         Ok(PreparedHostPathWrite::new(move || {
-                            committed.set(true);
-                            let runtime = access.borrow().as_ref().unwrap().upgrade().unwrap();
+                            committed.store(true, Ordering::SeqCst);
+                            let runtime = COMMIT_RUNTIME.with(|access| {
+                                access.borrow().as_ref().unwrap().upgrade().unwrap()
+                            });
                             let error = match fault {
                                 "panic" => panic!("broken host commit invariant"),
                                 "execute" => runtime.resources().poll_execution().unwrap_err(),
@@ -340,12 +348,12 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
             )
             .unwrap();
         let runtime = Rc::new(runtime);
-        *access.borrow_mut() = Some(Rc::downgrade(&runtime));
+        COMMIT_RUNTIME.with(|access| *access.borrow_mut() = Some(Rc::downgrade(&runtime)));
         let error = runtime
             .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-        assert!(committed.get());
+        assert!(committed.load(Ordering::SeqCst));
         assert!(runtime.is_quarantined());
         assert_eq!(runtime.gc().active_roots(), 0);
         assert_eq!(runtime.gc().array_get(array, 0), Some(Value::I32(1)));

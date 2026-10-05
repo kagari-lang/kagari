@@ -5,6 +5,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, language, language::Protocol};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
 
 #[test]
@@ -80,7 +81,8 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     assert!(format!("{error:?}").contains("structural modification during iteration"));
     let Value::Array(array) = probe
         .retained
-        .borrow()
+        .lock()
+        .unwrap()
         .as_ref()
         .unwrap()
         .value(vm.runtime().gc())
@@ -90,7 +92,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     };
     assert_eq!(vm.runtime().gc().array_len(array), Some(2));
     vm.runtime().gc().array_push(array, Value::I32(3)).unwrap();
-    probe.retained.borrow_mut().take();
+    probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -125,7 +127,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let root = vm.runtime().root_value(iterator.clone()).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
     assert!(vm.invoke_interface_method(&iterator, &next, &[]).is_err());
-    assert_eq!(probe.calls.get(), 1);
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
     let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
     let Value::Enum(id) = result else {
         panic!("Option");
@@ -133,7 +135,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let result = vm.runtime().gc().enum_snapshot(id).unwrap();
     assert_eq!(result.tag.variant_name(), "Some");
     assert_eq!(result.fields, vec![Value::I32(21)]);
-    assert_eq!(probe.calls.get(), 2);
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
     drop(root);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);

@@ -9,7 +9,7 @@ use kagari_types::{
         substitution::{normalize_projections, substitute_parameters},
     },
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Checked associated-type facts; contains no selected operation or environment.
 #[derive(Debug, Clone)]
@@ -22,10 +22,10 @@ pub(crate) struct AssociatedInterface {
 #[derive(Debug, Clone)]
 pub(crate) struct TypeBindings {
     definitions: DefinitionContext,
-    parameters: Rc<[GenericParam<DefinitionId>]>,
-    arguments: Rc<[TypeArgument]>,
-    parent: Option<Rc<TypeBindings>>,
-    pub(super) associated_interfaces: Rc<Vec<AssociatedInterface>>,
+    parameters: Arc<[GenericParam<DefinitionId>]>,
+    arguments: Arc<[TypeArgument]>,
+    parent: Option<Arc<TypeBindings>>,
+    pub(super) associated_interfaces: Arc<Vec<AssociatedInterface>>,
 }
 
 impl TypeBindings {
@@ -52,11 +52,11 @@ impl TypeBindings {
             parameters: parameters.into(),
             arguments: arguments.into(),
             parent: None,
-            associated_interfaces: Rc::new(vec![]),
+            associated_interfaces: Arc::new(vec![]),
         })
     }
 
-    pub(crate) fn include(&mut self, parent: Option<Rc<Self>>) -> Result<(), RuntimeError> {
+    pub(crate) fn include(&mut self, parent: Option<Arc<Self>>) -> Result<(), RuntimeError> {
         if let Some(parent) = parent {
             if self.parent.is_some()
                 || self.definitions.snapshot().id() != parent.definitions.snapshot().id()

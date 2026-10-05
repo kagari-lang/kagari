@@ -23,7 +23,10 @@ use kagari_types::{
         value_type::HostValueType,
     },
 };
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicI32, Ordering},
+};
 
 fn interface() -> HostInterface {
     let related = HostTypeDeclaration::new("right.Item");
@@ -62,7 +65,6 @@ fn assert_source_index_path(field_prefix: bool) {
         path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::PathAccess,
     };
-    use std::cell::Cell;
 
     let mut player = HostTypeDeclaration::new("game.Player");
     player.ownership = HostTypeOwnership::HostRoot;
@@ -166,26 +168,26 @@ fn assert_source_index_path(field_prefix: bool) {
             .runtime_mut()
             .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
             .unwrap();
-        let trace = Rc::new(RefCell::new(Vec::new()));
-        let state = Rc::new(Cell::new(10));
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let state = Arc::new(AtomicI32::new(10));
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
-                calls.borrow_mut().push("make");
+                calls.lock().unwrap().push("make");
                 Ok(Value::HostRoot(root))
             }))
             .unwrap();
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(index.clone(), move |_, _| {
-                calls.borrow_mut().push("index");
+                calls.lock().unwrap().push("index");
                 Ok(Value::I32(1))
             }))
             .unwrap();
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
-                calls.borrow_mut().push("rhs");
+                calls.lock().unwrap().push("rhs");
                 Ok(Value::I32(2))
             }))
             .unwrap();
@@ -201,18 +203,18 @@ fn assert_source_index_path(field_prefix: bool) {
                         if path.dynamic_args.as_slice()[0].value != Value::I32(1) {
                             return Err(HostError::new("unexpected index"));
                         }
-                        reads.borrow_mut().push("read");
-                        Ok(Value::I32(value.get()))
+                        reads.lock().unwrap().push("read");
+                        Ok(Value::I32(value.load(Ordering::SeqCst)))
                     })
                     .with_prepare_write(move |_, _, record| {
-                        writes.borrow_mut().push("prepare");
+                        writes.lock().unwrap().push("prepare");
                         let Value::I32(next) = record.new_value else {
                             return Err(HostError::new("expected i32"));
                         };
                         let (writes, target) = (writes.clone(), target.clone());
                         Ok(PreparedHostPathWrite::new(move || {
-                            writes.borrow_mut().push("commit");
-                            target.set(next);
+                            writes.lock().unwrap().push("commit");
+                            target.store(next, Ordering::SeqCst);
                         }))
                     }),
             )
@@ -240,9 +242,9 @@ fn assert_source_index_path(field_prefix: bool) {
         }
         .unwrap();
         assert_eq!(report.return_value, Value::I32(12));
-        assert_eq!(state.get(), 12);
+        assert_eq!(state.load(Ordering::SeqCst), 12);
         assert_eq!(
-            *trace.borrow(),
+            *trace.lock().unwrap(),
             ["make", "index", "rhs", "read", "prepare", "commit", "read"]
         );
     }

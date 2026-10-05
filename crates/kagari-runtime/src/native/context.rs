@@ -28,7 +28,7 @@ use kagari_bytecode::{instruction::Register, module::CallableTarget, program::Mo
 use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
-use std::{rc::Rc, slice};
+use std::{slice, sync::Arc};
 
 #[derive(Clone, Copy)]
 pub enum ArgumentSlots<'call> {
@@ -113,7 +113,7 @@ impl<'call> ArgumentView<'call> {
 #[derive(Debug, Clone)]
 pub struct LinkedCallable {
     pub(crate) environment: Option<TypeEnvironment>,
-    pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
+    pub(crate) scoped_signature: Option<Arc<ScopedSignature>>,
     pub(crate) owner: CallableOwner,
     pub(crate) target: CallableTarget,
     pub(crate) params: Box<[Ty<DefinitionId>]>,
@@ -392,7 +392,7 @@ impl<'call> CallContext<'call> {
         self.heap().ensure_no_native_borrow()?;
         element.validate(self.runtime)?;
         self.runtime.validate_heap_payloads(&elements)?;
-        let contract = Rc::new(StorageType::prepare_scoped(element, self.owner)?);
+        let contract = Arc::new(StorageType::prepare_scoped(element, self.owner)?);
         self.heap()
             .alloc_array_with_contract(contract, elements)
             .map(Value::Array)

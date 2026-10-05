@@ -15,7 +15,7 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
-use std::{cell::Ref, rc::Rc};
+use std::{cell::Ref, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct PreparedClosure {
@@ -187,7 +187,7 @@ impl<'call> CallableHandle<'call> {
 
     /// Retained payloads must trace this value; this does not create a global root.
     pub fn store(&self) -> StoredCallable {
-        StoredCallable(Rc::new(StoredFunction {
+        StoredCallable(Arc::new(StoredFunction {
             target: self.target.clone(),
             params: self.params.into(),
             result: self.result.clone(),
@@ -206,7 +206,7 @@ struct StoredFunction {
 /// Clones share metadata. An unreachable payload and its closure can be collected
 /// together, including cycles; no host root is embedded in the script heap.
 #[derive(Debug, Clone)]
-pub struct StoredCallable(Rc<StoredFunction>);
+pub struct StoredCallable(Arc<StoredFunction>);
 
 impl NativePayload for StoredCallable {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {

@@ -145,10 +145,7 @@ fn portable_path_segments_reject_unbound_types_before_publication() {
 
 #[test]
 fn heap_path_temporaries_survive_collection_during_write_preparation() {
-    use std::{
-        cell::{Cell, RefCell},
-        rc::{Rc, Weak},
-    };
+    use std::sync::{Arc, Mutex};
     let mut runtime = path_mutation_runtime();
     use kagari_types::host_interface::{
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
@@ -180,18 +177,15 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     );
     let allocation = allocation_owner(&mut runtime);
     let read_allocation = allocation.clone();
-    let access = Rc::new(RefCell::new(None::<Weak<Runtime>>));
-    let previous = Rc::new(Cell::new(None));
-    let read_access = access.clone();
+    let previous = Arc::new(Mutex::new(None));
     let read_previous = previous.clone();
-    let write_access = access.clone();
     let write_previous = previous.clone();
     runtime
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |_, _| {
-                    let runtime = read_access.borrow().as_ref().unwrap().upgrade().unwrap();
+                .with_read(move |cx, _| {
+                    let runtime = cx.runtime();
                     let value = runtime
                         .alloc_array(
                             &read_allocation,
@@ -199,15 +193,17 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
                             vec![Value::I32(1)],
                         )
                         .unwrap();
-                    read_previous.set(Some(value));
+                    *read_previous.lock().unwrap() = Some(value);
                     Ok(Value::Array(value))
                 })
-                .with_prepare_write(move |_, _, record| {
+                .with_prepare_write(move |cx, _, record| {
                     let value = record.new_value.clone();
-                    let runtime = write_access.borrow().as_ref().unwrap().upgrade().unwrap();
+                    let runtime = cx.runtime();
                     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
                     assert_eq!(
-                        runtime.gc().array_get(write_previous.get().unwrap(), 0),
+                        runtime
+                            .gc()
+                            .array_get(write_previous.lock().unwrap().unwrap(), 0),
                         Some(Value::I32(1))
                     );
                     let Value::Array(next) = value else {
@@ -218,8 +214,6 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
                 }),
         )
         .unwrap();
-    let runtime = Rc::new(runtime);
-    *access.borrow_mut() = Some(Rc::downgrade(&runtime));
     let next = runtime
         .alloc_array(
             &allocation,

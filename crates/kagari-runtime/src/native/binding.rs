@@ -21,11 +21,12 @@ use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
 };
-use std::{fmt, rc::Rc, slice};
+use std::{fmt, slice, sync::Arc};
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
 
-pub type NativeEntry = dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>;
+pub type NativeEntry =
+    dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value> + Send + Sync;
 
 /// Scalars have an exact semantic type; generic views inherit their declared slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,11 +101,22 @@ impl Codec {
     }
 }
 
+/// Shared native registration. Captured services must support shared use across
+/// independent runtimes; mutable Send-only state belongs in a runtime payload.
+///
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use kagari_runtime::{native::binding::{Codec, NativeBinding}, value::Value};
+/// let local = Rc::new(1);
+/// let binding = NativeBinding::new(Vec::<Codec>::new(), Codec::Value, move |_| {
+///     Ok(Value::I32(*local))
+/// });
+/// ```
 #[derive(Clone)]
 pub struct NativeBinding {
     pub(crate) arguments: Box<[Codec]>,
     pub(crate) result: Codec,
-    pub(crate) entry: Rc<NativeEntry>,
+    pub(crate) entry: Arc<NativeEntry>,
     pub(crate) converted_result: bool,
 }
 
@@ -123,12 +135,15 @@ impl NativeBinding {
     pub fn new(
         arguments: impl Into<Box<[Codec]>>,
         result: Codec,
-        entry: impl for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value> + 'static,
+        entry: impl for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         Self {
             arguments: arguments.into(),
             result,
-            entry: Rc::new(entry),
+            entry: Arc::new(entry),
             converted_result: false,
         }
     }
@@ -158,7 +173,7 @@ impl NativeBinding {
 pub struct LinkedNativeFunction {
     pub(crate) binding: NativeBinding,
     pub(crate) signature: Signature<DefinitionId>,
-    pub(crate) scoped_signature: Option<Rc<ScopedSignature>>,
+    pub(crate) scoped_signature: Option<Arc<ScopedSignature>>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,
 }
@@ -191,7 +206,7 @@ impl LinkedNativeFunction {
             result: result.ty().clone(),
         };
         let scoped_signature = (result.has_origin() || params.iter().any(TypeArgument::has_origin))
-            .then(|| Rc::new(ScopedSignature { params, result }));
+            .then(|| Arc::new(ScopedSignature { params, result }));
         Ok(Self {
             binding: self.binding.clone(),
             signature,

@@ -1,5 +1,10 @@
 use super::*;
-use crate::{frame::types::EnvironmentRecord, layout_fixtures};
+use crate::{
+    frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
+    layout_fixtures,
+    module::{EnumVariantRef, StructLayoutRef},
+    native::{callable::StoredCallable, cursor::NativeCursor, storage_type::StorageType},
+};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
 };
@@ -8,6 +13,7 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy},
 };
+use std::thread;
 
 fn owner(module: &str) -> DefinitionPath {
     DefinitionPath {
@@ -38,7 +44,7 @@ fn argument(kind: BuiltinType) -> TypeArgument {
 #[test]
 fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
     let definitions = DefinitionContext::new().unwrap();
-    let parent = Rc::new(
+    let parent = Arc::new(
         TypeBindings::new(
             &definitions,
             vec![binder(&definitions, "parent.kgr")],
@@ -82,7 +88,7 @@ fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
 #[test]
 fn environments_reject_duplicate_binders_and_foreign_context_parents() {
     let definitions = DefinitionContext::new().unwrap();
-    let parent = Rc::new(
+    let parent = Arc::new(
         TypeBindings::new(
             &definitions,
             vec![binder(&definitions, "owner.kgr")],
@@ -153,6 +159,10 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
     );
     assert!(runtime.gc.environment(parent_id).is_none());
     assert!(runtime.gc.environment(child_id).is_none());
+    // Transferring immutable facts must not revive their collected environments.
+    let retained = thread::spawn(move || retained).join().unwrap();
+    assert!(runtime.gc.environment(parent_id).is_none());
+    assert!(runtime.gc.environment(child_id).is_none());
     let record = Value::Struct(runtime.alloc_struct(layout.clone(), vec![]).unwrap());
     assert_eq!(retained.ty(), &Ty::Tuple(vec![nominal.clone()]));
     assert!(retained.matches(
@@ -163,4 +173,20 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
     let element = retained.parameter(&runtime, layout.module(), 0).unwrap();
     assert_eq!(element.ty(), &nominal);
     assert!(element.matches(&runtime, &record, layout.module()));
+}
+
+#[test]
+fn immutable_runtime_descriptors_are_send_and_sync() {
+    fn shareable<T: Send + Sync>() {}
+    shareable::<TypeArgument>();
+    shareable::<TypeBindings>();
+    shareable::<TypeEnvironment>();
+    shareable::<ScopedSignature>();
+    shareable::<OperationBindings>();
+    shareable::<StructLayoutRef>();
+    shareable::<EnumVariantRef>();
+    shareable::<StorageType>();
+    shareable::<StoredCallable>();
+    shareable::<NativeCursor>();
+    shareable::<Value>();
 }

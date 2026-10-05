@@ -27,16 +27,16 @@ use kagari_types::{
     callable::CallableImplementation,
     declaration::{TypeDefKind, module::ModuleDecl},
 };
-use std::{collections::BTreeMap, iter, rc::Rc, sync::Arc};
+use std::{collections::BTreeMap, iter, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     declaration: Arc<DefinitionMetadata<ModuleDecl<DefinitionId>>>,
-    bindings: Rc<[Rc<BindingRegistration>]>,
+    bindings: Arc<[Arc<BindingRegistration>]>,
     owned: DeclarationCatalog,
     catalog: DeclarationCatalog,
     required: DeclarationCatalog,
-    storage: Rc<DefinitionMap<NativeStorage>>,
+    storage: Arc<DefinitionMap<NativeStorage>>,
 }
 
 impl NativeModule {
@@ -124,7 +124,7 @@ impl NativeModule {
             })?;
             let required_catalog =
                 checked.binding_dependencies(&base, &mut scopes, &declarations)?;
-            let registration = Rc::new(BindingRegistration::checked(
+            let registration = Arc::new(BindingRegistration::checked(
                 declarations,
                 binding,
                 required_catalog,
@@ -191,7 +191,7 @@ impl NativeModule {
             owned,
             catalog: checked,
             required,
-            storage: Rc::new(indexed_storage),
+            storage: Arc::new(indexed_storage),
         })
     }
 

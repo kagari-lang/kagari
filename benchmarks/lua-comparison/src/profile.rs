@@ -46,7 +46,7 @@ type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction<DefinitionId
 
 impl ExecutionObserver for InstructionCounts {
     fn observe(
-        &self,
+        &mut self,
         _: &Runtime,
         event: ExecutionEvent,
         frames: &[ExecutionFrame],
@@ -121,20 +121,29 @@ pub(super) fn run(
     io::stdout().flush().unwrap();
     // Counting is deliberately outside the sampling window; observer callbacks
     // change dispatch cost and must never be mixed into the throughput baseline.
-    let counts = Rc::new(InstructionCounts::default());
+    runtime
+        .runtime()
+        .set_execution_observer(InstructionCounts::default())
+        .unwrap();
     {
         let session = runtime
             .runtime()
             .begin_execution(module, Default::default())
             .unwrap();
-        runtime
-            .runtime()
-            .attach_execution_observer(counts.clone())
-            .unwrap();
+        runtime.runtime().attach_execution_observer().unwrap();
         execute(runtime, module, context, expected);
         drop(session);
     }
-    let mut counts: Vec<_> = counts.counts.borrow().values().cloned().collect();
+    let mut counts: Vec<_> = runtime
+        .runtime()
+        .execution_observer::<InstructionCounts>()
+        .unwrap()
+        .counts
+        .borrow()
+        .values()
+        .cloned()
+        .collect();
+    runtime.runtime().clear_execution_observer().unwrap();
     counts.sort_by_key(|(_, count)| Reverse(*count));
     println!(
         "INSTRUCTION_TOTAL,{}",

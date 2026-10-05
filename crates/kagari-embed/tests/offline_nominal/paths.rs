@@ -3,6 +3,10 @@ use kagari_bytecode::artifact::KbcArtifact;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 use kagari_runtime::host::HostPathAdapter;
 use kagari_types::host_interface::path::HostPathSegmentDeclaration;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+};
 
 #[test]
 fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
@@ -66,13 +70,13 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             .runtime_mut()
             .register_host_root(HostObjectId(7), ids[0], HostSchemaEpoch::new(7))
             .unwrap();
-        let trace = Rc::new(RefCell::new(Vec::new()));
+        let trace = Arc::new(Mutex::new(Vec::new()));
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(
                 declarations.functions[0].clone(),
                 move |_, _| {
-                    calls.borrow_mut().push("root");
+                    calls.lock().unwrap().push("root");
                     Ok(Value::HostRoot(root))
                 },
             ))
@@ -90,7 +94,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 )
                 .is_err()
         );
-        assert!(trace.borrow().is_empty());
+        assert!(trace.lock().unwrap().is_empty());
         let descriptor = runtime.runtime_mut().register_host_path(&path).unwrap();
         let calls = trace.clone();
         runtime
@@ -98,7 +102,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             .register_host_path_adapter(
                 descriptor,
                 HostPathAdapter::new().with_read(move |context, _| {
-                    calls.borrow_mut().push("read");
+                    calls.lock().unwrap().push("read");
                     context.runtime().collect_garbage().unwrap();
                     Ok(Value::I32(42))
                 }),
@@ -127,7 +131,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         }
         .unwrap();
         assert_eq!(report.return_value, Value::I32(42));
-        assert_eq!(*trace.borrow(), ["root", "read"]);
+        assert_eq!(*trace.lock().unwrap(), ["root", "read"]);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }
@@ -152,7 +156,6 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         },
         type_declaration::PathAccess,
     };
-    use std::cell::Cell;
 
     let mut player = HostTypeDeclaration::new("game.Player");
     player.ownership = HostTypeOwnership::HostRoot;
@@ -241,12 +244,12 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .runtime_mut()
             .register_host_root(HostObjectId(1), ids[0], HostSchemaEpoch::new(0))
             .unwrap();
-        let trace = Rc::new(RefCell::new(Vec::new()));
-        let state = Rc::new(Cell::new(10));
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let state = Arc::new(AtomicI32::new(10));
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
-                calls.borrow_mut().push("make");
+                calls.lock().unwrap().push("make");
                 Ok(Value::HostRoot(root))
             }))
             .unwrap();
@@ -258,7 +261,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             let calls = trace.clone();
             runtime
                 .register_host_function(HostFunction::new(declaration, move |_, _| {
-                    calls.borrow_mut().push(label);
+                    calls.lock().unwrap().push(label);
                     Ok(Value::I32(result))
                 }))
                 .unwrap();
@@ -281,18 +284,18 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                         if values != [Value::I32(2), Value::I32(1)] {
                             return Err(HostError::new("unexpected indexes"));
                         }
-                        reads.borrow_mut().push("read");
-                        Ok(Value::I32(value.get()))
+                        reads.lock().unwrap().push("read");
+                        Ok(Value::I32(value.load(Ordering::SeqCst)))
                     })
                     .with_prepare_write(move |_, _, record| {
-                        writes.borrow_mut().push("prepare");
+                        writes.lock().unwrap().push("prepare");
                         let Value::I32(next) = record.new_value else {
                             return Err(HostError::new("expected i32"));
                         };
                         let (writes, target) = (writes.clone(), target.clone());
                         Ok(PreparedHostPathWrite::new(move || {
-                            writes.borrow_mut().push("commit");
-                            target.set(next);
+                            writes.lock().unwrap().push("commit");
+                            target.store(next, Ordering::SeqCst);
                         }))
                     }),
             )
@@ -320,9 +323,9 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         }
         .unwrap();
         assert_eq!(report.return_value, Value::I32(13));
-        assert_eq!(state.get(), 13);
+        assert_eq!(state.load(Ordering::SeqCst), 13);
         assert_eq!(
-            *trace.borrow(),
+            *trace.lock().unwrap(),
             [
                 "make", "first", "second", "rhs", "read", "prepare", "commit", "read"
             ]
@@ -334,7 +337,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
 fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_failure() {
     use kagari_runtime::host::{HostError, PreparedHostPathWrite};
     use kagari_types::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
-    use std::cell::Cell;
+
     let mut declarations = interface();
     declarations.types[0].path_access = PathAccess::ReadWrite;
     declarations.types[0].fields[0].path_access = PathAccess::ReadWrite;
@@ -414,17 +417,17 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     .runtime_mut()
                     .register_host_root(HostObjectId(8), ids[0], HostSchemaEpoch::new(0))
                     .unwrap();
-                let trace = Rc::new(RefCell::new(Vec::new()));
-                let state = Rc::new(Cell::new(10));
-                let removed = Rc::new(Cell::new(false));
+                let trace = Arc::new(Mutex::new(Vec::new()));
+                let state = Arc::new(AtomicI32::new(10));
+                let removed = Arc::new(AtomicBool::new(false));
                 let calls = trace.clone();
-                let root_calls = Cell::new(0);
+                let root_calls = AtomicUsize::new(0);
                 runtime
                     .register_host_function(HostFunction::new(
                         declarations.functions[0].clone(),
                         move |_, _| {
-                            calls.borrow_mut().push("root");
-                            let first = root_calls.replace(root_calls.get() + 1) == 0;
+                            calls.lock().unwrap().push("root");
+                            let first = root_calls.fetch_add(1, Ordering::SeqCst) == 0;
                             Ok(Value::HostRoot(if first { root } else { replacement }))
                         },
                     ))
@@ -432,9 +435,9 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                 let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
                 runtime
                     .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
-                        calls.borrow_mut().push("rhs");
-                        value.set(after_rhs);
-                        absent.set(deleted);
+                        calls.lock().unwrap().push("rhs");
+                        value.store(after_rhs, Ordering::SeqCst);
+                        absent.store(deleted, Ordering::SeqCst);
                         Ok(Value::I32(rhs_value))
                     }))
                     .unwrap();
@@ -448,22 +451,22 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                         HostPathAdapter::new()
                             .with_read(move |_, path| {
                                 assert_eq!(path.root, root);
-                                reads.borrow_mut().push("read");
-                                if absent.get() {
+                                reads.lock().unwrap().push("read");
+                                if absent.load(Ordering::SeqCst) {
                                     return Err(HostError::new("target removed by RHS"));
                                 }
-                                Ok(Value::I32(value.get()))
+                                Ok(Value::I32(value.load(Ordering::SeqCst)))
                             })
                             .with_prepare_write(move |context, _, record| {
-                                writes.borrow_mut().push("prepare");
+                                writes.lock().unwrap().push("prepare");
                                 context.runtime().collect_garbage().unwrap();
                                 let Value::I32(next) = record.new_value else {
                                     return Err(HostError::new("expected i32"));
                                 };
                                 let (writes, target) = (writes.clone(), target.clone());
                                 Ok(PreparedHostPathWrite::new(move || {
-                                    writes.borrow_mut().push("commit");
-                                    target.set(next);
+                                    writes.lock().unwrap().push("commit");
+                                    target.store(next, Ordering::SeqCst);
                                 }))
                             }),
                     )
@@ -495,9 +498,9 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                 };
                 if let Some(expected) = expected {
                     result.unwrap();
-                    assert_eq!(state.get(), expected);
+                    assert_eq!(state.load(Ordering::SeqCst), expected);
                     assert_eq!(
-                        *trace.borrow(),
+                        *trace.lock().unwrap(),
                         if rebind {
                             vec!["root", "root", "rhs", "read", "prepare", "commit"]
                         } else {
@@ -510,9 +513,9 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     assert_eq!(records[0].new_value, Value::I32(expected));
                 } else {
                     assert!(result.is_err());
-                    assert_eq!(state.get(), after_rhs);
+                    assert_eq!(state.load(Ordering::SeqCst), after_rhs);
                     assert_eq!(
-                        *trace.borrow(),
+                        *trace.lock().unwrap(),
                         if rebind {
                             vec!["root", "root", "rhs", "read"]
                         } else {

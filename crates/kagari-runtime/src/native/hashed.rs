@@ -12,12 +12,12 @@ use crate::{
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct MapPayload {
-    pub(crate) key: Rc<StorageType>,
-    pub(crate) value: Rc<StorageType>,
+    pub(crate) key: Arc<StorageType>,
+    pub(crate) value: Arc<StorageType>,
     pub(crate) builtin_keys: bool,
     pub(crate) entries: HashMapStorage,
 }
@@ -37,7 +37,7 @@ impl NativePayload for MapPayload {
 
 #[derive(Debug)]
 pub(crate) struct SetPayload {
-    pub(crate) element: Rc<StorageType>,
+    pub(crate) element: Arc<StorageType>,
     pub(crate) builtin_keys: bool,
     pub(crate) entries: HashSetStorage,
 }

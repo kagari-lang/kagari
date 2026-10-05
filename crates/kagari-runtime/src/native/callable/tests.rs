@@ -45,7 +45,7 @@ fn fixture() -> (Runtime, LoadedModule, PreparedClosure) {
 #[test]
 fn prepared_and_stored_descriptors_do_not_root_or_alias_recycled_closures() {
     let (runtime, loaded, prepared) = fixture();
-    let stored = StoredCallable(Rc::new(StoredFunction {
+    let stored = StoredCallable(Arc::new(StoredFunction {
         target: prepared.clone(),
         params: Box::new([]),
         result: Ty::Builtin(BuiltinType::I32),
@@ -101,7 +101,7 @@ fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
         .id;
     let runtime_owner = runtime.resources().lifetime_probe();
     let rooted = RootedCallable {
-        stored: StoredCallable(Rc::new(StoredFunction {
+        stored: StoredCallable(Arc::new(StoredFunction {
             target: prepared.clone(),
             params: Box::new([]),
             result: Ty::Builtin(BuiltinType::I32),

@@ -266,16 +266,16 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
             cancellation: context.cancellation.clone(),
             ..Default::default()
         };
-        let observer = std::rc::Rc::new(support::CancelAt {
-            seen: Default::default(),
-            at,
-            token: context.cancellation.clone(),
-        });
-        let session = runtime.runtime().begin_execution(&loaded, options).unwrap();
         runtime
             .runtime()
-            .attach_execution_observer(observer.clone())
+            .set_execution_observer(support::CancelAt {
+                seen: Default::default(),
+                at,
+                token: context.cancellation.clone(),
+            })
             .unwrap();
+        let session = runtime.runtime().begin_execution(&loaded, options).unwrap();
+        runtime.runtime().attach_execution_observer().unwrap();
         match runtime.execute(&loaded, "main", &[], &context) {
             Ok(report) => {
                 assert_eq!(report.return_value, Value::I32(42));

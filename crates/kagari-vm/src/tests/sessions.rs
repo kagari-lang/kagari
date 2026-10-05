@@ -19,6 +19,10 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{host_interface::standard_log, scalar::BuiltinType, ty::Ty};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn runtime() -> Runtime {
     standard_runtime(RuntimeConfig {
@@ -42,7 +46,6 @@ fn route(program: BytecodeProgram, encoded: bool) -> BytecodeProgram {
 #[test]
 fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
     use kagari_runtime::{error::RuntimeErrorKind, host::HostObjectId, metadata::TypeId};
-    use std::{cell::RefCell, rc::Rc};
     for encoded in [false, true] {
         for jit in [false, true] {
             let module = compile_test_bytecode(
@@ -54,7 +57,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 .find(|f| f.name == "make")
                 .unwrap()
                 .id;
-            let retained = Rc::new(RefCell::new(None));
+            let retained = Arc::new(Mutex::new(None));
             let result = retained.clone();
             let mut runtime = runtime();
             runtime
@@ -93,7 +96,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                             runtime.gc().array_snapshot(id).unwrap(),
                             [Value::I32(7), Value::I32(8)]
                         );
-                        *result.borrow_mut() = Some(value);
+                        *result.lock().unwrap() = Some(value);
                     } else {
                         assert_eq!(runtime.resources().counters().current_call_depth, 2);
                         assert_eq!(
@@ -137,14 +140,15 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 .unwrap();
             vm.runtime().collect_garbage().unwrap();
             let raw = retained
-                .borrow()
+                .lock()
+                .unwrap()
                 .as_ref()
                 .unwrap()
                 .value(vm.runtime().gc())
                 .unwrap();
             assert!(vm.runtime().gc().validate_value(&raw));
             assert!(!Runtime::default().gc().validate_value(&raw));
-            retained.borrow_mut().take();
+            retained.lock().unwrap().take();
             vm.runtime().collect_garbage().unwrap();
             assert!(!vm.runtime().gc().validate_value(&raw));
             assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -241,7 +245,6 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
 
 #[test]
 fn reentry_rejects_foreign_and_stale_inputs() {
-    use std::{cell::Cell, rc::Rc};
     let module = compile_test_bytecode(
         "fn main() -> i32 { print(\"enter\"); 42 } fn echo(value: Vec<i32>) -> Vec<i32> { value }",
     );
@@ -257,7 +260,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         .find(|f| f.name == "echo")
         .unwrap()
         .id;
-    let calls = Rc::new(Cell::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut foreign = standard_runtime(Default::default());
     let foreign_module = foreign
@@ -271,13 +274,14 @@ fn reentry_rejects_foreign_and_stale_inputs() {
             .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
             .unwrap(),
     );
+    assert!(foreign.gc().validate_value(&foreign_value));
+    let retained_foreign_value = foreign_value.clone();
     let mut runtime = runtime();
     runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
-        called.set(called.get() + 1);
+        called.fetch_add(1, Ordering::SeqCst);
         let runtime = context.runtime();
         assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
         if let Some(root) = runtime.execution_root() {
-                assert!(foreign.gc().validate_value(&foreign_value));
                 assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
                 let stale = Value::Array(runtime.alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
                 runtime.collect_garbage().unwrap();
@@ -295,14 +299,14 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         vm.execute(&loaded, "main").unwrap().return_value,
         Value::I32(42)
     );
-    assert_eq!(calls.get(), 2);
+    assert!(foreign.gc().validate_value(&retained_foreign_value));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
 
 #[test]
 fn reentry_uses_the_root_version_and_rejects_other_epochs() {
-    use std::{cell::RefCell, rc::Rc};
     for encoded in [false, true] {
         let program = |number| {
             route(
@@ -319,17 +323,18 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             .find(|f| f.name == "value")
             .unwrap()
             .id;
-        let versions = Rc::new(RefCell::new(Vec::<LoadedModule>::new()));
-        let observed = Rc::new(RefCell::new(Vec::new()));
+        let versions = Arc::new(Mutex::new(Vec::<LoadedModule>::new()));
+        let observed = Arc::new(Mutex::new(Vec::new()));
         let targets = versions.clone();
         let values = observed.clone();
         let mut runtime = runtime();
         runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
             let root = context.runtime().execution_root().unwrap();
-            for version in targets.borrow().iter() {
+            let versions = targets.lock().unwrap().clone();
+            for version in &versions {
                 let result = reenter(context, version, function, &[]);
                 if version.key() == root.key() {
-                    values.borrow_mut().push(result.unwrap().value(context.runtime().gc()).unwrap());
+                    values.lock().unwrap().push(result.unwrap().value(context.runtime().gc()).unwrap());
                 } else {
                     assert!(matches!(result, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
                 }
@@ -343,11 +348,11 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             .begin_execution(&old, vm.runtime().execution_options())
             .unwrap();
         let new = vm.reload_program(&old, "versions.kgr", program(9)).unwrap();
-        versions.borrow_mut().extend([old.clone(), new.clone()]);
+        versions.lock().unwrap().extend([old.clone(), new.clone()]);
         vm.execute(&old, "main").unwrap();
         drop(scope);
         vm.execute(&new, "main").unwrap();
-        assert_eq!(*observed.borrow(), [Value::I32(7), Value::I32(9)]);
+        assert_eq!(*observed.lock().unwrap(), [Value::I32(7), Value::I32(9)]);
     }
 }
 
@@ -405,17 +410,16 @@ fn native_safepoint_reports_cancellation_at_the_current_instruction() {
 
 #[test]
 fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
-    use std::{cell::Cell, rc::Rc};
     for encoded in [false, true] {
         for jit in [false, true] {
             let mut runtime = runtime();
             let token = CancellationToken::default();
             let cancel = token.clone();
-            let calls = Rc::new(Cell::new(0));
+            let calls = Arc::new(AtomicUsize::new(0));
             let recorded = calls.clone();
             runtime
                 .register_host_function(HostFunction::new(standard_log(), move |_, _| {
-                    recorded.set(recorded.get() + 1);
+                    recorded.fetch_add(1, Ordering::SeqCst);
                     cancel.cancel();
                     Ok(Value::Unit)
                 }))
@@ -439,7 +443,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             assert!(
                 matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::Cancelled)
             );
-            assert_eq!(calls.get(), 1);
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
             assert_eq!(vm.runtime().gc().active_roots(), 0);
             assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
             assert!(vm.execute(&loaded, "ready").is_err());
@@ -457,7 +461,6 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
 
 #[test]
 fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
-    use std::{cell::Cell, rc::Rc};
     for encoded in [false, true] {
         let program = || {
             route(
@@ -465,12 +468,12 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
                 encoded,
             )
         };
-        let calls = Rc::new(Cell::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
         let observed = calls.clone();
         let mut runtime = runtime();
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |_, _| {
-                observed.set(observed.get() + 1);
+                observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
             }))
             .unwrap();
@@ -484,7 +487,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
             matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
         assert!(vm.runtime().execution_root().is_none());
-        assert_eq!(calls.get(), 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
         let session = vm
             .runtime()
             .begin_candidate_initialization(&candidate)
@@ -498,7 +501,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         assert!(
             matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
-        assert_eq!(calls.get(), 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
         drop(session);
         drop(candidate);
         assert_eq!(vm.runtime().modules().loaded_count(), old.members().count());
@@ -510,7 +513,6 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
 #[test]
 fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
     use kagari_runtime::host::HostError;
-    use std::{cell::RefCell, rc::Rc};
     for encoded in [false, true] {
         let module =
             compile_test_bytecode("fn main()->i32 { print(\"entry\");42 } fn fail()->i32 {42/0}");
@@ -520,7 +522,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
             .find(|f| f.name == "fail")
             .unwrap()
             .id;
-        let captured = Rc::new(RefCell::new(None));
+        let captured = Arc::new(Mutex::new(None));
         let saved = captured.clone();
         let mut runtime = runtime();
         runtime
@@ -544,7 +546,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                         vec![Value::Str("host failure".into())],
                     )
                     .unwrap();
-                *saved.borrow_mut() = context.runtime().result_failure(&value);
+                *saved.lock().unwrap() = context.runtime().result_failure(&value);
                 let root = context.runtime().execution_root().unwrap();
                 let error = reenter(context, &root, fail, &[]).unwrap_err();
                 Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
@@ -565,7 +567,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                 .collect::<Vec<_>>(),
             ["fail", "main"]
         );
-        let saved = captured.borrow();
+        let saved = captured.lock().unwrap();
         let report = saved.as_ref().unwrap();
         assert_eq!(report.message, "host failure");
         assert_eq!(report.trace.frames.len(), 1);

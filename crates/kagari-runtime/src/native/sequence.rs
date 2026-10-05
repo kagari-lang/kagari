@@ -12,7 +12,7 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
-use std::{any::Any, collections::TryReserveError, rc::Rc};
+use std::{any::Any, collections::TryReserveError, sync::Arc};
 
 #[derive(Debug)]
 pub(crate) enum SequenceStorage {
@@ -186,7 +186,7 @@ impl SequenceStorage {
 #[derive(Debug)]
 pub(crate) struct SequencePayload {
     pub(crate) element: Ty<DefinitionId>,
-    pub(crate) contract: Rc<StorageType>,
+    pub(crate) contract: Arc<StorageType>,
     pub(crate) values: SequenceStorage,
     pub(crate) leased_units: Option<usize>,
 }

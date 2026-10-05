@@ -3,6 +3,7 @@ use kagari_bytecode::artifact::KbcArtifact;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_types::host_interface::type_declaration::PathAccess;
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn artifact_host_trait_table_requires_callback_before_publication() {
@@ -327,11 +328,11 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .runtime_mut()
             .register_host_root(HostObjectId(7), host_id, HostSchemaEpoch::new(0))
             .unwrap();
-        let calls = Rc::new(RefCell::new(Vec::new()));
+        let calls = Arc::new(Mutex::new(Vec::new()));
         let trace = calls.clone();
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
-                trace.borrow_mut().push("make");
+                trace.lock().unwrap().push("make");
                 Ok(Value::HostRoot(root))
             }))
             .unwrap();
@@ -339,7 +340,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         runtime
             .register_host_function(
                 HostFunction::method(&host, &number.id, move |_, args| {
-                    trace.borrow_mut().push("number");
+                    trace.lock().unwrap().push("number");
                     assert!(matches!(args, [Value::HostRoot(_)]));
                     Ok(Value::I32(42))
                 })
@@ -350,7 +351,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         runtime
             .register_host_function(
                 HostFunction::method(&host, &flag.id, move |_, args| {
-                    trace.borrow_mut().push("flag");
+                    trace.lock().unwrap().push("flag");
                     assert!(matches!(args, [Value::HostRoot(_)]));
                     Ok(Value::Bool(true))
                 })
@@ -380,7 +381,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         }
         .unwrap();
         assert_eq!(report.return_value, Value::I32(42));
-        assert_eq!(*calls.borrow(), ["make", "flag", "make", "number"]);
+        assert_eq!(*calls.lock().unwrap(), ["make", "flag", "make", "number"]);
     }
     let source = include_str!("../../../../examples/host-trait-bound.kgr");
     engine

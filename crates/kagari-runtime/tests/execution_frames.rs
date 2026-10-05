@@ -20,7 +20,7 @@ struct ReentrantObserver;
 
 impl ExecutionObserver for ReentrantObserver {
     fn observe(
-        &self,
+        &mut self,
         runtime: &Runtime,
         _: ExecutionEvent,
         _: &[ExecutionFrame],
@@ -209,13 +209,13 @@ fn out_of_order_stack_drop_is_isolated_without_double_cleanup() {
 fn observers_cannot_reenter_a_borrowed_stack_or_replace_the_root_observer() {
     let mut runtime = Runtime::default();
     let module = loaded(&mut runtime);
+    runtime.set_execution_observer(ReentrantObserver).unwrap();
     let stack = runtime.enter_execution_stack(&module).unwrap();
-    let observer = std::rc::Rc::new(ReentrantObserver);
-    assert!(runtime.attach_execution_observer(observer.clone()).unwrap());
-    assert!(!runtime.attach_execution_observer(observer).unwrap());
+    assert!(runtime.attach_execution_observer().unwrap());
+    assert!(!runtime.attach_execution_observer().unwrap());
     assert_eq!(
         runtime
-            .attach_execution_observer(std::rc::Rc::new(ReentrantObserver))
+            .set_execution_observer(ReentrantObserver)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ModuleValidation
@@ -235,6 +235,68 @@ fn observers_cannot_reenter_a_borrowed_stack_or_replace_the_root_observer() {
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert!(runtime.execution_root().is_none());
+}
+
+#[test]
+fn owned_observer_initialization_and_replacement_obey_session_and_borrow_scopes() {
+    #[derive(Debug, Default)]
+    struct Probe {
+        begins: usize,
+        observations: usize,
+    }
+
+    impl ExecutionObserver for Probe {
+        fn begin(&mut self, _: &Runtime, _: &LoadedModule) -> Result<(), RuntimeError> {
+            self.begins += 1;
+            if self.begins == 1 {
+                return Err(RuntimeError::module_validation("initialization rejected"));
+            }
+            Ok(())
+        }
+
+        fn observe(
+            &mut self,
+            _: &Runtime,
+            _: ExecutionEvent,
+            _: &[ExecutionFrame],
+        ) -> Result<(), RuntimeError> {
+            self.observations += 1;
+            Ok(())
+        }
+    }
+
+    let mut runtime = Runtime::default();
+    let module = loaded(&mut runtime);
+    runtime.set_execution_observer(Probe::default()).unwrap();
+    let stack = runtime.enter_execution_stack(&module).unwrap();
+    assert!(runtime.attach_execution_observer().is_err());
+    runtime
+        .observe_execution(ExecutionEvent::BeforeInstruction)
+        .unwrap();
+    assert_eq!(
+        runtime.execution_observer::<Probe>().unwrap().observations,
+        0
+    );
+    assert!(runtime.attach_execution_observer().unwrap());
+    assert!(!runtime.attach_execution_observer().unwrap());
+    assert_eq!(runtime.execution_observer::<Probe>().unwrap().begins, 2);
+    assert!(runtime.clear_execution_observer().is_err());
+    runtime
+        .observe_execution(ExecutionEvent::BeforeInstruction)
+        .unwrap();
+    assert_eq!(
+        runtime.execution_observer::<Probe>().unwrap().observations,
+        1
+    );
+    drop(stack);
+    let retained = runtime.execution_observer::<Probe>().unwrap();
+    assert!(runtime.clear_execution_observer().is_err());
+    assert!(runtime.set_execution_observer(Probe::default()).is_err());
+    assert_eq!(retained.begins, 2);
+    drop(retained);
+    runtime.clear_execution_observer().unwrap();
+    assert!(runtime.execution_observer::<Probe>().is_none());
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]

@@ -7,6 +7,10 @@ use kagari_embed::{
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -191,10 +195,6 @@ fn ordering_and_equality_bounds_are_required_at_the_method_call() {
 
 #[test]
 fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
-    use std::{
-        cell::{Cell, RefCell},
-        rc::Rc,
-    };
     use {
         kagari_runtime::{
             gc::roots::RootedValue,
@@ -216,7 +216,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
                 .catalog()
                 .expect("explicit standard providers"),
         );
-        let calls = Rc::new(Cell::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let token = context.cancellation.clone();
         let visit = module.define_function(FunctionDecl::new("visit")).unwrap();
@@ -224,15 +224,15 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             .bind(
                 visit,
                 move |_cx: &mut CallContext<'_>| -> NativeResult<()> {
-                    count.set(count.get() + 1);
-                    if count.get() == 3 {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    if count.load(Ordering::SeqCst) == 3 {
                         token.cancel();
                     }
                     Ok(())
                 },
             )
             .unwrap();
-        let retained: Rc<RefCell<Option<RootedValue>>> = Rc::new(RefCell::new(None));
+        let retained: Arc<Mutex<Option<RootedValue>>> = Arc::new(Mutex::new(None));
         let capture = retained.clone();
         let keep = module.define_function(FunctionDecl::new("keep")).unwrap();
         module
@@ -246,7 +246,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             .bind(
                 keep,
                 move |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
-                    *capture.borrow_mut() = Some(value.root()?);
+                    *capture.lock().unwrap() = Some(value.root()?);
                     Ok(())
                 },
             )
@@ -272,9 +272,10 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
                 .code(),
             "KG_RUNTIME_CANCELLED"
         );
-        assert_eq!(calls.get(), 3);
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
         let Value::Array(array) = retained
-            .borrow()
+            .lock()
+            .unwrap()
             .as_ref()
             .unwrap()
             .value(runtime.runtime().gc())
@@ -302,7 +303,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             .gc()
             .array_push(array, Value::I32(99))
             .unwrap();
-        retained.borrow_mut().take();
+        retained.lock().unwrap().take();
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
         assert!(!runtime.runtime().is_quarantined());

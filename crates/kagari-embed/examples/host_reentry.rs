@@ -11,18 +11,15 @@ use kagari_runtime::{
 use kagari_source::source::SourceFile;
 use kagari_types::{host_interface::standard_log, scalar::BuiltinType, ty::Ty};
 use kagari_vm::reentry::reenter;
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-    slice,
-};
+use std::sync::{Arc, Mutex};
+use std::{cell::Cell, slice};
 
 #[derive(Debug, Default)]
 struct StackDepth(Cell<usize>);
 
 impl ExecutionObserver for StackDepth {
     fn observe(
-        &self,
+        &mut self,
         _: &Runtime,
         _: ExecutionEvent,
         frames: &[ExecutionFrame],
@@ -52,7 +49,7 @@ fn main() {
         .find(|f| f.name == "make")
         .unwrap()
         .id;
-    let retained = Rc::new(RefCell::new(None));
+    let retained = Arc::new(Mutex::new(None));
     let output = retained.clone();
     let mut runtime = engine.runtime(context.clone());
     runtime
@@ -72,22 +69,22 @@ fn main() {
                 .map_err(|error| HostError::new(format!("script callback failed: {error:?}")))?;
             call.runtime().collect_garbage().unwrap();
             assert!(call.runtime().gc().validate_value(&scratch));
-            *output.borrow_mut() = Some(value);
+            *output.lock().unwrap() = Some(value);
             Ok(Value::Unit)
         }))
         .unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    runtime
+        .runtime()
+        .set_execution_observer(StackDepth::default())
+        .unwrap();
     let session = runtime
         .runtime()
         .begin_execution(&loaded, runtime.runtime().execution_options())
         .unwrap();
-    let depth = Rc::new(StackDepth::default());
-    runtime
-        .runtime()
-        .attach_execution_observer(depth.clone())
-        .unwrap();
+    runtime.runtime().attach_execution_observer().unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -95,13 +92,22 @@ fn main() {
             .return_value,
         Value::I32(42)
     );
-    assert_eq!(depth.0.get(), 2);
+    assert_eq!(
+        runtime
+            .runtime()
+            .execution_observer::<StackDepth>()
+            .unwrap()
+            .0
+            .get(),
+        2
+    );
     assert_eq!(session.counters().current_call_depth, 0);
     assert_eq!(session.host_scope_count(), 0);
     drop(session);
     runtime.runtime().collect_garbage().unwrap();
     let Value::Array(id) = retained
-        .borrow()
+        .lock()
+        .unwrap()
         .as_ref()
         .unwrap()
         .value(runtime.runtime().gc())
@@ -113,7 +119,7 @@ fn main() {
         runtime.runtime().gc().array_snapshot(id).unwrap(),
         [Value::I32(7), Value::I32(8)]
     );
-    retained.borrow_mut().take();
+    retained.lock().unwrap().take();
     runtime.runtime().collect_garbage().unwrap();
     assert!(runtime.runtime().gc().array_snapshot(id).is_none());
     println!("host reentry returned an array; its explicit root survived collection");

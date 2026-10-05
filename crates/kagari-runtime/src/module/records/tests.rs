@@ -108,8 +108,8 @@ fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_cac
         .modules
         .native_binding(&native_owner(&loaded), NativeImportId::new(0))
         .unwrap();
-    let function_probe = Rc::downgrade(&function);
-    let entry_probe = Rc::downgrade(&function.binding.entry);
+    let function_probe = Arc::downgrade(&function);
+    let entry_probe = Arc::downgrade(&function.binding.entry);
     drop(function);
     let id = generic_structure(&loaded);
     let args = [Ty::Builtin(BuiltinType::I32)];
@@ -181,7 +181,7 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
         .modules
         .native_binding(&owner, NativeImportId::new(0))
         .unwrap();
-    let probe = Rc::downgrade(&function);
+    let probe = Arc::downgrade(&function);
     drop(function);
     let candidate = runtime
         .stage_reload_program(&loaded, "records", code)
@@ -281,7 +281,7 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
         .modules
         .native_binding(&owner, NativeImportId::new(0))
         .unwrap();
-    let probe = Rc::downgrade(&link);
+    let probe = Arc::downgrade(&link);
     drop(link);
     drop(candidate);
     assert!(

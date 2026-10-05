@@ -16,25 +16,25 @@ use crate::{
     value_check::matches_type_in,
 };
 use kagari_types::{declaration::verify::types_in_scope_in, ty::Ty};
-use std::{rc::Rc, slice};
+use std::{slice, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct TypeArgument {
     ty: Ty<DefinitionId>,
     definitions: DefinitionTable,
-    origin: Option<Rc<TypeOrigin>>,
+    origin: Option<Arc<TypeOrigin>>,
 }
 
 #[derive(Debug)]
 struct TypeOrigin {
     expression: Ty<DefinitionId>,
-    scope: Rc<TypeScope>,
+    scope: Arc<TypeScope>,
 }
 
 #[derive(Debug)]
 struct TypeScope {
     owner: LoadedModule,
-    environment: Option<Rc<TypeBindings>>,
+    environment: Option<Arc<TypeBindings>>,
 }
 
 #[derive(Debug)]
@@ -227,7 +227,7 @@ impl Runtime {
     pub(crate) fn type_arguments(
         &self,
         owner: &LoadedModule,
-        environment: Option<Rc<TypeBindings>>,
+        environment: Option<Arc<TypeBindings>>,
         types: &[Ty<DefinitionId>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("type argument scope");
@@ -259,9 +259,9 @@ impl Runtime {
             }
             let origin = if contains_nominal_layout(&ty) {
                 let scope = match &scope {
-                    Some(scope) => Rc::clone(scope),
+                    Some(scope) => Arc::clone(scope),
                     None => {
-                        let prepared = Rc::new(TypeScope {
+                        let prepared = Arc::new(TypeScope {
                             owner: owner.clone(),
                             environment: environment.clone(),
                         });
@@ -269,7 +269,7 @@ impl Runtime {
                         prepared
                     }
                 };
-                Some(Rc::new(TypeOrigin {
+                Some(Arc::new(TypeOrigin {
                     expression: expression.clone(),
                     scope,
                 }))

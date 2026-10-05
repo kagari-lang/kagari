@@ -11,21 +11,24 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use std::{cell::Cell, rc::Rc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
 #[derive(Debug, Default)]
 struct Faults {
-    trace: Cell<bool>,
-    drop: Cell<bool>,
-    drops: Cell<usize>,
+    trace: AtomicBool,
+    drop: AtomicBool,
+    drops: AtomicUsize,
 }
 
 #[derive(Debug)]
-struct Payload(Rc<Faults>);
+struct Payload(Arc<Faults>);
 
 impl NativePayload for Payload {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {
-        assert!(!self.0.trace.get(), "fixture trace panic");
+        assert!(!self.0.trace.load(Ordering::SeqCst), "fixture trace panic");
     }
 
     fn units(&self) -> usize {
@@ -35,12 +38,15 @@ impl NativePayload for Payload {
 
 impl Drop for Payload {
     fn drop(&mut self) {
-        self.0.drops.set(self.0.drops.get() + 1);
-        assert!(!self.0.drop.get(), "fixture destructor panic");
+        self.0.drops.fetch_add(1, Ordering::SeqCst);
+        assert!(
+            !self.0.drop.load(Ordering::SeqCst),
+            "fixture destructor panic"
+        );
     }
 }
 
-fn module(faults: &Rc<Faults>) -> NativeModule {
+fn module(faults: &Arc<Faults>) -> NativeModule {
     let mut builder = ModuleBuilder::new(
         "fixture::payload",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -67,7 +73,7 @@ fn module(faults: &Rc<Faults>) -> NativeModule {
 
 #[test]
 fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
-    let faults = Rc::new(Faults::default());
+    let faults = Arc::new(Faults::default());
     let native = module(&faults);
     let source = "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }";
     let (vm, loaded) = compile(source, Some(&native));
@@ -77,7 +83,7 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
         .unwrap();
     let before = vm.runtime().gc().stats();
     let counters = vm.runtime().resources().counters();
-    faults.trace.set(true);
+    faults.trace.store(true, Ordering::SeqCst);
     let error = vm.runtime().collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert!(
@@ -93,23 +99,23 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
             .members()
             .all(|member| vm.runtime().modules().loaded(member.key()).is_some())
     );
-    assert_eq!(faults.drops.get(), 0);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
     assert_eq!(root.value(vm.runtime().gc()), Some(value));
-    faults.trace.set(false);
+    faults.trace.store(false, Ordering::SeqCst);
     drop(vm);
-    assert_eq!(faults.drops.get(), 1);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 1);
     drop(root);
 }
 
 #[test]
 fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
-    let faults = Rc::new(Faults::default());
+    let faults = Arc::new(Faults::default());
     let (vm, loaded) = compile(
         "use fixture::payload::{Payload, new}; fn main() -> (Payload, Payload) { (new(), new()) }",
         Some(&module(&faults)),
     );
     let values = vm.execute(&loaded, "main").unwrap().return_value;
-    faults.drop.set(true);
+    faults.drop.store(true, Ordering::SeqCst);
     let error = vm.runtime().collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert!(
@@ -118,7 +124,7 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
             .contains("native payload destruction panicked")
     );
     assert!(vm.runtime().is_quarantined());
-    assert_eq!(faults.drops.get(), 2);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
     assert_eq!(vm.runtime().gc().stats().allocated_objects, 0);
     assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
     assert!(!vm.runtime().gc().validate_value(&values));
@@ -127,13 +133,13 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
         RuntimeErrorKind::EngineFault
     );
     drop(vm);
-    assert_eq!(faults.drops.get(), 2);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
 }
 
 #[test]
 fn root_and_collection_leases_do_not_keep_heap_payloads_alive_after_teardown() {
     use kagari_types::{scalar::BuiltinType, ty::Ty};
-    let faults = Rc::new(Faults::default());
+    let faults = Arc::new(Faults::default());
     let (vm, loaded) = compile(
         "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }",
         Some(&module(&faults)),
@@ -153,16 +159,16 @@ fn root_and_collection_leases_do_not_keep_heap_payloads_alive_after_teardown() {
         .gc()
         .begin_collection_iteration(&Value::Array(array))
         .unwrap();
-    assert_eq!(faults.drops.get(), 0);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
     drop(session);
     assert!(vm.runtime().execution_root().is_none());
     drop(vm);
-    assert_eq!(faults.drops.get(), 1);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 1);
     std::thread::spawn(move || {
         drop(root);
         drop(iteration);
     })
     .join()
     .unwrap();
-    assert_eq!(faults.drops.get(), 1);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 1);
 }

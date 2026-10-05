@@ -1,5 +1,5 @@
 //! Compiler-independent fixtures for VM native-entry and fallback decisions.
-use std::{ffi::c_void, rc::Rc};
+use std::{ffi::c_void, sync::Arc};
 
 use kagari_bytecode::instruction::{BytecodeInstruction, ConstantOperand, Register};
 use kagari_runtime::{
@@ -104,9 +104,9 @@ pub(super) fn install_i32<const VALUE: i32>(
     unsafe {
         runtime.install_native_function(
             module,
-            Rc::new(NativeCompilationProduct {
+            Arc::new(NativeCompilationProduct {
                 artifact,
-                owner: Rc::new(StaticCode),
+                owner: Arc::new(StaticCode),
             }),
         )
     }

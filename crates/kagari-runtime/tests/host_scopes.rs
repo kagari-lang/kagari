@@ -23,10 +23,13 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::{
-    cell::{Cell, RefCell},
+    cell::Cell,
     panic::{AssertUnwindSafe, catch_unwind},
-    rc::Rc,
 };
 
 fn runtime() -> Runtime {
@@ -257,13 +260,13 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
 fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     let mut runtime = runtime();
     let object = root(&mut runtime);
-    let invoked = Rc::new(Cell::new(0));
+    let invoked = Arc::new(AtomicUsize::new(0));
     let called = invoked.clone();
     runtime
         .register_host_function(HostFunction::new(
             declaration("game.write", HostPassingStyle::UniqueBorrow),
             move |context, args| {
-                called.set(called.get() + 1);
+                called.fetch_add(1, Ordering::SeqCst);
                 assert_eq!(
                     context
                         .runtime()
@@ -289,7 +292,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
             .kind(),
         RuntimeErrorKind::HostCallFailure
     );
-    assert_eq!(invoked.get(), 1);
+    assert_eq!(invoked.load(Ordering::SeqCst), 1);
     runtime.invoke_host("game.read", &[object]).unwrap();
     let scope = runtime.host_scope(&[]).unwrap();
     let token = scope
@@ -314,7 +317,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
             .kind(),
         RuntimeErrorKind::ExpiredHostBorrow
     );
-    assert_eq!(invoked.get(), 1);
+    assert_eq!(invoked.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.gc().active_roots(), 0);
 }
 
@@ -386,7 +389,7 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
             },
         )
         .unwrap();
-    let raw = Rc::new(RefCell::new(None));
+    let raw = Arc::new(Mutex::new(None));
     let saved = raw.clone();
     runtime
         .register_host_function(HostFunction::new(
@@ -403,7 +406,7 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
                     .unwrap();
                 context.runtime().collect_garbage().unwrap();
                 assert!(context.runtime().gc().validate_value(&value));
-                *saved.borrow_mut() = Some(value);
+                *saved.lock().unwrap() = Some(value);
                 Err(HostError::new("stop"))
             },
         ))
@@ -414,19 +417,23 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
     );
     assert_eq!(runtime.gc().active_roots(), 0);
     runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc().validate_value(raw.borrow().as_ref().unwrap()));
+    assert!(
+        !runtime
+            .gc()
+            .validate_value(raw.lock().unwrap().as_ref().unwrap())
+    );
 }
 
 #[test]
 fn host_callbacks_observe_replayable_root_inputs() {
     let mut runtime = runtime();
-    let observed = Rc::new(RefCell::new(Vec::new()));
+    let observed = Arc::new(Mutex::new(Vec::new()));
     let captured = observed.clone();
     runtime
         .register_host_function(HostFunction::new(
             HostFunctionDeclaration::new("game.sample", vec![], HostValueType::Unit),
             move |context, _| {
-                captured.borrow_mut().push((
+                captured.lock().unwrap().push((
                     context.execution_time_millis().unwrap(),
                     context.next_execution_random_u64().unwrap(),
                 ));
@@ -452,7 +459,7 @@ fn host_callbacks_observe_replayable_root_inputs() {
         runtime.invoke_host("game.sample", &[]).unwrap();
         drop(session);
     }
-    let records = observed.borrow();
+    let records = observed.lock().unwrap();
     assert_eq!(&records[..2], &records[2..]);
     assert!(records.iter().all(|(time, _)| *time == 987_654));
     assert_ne!(records[0].1, records[1].1);

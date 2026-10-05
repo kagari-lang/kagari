@@ -296,8 +296,25 @@ tracing and do not independently retain otherwise unreachable records.
 Root leases are Send + Sync and can be cloned/dropped on other threads without
 accessing values. They do not own the heap or payload storage; runtime teardown
 releases that storage even if leases survive, and use against another runtime is
-rejected. The runtime and callbacks still use the current single-thread ownership
-model until GO03 completes. Callbacks currently need no Send/Sync bounds.
+rejected. Runtime is Send and not Sync. Hosts can transfer its ownership between
+threads outside synchronous execution/borrow scopes, or keep it in a Send future
+across message-receive awaits. RefCell/Cell storage remains exclusively owned;
+this does not enable concurrent access or asynchronous script execution.
+
+Shared native/host registrations and storage factories require Send + Sync and
+use Arc. Runtime-owned native payloads and observers require only Send. Their
+storage and destruction move with the runtime. Host-owned mutable services captured
+by shared callbacks must synchronize their own state. Prepared host-path commit
+actions remain synchronous call-local values and need no Send bound. Standard
+registrations are immutable process-wide OnceLock data; no runtime storage is shared.
+
+Immutable type arguments, lexical type bindings, storage/layout contracts and
+stored callable/cursor descriptors use Arc and satisfy Send + Sync. These contain
+only checked IDs, immutable type/code facts and the synchronized definition context;
+they do not share mutable heap/session/program storage. Transferring type facts
+does not revive a collected executable environment. Native code products and
+installed descriptors also share transferable finalized owners; each installation
+is still checked against its runtime and exact dependency versions.
 
 Runtime owns GcHeap directly. Iteration, mutation and key-lookup exclusion records
 also live in the heap. Native operations borrow short leases; guards stored in
@@ -599,17 +616,22 @@ driver, store borrows and session identities enforce scoped synchronous reentry.
 ModuleStore owns version reservation along with publication, so publishing a new
 version does not invalidate a borrowed old-version session. Registration and owner
 replacement still require mutable access; a live execution guard prevents moving
-or destroying the runtime. Thread transfer remains GO03 work.
+or destroying the runtime. Transfer is possible once these scopes have ended.
 Frames own their immutable loaded version; no borrowed bytecode lifetime crosses
 runtime entry. Frames and stacks do not retain a heap owner; slot access receives
 the current Runtime and checks its identity before touching the root table. A foreign
 context is rejected before any frame or slot change. Invalid frame access,
 suspended-scope mutation and out-of-order scope destruction quarantine the runtime instead of resuming a damaged stack.
 
-The root observer receives the complete stack at instruction and trap boundaries.
-It cannot be replaced by nested execution or first installed while frames are
-running. Observations hold short immutable stack borrows and must not invoke script
-execution. The VM uses this boundary for shared debugger events during host reentry.
+Runtime owns one boxed ExecutionObserver; set/clear operations require no active
+session and reject outstanding observer borrows. Typed Ref/RefMut views inspect its
+state without sharing storage ownership. attach_execution_observer activates it
+once for a root before frames run; nested drivers inherit that activation. The
+observer's begin hook initializes the pinned program, and observe receives the
+complete stack at instruction/trap boundaries with exclusive observer access.
+Initialization and observation hold short immutable stack borrows and must not
+invoke script execution. The VM stores DebugSession in this same runtime-owned
+slot; it keeps no separate debugger owner across host reentry.
 
 Cancellation is checked cooperatively at interpreter/JIT safepoints and native
 polling boundaries. It cannot preempt a blocking host callback. Primitive bulk

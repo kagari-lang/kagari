@@ -1,7 +1,6 @@
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use std::{
     ffi::c_void,
-    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -132,7 +131,7 @@ unsafe impl CodegenBackend for Backend {
         };
         Ok(NativeCompilationProduct {
             artifact,
-            owner: Rc::new(Owner(self.dropped.clone())),
+            owner: Arc::new(Owner(self.dropped.clone())),
         })
     }
 }

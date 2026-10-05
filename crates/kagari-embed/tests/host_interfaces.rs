@@ -21,7 +21,7 @@ use kagari_types::host_interface::{
     value_type::HostValueType,
 };
 use kagari_vm::reentry::reenter;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 const SOURCE: &str = concat!(
     include_str!("../../../examples/host-interfaces.kgr"),
@@ -142,11 +142,11 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
             .runtime_mut()
             .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
             .unwrap();
-        let trace = Rc::new(RefCell::new(Vec::new()));
+        let trace = Arc::new(Mutex::new(Vec::new()));
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
-                calls.borrow_mut().push(0);
+                calls.lock().unwrap().push(0);
                 Ok(Value::HostRoot(root))
             }))
             .unwrap();
@@ -157,7 +157,7 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
                     let [Value::HostRoot(_), Value::I32(amount)] = args else {
                         panic!("invalid host arguments")
                     };
-                    calls.borrow_mut().push(*amount);
+                    calls.lock().unwrap().push(*amount);
                     assert!(
                         ctx.borrows()
                             .borrow_unique(root.object_id(), root.type_id())
@@ -191,7 +191,7 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
         }
         .unwrap();
         assert_eq!(result.return_value, Value::I32(42));
-        assert_eq!(*trace.borrow(), [0, 20, 0, 22]);
+        assert_eq!(*trace.lock().unwrap(), [0, 20, 0, 22]);
     }
 }
 
@@ -651,12 +651,12 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
             Ok(Value::HostRoot(root))
         }))
         .unwrap();
-    let calls = Rc::new(RefCell::new(0));
+    let calls = Arc::new(Mutex::new(0));
     let recorded = calls.clone();
     vm.runtime_mut()
         .register_host_function(
             HostFunction::method(&host, &host.methods[0].id, move |_, args| {
-                *recorded.borrow_mut() += 1;
+                *recorded.lock().unwrap() += 1;
                 Ok(args[1].clone())
             })
             .unwrap(),
@@ -679,7 +679,7 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         .unwrap(),
         Value::I32(42)
     );
-    assert_eq!(*calls.borrow(), 1);
+    assert_eq!(*calls.lock().unwrap(), 1);
 
     for mismatch in [false, true] {
         let mut registered = host.clone();

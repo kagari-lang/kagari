@@ -7,7 +7,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::map::DefinitionContext;
-use std::rc::Rc;
+use std::sync::Arc;
 
 fn empty(runtime: &Runtime) -> EnvironmentRecord {
     EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap()
@@ -118,7 +118,7 @@ fn extensions_publish_a_new_record_and_do_not_change_existing_handles() {
         .extend_environment(&original, operations)
         .unwrap();
     assert_ne!(original.id, extended.id);
-    assert!(!Rc::ptr_eq(&original.types, &extended.types));
+    assert!(!Arc::ptr_eq(&original.types, &extended.types));
     assert!(
         runtime
             .gc

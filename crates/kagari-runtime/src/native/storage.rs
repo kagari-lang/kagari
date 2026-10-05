@@ -23,13 +23,15 @@ use std::{
     any::{Any, TypeId},
     fmt,
     fmt::Debug,
-    rc::Rc,
     slice,
+    sync::Arc,
 };
 
 /// Trace every script value retained by this payload. The visitor cannot execute
 /// scripts or retain a reference past tracing. Rust Drop owns payload destruction.
-pub trait NativePayload: Any + Debug {
+/// The runtime exclusively owns the payload, so Send permits transfer without
+/// requiring Sync. Factories shared by multiple installations require Send + Sync.
+pub trait NativePayload: Any + Debug + Send {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value));
 
     /// Managed iterators used by this payload. These are also GC edges. A for
@@ -68,7 +70,7 @@ impl<'call> StorageContext<'call> {
         self.heap().ensure_no_native_borrow()?;
         element.validate(self.runtime)?;
         self.runtime.validate_heap_payloads(&elements)?;
-        let contract = Rc::new(StorageType::prepare_scoped(element, self.owner)?);
+        let contract = Arc::new(StorageType::prepare_scoped(element, self.owner)?);
         self.heap()
             .alloc_array_with_contract(contract, elements)
             .map(Value::Array)
@@ -90,8 +92,8 @@ impl<'call> StorageContext<'call> {
         }
     }
 
-    pub(crate) fn element_contract(&self, index: usize) -> NativeResult<Rc<StorageType>> {
-        StorageType::prepare_scoped(self.type_parameter(index)?, self.owner).map(Rc::new)
+    pub(crate) fn element_contract(&self, index: usize) -> NativeResult<Arc<StorageType>> {
+        StorageType::prepare_scoped(self.type_parameter(index)?, self.owner).map(Arc::new)
     }
 
     pub fn owner(&self) -> &'call LoadedModule {
@@ -112,11 +114,12 @@ impl<'call> StorageContext<'call> {
     }
 }
 
-type Factory = dyn for<'call> Fn(&StorageContext<'call>) -> NativeResult<Box<dyn Any>>;
+type Factory =
+    dyn for<'call> Fn(&StorageContext<'call>) -> NativeResult<Box<dyn Any + Send>> + Send + Sync;
 
-type Trace = dyn for<'payload> Fn(&'payload dyn Any, &mut dyn FnMut(&'payload Value));
+type Trace = dyn for<'payload> Fn(&'payload dyn Any, &mut dyn FnMut(&'payload Value)) + Send + Sync;
 
-type Units = dyn Fn(&dyn Any) -> usize;
+type Units = dyn Fn(&dyn Any) -> usize + Send + Sync;
 
 struct StorageEntries {
     rust_type: TypeId,
@@ -130,7 +133,7 @@ struct StorageEntries {
 /// An immutable checked erasure of one Rust payload type. Clone shares entries.
 #[derive(Clone)]
 pub struct NativeStorage {
-    entries: Rc<StorageEntries>,
+    entries: Arc<StorageEntries>,
 }
 
 impl Debug for NativeStorage {
@@ -144,19 +147,19 @@ impl Debug for NativeStorage {
 
 impl NativeStorage {
     pub fn new<S: NativePayload>(
-        factory: impl for<'call> Fn(&StorageContext<'call>) -> NativeResult<S> + 'static,
+        factory: impl for<'call> Fn(&StorageContext<'call>) -> NativeResult<S> + Send + Sync + 'static,
     ) -> Self {
         Self::with_layout(NativeStorageLayout::Opaque, factory)
     }
 
     pub(crate) fn with_layout<S: NativePayload>(
         layout: NativeStorageLayout,
-        factory: impl for<'call> Fn(&StorageContext<'call>) -> NativeResult<S> + 'static,
+        factory: impl for<'call> Fn(&StorageContext<'call>) -> NativeResult<S> + Send + Sync + 'static,
     ) -> Self {
         Self::entries::<S>(
             layout,
             Some(Box::new(move |context| {
-                factory(context).map(|payload| Box::new(payload) as Box<dyn Any>)
+                factory(context).map(|payload| Box::new(payload) as Box<dyn Any + Send>)
             })),
         )
     }
@@ -176,7 +179,7 @@ impl NativeStorage {
         factory: Option<Box<Factory>>,
     ) -> Self {
         Self {
-            entries: Rc::new(StorageEntries {
+            entries: Arc::new(StorageEntries {
                 rust_type: TypeId::of::<S>(),
                 layout,
                 factory,
@@ -239,7 +242,7 @@ impl NativeStorage {
         &self,
         heap: &GcHeap,
         ty: &Ty<DefinitionId>,
-        payload: Box<dyn Any>,
+        payload: Box<dyn Any + Send>,
         owner: &LoadedModule,
     ) -> NativeResult<NativeObject> {
         let mut valid = true;
@@ -269,7 +272,7 @@ impl NativeStorage {
 /// create a module-state -> data -> module-instance retention cycle.
 pub(crate) struct NativeObject {
     pub(crate) storage: NativeStorage,
-    payload: Box<dyn Any>,
+    payload: Box<dyn Any + Send>,
     pub(crate) ty: Ty<DefinitionId>,
     _owner: LoadedModule,
     pub(crate) scope: Option<TypeArgument>,

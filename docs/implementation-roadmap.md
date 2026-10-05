@@ -1138,7 +1138,7 @@ Phase order and progress:
   version reclamation, including cycles and escaped generic environments. Separate
   object policy from collection; establish storage traversal and controlled internal
   edge writes, including initialization, frame/root slots and metadata links.
-- [ ] **GO03: Runtime thread transfer.** Send runtime, exclusive access,
+- [x] **GO03: Runtime thread transfer.** Send runtime, exclusive access,
   callback/payload constraints, deterministic thread handoff and Tokio task coverage.
 - [ ] **GO04: Typed registration and results.** Recursive conversion, argument
   tuples, complete registration docs/generated KGR, typed entry arguments and
@@ -1180,9 +1180,46 @@ is assumed. Open implementation errors and resumption state belong here.
   traversal and checked reference publication cover the accepted internal scope.
   Exact generations, immediate session cleanup, scoped reentry and escaped generic
   environments are preserved. No carried compilation/test error or structural debt
-  remains. Runtime is not Send yet; GO03-GO06 remain pending. Next is GO03: audit
-  shared callback/descriptor bounds, exclusively owned payloads/observers and native
-  code owners; prove exclusive OS-thread/Tokio handoff without a local-only variant.
+  remains at the accepted GO02 commit 4527ed5b.
+- GO03 complete. Audited immutable type arguments/bindings, layout
+  and storage contracts, selected scoped signatures and stored callable/cursor
+  descriptors now use Arc; compile-time Send + Sync checks cover these types and
+  Value. They contain checked IDs/type facts, not mutable runtime storage. The
+  type-origin test transfers retained facts through an OS thread after collecting
+  their environments and still resolves the original nominal layout.
+  NativeCodeOwner now requires Send + Sync and products/installed handles use Arc.
+  Cranelift 0.132.0's JITModule is Send but not Sync; its private CodeMemory wraps
+  the module in Mutex, accessing it only through exclusive get_mut during compile
+  and final destruction. Finalized invocation takes no owner lock. A real-code
+  test compiles, installs and invokes two runtimes before moving them to separate
+  worker threads for further invocation and final owner release. No unsafe Send/Sync implementation was added.
+  Shared native/host callbacks, path adapters and storage factories now use Arc
+  with Send + Sync bounds. Exclusive NativePayload storage requires only Send.
+  Captured mutable host services in examples/tests use synchronized state and
+  release guards before callback reentry. Mapped iterator operation exclusion now
+  lives in the heap lease table; argument-scoped guards release on every exit.
+  Runtime owns a boxed Send observer. Installation/replacement requires quiescence;
+  sessions activate it once and VM debugger access borrows the same owned state.
+  Runtime is statically Send/not-Sync. A deterministic two-thread handoff preserves
+  Cell payload/observer state, exact old closure dependencies and receiver-thread
+  destruction. Tokio dev-only coverage owns KagariRuntime and live rooted values
+  across message-receive awaits and returns the runtime to the host.
+  PreparedProgram's Rc/RefCell native cache remains preparation-side, never retained
+  by a runtime; concurrent/shared preparation is not claimed. Finalized products
+  are transferable independently of this cache.
+- GO03 acceptance: `cargo test -p kagari-runtime -p kagari-vm -p kagari-embed -p kagari-stdlib -p kagari-codegen-cranelift --no-fail-fast`
+  passed 942 tests, including five compile-fail cases, source/artifact/interpreter/JIT
+  behavior, live-runtime OS-thread/Tokio transfer, observer ownership, native
+  operation unwind and receiving-thread destruction. One pre-existing manual
+  performance measurement remains ignored. Workspace all-target check, strict
+  all-target Clippy for runtime/VM/embed/stdlib/Cranelift, structure (810 Rust files,
+  zero violations/exceptions), formatting, 98 local documentation links and diff
+  checks passed. Initial callback-consumer and integration-test placement errors
+  were corrected without weakening behavior checks. No carried build/test error or
+  structural debt remains. Disposable logs: target/go03/*. Final workspace/feature
+  matrices remain GO06 acceptance. Next phase is GO04: recursive conversion,
+  tuple arguments, documented typed registration and retained public results;
+  GO05-GO06 remain pending. No GO04 implementation is included in the GO03 commit.
 - GO02 acceptance: `cargo test -p kagari-runtime -p kagari-vm -p kagari-embed --no-fail-fast`
   initially passed 925 tests and found one obsolete lease-count assertion in
   library_mapping::retained_map_uses_its_original_callback_after_reload. Replace

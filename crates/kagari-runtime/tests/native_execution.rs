@@ -31,7 +31,6 @@ use kagari_runtime::{
 use kagari_types::ty::{NominalTy, Ty};
 use std::{
     ffi::c_void,
-    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -122,7 +121,7 @@ unsafe extern "C" fn bad_result(runtime: *const c_void, result: *mut JitValue) -
     status
 }
 
-fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Rc<NativeCompilationProduct> {
+fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Arc<NativeCompilationProduct> {
     let mut artifact = ExecutableFunctionArtifact::new(
         BackendId::new("fixture"),
         BackendTarget::new("host-fixture", usize::BITS as u8),
@@ -132,9 +131,9 @@ fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Rc<NativeCo
         symbol: "fixture".into(),
         address: entry as usize,
     };
-    Rc::new(NativeCompilationProduct {
+    Arc::new(NativeCompilationProduct {
         artifact,
-        owner: Rc::new(Owner(dropped)),
+        owner: Arc::new(Owner(dropped)),
     })
 }
 
@@ -251,7 +250,7 @@ fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
     let mut runtime = runtime();
     let module = runtime.load_program("native", program()).unwrap();
     let mut code = product(execute, Arc::default());
-    Rc::get_mut(&mut code).unwrap().artifact.code.entry = ExecutableEntryPoint::Unresolved;
+    Arc::get_mut(&mut code).unwrap().artifact.code.entry = ExecutableEntryPoint::Unresolved;
     assert!(matches!(
         unsafe { runtime.install_native_function(&module, code) },
         Err(BackendInvocationError::UnsupportedArtifact(_))
@@ -271,7 +270,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
     let module = runtime.load_program("native", program()).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let mut code = product(execute, dropped.clone());
-    Rc::get_mut(&mut code)
+    Arc::get_mut(&mut code)
         .unwrap()
         .artifact
         .safepoints
@@ -296,7 +295,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
     );
 
     let mut invalid = product(execute, dropped.clone());
-    Rc::get_mut(&mut invalid).unwrap().artifact.function = FunctionRef::new(99);
+    Arc::get_mut(&mut invalid).unwrap().artifact.function = FunctionRef::new(99);
     // Invalid metadata is rejected before the otherwise valid static entry can run.
     assert!(matches!(
         unsafe { runtime.install_native_function(&module, invalid) },
@@ -440,7 +439,7 @@ fn incompatible_native_abis_are_rejected_before_installation() {
         let mut runtime = runtime();
         let module = runtime.load_program("native", program()).unwrap();
         let mut code = product(execute, Arc::default());
-        let artifact = &mut Rc::get_mut(&mut code).unwrap().artifact;
+        let artifact = &mut Arc::get_mut(&mut code).unwrap().artifact;
         if helper {
             artifact.code.runtime_helper_abi_version = "previous-helper".into();
         } else {
@@ -518,7 +517,7 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
 
     impl ExecutionObserver for Observer {
         fn observe(
-            &self,
+            &mut self,
             _: &Runtime,
             _: ExecutionEvent,
             _: &[ExecutionFrame],
@@ -528,12 +527,11 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
     }
     let mut runtime = runtime();
     let installed = install(&mut runtime, execute);
+    runtime.set_execution_observer(Observer).unwrap();
     let session = runtime
         .begin_execution(installed.module(), runtime.execution_options())
         .unwrap();
-    runtime
-        .attach_execution_observer(Rc::new(Observer))
-        .unwrap();
+    runtime.attach_execution_observer().unwrap();
     assert!(matches!(
         runtime
             .invoke_native_function(&installed)

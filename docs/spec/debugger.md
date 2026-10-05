@@ -64,9 +64,11 @@ They adapt tool requests into this debugger control surface.
 
 ## Debug Sessions
 
-The current VM keeps debugger state behind short Ref/RefMut guards. Its root
-execution observer is shared with synchronous host reentry; an executor does not
-hold a mutable debugger borrow across a host call. Breakpoints are resolved for the
+Runtime owns DebugSession as its boxed execution observer. The VM exposes short
+Ref/RefMut guards into that state, without a second shared owner. It moves with
+the runtime and needs Send, not Sync. Root observer activation is inherited by
+synchronous host reentry; an executor does not hold a mutable debugger borrow
+across a host call. Breakpoints are resolved for the
 pinned dependency program before execution. Nested instruction and trap events
 inspect the complete session-owned stack. Suspended callers report the active call
 instruction, while the executing frame advances to its next program point only

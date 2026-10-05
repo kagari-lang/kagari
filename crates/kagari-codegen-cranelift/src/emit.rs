@@ -21,7 +21,10 @@ use kagari_mir::{
     function::MirFunction,
     instruction::{Instruction, Terminator},
 };
-use std::{fmt, rc::Rc, sync::Arc};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
 use {
     kagari_abi::{
         native::{ExecutableEntryPoint, ExecutableTrap, NativeCodeOwner, NativeType},
@@ -38,7 +41,11 @@ use {
     },
 };
 
-struct CodeMemory(Option<JITModule>);
+// JITModule is Send but contains non-Sync compiler bookkeeping. It is private
+// behind a mutex after publication: only exclusive compilation and final Drop
+// access it through get_mut. Calling finalized code neither reads this state nor
+// takes a lock. No new definitions or relocations are published afterwards.
+struct CodeMemory(Mutex<Option<JITModule>>);
 
 impl fmt::Debug for CodeMemory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -51,7 +58,7 @@ impl NativeCodeOwner for CodeMemory {}
 
 impl Drop for CodeMemory {
     fn drop(&mut self) {
-        if let Some(module) = self.0.take() {
+        if let Some(module) = self.0.get_mut().expect("code owner is never locked").take() {
             // SAFETY: the product's last owner is gone. Installed handles retain
             // that owner throughout invocation, including synchronous reentry.
             unsafe {
@@ -86,8 +93,13 @@ pub(super) fn compile(
     }
     let mut jit = JITBuilder::with_isa(isa, default_libcall_names());
     jit.symbol(&helper.symbol, helper.address as *const u8);
-    let mut memory = CodeMemory(Some(JITModule::new(jit)));
-    let module = memory.0.as_mut().expect("new code owner");
+    let mut memory = CodeMemory(Mutex::new(Some(JITModule::new(jit))));
+    let module = memory
+        .0
+        .get_mut()
+        .expect("code owner is never locked")
+        .as_mut()
+        .expect("new code owner");
     let pointer_type = module.target_config().pointer_type();
     let mut helper_sig = module.make_signature();
     helper_sig
@@ -233,7 +245,7 @@ pub(super) fn compile(
     artifact.code.traps = traps;
     Ok(NativeCompilationProduct {
         artifact,
-        owner: Rc::new(memory),
+        owner: Arc::new(memory),
     })
 }
 

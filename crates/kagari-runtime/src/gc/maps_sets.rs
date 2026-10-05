@@ -9,7 +9,7 @@ use crate::{
     value::{MapKey, Value},
 };
 use kagari_types::ty::Ty;
-use std::rc::Rc;
+use std::sync::Arc;
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(
@@ -196,7 +196,7 @@ impl GcHeap {
     pub(crate) fn map_contract(
         &self,
         id: HeapObjectId,
-    ) -> Option<(Rc<StorageType>, Rc<StorageType>, bool)> {
+    ) -> Option<(Arc<StorageType>, Arc<StorageType>, bool)> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
@@ -212,7 +212,7 @@ impl GcHeap {
         ))
     }
 
-    pub(crate) fn set_contract(&self, id: HeapObjectId) -> Option<(Rc<StorageType>, bool)> {
+    pub(crate) fn set_contract(&self, id: HeapObjectId) -> Option<(Arc<StorageType>, bool)> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;

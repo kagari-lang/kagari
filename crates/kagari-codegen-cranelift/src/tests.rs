@@ -6,13 +6,17 @@ use kagari_compiler::{
 use kagari_embed::engine::KagariEngine;
 use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
 use kagari_runtime::{
-    Runtime, RuntimeConfig, backend::BackendInvocationError, error::RuntimeErrorKind,
-    jit_abi::native_helper_symbols, native::module::NativeModule, resource::RuntimeLimits,
+    Runtime, RuntimeConfig,
+    backend::{BackendInvocationError, native::InstalledNativeFunction},
+    error::RuntimeErrorKind,
+    jit_abi::native_helper_symbols,
+    native::module::NativeModule,
+    resource::RuntimeLimits,
     value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
-use std::rc::Rc;
+use std::{sync::Arc, thread};
 use {
     kagari_abi::{native::ExecutableEntryPoint, native_call::JIT_POLL_EXECUTION_SYMBOL},
     kagari_contract::native::ExecutableSafepointKind,
@@ -70,6 +74,50 @@ fn cranelift_backend_initializes_host_target_without_leaking_backend_types() {
 }
 
 #[test]
+fn finalized_code_and_installed_runtimes_move_execute_and_release_on_other_threads() {
+    fn shareable<T: Send + Sync>() {}
+    shareable::<NativeCompilationProduct>();
+    shareable::<InstalledNativeFunction>();
+    let mir = mir("fn main() -> i32 { 40 + 2 }");
+    let bytecode = lower_program_to_bytecode(&mir).unwrap();
+    let mut backend = CraneliftBackend::for_host().unwrap();
+    let product = Arc::new(compile(&mut backend, &mir).unwrap());
+    let owner = Arc::downgrade(&product.owner);
+    let second = product.clone();
+    drop((backend, mir));
+    let spawn = |product: Arc<NativeCompilationProduct>| {
+        let mut runtime = runtime();
+        let loaded = runtime
+            .load_program("threaded-native", bytecode.clone())
+            .unwrap();
+        // SAFETY: this product was compiled from this exact bytecode's MIR;
+        // the finalized owner retains immutable pages through invocation.
+        let installed = unsafe { runtime.install_native_function(&loaded, product) }.unwrap();
+        assert_eq!(
+            runtime.invoke_native_function(&installed).unwrap(),
+            Value::I32(42)
+        );
+        thread::spawn(move || {
+            assert_eq!(
+                runtime.invoke_native_function(&installed).unwrap(),
+                Value::I32(42)
+            );
+            assert_eq!(runtime.gc().active_roots(), 0);
+            drop(runtime);
+            drop(installed);
+        })
+    };
+    let first = spawn(product);
+    let second = spawn(second);
+    first.join().unwrap();
+    second.join().unwrap();
+    assert!(
+        owner.upgrade().is_none(),
+        "last receiving thread releases the code owner"
+    );
+}
+
+#[test]
 fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     let mut backend = CraneliftBackend::for_host().unwrap();
     let mut products = Vec::new();
@@ -102,7 +150,7 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
             );
             assert!(point.stack_map.live_slots.is_empty());
         }
-        products.push((mir, Rc::new(code), result, expected_points));
+        products.push((mir, Arc::new(code), result, expected_points));
     }
     // Later compilations and backend destruction cannot retire earlier products.
     drop(backend);
@@ -179,7 +227,7 @@ fn checked_i32_traps_keep_the_exact_mir_point() {
         "-(-2147483647 - 1)",
     ] {
         let mir = mir(&format!("fn main() -> i32 {{ {expression} }}"));
-        let code = Rc::new(compile(&mut CraneliftBackend::for_host().unwrap(), &mir).unwrap());
+        let code = Arc::new(compile(&mut CraneliftBackend::for_host().unwrap(), &mir).unwrap());
         let overflow_offset = code.artifact.code.traps.last().unwrap().instruction_offset;
         {
             let mut runtime = runtime();

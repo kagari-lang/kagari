@@ -10,7 +10,7 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{collection::CollectionAccess, ty::Ty};
-use std::{mem, ops::Bound, rc::Rc};
+use std::{mem, ops::Bound, sync::Arc};
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(
@@ -26,12 +26,12 @@ impl GcHeap {
         element: Ty<DefinitionId>,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
-        self.alloc_array_with_contract(Rc::new(StorageType::prepare(element, owner)?), elements)
+        self.alloc_array_with_contract(Arc::new(StorageType::prepare(element, owner)?), elements)
     }
 
     pub(crate) fn alloc_array_with_contract(
         &self,
-        contract: Rc<StorageType>,
+        contract: Arc<StorageType>,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -61,7 +61,7 @@ impl GcHeap {
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.alloc_array_repeat_with_contract(
-            Rc::new(StorageType::prepare(element, owner)?),
+            Arc::new(StorageType::prepare(element, owner)?),
             value,
             count,
         )
@@ -69,7 +69,7 @@ impl GcHeap {
 
     pub(crate) fn alloc_array_repeat_with_contract(
         &self,
-        contract: Rc<StorageType>,
+        contract: Arc<StorageType>,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
@@ -153,7 +153,7 @@ impl GcHeap {
         self.with_array(id, |values| values.get(index)).flatten()
     }
 
-    pub(crate) fn array_contract(&self, id: HeapObjectId) -> Option<Rc<StorageType>> {
+    pub(crate) fn array_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;

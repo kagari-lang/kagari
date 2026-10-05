@@ -12,7 +12,10 @@ use kagari_types::host_interface::{
     type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
     value_type::HostValueType,
 };
-use std::{cell::Cell, rc::Rc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -133,7 +136,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     assert_eq!(a.path, b.path);
     let (a_ty, a_value) = register(&mut runtime, "export.First", a.clone());
     let (b_ty, b_value) = register(&mut runtime, "export.Second", b);
-    let calls = Rc::new(Cell::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let id = runtime
         .register_host_function(HostFunction::new(
@@ -142,7 +145,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
                 HostPassingStyle::SharedBorrow,
             ),
             move |_, _| {
-                observed.set(observed.get() + 1);
+                observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
             },
         ))
@@ -170,7 +173,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
             .invoke_bound_host(id, &[Value::host_ref(b_token)])
             .is_err()
     );
-    assert_eq!(calls.get(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     drop(scope);
 
     let observed = calls.clone();
@@ -182,13 +185,13 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
                 HostValueType::Tuple(vec![HostValueType::Opaque(a)]),
             ),
             move |_, _| {
-                observed.set(observed.get() + 1);
+                observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Tuple(vec![b_value.clone()]))
             },
         ))
         .unwrap();
     assert!(runtime.invoke_bound_host(result, &[]).is_err());
-    assert_eq!(calls.get(), 3);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert!(!runtime.is_quarantined());
 }
@@ -211,7 +214,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     assert_eq!(a.schema_epoch(), b.schema_epoch());
     assert_eq!(a.abi_fingerprint(), b.abi_fingerprint());
     assert_ne!(a, b);
-    let calls = Rc::new(Cell::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let id = local
         .register_host_function(HostFunction::new(
@@ -220,7 +223,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
                 HostPassingStyle::Owned,
             ),
             move |_, _| {
-                observed.set(observed.get() + 1);
+                observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
             },
         ))
@@ -238,7 +241,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
             .host_scope(std::slice::from_ref(&foreign_value))
             .is_err()
     );
-    assert_eq!(calls.get(), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     let observed = calls.clone();
     let result = local
         .register_host_function(HostFunction::new(
@@ -248,13 +251,13 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
                 HostValueType::opaque("game.Player"),
             ),
             move |_, _| {
-                observed.set(observed.get() + 1);
+                observed.fetch_add(1, Ordering::SeqCst);
                 Ok(foreign_value.clone())
             },
         ))
         .unwrap();
     assert!(local.invoke_bound_host(result, &[]).is_err());
-    assert_eq!(calls.get(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(local.gc().active_roots(), 0);
     assert!(!local.is_quarantined());
 }

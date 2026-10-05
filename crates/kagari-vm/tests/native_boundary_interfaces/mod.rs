@@ -18,7 +18,10 @@ use kagari_runtime::{
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_vm::vm::Vm;
-use std::{cell::Cell, rc::Rc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 #[test]
 fn generic_native_default_uses_the_interface_callers_type_arguments() {
@@ -50,7 +53,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         )
         .unwrap();
     let contract = declaration.finish().unwrap();
-    let calls = Rc::new(Cell::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     module
         .implement(Type::i32(), |group| {
@@ -58,7 +61,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
                 methods.bind_with(
                     "identity",
                     NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
-                        observed.set(observed.get() + 1);
+                        observed.fetch_add(1, Ordering::SeqCst);
                         cx.argument(1)
                     }),
                 )
@@ -146,7 +149,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         vm.execute(&loaded, "overridden").unwrap().return_value,
         Value::I32(42)
     );
-    assert_eq!(calls.get(), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         vm.execute(&loaded, "nested").unwrap().return_value,
         Value::I32(42)
@@ -155,7 +158,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         vm.execute(&loaded, "bounded").unwrap().return_value,
         Value::I32(42)
     );
-    assert_eq!(calls.get(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
 #[test]

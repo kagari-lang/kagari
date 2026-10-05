@@ -7,7 +7,7 @@ use kagari_embed::{
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -169,12 +169,12 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     };
 
     let mut runtime = engine.runtime(context.clone());
-    let memory_slot = Rc::new(RefCell::new(None));
+    let memory_slot = Arc::new(Mutex::new(None));
     let captured_memory = memory_slot.clone();
     runtime
         .register_host_function(HostFunction::new(declaration, move |_, _| {
             Ok(Value::Array(
-                captured_memory.borrow().expect("initialized memory"),
+                captured_memory.lock().unwrap().expect("initialized memory"),
             ))
         }))
         .unwrap();
@@ -188,7 +188,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
     let root = runtime.runtime().root_value(Value::Array(memory)).unwrap();
-    *memory_slot.borrow_mut() = Some(memory);
+    *memory_slot.lock().unwrap() = Some(memory);
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     assert!(
         format!("{error:?}").contains("shift out of range"),

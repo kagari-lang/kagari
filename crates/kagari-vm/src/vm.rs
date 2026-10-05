@@ -15,20 +15,15 @@ use kagari_runtime::{
     value::Value,
 };
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Ref, RefMut},
     iter,
-    rc::Rc,
 };
 use {
     kagari_abi::native::BackendId,
     kagari_contract::{ids::FunctionRef, native::ExecutableFunctionArtifact},
 };
 
-use crate::{
-    debug::{DebugSession, SharedDebugSession},
-    error::VmError,
-    executor::Executor,
-};
+use crate::{debug::DebugSession, error::VmError, executor::Executor};
 
 #[derive(Debug)]
 pub enum ReloadError {
@@ -38,7 +33,6 @@ pub enum ReloadError {
 #[derive(Debug)]
 pub struct Vm {
     runtime: Runtime,
-    debug_session: Option<Rc<SharedDebugSession>>,
 }
 
 #[derive(Debug)]
@@ -69,10 +63,7 @@ pub enum JitExecutionStatus {
 
 impl Vm {
     pub fn new(runtime: Runtime) -> Self {
-        Self {
-            runtime,
-            debug_session: None,
-        }
+        Self { runtime }
     }
 
     pub fn reload_program(
@@ -115,37 +106,24 @@ impl Vm {
     }
 
     pub fn attach_debug_session(&mut self, session: DebugSession) -> Result<(), VmError> {
-        self.runtime
-            .resources()
-            .ensure_execution_allowed()
-            .map_err(VmError::RuntimeError)?;
-        self.debug_session = Some(Rc::new(SharedDebugSession(RefCell::new(session))));
+        self.runtime.set_execution_observer(session)?;
         Ok(())
     }
 
     pub fn debug_session(&self) -> Option<Ref<'_, DebugSession>> {
-        self.debug_session
-            .as_ref()
-            .map(|session| session.0.borrow())
+        self.runtime.execution_observer::<DebugSession>()
     }
 
     pub fn debug_session_mut(&mut self) -> Option<RefMut<'_, DebugSession>> {
-        self.debug_session
-            .as_ref()
-            .map(|session| session.0.borrow_mut())
+        self.runtime.execution_observer_mut::<DebugSession>()
     }
 
     fn begin_execution(&self, module: &LoadedModule) -> Result<ExecutionSession<'_>, VmError> {
         let session = self
             .runtime
             .begin_execution(module, self.runtime.execution_options())?;
-        if let Some(debug) = &self.debug_session
-            && self.runtime.attach_execution_observer(debug.clone())?
-        {
-            let mut debug = debug.0.borrow_mut();
-            for member in session.root().members() {
-                debug.resolve_module(&member, &self.runtime)?;
-            }
+        if self.runtime.execution_observer::<DebugSession>().is_some() {
+            self.runtime.attach_execution_observer()?;
         }
         Ok(session)
     }

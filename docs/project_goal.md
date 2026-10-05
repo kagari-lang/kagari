@@ -36,11 +36,11 @@ One script heap is driven on one host thread. Independent isolates may run on
 different host threads; shared mutable heap access and script threading are outside
 the current model. Host services own resource lifecycle, synchronization and IO.
 
-The active [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
-targets a Send runtime that can move between host workers while retaining exclusive
-execution, centralized ownership and automatic host-value retention. This is a
-phased replacement of the fixed-thread implementation, not concurrent script
-heap access or a claim that current runtime values are transferable.
+Runtime is Send and not Sync: hosts can move its ownership between workers outside
+active synchronous scopes while retaining exclusive execution. The active
+[runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
+also owns the remaining typed host API and automatic host-value retention work.
+Thread transfer does not enable concurrent script heap access.
 
 `val` prevents slot rebinding, `var` permits writes and `const` denotes a checked
 compile-time value. Readonly collection views are shallow; aliases may mutate the

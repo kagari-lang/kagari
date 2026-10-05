@@ -75,8 +75,10 @@ pub struct ExecutableTrap {
 }
 
 /// Keeps executable pages alive for every installed immutable execution version.
-/// Backend implementations release their pages only when the final owner is dropped.
-pub trait NativeCodeOwner: fmt::Debug {}
+/// Backend implementations release their pages only when the final owner is dropped,
+/// possibly on a different thread from compilation. Published code is immutable;
+/// sharing an owner grants no permission to enter a runtime concurrently.
+pub trait NativeCodeOwner: fmt::Debug + Send + Sync {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeType {

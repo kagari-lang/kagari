@@ -41,7 +41,7 @@ use kagari_types::{
     language::Protocol,
     ty::Ty,
 };
-use std::{collections::HashSet, rc::Rc, slice};
+use std::{collections::HashSet, slice, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub(crate) struct BindingRegistration {
@@ -76,7 +76,7 @@ impl BindingRegistration {
 pub(crate) fn link_host(
     import: &NativeImport<DefinitionId>,
     binding: HostFunctionId,
-) -> Rc<LinkedNativeFunction> {
+) -> Arc<LinkedNativeFunction> {
     let signature = import.signature.clone();
     let entry = NativeBinding::new(
         vec![Codec::Value; signature.params.len()],
@@ -88,7 +88,7 @@ pub(crate) fn link_host(
             context.runtime.invoke_bound_host(binding, &arguments)
         },
     );
-    Rc::new(LinkedNativeFunction {
+    Arc::new(LinkedNativeFunction {
         binding: entry,
         signature,
         scoped_signature: None,
@@ -99,7 +99,7 @@ pub(crate) fn link_host(
 
 #[derive(Debug, Clone)]
 pub(crate) struct NativeRegistry {
-    entries: DefinitionMap<Rc<BindingRegistration>>,
+    entries: DefinitionMap<Arc<BindingRegistration>>,
     pub(crate) storage: DefinitionMap<NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
 }
@@ -126,7 +126,7 @@ impl NativeRegistry {
 
     pub(crate) fn install(
         &mut self,
-        registration: Rc<BindingRegistration>,
+        registration: Arc<BindingRegistration>,
         imports: &mut CatalogImports,
     ) -> NativeResult<()> {
         let invalid = || RuntimeError::metadata_conflict("invalid or duplicate native binding");
@@ -175,7 +175,7 @@ impl NativeRegistry {
             catalog.insert_declaration(declaration.clone())?;
         }
         let context = self.entries.context();
-        let registration = Rc::new(BindingRegistration {
+        let registration = Arc::new(BindingRegistration {
             declarations: DefinitionMetadata::checked(
                 registration.required_catalog.definitions(),
                 registration.declarations.clone(),
@@ -198,7 +198,7 @@ impl NativeRegistry {
         &self,
         import: &NativeImport<DefinitionId>,
         program: &VerifiedProgram,
-    ) -> NativeResult<Rc<LinkedNativeFunction>> {
+    ) -> NativeResult<Arc<LinkedNativeFunction>> {
         let entry = self
             .entries
             .get_id(import.binding)
@@ -289,7 +289,7 @@ impl NativeRegistry {
                 }))
             })
             .collect::<NativeResult<Vec<_>>>()?;
-        Ok(Rc::new(LinkedNativeFunction {
+        Ok(Arc::new(LinkedNativeFunction {
             binding: entry.binding.clone(),
             signature,
             result_adapter: LinkedResultAdapter::link(import, program)?,

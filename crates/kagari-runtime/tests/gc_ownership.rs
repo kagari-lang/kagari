@@ -10,6 +10,12 @@ use kagari_runtime::{
 };
 use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
 
+#[test]
+fn runtime_is_send() {
+    fn assert_send<T: Send>() {}
+    assert_send::<Runtime>();
+}
+
 fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
     runtime
         .load_program(
@@ -162,7 +168,7 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 }
 
 #[test]
-fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_storage() {
+fn shared_host_callbacks_can_retain_checked_root_leases() {
     use {
         kagari_runtime::{RuntimeConfig, host::HostFunction},
         kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType},

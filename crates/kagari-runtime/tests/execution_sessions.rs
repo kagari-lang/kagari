@@ -15,6 +15,10 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
     runtime
@@ -220,11 +224,10 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     use kagari_types::host_interface::{
         HostFunctionDeclaration, HostFunctionEffects, value_type::HostValueType,
     };
-    use std::{cell::Cell, rc::Rc};
 
     let mut runtime = Runtime::default();
 
-    let calls = Rc::new(Cell::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
     for (symbol, effects) in [
         (
             "pure",
@@ -268,7 +271,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
         let calls = calls.clone();
         runtime
             .register_host_function(HostFunction::new(declaration, move |_, _| {
-                calls.set(calls.get() + 1);
+                calls.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
             }))
             .unwrap();
@@ -312,11 +315,11 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     );
     assert!(runtime.host_dirty_paths().is_empty());
     assert_eq!(runtime.resources().counters(), before);
-    assert_eq!(calls.get(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     drop(nested);
     assert_eq!(runtime.execution_options().phase, ExecutionPhase::Ordinary);
     runtime.invoke_host("mutation", &[]).unwrap();
-    assert_eq!(calls.get(), 3);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
 #[test]

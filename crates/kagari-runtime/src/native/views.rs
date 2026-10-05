@@ -1,7 +1,7 @@
 //! Call-scoped handles borrow existing frame roots; buffer access stays scoped.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, roots::RootedValue},
+    gc::{GcHeap, HeapObjectId, leases::BorrowedLease, roots::RootedValue},
     native::{
         binding::NativeResult,
         context::{ArgumentView, CallContext},
@@ -24,7 +24,28 @@ pub struct ValueHandle<'call> {
     ty: &'call Ty<DefinitionId>,
 }
 
+/// Prevents recursive entry into an explicitly guarded native payload operation.
+/// The receiver remains protected by its call argument; no payload borrow spans reentry.
+pub struct NativeOperationGuard<'guard> {
+    _receiver: &'guard ValueHandle<'guard>,
+    _lease: BorrowedLease<'guard>,
+}
+
 impl<'call> ValueHandle<'call> {
+    /// Returns None when the same receiver already has a guarded operation active.
+    /// The library chooses its recursion error. Drop releases the marker on every exit.
+    pub fn try_enter_operation(&self) -> NativeResult<Option<NativeOperationGuard<'_>>> {
+        let Value::GcHandle(id) = self.value() else {
+            return Err(RuntimeError::module_validation("native operation argument"));
+        };
+        self.heap.try_enter_native_operation(id).map(|lease| {
+            lease.map(|lease| NativeOperationGuard {
+                _receiver: self,
+                _lease: lease,
+            })
+        })
+    }
+
     pub(crate) fn from_argument(cx: &CallContext<'call>, slot: usize) -> NativeResult<Self> {
         if !cx.arguments().contains(slot) {
             return Err(RuntimeError::module_validation("native argument slot"));

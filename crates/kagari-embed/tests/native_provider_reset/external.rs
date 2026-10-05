@@ -7,7 +7,10 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
-use std::{cell::Cell, rc::Rc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 #[test]
 fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown() {
@@ -17,7 +20,7 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
         &Default::default(),
     )
     .unwrap();
-    let drops = Rc::new(Cell::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
     let mut builder = KagariEngine::builder().unwrap();
     builder.install(provider::module(drops.clone())).unwrap();
     let engine = builder.build().unwrap();
@@ -27,14 +30,14 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
     let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
     let root = runtime.runtime().root_value(result.return_value).unwrap();
     runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(drops.get(), 0);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
     drop(runtime);
-    assert_eq!(drops.get(), 1);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
     let other = engine.runtime(context);
     assert!(root.value(other.runtime().gc()).is_none());
     assert!(root.set(other.runtime().gc(), Value::Unit).is_none());
     drop(root);
-    assert_eq!(drops.get(), 1);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
 
 #[test]

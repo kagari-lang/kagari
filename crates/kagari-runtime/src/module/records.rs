@@ -4,18 +4,18 @@ use crate::{
     native::binding::LinkedNativeFunction,
 };
 use kagari_bytecode::instruction::NativeImportId;
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub(super) struct ModuleRecord {
     pub(super) module: LoadedModule,
     pub(super) instance: ModuleInstance,
     pub(super) layouts: LayoutCache,
-    native: Vec<Rc<LinkedNativeFunction>>,
+    native: Vec<Arc<LinkedNativeFunction>>,
 }
 
 impl ModuleRecord {
-    pub(super) fn new(module: LoadedModule, native: Vec<Rc<LinkedNativeFunction>>) -> Self {
+    pub(super) fn new(module: LoadedModule, native: Vec<Arc<LinkedNativeFunction>>) -> Self {
         Self {
             instance: ModuleInstance::new(&module),
             module,
@@ -51,7 +51,7 @@ impl ModuleStore {
         &self,
         module: &LoadedModule,
         import: NativeImportId,
-    ) -> Option<Rc<LinkedNativeFunction>> {
+    ) -> Option<Arc<LinkedNativeFunction>> {
         let records = self.inner.try_borrow().ok()?;
         records.resolve(module)?.native.get(import.index()).cloned()
     }

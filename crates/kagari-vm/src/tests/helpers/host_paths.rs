@@ -11,6 +11,7 @@ use kagari_runtime::{
     host::HostPathDescriptorId,
 };
 use kagari_types::host_interface::value_type::HostValueType;
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn executes_runtime_host_helper_call() {
@@ -206,7 +207,6 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 #[test]
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
     use kagari_bytecode::artifact::KbcArtifact;
-    use std::{cell::RefCell, rc::Rc};
 
     fn assert_reentry(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
@@ -236,7 +236,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .id;
             let descriptor = HostPathDescriptorId::new(0);
             let root = runtime.host().root(HostObjectId(1)).unwrap();
-            let stages = Rc::new(RefCell::new(Vec::new()));
+            let stages = Arc::new(Mutex::new(Vec::new()));
             let validation = stages.clone();
             let reading = stages.clone();
             let preparing = stages.clone();
@@ -247,17 +247,17 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                     HostPathAdapter::new()
                         .with_validate(move |call, _, _, _| {
                             assert_reentry(call, compute);
-                            validation.borrow_mut().push("validate");
+                            validation.lock().unwrap().push("validate");
                             Ok(())
                         })
                         .with_read(move |call, _| {
                             assert_reentry(call, compute);
-                            reading.borrow_mut().push("read");
+                            reading.lock().unwrap().push("read");
                             Ok(Value::I32(10))
                         })
                         .with_prepare_write(move |call, _, record| {
                             assert_reentry(call, compute);
-                            preparing.borrow_mut().push("prepare");
+                            preparing.lock().unwrap().push("prepare");
                             let Value::I32(next) = record.new_value else {
                                 panic!("i32")
                             };
@@ -310,7 +310,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             .unwrap();
             assert_eq!(report.return_value, Value::I32(42));
             assert_eq!(*hp.lock().unwrap(), 20);
-            assert_eq!(*stages.borrow(), ["validate", "read", "prepare"]);
+            assert_eq!(*stages.lock().unwrap(), ["validate", "read", "prepare"]);
             assert_eq!(scope.host_scope_count(), 0);
             assert_eq!(scope.counters().current_call_depth, 0);
             assert_eq!(vm.runtime().gc().active_roots(), 0);

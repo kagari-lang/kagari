@@ -12,7 +12,7 @@ use kagari_common::identity::{
     table::DefinitionId,
 };
 use kagari_types::ty::{GenericParam, Ty};
-use std::{rc::Rc, slice};
+use std::{slice, sync::Arc};
 
 impl Runtime {
     pub(crate) fn declared_enum_variant(
@@ -62,7 +62,7 @@ impl Runtime {
                     position,
                 })
                 .collect();
-            layout.environment = Some(Rc::new(TypeBindings::new(
+            layout.environment = Some(Arc::new(TypeBindings::new(
                 self.definition_context(),
                 parameters,
                 arguments,

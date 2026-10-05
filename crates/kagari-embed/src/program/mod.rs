@@ -1,4 +1,4 @@
-//! Shared immutable executable input, independent of runtime instances.
+//! Preparation-side executable input and local compilation cache, independent of runtimes.
 #[cfg(feature = "native")]
 pub mod native;
 
@@ -22,6 +22,8 @@ use crate::program::native::{CachedFunction, NativeCacheKey};
 /// Clones share bytecode, verified native input and compiled products. Loading a
 /// clone creates fresh runtime instances and host bindings, never a new code cache.
 /// Each program admits at most 4096 distinct cached function/configuration decisions.
+/// This preparation-side Rc/RefCell owner is neither Send nor Sync. A loaded runtime
+/// does not retain it and can move independently, including its installed native code.
 #[derive(Debug, Clone)]
 pub struct PreparedProgram {
     state: Rc<ProgramState>,

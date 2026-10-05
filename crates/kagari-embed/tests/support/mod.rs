@@ -17,7 +17,7 @@ pub struct CancelAt {
 
 impl ExecutionObserver for CancelAt {
     fn observe(
-        &self,
+        &mut self,
         runtime: &Runtime,
         event: ExecutionEvent,
         _: &[ExecutionFrame],
@@ -39,12 +39,14 @@ pub fn cancel_after<'runtime>(
     at: usize,
 ) -> kagari_runtime::session::ExecutionSession<'runtime> {
     let options = runtime.execution_options();
-    let observer = std::rc::Rc::new(CancelAt {
-        seen: Default::default(),
-        at,
-        token: options.cancellation.clone(),
-    });
+    runtime
+        .set_execution_observer(CancelAt {
+            seen: Default::default(),
+            at,
+            token: options.cancellation.clone(),
+        })
+        .unwrap();
     let session = runtime.begin_execution(loaded, options).unwrap();
-    runtime.attach_execution_observer(observer).unwrap();
+    runtime.attach_execution_observer().unwrap();
     session
 }

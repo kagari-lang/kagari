@@ -21,17 +21,15 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl};
-use std::{cell::OnceCell, collections::BTreeMap, ops::Bound};
+use std::{collections::BTreeMap, ops::Bound, sync::OnceLock};
 
 type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
 
-thread_local! {
-    // Bindings contain Rc handlers; share only within the owning host thread.
-    static MODULE: OnceCell<NativeResult<Vec<NativeModule>>> = const { OnceCell::new() };
-}
+// Shared registrations contain immutable declarations and Send + Sync callbacks.
+static MODULE: OnceLock<NativeResult<Vec<NativeModule>>> = OnceLock::new();
 
 pub fn modules() -> NativeResult<Vec<NativeModule>> {
-    MODULE.with(|module| module.get_or_init(build).clone())
+    MODULE.get_or_init(build).clone()
 }
 
 fn build() -> NativeResult<Vec<NativeModule>> {

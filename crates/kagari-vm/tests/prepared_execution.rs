@@ -22,7 +22,7 @@ use kagari_vm::{
     error::VmError,
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-use std::{ffi::c_void, rc::Rc};
+use std::{ffi::c_void, sync::Arc};
 
 fn compile(source: &str, optimize: bool) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
@@ -97,9 +97,9 @@ fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> Prepa
         symbol: "fixture".into(),
         address: entry as usize,
     };
-    let product = Rc::new(NativeCompilationProduct {
+    let product = Arc::new(NativeCompilationProduct {
         artifact,
-        owner: Rc::new(StaticCode),
+        owner: Arc::new(StaticCode),
     });
     // Static ABI fixture; trap probe intentionally exercises failure propagation.
     PreparedNativeEntry::Native(

@@ -242,6 +242,7 @@ impl GcHeap {
         self.iterator_loops.prune();
         self.mutations.prune();
         self.key_lookups.prune();
+        self.native_operations.prune();
         let pause = started.elapsed();
         let mut stats = self.stats.borrow_mut();
         stats.collections += 1;

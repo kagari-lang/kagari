@@ -81,11 +81,17 @@ host code. Safe descriptor validation cannot prove arbitrary executable pointers
 or machine instructions correct.
 
 `NativeCompilationProduct` combines an `ExecutableFunctionArtifact` with an
-`Rc<dyn NativeCodeOwner>`. Its `artifact.code` is the ABI-owned `NativeArtifact`;
+`Arc<dyn NativeCodeOwner>`. Its `artifact.code` is the ABI-owned `NativeArtifact`;
 function identities and logical stack/debug maps live in contract. Descriptors identify backend, target, function, entry
 address, runtime/helper versions, safepoints, traps and debug metadata. The owner
 keeps callable pages alive independently of backend destruction or later compilation.
-The baseline is local to one host thread; the owner makes no Send/Sync promise.
+NativeCodeOwner requires Send + Sync: finalized products can be installed by
+independent runtimes on other threads, and final destruction can occur there.
+Cranelift keeps its Send-only JITModule bookkeeping behind a private mutex;
+compilation and final destruction use exclusive access, while invocation uses only
+the finalized entry address and takes no owner lock. Runtime ownership and entry
+checks still apply. Runtime transfer itself remains GO03 work until its callback,
+payload and observer bounds and handoff tests are complete.
 
 ## Links and Runtime ABI
 
@@ -165,6 +171,7 @@ Expand Cranelift coverage as a separate track before introducing LLVM. New suppo
 must consume the same concrete MIR facts and explicit link/ABI descriptions, retain
 correct roots and versions and satisfy the behavior matrix. No placeholder LLVM
 crate, duplicate runtime or second implementation of source semantics is required.
-Module/AOT compilation, physical GC maps, native debugger callbacks and cross-thread
-execution need their own explicit contracts and acceptance tests; they are not
-implicitly provided by the current function compiler.
+Module/AOT compilation, physical GC maps and native debugger callbacks need their
+own explicit contracts and acceptance tests; they are not implicitly provided by
+the current function compiler. Shareable code owners allow separate runtime
+installations, not concurrent entry into one runtime.

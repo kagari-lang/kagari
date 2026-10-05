@@ -1,5 +1,6 @@
 //! Failure preserves completed work and releases every temporary root/lease.
 use super::*;
+use std::sync::atomic::Ordering;
 
 fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let probe = Probe::new();
@@ -17,10 +18,11 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
         .unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
-    assert_eq!(probe.calls.get(), calls);
+    assert_eq!(probe.calls.load(Ordering::SeqCst), calls);
     let Value::Array(array) = probe
         .retained
-        .borrow()
+        .lock()
+        .unwrap()
         .as_ref()
         .unwrap()
         .value(vm.runtime().gc())
@@ -36,7 +38,7 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
             .collect::<Vec<_>>()
     );
     vm.runtime().gc().array_push(array, Value::I32(99)).unwrap();
-    probe.retained.borrow_mut().take();
+    probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }

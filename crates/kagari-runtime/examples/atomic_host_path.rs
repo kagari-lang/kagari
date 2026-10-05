@@ -1,4 +1,8 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
+use std::sync::{
+    Arc,
+    atomic::{AtomicI32, Ordering},
+};
 
 use kagari_types::{
     host_interface,
@@ -20,7 +24,6 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::host_interface::type_declaration::{HostTypeOwnership, PathAccess};
-use std::{cell::Cell, rc::Rc};
 
 fn main() {
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -53,14 +56,14 @@ fn main() {
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
         .unwrap();
     let path = runtime.register_host_path(&path_declaration).unwrap();
-    let hp = Rc::new(Cell::new(10));
+    let hp = Arc::new(AtomicI32::new(10));
     let read_hp = hp.clone();
     let prepare_hp = hp.clone();
     runtime
         .register_host_path_adapter(
             path,
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(read_hp.get())))
+                .with_read(move |_, _| Ok(Value::I32(read_hp.load(Ordering::SeqCst))))
                 .with_prepare_write(move |_, _, record| {
                     let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
@@ -70,7 +73,9 @@ fn main() {
                     }
                     // Capture the resolved host location and checked scalar. No target write yet.
                     let hp = prepare_hp.clone();
-                    Ok(PreparedHostPathWrite::new(move || hp.set(value)))
+                    Ok(PreparedHostPathWrite::new(move || {
+                        hp.store(value, Ordering::SeqCst)
+                    }))
                 }),
         )
         .unwrap();
@@ -93,7 +98,8 @@ fn main() {
     runtime
         .register_host_path_adapter(
             preview,
-            HostPathAdapter::new().with_read(move |_, _| Ok(Value::I32(preview_hp.get()))),
+            HostPathAdapter::new()
+                .with_read(move |_, _| Ok(Value::I32(preview_hp.load(Ordering::SeqCst)))),
         )
         .unwrap();
     let root = Value::HostRoot(root);
@@ -108,7 +114,7 @@ fn main() {
         .set_host_path(&root, preview, vec![], Value::I32(30))
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
-    assert_eq!(hp.get(), 20);
+    assert_eq!(hp.load(Ordering::SeqCst), 20);
     assert_eq!(runtime.host_dirty_paths().len(), 1);
     assert!(!runtime.is_quarantined());
     // The host consumes committed records outside the mutation action.
@@ -119,6 +125,6 @@ fn main() {
     runtime
         .set_host_path(&root, path, vec![], Value::I32(30))
         .unwrap();
-    assert_eq!(hp.get(), 30);
+    assert_eq!(hp.load(Ordering::SeqCst), 30);
     println!("readonly view preserved hp=20; writable path updated hp=30");
 }

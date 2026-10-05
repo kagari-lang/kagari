@@ -14,10 +14,10 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_vm::vm::Vm;
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-    sync::Arc,
+use std::sync::Arc;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
 };
 use {
     kagari_stdlib as foundation,
@@ -122,8 +122,8 @@ fn script_ord_is_selected_and_equal_elements_remain_stable() {
 
 struct Probe {
     module: NativeModule,
-    retained: Rc<RefCell<Option<RootedValue>>>,
-    calls: Rc<Cell<usize>>,
+    retained: Arc<Mutex<Option<RootedValue>>>,
+    calls: Arc<AtomicUsize>,
 }
 
 impl Probe {
@@ -134,8 +134,8 @@ impl Probe {
                 .catalog()
                 .expect("explicit standard providers"),
         );
-        let retained = Rc::new(RefCell::new(None));
-        let calls = Rc::new(Cell::new(0));
+        let retained = Arc::new(Mutex::new(None));
+        let calls = Arc::new(AtomicUsize::new(0));
         let keep = module.define_function(FunctionDecl::new("keep")).unwrap();
         module
             .function(&keep, |function| {
@@ -149,7 +149,7 @@ impl Probe {
             .bind(
                 keep,
                 move |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
-                    *capture.borrow_mut() = Some(value.root()?);
+                    *capture.lock().unwrap() = Some(value.root()?);
                     Ok(())
                 },
             )
@@ -162,9 +162,9 @@ impl Probe {
             .bind(
                 tick,
                 move |cx: &mut CallContext<'_>| -> NativeResult<usize> {
-                    count.set(count.get() + 1);
+                    count.fetch_add(1, Ordering::SeqCst);
                     cx.collect_garbage()?;
-                    Ok(count.get())
+                    Ok(count.load(Ordering::SeqCst))
                 },
             )
             .unwrap();
@@ -208,10 +208,11 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         .unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
-    assert_eq!(probe.calls.get(), 3);
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
     let Value::Array(array) = probe
         .retained
-        .borrow()
+        .lock()
+        .unwrap()
         .as_ref()
         .unwrap()
         .value(vm.runtime().gc())
@@ -255,7 +256,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         .gc()
         .array_push(array, values[0].clone())
         .unwrap();
-    probe.retained.borrow_mut().take();
+    probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
@@ -299,7 +300,8 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         );
         let Value::Array(array) = probe
             .retained
-            .borrow()
+            .lock()
+            .unwrap()
             .as_ref()
             .unwrap()
             .value(vm.runtime().gc())

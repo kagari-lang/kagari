@@ -20,11 +20,11 @@ use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     ty::{GenericParam, NominalTy, Ty},
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EnvironmentRecord {
-    pub(crate) types: Rc<TypeBindings>,
+    pub(crate) types: Arc<TypeBindings>,
     parent: Option<EnvironmentId>,
     operations: OperationBindings,
 }
@@ -49,7 +49,7 @@ impl EnvironmentRecord {
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
-            types: Rc::new(TypeBindings::new(definitions, parameters, arguments)?),
+            types: Arc::new(TypeBindings::new(definitions, parameters, arguments)?),
             parent: None,
             operations: OperationBindings::default(),
         })
@@ -57,7 +57,7 @@ impl EnvironmentRecord {
 
     pub(crate) fn include(&mut self, parent: Option<TypeEnvironment>) -> Result<(), RuntimeError> {
         if let Some(parent) = parent {
-            Rc::make_mut(&mut self.types).include(Some(parent.types.clone()))?;
+            Arc::make_mut(&mut self.types).include(Some(parent.types.clone()))?;
             self.parent = Some(parent.id);
         }
         Ok(())
@@ -68,7 +68,7 @@ impl EnvironmentRecord {
     }
 
     fn refresh_types(&mut self) {
-        Rc::make_mut(&mut self.types).associated_interfaces =
+        Arc::make_mut(&mut self.types).associated_interfaces =
             self.operations.associated_interfaces();
     }
     #[cfg(test)]
@@ -100,7 +100,7 @@ impl EnvironmentRecord {
 #[derive(Debug, Clone)]
 pub struct TypeEnvironment {
     pub(crate) id: EnvironmentId,
-    pub(crate) types: Rc<TypeBindings>,
+    pub(crate) types: Arc<TypeBindings>,
 }
 
 impl TypeEnvironment {

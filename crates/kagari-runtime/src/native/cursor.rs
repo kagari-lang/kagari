@@ -8,10 +8,10 @@ use crate::{
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::operations::IterOp;
 use kagari_types::ty::Ty;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct NativeCursor(Rc<Cursor>);
+pub struct NativeCursor(Arc<Cursor>);
 
 #[derive(Debug)]
 struct Cursor {
@@ -52,7 +52,7 @@ impl CallContext<'_> {
             ));
         };
         let value = self.iter_operation(index, IterOp::New)?;
-        Ok(NativeCursor(Rc::new(Cursor {
+        Ok(NativeCursor(Arc::new(Cursor {
             value,
             ty: Ty::Iter(item.clone()),
         })))

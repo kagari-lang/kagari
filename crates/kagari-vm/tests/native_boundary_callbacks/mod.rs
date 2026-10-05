@@ -14,7 +14,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 fn call_repeatedly(
     cx: &mut CallContext<'_>,
@@ -85,7 +85,7 @@ fn function_arguments_call_captured_script_closures_synchronously() {
 
 #[test]
 fn retained_host_callbacks_pin_their_capture_program_across_reload() {
-    let held: Rc<RefCell<Option<RootedCallable>>> = Rc::new(RefCell::new(None));
+    let held: Arc<Mutex<Option<RootedCallable>>> = Arc::new(Mutex::new(None));
     let mut builder = ModuleBuilder::new(
         "example::retained",
         &StandardDeclarations::default()
@@ -104,7 +104,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
             remember,
             move |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<()> {
                 let rooted = callback.store().root(cx)?;
-                *stored.borrow_mut() = Some(rooted);
+                *stored.lock().unwrap() = Some(rooted);
                 Ok(())
             },
         )
@@ -121,7 +121,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         .bind(
             invoke,
             move |cx: &mut CallContext<'_>, value: i32| -> NativeResult<i32> {
-                let callback = current.borrow().as_ref().unwrap().clone();
+                let callback = current.lock().unwrap().as_ref().unwrap().clone();
                 cx.collect_garbage()?;
                 callback.call(cx, (value,))
             },
@@ -157,7 +157,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         vm.execute(&replacement, "main").unwrap().return_value,
         Value::I32(100)
     );
-    held.borrow_mut().take();
+    held.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(
         vm.runtime()

@@ -1,5 +1,5 @@
 //! Compile once per immutable program/configuration; install separately per runtime.
-use std::rc::Rc;
+use std::sync::Arc;
 
 use kagari_bytecode::program::ModuleRef;
 use kagari_codegen::{
@@ -36,7 +36,7 @@ pub(super) struct NativeCacheKey {
 
 #[derive(Debug, Clone)]
 pub(super) enum CachedFunction {
-    Native(Rc<NativeCompilationProduct>),
+    Native(Arc<NativeCompilationProduct>),
     Unsupported(Vec<String>),
 }
 
@@ -163,7 +163,7 @@ impl PreparedProgram {
                 {
                     return Err(NativePreparationError::InvalidProduct);
                 }
-                CachedFunction::Native(Rc::new(product))
+                CachedFunction::Native(Arc::new(product))
             }
             Err(error) if error.is_unsupported() => CachedFunction::Unsupported(
                 error

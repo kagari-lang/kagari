@@ -10,7 +10,7 @@ use kagari_bytecode::{
     instruction::{NativeImportId, Register},
     module::CallableTarget,
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 impl ExecutionStack<'_> {
     pub fn start_native_entry(
@@ -48,7 +48,7 @@ impl ExecutionStack<'_> {
                 .generic
                 .is_some()
             {
-                Rc::new(function.apply(
+                Arc::new(function.apply(
                     runtime,
                     &loaded,
                     environment.ok_or_else(|| {

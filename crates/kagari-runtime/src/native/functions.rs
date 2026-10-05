@@ -14,7 +14,7 @@ pub trait NativeFunction<Arguments, Result> {
 
 impl<F, R> NativeFunction<(), R> for F
 where
-    F: for<'call> Fn(&mut CallContext<'call>) -> NativeResult<R> + 'static,
+    F: for<'call> Fn(&mut CallContext<'call>) -> NativeResult<R> + Send + Sync + 'static,
     R: NativeOutput,
 {
     fn binding(self) -> NativeBinding {
@@ -29,7 +29,7 @@ where
 macro_rules! function {
     ($($argument:ident:$local:ident:$slot:expr),+) => {
         impl<F, R, $($argument),+> NativeFunction<($($argument,)+), R> for F
-        where F: for<'call> Fn(&mut CallContext<'call>, $($argument),+) -> NativeResult<R> + 'static,
+        where F: for<'call> Fn(&mut CallContext<'call>, $($argument),+) -> NativeResult<R> + Send + Sync + 'static,
             R: NativeOutput, $($argument: NativeScalar),+ {
             fn binding(self) -> NativeBinding {
                 let mut binding = NativeBinding::new(vec![$(Codec::Scalar($argument::abi_type())),+],
@@ -82,7 +82,7 @@ macro_rules! argument_value {
 macro_rules! view_function {
     ([$($scalar:ident),*]; $($marker:ty => $kind:ident $type:ident, $codec:ident, $local:ident:$slot:expr);+) => {
         impl<F, R, $($scalar),*> NativeFunction<($($marker,)+), R> for F
-        where F: for<'call> Fn(&mut CallContext<'call>, $(view_type!('call; $kind $type)),+) -> NativeResult<R> + 'static,
+        where F: for<'call> Fn(&mut CallContext<'call>, $(view_type!('call; $kind $type)),+) -> NativeResult<R> + Send + Sync + 'static,
             R: NativeOutput, $($scalar: NativeScalar),* {
             fn binding(self) -> NativeBinding {
                 let mut binding = NativeBinding::new(

@@ -23,7 +23,6 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     fmt,
-    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -411,8 +410,10 @@ pub struct HostPathMutationRecord {
     pub new_value: Value,
 }
 
-pub type HostPathReadCallback =
-    dyn Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError> + 'static;
+pub type HostPathReadCallback = dyn Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
+    + Send
+    + Sync
+    + 'static;
 
 /// Preparation validates and reserves host resources without changing the target.
 pub type HostPathPrepareWriteCallback = dyn Fn(
@@ -420,6 +421,8 @@ pub type HostPathPrepareWriteCallback = dyn Fn(
         &HostPathContext,
         &HostPathMutationRecord,
     ) -> Result<PreparedHostPathWrite, HostError>
+    + Send
+    + Sync
     + 'static;
 
 /// A prepared target update. The action must only commit prepared host state;
@@ -444,13 +447,15 @@ pub type HostPathValidateCallback = dyn Fn(
         HostPathOperation,
         Option<&Value>,
     ) -> Result<(), HostError>
+    + Send
+    + Sync
     + 'static;
 
 #[derive(Clone, Default)]
 pub struct HostPathAdapter {
-    read: Option<Rc<HostPathReadCallback>>,
-    prepare_write: Option<Rc<HostPathPrepareWriteCallback>>,
-    validate: Option<Rc<HostPathValidateCallback>>,
+    read: Option<Arc<HostPathReadCallback>>,
+    prepare_write: Option<Arc<HostPathPrepareWriteCallback>>,
+    validate: Option<Arc<HostPathValidateCallback>>,
 }
 
 impl fmt::Debug for HostPathAdapter {
@@ -470,9 +475,12 @@ impl HostPathAdapter {
 
     pub fn with_read(
         mut self,
-        read: impl Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError> + 'static,
+        read: impl Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
-        self.read = Some(Rc::new(read));
+        self.read = Some(Arc::new(read));
         self
     }
 
@@ -483,9 +491,11 @@ impl HostPathAdapter {
             &HostPathContext,
             &HostPathMutationRecord,
         ) -> Result<PreparedHostPathWrite, HostError>
+        + Send
+        + Sync
         + 'static,
     ) -> Self {
-        self.prepare_write = Some(Rc::new(prepare));
+        self.prepare_write = Some(Arc::new(prepare));
         self
     }
 
@@ -497,9 +507,11 @@ impl HostPathAdapter {
             HostPathOperation,
             Option<&Value>,
         ) -> Result<(), HostError>
+        + Send
+        + Sync
         + 'static,
     ) -> Self {
-        self.validate = Some(Rc::new(validate));
+        self.validate = Some(Arc::new(validate));
         self
     }
 }
@@ -956,13 +968,13 @@ impl<'a> HostCallContext<'a> {
 }
 
 pub type HostCallback =
-    dyn Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static;
+    dyn Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + Send + Sync + 'static;
 
 #[derive(Clone)]
 pub struct HostFunction {
     id: Option<HostFunctionId>,
     declaration: HostFunctionDeclaration,
-    handler: Rc<HostCallback>,
+    handler: Arc<HostCallback>,
 }
 
 impl fmt::Debug for HostFunction {
@@ -982,7 +994,10 @@ impl HostFunction {
     pub fn method(
         owner: &HostTypeDeclaration,
         method: &DefinitionPath,
-        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static,
+        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
     ) -> Result<Self, RuntimeError> {
         let declaration = owner
             .method_contract(method)
@@ -992,12 +1007,15 @@ impl HostFunction {
 
     pub fn new(
         declaration: HostFunctionDeclaration,
-        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + 'static,
+        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         Self {
             id: None,
             declaration,
-            handler: Rc::new(handler),
+            handler: Arc::new(handler),
         }
     }
 

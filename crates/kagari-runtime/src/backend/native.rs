@@ -1,5 +1,5 @@
 //! Installation and invocation of trusted compiler products without a compiler dependency.
-use std::{mem, rc::Rc, sync::Arc};
+use std::{mem, sync::Arc};
 
 use {
     kagari_abi::{
@@ -29,7 +29,7 @@ use crate::{
 /// Cloning retains code memory and module instances; its descriptor is immutable.
 #[derive(Debug, Clone)]
 pub struct InstalledNativeFunction {
-    product: Rc<NativeCompilationProduct>,
+    product: Arc<NativeCompilationProduct>,
     module: LoadedModule,
     _retention: ProgramLease,
 }
@@ -67,7 +67,7 @@ impl Runtime {
     pub unsafe fn install_native_function(
         &self,
         module: &LoadedModule,
-        product: Rc<NativeCompilationProduct>,
+        product: Arc<NativeCompilationProduct>,
     ) -> Result<InstalledNativeFunction, BackendInvocationError> {
         self.validate_loaded_module(module)
             .map_err(runtime_failure)?;
@@ -111,7 +111,7 @@ impl Runtime {
         if self
             .resources()
             .active_session()
-            .is_some_and(|session| session.observer.borrow().is_some())
+            .is_some_and(|session| session.observer_attached.get())
         {
             return Err(failure(BackendInvocationError::UnsupportedArtifact(
                 "native invocation with an execution observer is unsupported".into(),

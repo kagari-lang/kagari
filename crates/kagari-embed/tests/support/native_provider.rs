@@ -1,6 +1,9 @@
 //! Application-owned provider shared by source emission and an independent
 //! source-free embedding consumer. No runtime-private APIs are used.
-use std::{cell::Cell, rc::Rc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use {
     kagari_runtime::{
         error::RuntimeError,
@@ -47,7 +50,7 @@ fn fill(
     Ok(output.value(cx.heap()).unwrap())
 }
 
-pub fn module(drops: Rc<Cell<usize>>) -> NativeModule {
+pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
     let language = StandardDeclarations::default();
     let mut module = ModuleBuilder::new(
         "external::fixture",
@@ -74,7 +77,7 @@ pub fn module(drops: Rc<Cell<usize>>) -> NativeModule {
 struct Handler {
     value: Value,
     callback: StoredCallable,
-    drops: Rc<Cell<usize>>,
+    drops: Arc<AtomicUsize>,
 }
 
 impl NativePayload for Handler {
@@ -90,11 +93,11 @@ impl NativePayload for Handler {
 
 impl Drop for Handler {
     fn drop(&mut self) {
-        self.drops.set(self.drops.get() + 1);
+        self.drops.fetch_add(1, Ordering::SeqCst);
     }
 }
 
-fn register_handler(module: &mut ModuleBuilder, drops: Rc<Cell<usize>>) -> NativeResult<()> {
+fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> NativeResult<()> {
     let mut declaration = module.define_type("Handler");
     declaration.type_parameter("T")?;
     declaration.native_storage(NativeStorage::payload::<Handler>())?;

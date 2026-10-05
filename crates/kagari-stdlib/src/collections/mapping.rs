@@ -1,6 +1,5 @@
 //! A library-owned lazy iterator: retained state only between synchronous next calls.
 use crate::bindings::option;
-use std::{cell::Cell, rc::Rc};
 use {
     crate::declarations::StandardDeclarations,
     kagari_runtime::{
@@ -24,7 +23,6 @@ use {
 struct Mapped {
     source: NativeCursor,
     mapper: StoredCallable,
-    active: Rc<Cell<bool>>,
 }
 
 impl NativePayload for Mapped {
@@ -38,14 +36,6 @@ impl NativePayload for Mapped {
 
     fn units(&self) -> usize {
         2
-    }
-}
-
-struct Active(Rc<Cell<bool>>);
-
-impl Drop for Active {
-    fn drop(&mut self) {
-        self.0.set(false);
     }
 }
 
@@ -87,27 +77,20 @@ pub(super) fn register(
             cx.allocate_result_payload(Mapped {
                 source,
                 mapper: mapper.store(),
-                active: Rc::new(Cell::new(false)),
             })
         },
     )
 }
 
 fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Value> {
-    let (source, mapper, active) = receiver.with_payload::<Mapped, _>(|mapped| {
-        Ok((
-            mapped.source.clone(),
-            mapped.mapper.clone(),
-            mapped.active.clone(),
-        ))
-    })?;
-    if active.replace(true) {
+    let (source, mapper) = receiver
+        .with_payload::<Mapped, _>(|mapped| Ok((mapped.source.clone(), mapped.mapper.clone())))?;
+    let Some(_active) = receiver.try_enter_operation()? else {
         return Err(RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
             "recursive next on the same lazy iterator",
         ));
-    }
-    let _active = Active(active);
+    };
     let output = match source.next(cx)? {
         Some(item) => Some(mapper.call_values(cx, &[item])?),
         None => None,

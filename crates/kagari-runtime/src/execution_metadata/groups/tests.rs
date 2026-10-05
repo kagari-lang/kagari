@@ -12,7 +12,7 @@ use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lowe
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[test]
 fn foreign_stale_and_exhausted_group_ids_cannot_alias_records() {
@@ -467,5 +467,5 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
     let before = invalid.types.clone();
     assert!(invalid.add_receiver(&runtime.gc, group).is_err());
     assert!(invalid.operations().is_empty());
-    assert!(Rc::ptr_eq(&before, &invalid.types));
+    assert!(Arc::ptr_eq(&before, &invalid.types));
 }

@@ -14,7 +14,7 @@ use crate::{
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{GenericParam, Ty};
-use std::{borrow::Cow, rc::Rc, slice};
+use std::{borrow::Cow, slice, sync::Arc};
 
 impl ExecutionFrame {
     pub fn type_arguments(
@@ -34,7 +34,7 @@ impl ExecutionFrame {
         &self,
         runtime: &Runtime,
         element: &Ty<DefinitionId>,
-    ) -> Result<Rc<StorageType>, RuntimeError> {
+    ) -> Result<Arc<StorageType>, RuntimeError> {
         let argument = runtime
             .type_arguments(
                 self.loaded(),
@@ -44,7 +44,7 @@ impl ExecutionFrame {
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("array element scope"))?;
-        StorageType::prepare_scoped(argument, self.loaded()).map(Rc::new)
+        StorageType::prepare_scoped(argument, self.loaded()).map(Arc::new)
     }
 
     pub fn alloc_array(
@@ -93,7 +93,7 @@ impl ExecutionFrame {
         runtime: &Runtime,
         declaration: &DefinitionId,
         arguments: &[Ty<DefinitionId>],
-    ) -> Result<Option<Rc<TypeBindings>>, RuntimeError> {
+    ) -> Result<Option<Arc<TypeBindings>>, RuntimeError> {
         if arguments.iter().all(Ty::is_concrete) {
             return Ok(None);
         }
@@ -113,7 +113,7 @@ impl ExecutionFrame {
             })
             .collect();
         TypeBindings::new(runtime.definition_context(), parameters, arguments)
-            .map(|environment| Some(Rc::new(environment)))
+            .map(|environment| Some(Arc::new(environment)))
     }
 
     pub fn struct_layout(

@@ -28,8 +28,7 @@ use kagari_vm::{
     vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
 };
 use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
+    cell::Cell,
     sync::{Arc, Mutex},
 };
 
@@ -42,7 +41,7 @@ struct CancelAt {
 
 impl ExecutionObserver for CancelAt {
     fn observe(
-        &self,
+        &mut self,
         runtime: &Runtime,
         event: ExecutionEvent,
         _: &[ExecutionFrame],
@@ -425,7 +424,7 @@ fn run(
             },
         ))
         .unwrap();
-    let observed_array = Rc::new(RefCell::new(None));
+    let observed_array = Arc::new(Mutex::new(None));
     if case.array.is_some() {
         let capture_array = observed_array.clone();
         let capture_host = host.clone();
@@ -436,7 +435,8 @@ fn run(
                     args: vec![],
                 });
                 capture_array
-                    .borrow()
+                    .lock()
+                    .unwrap()
                     .clone()
                     .ok_or_else(|| HostError::new("array fixture is not initialized"))
             }))
@@ -454,7 +454,7 @@ fn run(
             )
             .unwrap();
         let rooted = runtime.root_value(Value::Array(array)).unwrap();
-        *observed_array.borrow_mut() = Some(rooted.value(runtime.gc()).unwrap());
+        *observed_array.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
     });
     let iteration = case.iterating.then(|| {
@@ -469,20 +469,23 @@ fn run(
             )
             .unwrap()
     });
+    if let Some(at) = case.cancel_at {
+        runtime
+            .set_execution_observer(CancelAt {
+                seen: Cell::new(0),
+                at,
+                token: cancellation.clone(),
+            })
+            .unwrap();
+    }
     let vm = KagariRuntime::new(runtime, Default::default());
     let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
         let mut options = vm.runtime().execution_options();
         options.cancellation = cancellation.clone();
         vm.runtime().begin_execution(&loaded, options).unwrap()
     });
-    if let Some(at) = case.cancel_at {
-        vm.runtime()
-            .attach_execution_observer(Rc::new(CancelAt {
-                seen: Cell::new(0),
-                at,
-                token: cancellation,
-            }))
-            .unwrap();
+    if case.cancel_at.is_some() {
+        vm.runtime().attach_execution_observer().unwrap();
     }
     let mut backend = CraneliftBackend::for_host().unwrap();
     for attempt in 0..case.repeat {

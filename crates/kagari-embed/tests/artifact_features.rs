@@ -8,11 +8,15 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use kagari_runtime::value::Value;
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
-use std::{cell::Cell, fs, path::Path, rc::Rc, sync::OnceLock};
+use std::{fs, path::Path, sync::OnceLock};
 
 // Share application code with the emitter while compiling without its frontend.
 #[path = "support/native_enums.rs"]
@@ -25,7 +29,7 @@ mod try_carrier;
 #[path = "native_provider_reset/contracts.rs"]
 mod contracts;
 
-fn engine(config: EngineConfig, drops: Rc<Cell<usize>>) -> KagariEngine {
+fn engine(config: EngineConfig, drops: Arc<AtomicUsize>) -> KagariEngine {
     {
         let mut builder = KagariEngine::builder().unwrap();
         builder.config(config);
@@ -235,7 +239,7 @@ mod native {
     use kagari_mir::instruction::{Constant, Instruction, Terminator};
     use kagari_runtime::jit_abi::jit_poll_execution;
     use kagari_vm::vm::JitExecutionStatus;
-    use std::{ffi::c_void, rc::Rc};
+    use std::{ffi::c_void, sync::Arc};
     use {
         kagari_abi::{
             native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
@@ -309,7 +313,7 @@ mod native {
             };
             Ok(NativeCompilationProduct {
                 artifact,
-                owner: Rc::new(StaticCode),
+                owner: Arc::new(StaticCode),
             })
         }
     }
@@ -388,7 +392,7 @@ fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
     let program =
         PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
             .unwrap();
-    let drops = Rc::new(Cell::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let context = ExecutionContext::default();
@@ -401,7 +405,7 @@ fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
         assert_eq!(result.return_value, Value::I32(42));
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
-        assert_eq!(drops.get(), expected);
+        assert_eq!(drops.load(Ordering::SeqCst), expected);
     }
 }
 

@@ -41,7 +41,6 @@ use std::{
     cell::{BorrowError, RefCell},
     collections::{HashMap, HashSet},
     ops::Deref,
-    rc::Rc,
     sync::{Arc, Weak},
 };
 
@@ -265,7 +264,7 @@ pub struct LinkedModule {
 pub(crate) struct LinkedHostBindings {
     pub types: HashMap<DefinitionId, TypeId>,
     pub functions: Vec<HostFunctionId>,
-    pub native: Vec<Rc<LinkedNativeFunction>>,
+    pub native: Vec<Arc<LinkedNativeFunction>>,
     pub paths: Vec<HostPathDescriptorId>,
 }
 
@@ -389,7 +388,7 @@ pub struct EnumVariantRef {
     id: EnumId,
     variant: u32,
     applied: Option<Arc<EnumLayout<DefinitionId>>>,
-    pub(crate) environment: Option<Rc<TypeBindings>>,
+    pub(crate) environment: Option<Arc<TypeBindings>>,
 }
 
 impl EnumVariantRef {
@@ -427,7 +426,7 @@ pub struct StructLayoutRef {
     module: LoadedModule,
     id: StructId,
     applied: Option<Arc<StructLayout<DefinitionId>>>,
-    pub(crate) environment: Option<Rc<TypeBindings>>,
+    pub(crate) environment: Option<Arc<TypeBindings>>,
 }
 
 impl StructLayoutRef {

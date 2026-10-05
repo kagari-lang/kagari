@@ -16,7 +16,7 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::declaration::requirement::NativeCallableRequirement;
-use std::{rc::Rc, slice};
+use std::{slice, sync::Arc};
 
 impl LinkedCallable {
     pub(crate) fn prepare(
@@ -112,7 +112,7 @@ impl LinkedCallable {
             primitive: operation.primitive,
             environment,
             scoped_signature: (result.has_origin() || params.iter().any(TypeArgument::has_origin))
-                .then(|| Rc::new(ScopedSignature { params, result })),
+                .then(|| Arc::new(ScopedSignature { params, result })),
         })
     }
 

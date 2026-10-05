@@ -12,10 +12,10 @@ use crate::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use std::{
+    any::Any,
     cell::{Cell, Ref, RefCell},
     collections::HashSet,
     fmt::Debug,
-    rc::Rc,
     time::Instant,
 };
 
@@ -146,9 +146,15 @@ pub enum ExecutionEvent {
 
 /// Observers inspect the complete root stack between instructions. They must not
 /// drive script execution while the frame view is borrowed.
-pub trait ExecutionObserver: Debug {
+/// Runtime exclusively owns their state; transfer requires Send, not Sync.
+pub trait ExecutionObserver: Any + Debug + Send {
+    /// Initialize observation once for this root session, before any frame runs.
+    fn begin(&mut self, _runtime: &Runtime, _root: &LoadedModule) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
     fn observe(
-        &self,
+        &mut self,
         runtime: &Runtime,
         event: ExecutionEvent,
         frames: &[ExecutionFrame],
@@ -160,7 +166,7 @@ pub(crate) struct SessionState {
     pub id: SessionId,
     pub leases: LeaseScope,
     pub host_scopes: RefCell<HashSet<HostFrameId>>,
-    pub observer: RefCell<Option<Rc<dyn ExecutionObserver>>>,
+    pub observer_attached: Cell<bool>,
     pub frame_scopes: RefCell<Vec<u64>>,
     pub next_frame_scope: Cell<u64>,
     pub scopes: Cell<usize>,
@@ -188,7 +194,7 @@ impl SessionState {
             id,
             leases: LeaseScope::default(),
             host_scopes: RefCell::new(HashSet::new()),
-            observer: RefCell::new(None),
+            observer_attached: Cell::new(false),
             frame_scopes: RefCell::new(Vec::new()),
             next_frame_scope: Cell::new(0),
             scopes: Cell::new(0),

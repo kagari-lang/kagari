@@ -14,7 +14,6 @@ use kagari_runtime::{
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
-use std::cell::RefCell;
 
 use crate::error::VmError;
 
@@ -536,32 +535,35 @@ fn source_span_for(function: &BytecodeFunction<DefinitionId>, instruction_offset
         .unwrap_or_default()
 }
 
-#[derive(Debug)]
-pub(crate) struct SharedDebugSession(pub RefCell<DebugSession>);
+impl ExecutionObserver for DebugSession {
+    fn begin(&mut self, runtime: &Runtime, root: &LoadedModule) -> Result<(), RuntimeError> {
+        for member in root.members() {
+            self.resolve_module(&member, runtime)
+                .map_err(observation_error)?;
+        }
+        Ok(())
+    }
 
-impl ExecutionObserver for SharedDebugSession {
     fn observe(
-        &self,
+        &mut self,
         runtime: &Runtime,
         event: ExecutionEvent,
         frames: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
-        let mut session = self.0.try_borrow_mut().map_err(|_| {
-            RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                "debug session borrowed across execution",
-            )
-        })?;
-        let result = match event {
-            ExecutionEvent::BeforeInstruction => session.before_instruction(runtime, frames),
-            ExecutionEvent::Trap => session.record_trap(runtime, frames),
-        };
-        result.map_err(|error| match error {
-            VmError::RuntimeError(error) => error,
-            error => RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                format!("debug observation failed: {error:?}"),
-            ),
-        })
+        match event {
+            ExecutionEvent::BeforeInstruction => self.before_instruction(runtime, frames),
+            ExecutionEvent::Trap => self.record_trap(runtime, frames),
+        }
+        .map_err(observation_error)
+    }
+}
+
+fn observation_error(error: VmError) -> RuntimeError {
+    match error {
+        VmError::RuntimeError(error) => error,
+        error => RuntimeError::new(
+            RuntimeErrorKind::EngineFault,
+            format!("debug observation failed: {error:?}"),
+        ),
     }
 }

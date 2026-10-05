@@ -14,17 +14,17 @@ use kagari_runtime::{
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 struct MutationFixture {
     vm: Vm,
     loaded: LoadedModule,
-    retained: Rc<RefCell<Option<RootedValue>>>,
+    retained: Arc<Mutex<Option<RootedValue>>>,
 }
 
 impl MutationFixture {
     fn new(source: &str, policy: RuntimeLimits) -> Self {
-        let retained: Rc<RefCell<Option<RootedValue>>> = Rc::default();
+        let retained: Arc<Mutex<Option<RootedValue>>> = Arc::default();
         let keep = retained.clone();
         let mut module = ModuleBuilder::new(
             "test::roots",
@@ -44,7 +44,7 @@ impl MutationFixture {
             .bind(
                 function,
                 move |cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<()> {
-                    *keep.borrow_mut() = Some(
+                    *keep.lock().unwrap() = Some(
                         cx.heap()
                             .root_value(value.value())
                             .ok_or_else(|| RuntimeError::module_validation("fixture root"))?,
@@ -76,7 +76,8 @@ impl MutationFixture {
 
     fn value(&self) -> Value {
         self.retained
-            .borrow()
+            .lock()
+            .unwrap()
             .as_ref()
             .unwrap()
             .value(self.vm.runtime().gc())
@@ -125,7 +126,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     assert_eq!(counters.current_heap_units, 3);
     assert_eq!(counters.peak_heap_units, 4);
 
-    fixture.retained.borrow_mut().take();
+    fixture.retained.lock().unwrap().take();
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.resources().counters().current_heap_units, 0);
 
@@ -202,7 +203,7 @@ use std::hash::{Hash};
         );
         let heap = fixture.vm.runtime().gc();
         assert!(fixture.contents().is_empty());
-        fixture.retained.borrow_mut().take();
+        fixture.retained.lock().unwrap().take();
         fixture.vm.runtime().collect_garbage().unwrap();
         assert_eq!(heap.allocated_objects(), 0);
         assert_eq!(heap.stats().current_heap_units, 0);

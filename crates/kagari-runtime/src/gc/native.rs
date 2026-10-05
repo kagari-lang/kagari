@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
-    gc::{GcHeap, HeapObjectId, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId, leases::BorrowedLease, storage::HeapObject},
     module::LoadedModule,
     native::{
         binding::NativeResult,
@@ -24,6 +24,29 @@ impl Drop for NativeBorrow<'_> {
 }
 
 impl GcHeap {
+    pub(crate) fn try_enter_native_operation(
+        &self,
+        id: HeapObjectId,
+    ) -> NativeResult<Option<BorrowedLease<'_>>> {
+        self.ensure_execution_allowed()?;
+        let objects = self
+            .objects
+            .try_borrow()
+            .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
+        if !matches!(
+            self.readable_object(&objects, id),
+            Some(HeapObject::Native(_))
+        ) {
+            return Err(RuntimeError::module_validation(
+                "invalid native operation receiver",
+            ));
+        }
+        if self.native_operations.is_active(id) {
+            return Ok(None);
+        }
+        self.native_operations.borrow(id).map(Some)
+    }
+
     pub(crate) fn matches_native_type(
         &self,
         id: HeapObjectId,

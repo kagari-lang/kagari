@@ -2,6 +2,10 @@ use super::*;
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_contract::representation::semantic_representation;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicI32, Ordering},
+};
 
 #[test]
 fn offline_host_type_navigation_is_available_from_signature_query() {
@@ -104,13 +108,13 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             .runtime_mut()
             .register_host_root(HostObjectId(8), types[0], HostSchemaEpoch::new(0))
             .unwrap();
-        let trace = Rc::new(RefCell::new(Vec::new()));
+        let trace = Arc::new(Mutex::new(Vec::new()));
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(
                 interface.functions[0].clone(),
                 move |_, _| {
-                    calls.borrow_mut().push("receiver");
+                    calls.lock().unwrap().push("receiver");
                     Ok(Value::HostRoot(root))
                 },
             ))
@@ -118,7 +122,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
-                calls.borrow_mut().push("argument");
+                calls.lock().unwrap().push("argument");
                 Ok(Value::I32(2))
             }))
             .unwrap();
@@ -135,7 +139,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 )
                 .is_err()
         );
-        assert!(trace.borrow().is_empty());
+        assert!(trace.lock().unwrap().is_empty());
         let mut wrong = interface.types[0].method_contract(&method_id).unwrap();
         wrong.params[0].passing = HostPassingStyle::Owned;
         assert!(
@@ -145,13 +149,13 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 )))
                 .is_err()
         );
-        let total = Rc::new(std::cell::Cell::new(40));
+        let total = Arc::new(AtomicI32::new(40));
         let state = total.clone();
         let calls = trace.clone();
         runtime
             .register_host_function(
                 HostFunction::method(&interface.types[0], &method_id, move |context, args| {
-                    calls.borrow_mut().push("method");
+                    calls.lock().unwrap().push("method");
                     assert!(
                         context
                             .runtime()
@@ -162,9 +166,9 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                     let Value::I32(amount) = args[1] else {
                         panic!("checked parameter")
                     };
-                    state.set(state.get() + amount);
+                    state.fetch_add(amount, Ordering::SeqCst);
                     context.runtime().collect_garbage().unwrap();
-                    Ok(Value::I32(state.get()))
+                    Ok(Value::I32(state.load(Ordering::SeqCst)))
                 })
                 .unwrap(),
             )
@@ -196,7 +200,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             assert_eq!(result.return_value, Value::I32(expected));
         }
         assert_eq!(
-            *trace.borrow(),
+            *trace.lock().unwrap(),
             [
                 "receiver", "argument", "method", "receiver", "argument", "method"
             ]
@@ -264,13 +268,13 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             .runtime_mut()
             .register_host_root(HostObjectId(7), ids[0], HostSchemaEpoch::new(0))
             .unwrap();
-        let trace = Rc::new(RefCell::new(Vec::new()));
+        let trace = Arc::new(Mutex::new(Vec::new()));
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(
                 interface.functions[0].clone(),
                 move |_, _| {
-                    calls.borrow_mut().push("make");
+                    calls.lock().unwrap().push("make");
                     Ok(Value::HostRoot(root))
                 },
             ))
@@ -280,7 +284,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             .register_host_function(HostFunction::new(
                 interface.functions[1].clone(),
                 move |context, args| {
-                    calls.borrow_mut().push("take");
+                    calls.lock().unwrap().push("take");
                     assert!(matches!(args[0], Value::HostRoot(_)));
                     context.runtime().collect_garbage().unwrap();
                     Ok(Value::I32(42))
@@ -293,7 +297,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        assert!(trace.borrow().is_empty());
+        assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             let prepared = runtime
@@ -311,7 +315,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         }
         .unwrap();
         assert_eq!(report.return_value, Value::I32(42));
-        assert_eq!(*trace.borrow(), ["make", "take"]);
+        assert_eq!(*trace.lock().unwrap(), ["make", "take"]);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
 }

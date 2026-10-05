@@ -578,8 +578,13 @@ immutable verified descriptors; installed native callbacks and layout caches liv
 in module records. GC traces executable IDs and exact program dependencies together,
 validates storage before sweeping and disposes of records outside table borrows.
 Object policy publishes references through checked storage paths, including module
-slots, frame/root slots and lazy metadata caches. Runtime transfer and callback
-Send bounds remain GO03 work; transferable leases alone do not make Runtime Send.
+slots, frame/root slots and lazy metadata caches. Runtime and the VM are Send but
+not Sync: ownership can move after borrowed synchronous scopes end. Shared callback
+registrations require Send + Sync, whereas exclusively owned native payloads and
+observers require only Send. Runtime owns the boxed observer/debug session; nested
+drivers borrow it only while reporting events. A Tokio dev-only acceptance test
+owns a runtime across message-receive awaits; no runtime/VM production dependency
+on Tokio or asynchronous script execution is introduced.
 
 Installation determines exposed native/host APIs; declared visibility, writeability,
 storage access, ownership and generations remain checked. Root cancellation is

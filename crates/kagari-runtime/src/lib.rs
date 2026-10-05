@@ -1,6 +1,7 @@
 mod authority;
 mod loading;
 mod objects;
+mod observer;
 use crate::{
     builtin::BuiltinError,
     cache::{
@@ -26,8 +27,8 @@ use crate::{
     reflection::ReflectionError,
     resource::{ResourceState, RuntimeLimits},
     session::{
-        CandidateSession, ExecutionEntry, ExecutionEvent, ExecutionObserver, ExecutionOptions,
-        ExecutionPhase, ExecutionSession,
+        CandidateSession, ExecutionEntry, ExecutionObserver, ExecutionOptions, ExecutionPhase,
+        ExecutionSession,
     },
     value::Value,
 };
@@ -35,7 +36,7 @@ use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_types::host_interface::path::HostPathDeclaration;
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
 
 pub mod error_trace;
 #[cfg(test)]
@@ -106,6 +107,14 @@ pub struct RuntimeConfig {
     pub limits: RuntimeLimits,
 }
 
+/// An exclusively driven script runtime. Move ownership between threads outside
+/// active execution and borrow scopes; shared concurrent heap access is forbidden.
+///
+/// ```compile_fail
+/// use kagari_runtime::Runtime;
+/// fn requires_sync<T: Sync>() {}
+/// requires_sync::<Runtime>();
+/// ```
 #[derive(Debug)]
 pub struct Runtime {
     gc: GcHeap,
@@ -116,6 +125,7 @@ pub struct Runtime {
 
     modules: ModuleStore,
     interpreter_caches: InterpreterCacheRegistry,
+    observer: RefCell<Option<Box<dyn ExecutionObserver>>>,
 }
 
 /// A resolved dynamic method whose interface receiver stays rooted across
@@ -144,6 +154,7 @@ impl Runtime {
 
             modules: ModuleStore::default(),
             interpreter_caches: InterpreterCacheRegistry::default(),
+            observer: RefCell::new(None),
         }
     }
 
@@ -160,66 +171,6 @@ impl Runtime {
         self.resources()
             .active_session()
             .map(|session| session.root.clone())
-    }
-
-    /// Install once for the root call. Nested drivers inherit the same observer.
-    pub fn attach_execution_observer(
-        &self,
-        observer: Rc<dyn ExecutionObserver>,
-    ) -> Result<bool, RuntimeError> {
-        self.resources().ensure_execution_allowed()?;
-        let session = self.resources().active_session().ok_or_else(|| {
-            RuntimeError::module_validation("execution observer requires an active session")
-        })?;
-        let mut active = session.observer.borrow_mut();
-        if let Some(existing) = active.as_ref() {
-            if !Rc::ptr_eq(existing, &observer) {
-                return Err(RuntimeError::module_validation(
-                    "nested execution cannot replace the root observer",
-                ));
-            }
-            return Ok(false);
-        }
-        if !self
-            .resources()
-            .sessions
-            .frames(session.id)
-            .ok_or_else(|| {
-                self.resources()
-                    .quarantine("observer installation encountered a borrowed stack")
-            })?
-            .is_empty()
-        {
-            return Err(RuntimeError::module_validation(
-                "cannot attach an observer during frame execution",
-            ));
-        }
-        *active = Some(observer);
-        Ok(true)
-    }
-
-    pub fn observe_execution(&self, event: ExecutionEvent) -> Result<(), RuntimeError> {
-        let Some(session) = self.resources().active_session() else {
-            return Ok(());
-        };
-        let Some(observer) = session.observer.borrow().clone() else {
-            return Ok(());
-        };
-        let id = session.id;
-        drop(session);
-        let frames = self.resources().sessions.frames(id).ok_or_else(|| {
-            self.resources()
-                .quarantine("observer encountered a borrowed execution stack")
-        })?;
-        let result = observer.observe(self, event, &frames);
-        if result
-            .as_ref()
-            .is_err_and(|error| error.kind() == RuntimeErrorKind::EngineFault)
-        {
-            self.resources()
-                .quarantine("execution observer encountered an engine fault");
-        }
-        result
     }
 
     pub fn enter_execution_stack(

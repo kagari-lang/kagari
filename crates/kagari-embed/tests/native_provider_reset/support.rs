@@ -17,7 +17,7 @@ pub struct CancelAt {
 
 impl ExecutionObserver for CancelAt {
     fn observe(
-        &self,
+        &mut self,
         runtime: &Runtime,
         event: ExecutionEvent,
         _: &[ExecutionFrame],
