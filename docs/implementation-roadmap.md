@@ -1,8 +1,8 @@
 # Kagari Implementation Roadmap
 
-This is the single queue and progress owner for pending work. GO01-GO06 are active
-under the continuous goal. Earlier AC, CR, LR and EN tracks remain complete.
-Other queued proposals remain outside the active goal.
+This is the single queue and progress owner for pending work. GO01-GO06 are complete,
+as are the earlier AC, CR, LR and EN tracks. Other queued proposals require separate
+activation; this completed goal does not start another architecture migration.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -21,7 +21,7 @@ are complete.
 Immutable preparation, foundation registration reuse and shared interface metadata
 are implemented. Remaining measured costs and reproduction commands live in
 [performance measurements](performance-baseline.md). No carried build/test error
-remains after AC05 final integration. Performance changes from this cleanup
+remains after GO06 final integration. Performance changes from this cleanup
 have not been measured.
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
@@ -1105,14 +1105,14 @@ layouts, scoped signatures, selected calls and generation-pinned facts. Separate
 crate metadata, dynamic Try interfaces and broader backend expansion remain outside
 this completed track.
 
-### Runtime ownership and host objects (GO01-GO06, active)
+### Runtime ownership and host objects (GO01-GO06, complete)
 
-Status: implementation authorized under the continuous goal on 2026-10-05. The
+Status: GO01-GO06 accepted on 2026-10-06, with one commit per phase. The
 [runtime ownership and host object API design](runtime-ownership-and-host-api-design.md)
 defines central stores and checked IDs, automatic host retention, a Send runtime
 with exclusive execution, typed native registration, object mutation and checked
-function/trait calls. EN01-EN05 remain complete. Execute GO01 through GO06 in order,
-with one accepted commit per phase as authorized by the user.
+function/trait calls. EN01-EN05 remain complete. The ledger below records phase
+order, intermediate decisions and final acceptance.
 
 The existing nonmoving mark-sweep collector remains the starting algorithm. This
 track replaces the surrounding Rc/Weak ownership graph, not the ordinary nominal
@@ -1150,7 +1150,7 @@ Phase order and progress:
   Route public reference mutations through the GO02 storage boundary and reject
   unrestricted mutable access to traced payloads.
   Optional generated Rust views consume this path as later tooling work.
-- [ ] **GO06: Standard library and final integration.** Exercise public adapters
+- [x] **GO06: Standard library and final integration.** Exercise public adapters
   in standard bindings and new registered types/payloads without collector changes;
   verify reference replacement/removal and cyclic reclamation, remove obsolete
   APIs, update specs and pass the design's complete behavior/feature/backend matrix.
@@ -1161,6 +1161,61 @@ checkpoints building and perform final integration at GO06. No performance gain
 is assumed. Open implementation errors and resumption state belong here.
 
 #### GO progress ledger
+
+- GO06 accepted on 2026-10-06. GO01-GO06 are complete, with no carried build/test
+  failure or unresolved structural exemption. Standard String and Vec adapters,
+  typed callback edits, selected trait calls, SDK host access and retained callable
+  cleanup meet the design's integration scope. Advanced storage adapters remain
+  where they serve iterator/representation or precommit-result semantics; ordinary
+  host authoring uses typed values and automatically retained handles.
+  Final validation:
+  - `cargo test --workspace`: 1885 passed across 113 test suites, zero failures;
+    one existing manually invoked performance test remains ignored. Includes the
+    source/artifact/native language-route contract, standalone language examples,
+    HIR/runtime/VM suites, all 158 native-boundary tests, reload/thread-transfer
+    checks and compile-fail/doc tests.
+  - `uv run python scripts/check_features.py`: 13 production crate boundaries
+    plus ABI/contract build graphs pass. Independent artifact-only/source/native/
+    combined consumers pass 9/10/11/12 tests; the disposable artifact was regenerated
+    once for the current schema. Actual scalar JIT and checked fallback stay distinct.
+  - `cargo test -p kagari-cli --features jit`: all 5 tests pass.
+  - `cargo clippy --workspace --all-targets -- -D warnings`, formatting, structure
+    (896 Rust files, zero violations/exceptions), documentation links and diff checks
+    pass. Changed ownership, imports, public APIs and storage writes were reviewed.
+  - `cargo run -p kagari-embed --example host_objects` passes; the final SDK typed-call
+    test also passes with cancellation and observer coverage. Logs: target/go06/.
+  The starting nonmoving mark-sweep algorithm is preserved. Additional collectors,
+  generated Rust binding tools, asynchronous script execution and proposed broader
+  DTO/facade work remain explicitly deferred; no performance gain is claimed.
+
+- GO06 implementation (included in the accepted phase commit): all String methods
+  now use typed receivers/results;
+  split uses NativeContext::collect without raw slots or roots. Vec reads and
+  push/set/insert/clear use retained ScriptVec/ScriptValue adapters; retain/dedup use
+  typed buffer callbacks and compiler-selected equality. Pop/remove retain their
+  existing prepare-result-before-removal path. Preauthored catalogs attach typed
+  entries and recover exact requirement tokens through the same validated boundary.
+  Typed bulk edits share the existing exclusive buffer/GC lease and poll around
+  callbacks; detached storage reads fail instead of returning an empty result.
+  String (5), list algorithms (8), collection access (5), standard documentation,
+  157 native-boundary regression tests and the new bulk-edit GC/error/unwind test
+  pass. Logs: target/go06/typed-*, string-tests.log, vector-edit-tests.log.
+  RootedCallable has been removed; retained callback/reload/thread consumers use
+  PinnedFunction and advanced StoredCallable keeps only its traced identity.
+  The five callback-boundary tests pass. SDK with_context and the host_objects
+  example expose checked member calls under explicit execution policy. Their
+  focused verification and executable example now pass, including SDK cancellation
+  before mutation and observer events during prepared method execution. The retained
+  callable unit suite passes all three lifetime/generation/teardown tests. Workspace
+  strict Clippy passes after replacing two verbose test callback types with aliases.
+  CLI JIT tests pass (5); independent feature and full workspace acceptance is
+  recorded above.
+  No raw storage algorithm was replaced merely to change syntax: advanced cursor,
+  generic list defaults, hash storage and precommit removal adapters retain their
+  concrete duties. The obsolete host-owned callback wrapper and migrated raw String/
+  Vec bodies are removed. Extension acceptance uses registered enums and Managed<T>
+  payload tests from GO05, including traced callback cycles and retired-program
+  reclamation without changes to mark/sweep. The phase is accepted.
 
 - GO05 accepted on 2026-10-06. The substep entries below record implementation
   history; all GO05 work is included in one accepted phase commit. Fields, sequences,
@@ -1792,7 +1847,8 @@ is assumed. Open implementation errors and resumption state belong here.
   only a Value identity; snapshot inspection requires Runtime and returns a scoped
   view. Frame entry accepts a closure Value, validates it and roots captures without
   a temporary capture vector. Native invocation releases the view before executing
-  script. Stored callbacks trace identities; RootedCallable adds an explicit lease.
+  script. Stored callbacks trace identities; the then-current RootedCallable lease
+  was later replaced by PinnedFunction in GO06.
   Neither keeps closure storage alive after teardown. Explicit diagnostic copies
   in stale-environment tests are not execution capabilities. Central checked mutable
   slot access replaces panicking heap borrow_mut paths; allocation and mutation

@@ -1,3 +1,4 @@
+mod edits;
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
@@ -199,10 +200,18 @@ impl<T> ScriptVec<T> {
 impl<T: FromKagari> ScriptVec<T> {
     pub fn get(&self, cx: &mut NativeContext<'_>, index: usize) -> NativeResult<Option<T>> {
         let id = self.id(cx, false)?;
-        let value = cx.runtime().gc().array_get(id, index);
-        value
-            .map(|value| cx.conversion.decode_prepared(&self.element, &value))
-            .transpose()
+        // A detached edit buffer is unavailable, not an empty collection.
+        if index >= self.len(cx)? {
+            return Ok(None);
+        }
+        let value = cx
+            .runtime()
+            .gc()
+            .array_get(id, index)
+            .ok_or_else(|| RuntimeError::module_validation("array handle access"))?;
+        cx.conversion
+            .decode_prepared(&self.element, &value)
+            .map(Some)
     }
 
     pub fn pop(&self, cx: &mut NativeContext<'_>) -> NativeResult<Option<T>> {

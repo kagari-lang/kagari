@@ -1,3 +1,4 @@
+mod vector_edits;
 use super::compile_program;
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{

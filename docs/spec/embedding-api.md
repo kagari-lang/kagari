@@ -502,6 +502,52 @@ checks Vec capacity growth. Individual blocking iterator steps are not preempted
 See the [typed_native example](../../crates/kagari-embed/examples/typed_native.rs)
 for registration and a host entry with owned arguments and results.
 
+## Retained objects and prepared calls
+
+`Object`, `NativeObject<T>`, `ScriptVec<T>`, `ScriptMap<K, V>`, `ScriptSet<T>`,
+`Interface` and `PinnedFunction<A, R>` retain the values needed by the host. Clones
+preserve identity and share retention; dropping the last handle permits collection.
+`ScriptValue` forwards an exact declared generic value without erasing its type.
+Ordinary field/collection reads and callback results need no manual root operation.
+
+Prepare `Field<T>` and `Method<A, R>` once from the installed applied type, then
+reuse them. Native and script inherent members share declaration/name binding;
+method tuples exclude the receiver. Associated functions return PinnedFunction.
+Generic binding consumes installed executable evidence and retains each supplied
+type's lexical scope; it does not infer new implementations at runtime. Interface
+and selected calls retain their checked implementations, including inherited,
+default and static members. Handles reject foreign runtimes and incompatible
+applications or generations; old handles keep their selected version after reload.
+
+`KagariRuntime::with_context(owner, execution, |cx| ...)` opens SDK host access
+with cancellation, execution phase and backend policy. Field reads/writes and
+method/closure calls share that scope; native callbacks receive it automatically.
+No metadata or payload borrow spans script reentry. See the executable
+[host_objects example](../../crates/kagari-embed/examples/host_objects.rs).
+
+`NativeObject<T>::edit` is available only for storage registered with fixed,
+reference-free NativeData. `native_data!` verifies every declared field. Traced
+payloads use ManagedStorage field tokens, complete builders and checked per-field
+writes; `edit_data` lends only the fixed data portion. Registered traversal handles
+new fields without changing the collector. Mutable references cannot escape a
+payload callback, and conflicting reentry fails before execution.
+
+`ScriptVec::retain` and `dedup_by` run typed callbacks under the existing exclusive
+buffer lease. Aliases cannot mutate or read detached slots. GC may run during the
+callback; errors/unwind restore storage with completed removals preserved. A read
+of unavailable storage is an error, not an empty result. Per-field conversions
+finish before their writes; removal handles retain detached results immediately.
+Standard-library pop/remove additionally preserve their specified preparation of
+Option results before committing the removal.
+
+Preauthored native catalogs can use `NativeBinding::declared` and
+`SelectedCall::from_declaration`; ordinary registration uses `bind_typed` and
+FunctionBuilder::requires. Both consume the same validated declaration, scope and
+selected-operation machinery. RootedCallable is removed; independently retained
+host callbacks use PinnedFunction. CallContext, borrowed native views and traced
+StoredCallable remain advanced adapters for concrete storage/iterator operations,
+with explicit rooting obligations. They are not a second ownership model.
+
 ## Host Registry API
 
 The host registry supports explicit registration of:

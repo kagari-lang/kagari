@@ -4,10 +4,12 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
-        callable::{CallableHandle, RootedCallable, StoredCallable},
+        callable::{CallableHandle, StoredCallable},
         context::CallContext,
         declarations::FunctionDecl,
+        function_handle::PinnedFunction,
         storage::NativeStorage,
+        typed::NativeContext,
         types::Type,
         views::{SequenceHandle, ValueHandle},
     },
@@ -15,6 +17,8 @@ use kagari_runtime::{
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::sync::{Arc, Mutex};
+
+type Callback = PinnedFunction<(i32,), i32>;
 
 fn call_repeatedly(
     cx: &mut CallContext<'_>,
@@ -93,7 +97,7 @@ fn function_arguments_call_captured_script_closures_synchronously() {
 
 #[test]
 fn retained_host_callbacks_pin_their_capture_program_across_reload() {
-    let held: Arc<Mutex<Option<RootedCallable>>> = Arc::new(Mutex::new(None));
+    let held: Arc<Mutex<Option<Callback>>> = Arc::new(Mutex::new(None));
     let mut builder = ModuleBuilder::new(
         "example::retained",
         &StandardDeclarations::default()
@@ -108,11 +112,10 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         .unwrap();
     let stored = held.clone();
     builder
-        .bind(
+        .bind_typed(
             remember,
-            move |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<()> {
-                let rooted = callback.store().root(cx)?;
-                *stored.lock().unwrap() = Some(rooted);
+            move |_: &mut NativeContext<'_>, (callback,): (Callback,)| -> NativeResult<()> {
+                *stored.lock().unwrap() = Some(callback);
                 Ok(())
             },
         )
@@ -126,9 +129,9 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         .unwrap();
     let current = held.clone();
     builder
-        .bind(
+        .bind_typed(
             invoke,
-            move |cx: &mut CallContext<'_>, value: i32| -> NativeResult<i32> {
+            move |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<i32> {
                 let callback = current.lock().unwrap().as_ref().unwrap().clone();
                 cx.collect_garbage()?;
                 callback.call(cx, (value,))
@@ -229,9 +232,11 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
             |cx: &mut CallContext<'_>, handler: ValueHandle<'_>| -> NativeResult<i32> {
                 let stored =
                     handler.with_payload::<StoredCallable, _>(|callback| Ok(callback.clone()))?;
-                let callback = stored.root(cx)?;
                 cx.collect_garbage()?;
-                callback.call(cx, (1,))
+                let Value::I32(result) = stored.call_values(cx, &[Value::I32(1)])? else {
+                    panic!("checked stored callback result");
+                };
+                Ok(result)
             },
         )
         .unwrap();

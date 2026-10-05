@@ -5,10 +5,32 @@ use kagari_embed::{
     engine::KagariEngine,
     program::PreparedProgram,
 };
-use kagari_runtime::native::{
-    function_handle::PinnedFunction, objects::Object, typed::NativeContext,
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeError,
+    frame::ExecutionFrame,
+    native::{function_handle::PinnedFunction, objects::Object},
+    session::{ExecutionEvent, ExecutionObserver},
 };
 use kagari_source::source::SourceFile;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+#[derive(Debug)]
+struct Observer(Arc<AtomicUsize>);
+impl ExecutionObserver for Observer {
+    fn observe(
+        &mut self,
+        _: &Runtime,
+        _: ExecutionEvent,
+        _: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
 
 #[test]
 fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
@@ -19,6 +41,10 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
                 "memory://calls.kgr",
                 r#"
         pub struct Player { pub var hp: i32 }
+        impl Player {
+            pub fn damage(self, amount: i32) -> i32 { self.hp = self.hp - amount; self.hp }
+        }
+        pub fn damage_evidence() -> i32 { make().damage(1) }
         pub fn make() -> Player { Player { hp: 42 } }
         pub fn make_callback() -> fn() -> i32 { val data = [42]; || data[0] }
     "#,
@@ -47,11 +73,38 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
         .runtime()
         .bind_field::<i32>(player.object_type(), "hp")
         .unwrap();
-    let mut cx = NativeContext::new(runtime.runtime(), &loaded).unwrap();
-    assert_eq!(player.get(&mut cx, &hp).unwrap(), 42);
+    let damage = runtime
+        .runtime()
+        .bind_method::<(i32,), i32>(player.object_type(), "damage")
+        .unwrap();
+    let observations = Arc::new(AtomicUsize::new(0));
+    runtime
+        .runtime()
+        .set_execution_observer(Observer(observations.clone()))
+        .unwrap();
+    let remaining = runtime
+        .with_context(&loaded, &context, |cx| {
+            assert_eq!(player.get(cx, &hp)?, 42);
+            player.set(cx, &hp, 100)?;
+            player.call(cx, &damage, (10,))
+        })
+        .unwrap();
+    assert_eq!(remaining, 90);
+    assert!(observations.load(Ordering::Relaxed) > 0);
     let cancelled = ExecutionContext::default();
     cancelled.cancellation.cancel();
     assert!(runtime.call(&make, (), &cancelled).is_err());
+    assert!(
+        runtime
+            .with_context(&loaded, &cancelled, |cx| player.set(cx, &hp, 0))
+            .is_err()
+    );
+    assert_eq!(
+        runtime
+            .with_context(&loaded, &context, |cx| player.get(cx, &hp))
+            .unwrap(),
+        90
+    );
     let unsupported = ExecutionContext {
         jit_policy: JitPolicy::Enabled,
         ..Default::default()

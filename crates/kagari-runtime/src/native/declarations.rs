@@ -9,7 +9,7 @@ use crate::{
 use kagari_common::identity::DefinitionPath;
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    declaration::{FnDecl, Param, requirement::NativeCallableRequirement},
+    declaration::{FnDecl, NativeDeclaration, Param, requirement::NativeCallableRequirement},
     ty::{Constraint, GenericBound, GenericParam, Ty},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -180,6 +180,34 @@ impl CallableRequirement {
 pub struct SelectedCall {
     pub(crate) declaration: DefinitionPath,
     pub(crate) slot: usize,
+}
+
+impl SelectedCall {
+    /// Recover a checked authoring token from a preauthored native declaration.
+    /// The exact requirement must occur once; invocation still verifies its
+    /// declaration owner and consumes the installed compiler-selected operation.
+    pub fn from_declaration(
+        declaration: &NativeDeclaration,
+        requirement: &NativeCallableRequirement,
+    ) -> NativeResult<Self> {
+        let mut matches = declaration
+            .callable_requirements
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| *candidate == requirement);
+        let (slot, _) = matches.next().ok_or_else(|| {
+            RuntimeError::metadata_conflict("unknown native callable requirement")
+        })?;
+        if matches.next().is_some() {
+            return Err(RuntimeError::metadata_conflict(
+                "ambiguous native callable requirement",
+            ));
+        }
+        Ok(Self {
+            declaration: declaration.declaration.clone(),
+            slot,
+        })
+    }
 }
 
 pub struct FunctionBuilder<'a> {

@@ -478,16 +478,22 @@ no_std, broader JIT support, new traits or a package manager.
 
 ## Synchronous calls and registered storage
 
-Native entries return synchronously. CallContext borrows existing frame roots;
-typed scalar arguments use stack packs, and sequence views borrow contiguous
-buffers. Selected trait operations and CallableHandle callbacks reenter the same
-execution stack. Ordinary callbacks require no continuation protocol.
-StoredCallable traces captures and retains its defining generation; independently
-retained host callbacks use explicit rooted ownership.
+Native entries return synchronously. NativeContext receives owned Rust arguments
+or retained handles; recursive adapters check declared types and protect arguments
+and results automatically. Object, NativeObject, collection and interface handles
+preserve shared identity. PinnedFunction and prepared Method/Field descriptors
+retain exact applied scopes and program generations; weak binding caches retain
+no obsolete version by themselves. Selected trait operations consume installed
+compiler evidence and reenter the same execution stack. The SDK with_context scope
+applies cancellation, observation and execution policy to host object operations.
 
 NativeStorage attaches a Rust payload to an ordinary nominal native type.
-NativePayload supplies tracing, logical size and destruction. Scoped payload
+NativeData supports short fixed-data edits; ManagedStorage describes private traced
+fields and checked writes. Complete builders root initializers until publication.
+Advanced NativePayload supplies tracing, logical size and destruction. Its scoped
 borrows validate the registered Rust type and cannot span collection or reentry.
+Advanced CallContext and borrowed views remain for storage operations; StoredCallable
+is a traced heap edge, while host-retained callbacks use PinnedFunction.
 New payloads require no concrete Value/HeapObject variants. Scalar sequences use
 typed compact buffers; GC-bearing sequences use traced Values. Hash callbacks run
 outside table borrows with checked hashes and stable key tokens.

@@ -1,5 +1,14 @@
 use super::*;
-use crate::{error::RuntimeErrorKind, frame::types::EnvironmentRecord, module::LoadedModule};
+use crate::{
+    error::RuntimeErrorKind,
+    frame::types::EnvironmentRecord,
+    module::LoadedModule,
+    native::{
+        conversion::{FromKagari, context::ConversionContext},
+        function_handle::PinnedFunction,
+        typed::NativeContext,
+    },
+};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
@@ -45,11 +54,7 @@ fn fixture() -> (Runtime, LoadedModule, PreparedClosure) {
 #[test]
 fn prepared_and_stored_descriptors_do_not_root_or_alias_recycled_closures() {
     let (runtime, loaded, prepared) = fixture();
-    let stored = StoredCallable(Arc::new(StoredFunction {
-        target: prepared.clone(),
-        params: Box::new([]),
-        result: Ty::Builtin(BuiltinType::I32),
-    }));
+    let stored = StoredCallable(prepared.clone());
     let environment_id = prepared
         .snapshot(&runtime)
         .unwrap()
@@ -68,7 +73,7 @@ fn prepared_and_stored_descriptors_do_not_root_or_alias_recycled_closures() {
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
     assert!(runtime.gc.environment(environment_id).is_none());
     assert_eq!(
-        stored.0.target.snapshot(&runtime).unwrap_err().kind(),
+        stored.0.snapshot(&runtime).unwrap_err().kind(),
         RuntimeErrorKind::ModuleValidation
     );
     let replacement = runtime
@@ -91,7 +96,7 @@ fn prepared_and_stored_descriptors_do_not_root_or_alias_recycled_closures() {
 
 #[test]
 fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
-    let (runtime, _loaded, prepared) = fixture();
+    let (runtime, loaded, prepared) = fixture();
     let environment_id = prepared
         .snapshot(&runtime)
         .unwrap()
@@ -100,31 +105,23 @@ fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
         .unwrap()
         .id;
     let runtime_owner = runtime.resources().lifetime_probe();
-    let rooted = RootedCallable {
-        stored: StoredCallable(Arc::new(StoredFunction {
-            target: prepared.clone(),
-            params: Box::new([]),
-            result: Ty::Builtin(BuiltinType::I32),
-        })),
-        _root: runtime.root_value(prepared.value().clone()).unwrap(),
-    };
+    let mut conversion = ConversionContext::new(&runtime, &loaded).unwrap();
+    let signature = conversion.type_for::<PinnedFunction<(), i32>>().unwrap();
+    let rooted =
+        PinnedFunction::<(), i32>::from_kagari(&mut conversion, &signature, prepared.value())
+            .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
     assert!(runtime.gc.environment(environment_id).is_some());
     assert_eq!(
-        rooted.stored.0.target.snapshot(&runtime).unwrap().captures,
+        prepared.snapshot(&runtime).unwrap().captures,
         vec![Value::I32(7)]
     );
     drop(runtime);
     assert!(runtime_owner.upgrade().is_none());
-    let foreign = Runtime::default();
+    let (foreign, foreign_loaded, _) = fixture();
+    let mut cx = NativeContext::new(&foreign, &foreign_loaded).unwrap();
     assert_eq!(
-        rooted
-            .stored
-            .0
-            .target
-            .snapshot(&foreign)
-            .unwrap_err()
-            .kind(),
+        rooted.call(&mut cx, ()).unwrap_err().kind(),
         RuntimeErrorKind::ModuleValidation
     );
     assert_eq!(

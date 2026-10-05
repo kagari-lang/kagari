@@ -6,11 +6,12 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        callable::{CallableHandle, RootedCallable},
         context::CallContext,
         declarations::FunctionDecl,
+        function_handle::PinnedFunction,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
+        typed::NativeContext,
         types::Type,
         views::ValueHandle,
     },
@@ -72,7 +73,9 @@ impl Drop for Observer {
     }
 }
 
-fn module(held: &Arc<Mutex<Option<RootedCallable>>>, drops: Sender<ThreadId>) -> NativeModule {
+type Callback = PinnedFunction<(i32,), i32>;
+
+fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> NativeModule {
     let mut builder = ModuleBuilder::new(
         "fixture::transfer",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -129,10 +132,10 @@ fn module(held: &Arc<Mutex<Option<RootedCallable>>>, drops: Sender<ThreadId>) ->
         .unwrap();
     let stored = held.clone();
     builder
-        .bind(
+        .bind_typed(
             remember,
-            move |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<()> {
-                *stored.lock().unwrap() = Some(callback.store().root(cx)?);
+            move |_: &mut NativeContext<'_>, (callback,): (Callback,)| -> NativeResult<()> {
+                *stored.lock().unwrap() = Some(callback);
                 Ok(())
             },
         )
@@ -173,9 +176,9 @@ fn module(held: &Arc<Mutex<Option<RootedCallable>>>, drops: Sender<ThreadId>) ->
         .unwrap();
     let current = held.clone();
     builder
-        .bind(
+        .bind_typed(
             invoke,
-            move |cx: &mut CallContext<'_>, value: i32| -> NativeResult<i32> {
+            move |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<i32> {
                 let callback = current.lock().unwrap().as_ref().unwrap().clone();
                 cx.collect_garbage()?;
                 callback.call(cx, (value,))

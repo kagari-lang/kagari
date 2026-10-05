@@ -1,9 +1,10 @@
 # Runtime ownership and host object API
 
-Status: implementation authorized on 2026-10-05 after EN01-EN05 completed. The
-[roadmap](implementation-roadmap.md#runtime-ownership-and-host-objects-go01-go06-active)
-owns activation, phase order and progress. Examples below describe target APIs;
-they are not currently callable interfaces.
+Status: GO01-GO06 accepted on 2026-10-06. The
+[roadmap](implementation-roadmap.md#runtime-ownership-and-host-objects-go01-go06-complete)
+records phase commits and verification. The core ownership and host APIs are
+implemented; explicitly optional generated views and later tooling remain proposals.
+The executable host_objects example demonstrates the current public call surface.
 
 This design covers two connected changes: concentrate runtime ownership in checked
 stores instead of a graph of Rust reference-counted owners, and provide a complete
@@ -514,6 +515,19 @@ their existing checked storage operations. Scalar items can return owned copies;
 object items return protected handles. Iteration and key lookup preserve existing
 structural-mutation restrictions, callback ordering and hash/equality contracts.
 Mutable-buffer leases are advanced operations with scoped access, not raw pointers.
+
+The public ScriptVec `retain` and `dedup_by` adapters use that same exclusive buffer
+lease with typed callbacks. They protect compared values during GC, reject alias
+access while storage is detached, and restore completed edits on errors and unwind.
+The standard Vec callbacks use these adapters. String methods use typed String
+receivers and owned returns; split collects Vec<String> through NativeContext.
+
+SDK host access uses `runtime.with_context(&loaded, &execution, |cx| ...)` so object
+operations and nested calls inherit the chosen execution policy. The runtime-only
+NativeContext constructor remains useful for access without a script backend.
+Host-retained callbacks use PinnedFunction; the superseded RootedCallable wrapper
+is removed. Advanced traced StoredCallable descriptors remain heap edges and must
+be kept reachable by their owning payload, never mistaken for host roots.
 
 Managed Rust payload editing uses NativeObject<T> and a short borrow. In this
 example PlayerState is registered as containing no script references:

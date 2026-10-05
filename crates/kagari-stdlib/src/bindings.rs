@@ -6,10 +6,11 @@ mod hash;
 mod lists;
 mod propagation;
 mod strings;
+mod vectors;
 use crate::{catalog, collections, declarations::StandardDeclarations, namespaces};
 use kagari_contract::operations::IterOp;
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     gc::HeapObjectId,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
@@ -44,6 +45,7 @@ fn build_module(
     declaration: ModuleDecl,
     language: &StandardDeclarations,
 ) -> NativeResult<NativeModule> {
+    let catalog = language.catalog()?;
     let mut bindings = BTreeMap::new();
     for function in declaration.native_declarations() {
         let CallableImplementation::Native(id) = &function.function.implementation else {
@@ -60,6 +62,14 @@ fn build_module(
             .ok_or_else(|| RuntimeError::metadata_conflict("foundation binding identity"))?
             .name
             .as_str();
+        if let Some(binding) = strings::binding(name, &catalog)? {
+            bindings.insert(id.clone(), binding);
+            continue;
+        }
+        if let Some(binding) = vectors::binding(name, &function)? {
+            bindings.insert(id.clone(), binding);
+            continue;
+        }
         let entry: Entry = match name {
             "$foundation_propagation_Option_branch" => propagation::option_branch,
             "$foundation_propagation_Result_branch" => propagation::result_branch,
@@ -80,20 +90,8 @@ fn build_module(
             "$foundation_product" => construction::product,
             "$foundation_list_from_iter" => construction::list_from_iter,
             "$foundation_list_new" => list_new,
-            "$foundation_list_len" => list_len,
-            "$foundation_list_is_empty" => list_is_empty,
-            "$foundation_list_get" => list_get,
-            "$foundation_list_index" => list_index,
-            "$foundation_list_push" => list_push,
-            "$foundation_list_push_fluent" => list_push_fluent,
             "$foundation_list_pop" => list_pop,
-            "$foundation_list_insert" => list_insert,
-            "$foundation_list_insert_fluent" => list_insert_fluent,
             "$foundation_list_remove" => list_remove,
-            "$foundation_list_clear" => list_clear,
-            "$foundation_list_clear_fluent" => list_clear_fluent,
-            "$foundation_list_set" => list_set,
-            "$foundation_list_set_fluent" => list_set_fluent,
             "$foundation_list_iter"
             | "$foundation_map_iter"
             | "$foundation_set_iter"
@@ -132,13 +130,9 @@ fn build_module(
             | "$foundation_RangeTo_end_bound"
             | "$foundation_RangeToInclusive_end_bound"
             | "$foundation_RangeFull_end_bound" => end_bound,
-            _ => lists::entry(name)
-                .or_else(|| strings::entry(name))
-                .ok_or_else(|| {
-                    RuntimeError::metadata_conflict(format!(
-                        "missing foundation implementation {name}"
-                    ))
-                })?,
+            _ => lists::entry(name).ok_or_else(|| {
+                RuntimeError::metadata_conflict(format!("missing foundation implementation {name}"))
+            })?,
         };
         bindings.insert(
             id.clone(),
@@ -150,7 +144,7 @@ fn build_module(
         );
     }
     let collections_module = declaration.identity == namespaces::module("std", "collections");
-    let mut builder = ModuleBuilder::from_declaration(declaration, &language.catalog()?, bindings);
+    let mut builder = ModuleBuilder::from_declaration(declaration, &catalog, bindings);
     if collections_module {
         collections::register(&mut builder, language)?;
     }
@@ -176,20 +170,6 @@ fn list_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.allocate_result()
 }
 
-fn list_len(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap()
-        .array_len(array(cx)?)
-        .map(NativeScalar::encode)
-        .ok_or_else(invalid)
-}
-
-fn list_is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap()
-        .array_len(array(cx)?)
-        .map(|len| Value::Bool(len == 0))
-        .ok_or_else(invalid)
-}
-
 pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult<Value> {
     enums::allocate(
         cx,
@@ -198,32 +178,6 @@ pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult
         if value.is_some() { "Some" } else { "None" },
         value.into_iter().collect(),
     )
-}
-
-fn list_get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let value = cx.heap().array_get(array(cx)?, index(cx, 1)?);
-    option(cx, value)
-}
-
-fn list_index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap()
-        .array_get(array(cx)?, index(cx, 1)?)
-        .ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorKind::IndexOutOfBounds,
-                "list index is out of bounds",
-            )
-        })
-}
-
-fn list_push(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap().array_push(array(cx)?, cx.argument(1)?)?;
-    Ok(Value::Unit)
-}
-
-fn list_push_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    list_push(cx)?;
-    cx.argument(0)
 }
 
 fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -240,17 +194,6 @@ fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(result)
 }
 
-fn list_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap()
-        .array_insert(array(cx)?, index(cx, 1)?, cx.argument(2)?)?;
-    Ok(Value::Unit)
-}
-
-fn list_insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    list_insert(cx)?;
-    cx.argument(0)
-}
-
 fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     let index = index(cx, 1)?;
@@ -258,27 +201,6 @@ fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let result = option(cx, cx.heap().array_get(id, index))?;
     cx.heap().array_remove(id, index)?;
     Ok(result)
-}
-
-fn list_clear(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap().array_clear(array(cx)?)?;
-    Ok(Value::Unit)
-}
-
-fn list_clear_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    list_clear(cx)?;
-    cx.argument(0)
-}
-
-fn list_set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap()
-        .array_set(array(cx)?, index(cx, 1)?, cx.argument(2)?)?;
-    Ok(Value::Unit)
-}
-
-fn list_set_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    list_set(cx)?;
-    cx.argument(0)
 }
 
 fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {

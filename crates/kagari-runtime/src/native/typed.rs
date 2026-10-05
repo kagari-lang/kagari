@@ -16,6 +16,7 @@ use crate::{
     },
     value::Value,
 };
+use kagari_types::declaration::NativeDeclaration;
 
 /// One synchronous native invocation. Arguments are owned Rust data or retained
 /// handles; no argument-slot or payload borrow spans the callback.
@@ -79,6 +80,22 @@ impl<'call> NativeContext<'call> {
 }
 
 impl NativeBinding {
+    /// Attach a typed callback to a preauthored declaration, including generic
+    /// signatures. Module installation still validates the complete declaration
+    /// and binding; every invocation checks concrete Rust mappings before effects.
+    /// Ordinary authored registrations should use ModuleBuilder::bind_typed.
+    pub fn declared<A: FromKagariArguments, R: IntoKagari>(
+        declaration: &NativeDeclaration,
+        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        let mut binding = Self::contextual(declaration.function.params.len(), entry);
+        binding.requirement_owner = Some(declaration.declaration.clone());
+        binding
+    }
+
     pub(crate) fn contextual_method<S: FromKagari, A: FromKagariArguments, R: IntoKagari>(
         arity: usize,
         entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>

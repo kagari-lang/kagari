@@ -419,8 +419,9 @@ Runtime. Runtime::resolve_closure returns a checked scoped view. ExecutionStack
 accepts a closure Value, resolves it in that runtime and roots captures in the new
 frame before execution. Native call preparation releases metadata borrows before
 script invocation; callbacks can allocate, collect and reenter normally. Stored
-callback descriptors trace identities, while RootedCallable holds an explicit
-root lease. Neither descriptor keeps a heap record alive after runtime teardown.
+callback descriptors trace identities; host-owned PinnedFunction handles retain the
+closure and its executable scope automatically. Neither form keeps runtime storage
+alive after teardown. RootedCallable has been removed.
 An explicit diagnostic snapshot copy is not an execution or retention capability.
 Holding a scoped heap view blocks mutation with a checked error and no partial
 write or accounting change; collection rejects the borrow before any detachment.
