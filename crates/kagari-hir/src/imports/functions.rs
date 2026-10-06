@@ -4,9 +4,8 @@ use crate::{
     PreparedAnalysis,
     aggregates::AggregateCatalog,
     declarations::Declaration,
-    hir::{ids::FunctionId, item::storage::ExportItem},
-    imports::{ImportTarget, ModuleImports, SourceImport},
-    resolver::resolved::ResolvedName,
+    imports::{SourceDeclRef, SourceItem},
+    resolver::resolved::{DeclarationNames, ResolvedName},
     typeck::TypedFunction,
 };
 
@@ -16,19 +15,12 @@ use {
         cancellation::{CancellationToken, Cancelled},
         identity::{DefinitionPath, reference::DefinitionReference},
     },
-    kagari_source::identity::{FileId, Revision},
+    kagari_source::identity::FileId,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SourceFunctionId {
-    pub file: FileId,
-    pub revision: Revision,
-    pub function: FunctionId,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedFunction<I: DefinitionReference = DefinitionPath> {
-    pub id: SourceFunctionId,
+    pub id: SourceDeclRef,
     pub declaration: I,
     pub site: Declaration<I>,
     pub signature: TypedFunction<I>,
@@ -36,7 +28,7 @@ pub struct ImportedFunction<I: DefinitionReference = DefinitionPath> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedFunctions<I: DefinitionReference = DefinitionPath> {
-    functions: HashMap<ResolvedName, ImportedFunction<I>>,
+    functions: HashMap<SourceDeclRef, ImportedFunction<I>>,
     methods: HashMap<I, ImportedFunction<I>>,
 }
 
@@ -46,7 +38,7 @@ impl ImportedFunctions {
             self.methods.insert(
                 method.declaration.clone(),
                 ImportedFunction {
-                    id: method.id,
+                    id: method.id.clone(),
                     declaration: method.declaration.clone(),
                     site: method.site.clone(),
                     signature: method.function.clone(),
@@ -72,17 +64,17 @@ impl<'a> FunctionCatalog<'a> {
 
     pub(crate) fn bindings(
         &self,
-        imports: &ModuleImports,
+        names: &DeclarationNames,
         cancel: &CancellationToken,
     ) -> Result<ImportedFunctions, Cancelled> {
         let mut result = ImportedFunctions::default();
-        for (binding, target) in &imports.bindings {
+        for source in names
+            .catalog
+            .reachable_sources(&names.items, &names.hosts, cancel)?
+        {
             cancel.check()?;
-            let ImportTarget::Source(source) = target else {
-                continue;
-            };
-            if let Some(function) = self.resolve(source, cancel)? {
-                result.functions.insert(*binding, function);
+            if let Some(function) = self.resolve(&source, cancel)? {
+                result.functions.insert(source.clone(), function);
             }
         }
         Ok(result)
@@ -90,16 +82,19 @@ impl<'a> FunctionCatalog<'a> {
 
     fn resolve(
         &self,
-        target: &SourceImport,
+        target: &SourceDeclRef,
         cancel: &CancellationToken,
     ) -> Result<Option<ImportedFunction>, Cancelled> {
         cancel.check()?;
-        let Some(module) = self.modules.get(&target.file) else {
+        let Some(module) = self.modules.get(&target.unit.file) else {
             return Ok(None);
         };
-        let Some(ExportItem::Function(function)) = target.item else {
+        let SourceItem::Function(function) = target.item else {
             return Ok(None);
         };
+        if !target.unit.matches(&module.lowered) {
+            return Ok(None);
+        }
         let Some(signature) = module
             .signatures
             .facts
@@ -116,11 +111,7 @@ impl<'a> FunctionCatalog<'a> {
             return Ok(None);
         };
         Ok(Some(ImportedFunction {
-            id: SourceFunctionId {
-                file: target.file,
-                revision: target.revision,
-                function,
-            },
+            id: target.clone(),
             declaration: declaration.clone(),
             site: module
                 .declarations
@@ -153,6 +144,9 @@ impl<I: DefinitionReference> ImportedFunctions<I> {
     }
 
     pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction<I>> {
-        self.functions.get(&name)
+        match name {
+            ResolvedName::Source(source) => self.functions.get(&source),
+            _ => None,
+        }
     }
 }

@@ -115,8 +115,8 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                         ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
                         ResolvedName::Function(_)
-                        | ResolvedName::SourceItem { .. }
-                        | ResolvedName::SourceImport(_)
+                        | ResolvedName::Source(_)
+                        | ResolvedName::Namespace(_)
                         | ResolvedName::HostType(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
@@ -197,8 +197,8 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::HostFunction(_) | ResolvedName::Function(_) => {
                         "function item is not assignable".to_string()
                     }
-                    ResolvedName::SourceItem { .. }
-                    | ResolvedName::SourceImport(_)
+                    ResolvedName::Source(_)
+                    | ResolvedName::Namespace(_)
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_) => "module item is not assignable".to_string(),
@@ -338,32 +338,22 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn resolve_struct_id(&self, path: &str) -> Option<DefinitionPath> {
-        if let Some(binding) = self.declarations.names.lookup(path) {
-            match binding.target()? {
-                target @ ResolvedName::Struct(_) => {
-                    return self.declarations.definition(target).cloned();
-                }
-                ResolvedName::SourceImport(_) => {}
-                _ => return None,
-            }
+        let resolved = self.declarations.resolve_name(path)?;
+        if matches!(resolved, ResolvedName::Struct(_)) {
+            return self.declarations.definition(resolved).cloned();
         }
-        let TypeId::Struct(id) = &self.declarations.imported_types().get(path)?.ty else {
+        let TypeId::Struct(id) = &self.declarations.imported_types().resolved(resolved)?.ty else {
             return None;
         };
         Some(id.declaration.clone())
     }
 
     pub(super) fn resolve_enum_id(&self, path: &str) -> Option<DefinitionPath> {
-        if let Some(binding) = self.declarations.names.lookup(path) {
-            match binding.target()? {
-                target @ ResolvedName::Enum(_) => {
-                    return self.declarations.definition(target).cloned();
-                }
-                ResolvedName::SourceImport(_) => {}
-                _ => return None,
-            }
+        let resolved = self.declarations.resolve_name(path)?;
+        if matches!(resolved, ResolvedName::Enum(_)) {
+            return self.declarations.definition(resolved).cloned();
         }
-        let TypeId::Enum(id) = &self.declarations.imported_types().get(path)?.ty else {
+        let TypeId::Enum(id) = &self.declarations.imported_types().resolved(resolved)?.ty else {
             return None;
         };
         Some(id.declaration.clone())

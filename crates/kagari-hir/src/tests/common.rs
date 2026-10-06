@@ -42,6 +42,7 @@ pub fn check_module(
         &lowered.source,
         lowered,
         &DeclarationNames {
+            catalog: names.catalog.clone(),
             items: names.items.clone(),
             hosts: names.hosts.clone(),
             imports: names.imports.clone(),

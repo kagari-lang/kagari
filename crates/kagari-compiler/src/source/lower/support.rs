@@ -151,8 +151,8 @@ impl FunctionLowerer<'_, '_> {
             | ResolvedName::Function(_)
             | ResolvedName::Module(_)
             | ResolvedName::HostFunction(_)
-            | ResolvedName::SourceItem { .. }
-            | ResolvedName::SourceImport(_)
+            | ResolvedName::Source(_)
+            | ResolvedName::Namespace(_)
             | ResolvedName::HostType(_)
             | ResolvedName::HostModule(_)
             | ResolvedName::RuntimeHelper(_)
@@ -296,7 +296,7 @@ impl FunctionLowerer<'_, '_> {
 
         match resolved {
             ResolvedName::Param(_) | ResolvedName::Local(_) => {
-                let local = self.lookup_binding(resolved)?;
+                let local = self.lookup_binding(resolved.clone())?;
                 let is_cell =
                     matches!(resolved, ResolvedName::Local(id) if self.cell_locals.contains(&id));
                 let physical = if is_cell {
@@ -328,8 +328,8 @@ impl FunctionLowerer<'_, '_> {
                 "bare function values are not lowered yet",
             )),
             ResolvedName::HostFunction(_)
-            | ResolvedName::SourceItem { .. }
-            | ResolvedName::SourceImport(_)
+            | ResolvedName::Source(_)
+            | ResolvedName::Namespace(_)
             | ResolvedName::HostType(_)
             | ResolvedName::HostModule(_)
             | ResolvedName::RuntimeHelper(_) => Err(MirLoweringError::UnsupportedExpr(

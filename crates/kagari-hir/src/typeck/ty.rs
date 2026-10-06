@@ -76,7 +76,10 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                             context.declarations.hosts.type_declaration(id)?.id.clone(),
                         ));
                     }
-                    if let Some(imported) = context.declarations.imported_types().resolved(resolved)
+                    if let Some(imported) = context
+                        .declarations
+                        .imported_types()
+                        .resolved(resolved.clone())
                     {
                         target = Some(TypeTarget::Source(match &imported.declaration.id {
                             DeclarationId::Definition(id) => id.clone(),
@@ -84,7 +87,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                         }));
                         return Some(imported.ty.clone());
                     }
-                    let definition = context.declarations.definition(resolved)?.clone();
+                    let definition = context.declarations.definition(resolved.clone())?.clone();
                     let arguments = context
                         .declarations
                         .parameters_of(&definition)

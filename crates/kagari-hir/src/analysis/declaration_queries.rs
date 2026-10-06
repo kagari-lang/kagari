@@ -255,6 +255,11 @@ impl AnalysisDatabase {
                     old.source().revision() == lowered.source.revision()
                         && old.names().hosts.revision() == self.hosts.revision()
                         && old.names().imports == imports
+                        && old
+                            .names()
+                            .catalog
+                            .same_namespaces(&graph.catalog, &imports.scope, &self.hosts, cancel)
+                            .unwrap_or(false)
                 });
             let file = if let Some(old) = old {
                 old.clone()
@@ -263,6 +268,7 @@ impl AnalysisDatabase {
                     lowered,
                     self.hosts.clone(),
                     imports,
+                    graph.catalog.clone(),
                     &self.definitions,
                     cancel,
                 );

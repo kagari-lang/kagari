@@ -105,7 +105,11 @@ fn qualified_call_navigation_selects_only_the_terminal_name() {
     let (sources, mut db, file) = setup(text);
     let snapshot = snapshot(&mut db, &sources);
     let analysis = snapshot.file(file).unwrap();
-    assert!(analysis.result().diagnostics().is_empty());
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
 
     let source_call = text.find("api::number()").unwrap();
     for offset in source_call..source_call + "api::".len() {
@@ -243,12 +247,12 @@ fn duplicate_type_imports_invalidate_all_alias_targets() {
             facts
                 .names
                 .imports
-                .entries
+                .directives
                 .iter()
                 .take(facts.lowered.module.imports.len())
-                .all(|import| import.target.is_none())
+                .all(|import| import.resolution.target().is_none())
         );
-        assert!(facts.declarations.imported_types().get(ty).is_none());
+        assert!(facts.declarations.resolve_name(ty).is_none());
         assert_eq!(
             analysis.type_at(text.find("x: ").unwrap() + 3),
             Some(TypeId::Error)

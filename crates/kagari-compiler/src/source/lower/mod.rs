@@ -12,7 +12,6 @@ use kagari_hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
     },
-    imports::ImportTarget,
     typeck::FunctionImplementation,
     types::semantic::raise_type,
 };
@@ -23,10 +22,7 @@ use kagari_mir::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::ty::Ty;
-use std::{
-    collections::{BTreeSet, HashSet},
-    slice,
-};
+use std::{collections::HashSet, slice};
 
 mod abi;
 mod debug;
@@ -207,22 +203,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
             native_targets: planner.native_targets,
             interface_instances: planner.interface_instances,
             host_types,
-            dependencies: module
-                .names
-                .imports
-                .entries
-                .iter()
-                .filter(|import| !import.internal_namespace)
-                .filter_map(|import| {
-                    if let Some(ImportTarget::Source(target)) = &import.target {
-                        Some(target.module.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect(),
+            dependencies: module.names.imports.dependencies.clone(),
             structures,
             enumerations,
             identity: module.lowered.source.module_identity().clone(),

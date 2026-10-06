@@ -10,7 +10,7 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::writeability::Writeability,
     host::HostDeclarations,
-    imports::{ModuleGraph, functions::SourceFunctionId},
+    imports::{ModuleGraph, SourceDeclRef, SourceItem, SourceUnit},
     language::semantics as builtin_traits,
     lower::LoweredModule,
     native::NativeTypeKind,
@@ -47,7 +47,7 @@ pub struct FieldSignature<I: DefinitionReference = DefinitionPath> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InherentMethodSignature<I: DefinitionReference = DefinitionPath> {
-    pub id: SourceFunctionId,
+    pub id: SourceDeclRef,
     pub declaration: I,
     pub site: Declaration<I>,
     pub owner: TypeId<I>,
@@ -350,10 +350,9 @@ impl AggregateCatalog {
                 self.inherent_methods.insert(
                     declaration.clone(),
                     Arc::new(InherentMethodSignature {
-                        id: SourceFunctionId {
-                            file: lowered.source.id(),
-                            revision: lowered.source.revision(),
-                            function: method.function,
+                        id: SourceDeclRef {
+                            unit: SourceUnit::of(lowered),
+                            item: SourceItem::Function(method.function),
                         },
                         declaration: declaration.clone(),
                         site: site.clone(),

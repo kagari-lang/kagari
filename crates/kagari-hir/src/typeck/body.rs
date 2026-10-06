@@ -266,8 +266,8 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
                     ResolvedName::Function(_)
                     | ResolvedName::RuntimeHelper(_)
-                    | ResolvedName::SourceItem { .. }
-                    | ResolvedName::SourceImport(_)
+                    | ResolvedName::Source(_)
+                    | ResolvedName::Namespace(_)
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)

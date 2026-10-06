@@ -10,9 +10,11 @@ use crate::{
     },
     analyze_parsed,
     declarations::{Declaration, DeclarationId, Declarations},
-    hir::{expr::ExprKind, item::storage::ExportItem, place::PlaceKind},
+    hir::{expr::ExprKind, place::PlaceKind},
     host::HostDeclarations,
-    imports::{ImportTarget, ModuleGraph, SourceImport, functions::ImportedFunction},
+    imports::{
+        ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit, functions::ImportedFunction,
+    },
     lower::LoweredModule,
     native::render::DeclarationSource,
     resolver::resolved::ResolvedName,
@@ -193,15 +195,18 @@ impl FileAnalysis {
                 facts
                     .names
                     .imports
-                    .entries
+                    .directives
                     .iter()
                     .enumerate()
-                    .find_map(|(index, import)| {
-                        (import.span.start <= offset && offset < import.span.end)
+                    .find_map(|(_index, import)| {
+                        (import.span.range.start <= offset && offset < import.span.range.end)
                             .then(|| {
-                                facts
-                                    .imported_functions
-                                    .get(ResolvedName::SourceImport(index))
+                                facts.imported_functions.get(
+                                    import
+                                        .resolution
+                                        .target()?
+                                        .resolved(facts.names.items.unit.as_ref()),
+                                )
                             })
                             .flatten()
                     })
@@ -251,17 +256,21 @@ impl FileAnalysis {
                 facts
                     .names
                     .imports
-                    .entries
+                    .directives
                     .iter()
                     .enumerate()
-                    .find_map(|(index, import)| {
-                        if !(import.span.start <= offset && offset < import.span.end) {
+                    .find_map(|(_index, import)| {
+                        if !(import.span.range.start <= offset && offset < import.span.range.end) {
                             return None;
                         }
                         let ResolvedName::HostFunction(host) = facts
                             .names
                             .imports
-                            .resolved_name(ResolvedName::SourceImport(index))?
+                            .directives
+                            .get(_index)?
+                            .resolution
+                            .target()?
+                            .resolved(facts.names.items.unit.as_ref())
                         else {
                             return None;
                         };
@@ -302,17 +311,21 @@ impl FileAnalysis {
         facts
             .names
             .imports
-            .entries
+            .directives
             .iter()
             .enumerate()
-            .find_map(|(index, import)| {
-                if !(import.span.start <= offset && offset < import.span.end) {
+            .find_map(|(_index, import)| {
+                if !(import.span.range.start <= offset && offset < import.span.range.end) {
                     return None;
                 }
                 let ResolvedName::HostType(id) = facts
                     .names
                     .imports
-                    .resolved_name(ResolvedName::SourceImport(index))?
+                    .directives
+                    .get(_index)?
+                    .resolution
+                    .target()?
+                    .resolved(facts.names.items.unit.as_ref())
                 else {
                     return None;
                 };
@@ -572,8 +585,8 @@ impl FileAnalysis {
             .visible_bindings(offset)
             .into_iter()
             .filter_map(|binding| {
-                let declaration = facts.declarations.target(binding.resolved)?.clone();
-                let ty = match binding.resolved {
+                let declaration = facts.declarations.target(binding.resolved.clone())?.clone();
+                let ty = match binding.resolved.clone() {
                     ResolvedName::Local(id) => facts.typed.type_table.local_type(id),
                     ResolvedName::Param(id) => facts
                         .typed
@@ -1052,9 +1065,10 @@ impl AnalysisSnapshot {
         &self.signatures
     }
 
-    pub fn source_import_at(&self, file: FileId, offset: usize) -> Option<SourceImport> {
+    /// Canonical namespace/declaration hit and the binding origins selected at this use.
+    pub fn source_target_at(&self, file: FileId, offset: usize) -> Option<LookupHit> {
         let facts = self.analysis_at(file, offset)?.result.records().facts();
-        let expression = facts
+        facts
             .lowered
             .module
             .body
@@ -1068,27 +1082,25 @@ impl AnalysisSnapshot {
                 if !(span.start <= offset && offset < span.end) {
                     return None;
                 }
-                let binding = facts.names.expr_resolution(id)?;
-                let ImportTarget::Source(target) = facts.names.imports.binding(binding)? else {
-                    return None;
-                };
-                Some((span.end - span.start, target.clone()))
+                Some((span.end - span.start, facts.names.lookup_hit(id)?.clone()))
             })
             .min_by_key(|(length, _)| *length)
-            .map(|(_, target)| target);
-        expression.or_else(|| {
-            facts.names.imports.entries.iter().find_map(|import| {
-                if !(import.span.start <= offset && offset < import.span.end) {
-                    return None;
-                }
-                match &import.target {
-                    Some(ImportTarget::Source(target)) => Some(target.clone()),
-                    _ => None,
-                }
+            .map(|(_, hit)| hit)
+            .or_else(|| {
+                facts.names.imports.directives.iter().find_map(|directive| {
+                    if !(directive.span.range.start <= offset && offset < directive.span.range.end)
+                    {
+                        return None;
+                    }
+                    Some(LookupHit {
+                        target: directive.resolution.target()?.clone(),
+                        via: vec![crate::imports::BindingOrigin::NamedImport(
+                            directive.id.clone(),
+                        )],
+                    })
+                })
             })
-        })
     }
-
     pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration<DefinitionId>> {
         let analysis = self.analysis_at(file, offset)?;
         if let Some(declaration) = analysis.definition_at(offset) {
@@ -1100,29 +1112,22 @@ impl AnalysisSnapshot {
         {
             return self.declaration(&DeclarationId::Definition(member));
         }
-
-        let ImportTarget::Source(target) = self
-            .graph
-            .resolve_export(self.source_import_at(file, offset)?, &Default::default())
-            .ok()??
-        else {
+        let hit = self.source_target_at(file, offset)?;
+        let ResolvedTarget::Source(target) = hit.target else {
             return None;
         };
-        let file = self.file(target.file)?;
-        let resolved = match target.item? {
-            ExportItem::OpaqueType(id) => ResolvedName::OpaqueType(id),
-            ExportItem::Function(id) => ResolvedName::Function(id),
-            ExportItem::Const(id) => ResolvedName::Const(id),
-            ExportItem::Module(id) => ResolvedName::Module(id),
-            ExportItem::Struct(id) => ResolvedName::Struct(id),
-            ExportItem::Enum(id) => ResolvedName::Enum(id),
-            ExportItem::Variant(id) => {
-                return file.result.records().facts().declarations.variant(id);
-            }
-            ExportItem::Trait(id) => ResolvedName::Trait(id),
-            ExportItem::Import(_) => return None,
-        };
-        file.result.records().facts().declarations.target(resolved)
+        let file = self.file(target.unit.file)?;
+        if !target.unit.matches(&file.result.records().facts().lowered) {
+            return None;
+        }
+        if let SourceItem::Variant(id) = target.item {
+            return file.result.records().facts().declarations.variant(id);
+        }
+        file.result
+            .records()
+            .facts()
+            .declarations
+            .target(target.item.local()?)
     }
 
     pub fn module_graph(&self) -> &ModuleGraph {

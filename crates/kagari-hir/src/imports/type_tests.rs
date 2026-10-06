@@ -1,4 +1,5 @@
 use super::tests::{analyze, insert};
+use crate::host::HostDeclarations;
 use crate::{analysis::ownership, tests::test_analysis, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -48,6 +49,7 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
         file.source_function_at(text.find("lib::answer()").unwrap() + "lib::".len())
             .unwrap()
             .id
+            .unit
             .file,
         library
     );
@@ -129,7 +131,7 @@ fn exported_signatures_use_imported_types_before_callers_are_checked() {
     let imported = file
         .source_function_at(text.find("pass(x)").unwrap())
         .unwrap();
-    assert_eq!(imported.id.file, api);
+    assert_eq!(imported.id.unit.file, api);
     let local = file
         .signatures()
         .facts()
@@ -149,15 +151,20 @@ fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
     let root = insert(&mut db, "root", text);
     let first = analyze(&db);
     let target = first
-        .source_import_at(root, text.find("pkg::types").unwrap())
+        .source_target_at(root, text.find("pkg::types").unwrap())
         .unwrap();
-    assert!(
+    let ctx = crate::imports::catalog::LookupContext {
+        importer: &first.file(root).unwrap().source().module_identity(),
+        hosts: &HostDeclarations::empty(),
+    };
+    assert!(!matches!(
         first
             .module_graph()
-            .resolve_export(target.clone(), &Default::default())
-            .unwrap()
-            .is_some()
-    );
+            .catalog
+            .namespace_of(&ctx, &target.target, &Default::default())
+            .unwrap(),
+        crate::imports::catalog::NamespaceResult::StaleSource
+    ));
     db.set(
         "mem://types",
         "pub struct Data { val value: bool }".into(),
@@ -165,32 +172,28 @@ fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
     )
     .unwrap();
     let second = analyze(&db);
-    assert!(
+    assert_eq!(
         second
             .module_graph()
-            .resolve_export(target.clone(), &Default::default())
-            .unwrap()
-            .is_none()
+            .catalog
+            .namespace_of(&ctx, &target.target, &Default::default())
+            .unwrap(),
+        crate::imports::catalog::NamespaceResult::StaleSource
     );
     let cancel = kagari_common::cancellation::CancellationToken::default();
     cancel.cancel();
     assert!(
         first
             .module_graph()
-            .resolve_export(target, &cancel)
+            .catalog
+            .namespace_of(&ctx, &target.target, &cancel)
             .is_err()
     );
     let a = insert(&mut db, "a", "pub use pkg::b::Alias;");
     insert(&mut db, "b", "pub use pkg::a::Alias;");
     let cycle = analyze(&db);
-    let target = cycle.source_import_at(a, "pub use ".len()).unwrap();
-    assert!(
-        cycle
-            .module_graph()
-            .resolve_export(target, &Default::default())
-            .unwrap()
-            .is_none()
-    );
+    assert!(cycle.source_target_at(a, "pub use ".len()).is_none());
+    assert!(!cycle.file(a).unwrap().result().diagnostics().is_empty());
 }
 
 #[test]

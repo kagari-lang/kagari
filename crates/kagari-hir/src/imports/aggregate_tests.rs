@@ -119,6 +119,7 @@ fn imported_inherent_method_navigation_uses_its_source_declaration() {
             .source_function_at(at)
             .unwrap()
             .id
+            .unit
             .file,
         model
     );

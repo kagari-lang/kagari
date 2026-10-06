@@ -7,7 +7,7 @@ use crate::{
         item::{Item, behavior::GenericParam, function::FunctionKind, storage::ConstOwner},
     },
     host::HostDeclarations,
-    imports::{ModuleImports, types::ImportedTypes},
+    imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog, types::ImportedTypes},
     lower::LoweredModule,
     native::NativeTypeKind,
     resolver::{
@@ -42,7 +42,7 @@ static NEXT_ANALYSIS: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AnalysisId(u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BindingId {
     pub analysis: AnalysisId,
     pub body: DefinitionId,
@@ -70,7 +70,8 @@ pub struct Declarations<I: DefinitionReference = DefinitionPath> {
     pub(crate) imported_types: ImportedTypes<I>,
     pub(crate) names: Arc<NameTable>,
     pub(crate) hosts: Arc<HostDeclarations>,
-    imports: Arc<ModuleImports>,
+    imports: Arc<ModuleImportFacts>,
+    catalog: Arc<NamespaceCatalog>,
     analysis: AnalysisId,
     definitions: DefinitionTable,
     context: DefinitionContext,
@@ -81,7 +82,7 @@ pub struct Declarations<I: DefinitionReference = DefinitionPath> {
     native_types: HashMap<OpaqueTypeId, NativeTypeKind<I>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum DeclarationKey {
     Name(ResolvedName),
     Field(FieldId),
@@ -119,6 +120,7 @@ impl Declarations {
                 names: names.items.clone(),
                 hosts: names.hosts.clone(),
                 imports: names.imports.clone(),
+                catalog: names.catalog.clone(),
                 analysis,
                 definitions: context.snapshot(),
                 context: context.clone(),
@@ -414,17 +416,17 @@ impl Declarations {
                 if cancel.check().is_err() {
                     break;
                 }
-                let range = match binding.resolved {
+                let range = match binding.resolved.clone() {
                     ResolvedName::Param(id) => map.param_span(id),
                     ResolvedName::Local(id) => map.local_span(id),
                     _ => unreachable!("scope binds parameters and locals"),
                 };
                 builder.insert(
-                    binding.resolved,
+                    binding.resolved.clone(),
                     DeclarationId::Binding(BindingId {
                         analysis,
                         body,
-                        slot: binding.resolved,
+                        slot: binding.resolved.clone(),
                     }),
                     &binding.name,
                     range,
@@ -525,9 +527,9 @@ impl Builder<'_> {
     ) {
         let key = key.into();
         if site {
-            self.result.site_ranges.insert(key, range);
+            self.result.site_ranges.insert(key.clone(), range);
         }
-        self.result.identities.insert(id.clone(), key);
+        self.result.identities.insert(id.clone(), key.clone());
         self.result.targets.insert(
             key,
             Declaration {
@@ -559,23 +561,19 @@ impl<I: DefinitionReference> Declarations<I> {
     }
 
     pub(crate) fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
-        if let Some(binding) = self.names.lookup(name) {
-            binding.target()
-        } else if let Some((binding, member)) = name.match_indices("::").find_map(|(split, _)| {
-            self.names
-                .lookup(&name[..split])
-                .map(|binding| (binding, &name[split + 2..]))
-        }) {
-            match binding.target()? {
-                ResolvedName::HostModule(module) => self.hosts.resolve_name_in(module, member),
-                ResolvedName::SourceImport(index) => {
-                    self.imports.resolve_member(index, member, &self.hosts)
-                }
-                _ => None,
-            }
-        } else {
-            self.hosts.resolve_name(name)
+        self.catalog
+            .resolve_name(&self.names, &self.hosts, name, &Default::default())
+            .map(|hit| hit.target.resolved(self.names.unit.as_ref()))
+    }
+
+    pub(crate) fn resolved_variant(&self, name: ResolvedName) -> Option<&Declaration<I>> {
+        if let ResolvedName::Source(source) = &name
+            && Some(&source.unit) == self.names.unit.as_ref()
+            && let SourceItem::Variant(id) = source.item
+        {
+            return self.variant(id);
         }
+        self.imported_types.variant(name)
     }
 
     pub fn variant(&self, id: VariantId) -> Option<&Declaration<I>> {
@@ -627,7 +625,7 @@ impl<I: DefinitionReference> Declarations<I> {
             .identities
             .get(&DeclarationId::Definition(id.clone()))?
         {
-            DeclarationKey::Name(name) => Some(*name),
+            DeclarationKey::Name(name) => Some(name.clone()),
             _ => None,
         }
     }
@@ -674,8 +672,8 @@ impl<I: DefinitionReference> Declarations<I> {
 
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration<I>> {
         self.targets
-            .get(&DeclarationKey::Name(name))
-            .or_else(|| self.imported_types.variant(name))
+            .get(&DeclarationKey::Name(name.clone()))
+            .or_else(|| self.resolved_variant(name))
     }
 
     pub fn field(&self, field: FieldId) -> Option<&Declaration<I>> {

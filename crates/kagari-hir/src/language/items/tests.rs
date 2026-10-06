@@ -66,7 +66,14 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
                 .unwrap()
                 .imports
                 .clone();
-            declare_analysis(lowered, hosts.clone(), imports, &context, &cancel)
+            declare_analysis(
+                lowered,
+                hosts.clone(),
+                imports,
+                graph.catalog.clone(),
+                &context,
+                &cancel,
+            )
         })
         .collect::<Vec<_>>();
     let types = TypeCatalog::new(declared.iter());
@@ -74,9 +81,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
         .iter()
         .map(|declared| {
             declared.clone().check_signatures(
-                types
-                    .bindings(&declared.names.facts.imports, &cancel)
-                    .unwrap(),
+                types.bindings(&declared.names.facts, &cancel).unwrap(),
                 None,
                 &cancel,
             )
@@ -186,6 +191,7 @@ fn copied_module_identity_does_not_authorize_application_roles() {
     let declared = declare_analysis(
         lowered,
         HostDeclarations::empty(),
+        Arc::default(),
         Arc::default(),
         &DefinitionContext::new().unwrap(),
         &Default::default(),

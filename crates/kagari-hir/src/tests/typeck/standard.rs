@@ -306,14 +306,15 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
     );
     for (name, function) in [("foundation", false), ("make_list", true)] {
         let binding = analyzed.names.items.lookup(name).unwrap().target().unwrap();
-        let crate::imports::ImportTarget::Source(target) =
-            analyzed.names.imports.binding(binding).unwrap()
-        else {
+        let crate::resolver::resolved::ResolvedName::Source(target) = binding else {
             panic!("source-owned declaration");
         };
-        assert_eq!(target.module, kagari_stdlib::namespaces::type_owner("Vec"));
         assert_eq!(
-            matches!(target.item, Some(ExportItem::Function(_))),
+            target.unit.module,
+            kagari_stdlib::namespaces::type_owner("Vec")
+        );
+        assert_eq!(
+            matches!(target.item, crate::imports::SourceItem::Function(_)),
             function
         );
     }

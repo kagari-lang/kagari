@@ -72,6 +72,7 @@ pub(crate) fn recover_invalid_identity(source: &SourceFile) -> AnalysisResult<An
         lowered,
         HostDeclarations::empty(),
         Default::default(),
+        Default::default(),
         &definitions,
         &cancel,
     );

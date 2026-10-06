@@ -617,7 +617,9 @@ impl HostDeclarations {
         if module.revision != self.revision {
             return None;
         }
-        self.resolve_name(&format!("{}::{path}", self.modules.get(module.index)?))
+        let path = format!("{}::{path}", self.modules.get(module.index)?);
+        self.resolve_name(&path)
+            .or_else(|| self.module(&path).map(ResolvedName::HostModule))
     }
 
     pub(crate) fn resolve_name(&self, path: &str) -> Option<ResolvedName> {

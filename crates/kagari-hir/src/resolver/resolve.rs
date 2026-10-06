@@ -6,13 +6,13 @@ use crate::{
             BlockId, BodyOwner, ConstId, ExprId, FunctionId, HirOwner, ParamId, PatternId, PlaceId,
             StmtId,
         },
-        item::{Module, storage::ExportItem},
+        item::Module,
         pattern::PatternKind,
         place::PlaceKind,
         stmt::StmtKind,
     },
     host::HostDeclarations,
-    imports::{ImportTarget, ModuleImports},
+    imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog},
     resolver::{
         resolved::{LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding},
         table::{NameResolution, NameTable},
@@ -47,7 +47,8 @@ impl<'a> BodyResolver<'a> {
         module: &'a Module,
         source_map: &'a SourceMap,
         hosts: Arc<HostDeclarations>,
-        imports: Arc<ModuleImports>,
+        imports: Arc<ModuleImportFacts>,
+        catalog: Arc<NamespaceCatalog>,
         cancel: CancellationToken,
     ) -> Self {
         Self {
@@ -55,7 +56,7 @@ impl<'a> BodyResolver<'a> {
             names,
             module,
             source_map,
-            resolved: ResolvedNames::new(names.clone(), hosts, imports),
+            resolved: ResolvedNames::new(names.clone(), hosts, imports, catalog),
             scopes: Vec::new(),
             closures: Vec::new(),
         }
@@ -185,7 +186,16 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Missing => {}
             ExprKind::Name { name, .. } => {
                 if let Some(resolved) = self.resolve_name(name) {
-                    self.resolved.insert_expr(expr_id, resolved);
+                    self.resolved.insert_expr(expr_id, resolved.clone());
+                    if let Some(hit) = self.resolved.catalog.resolve_name(
+                        self.names,
+                        &self.resolved.hosts,
+                        name,
+                        &self.cancel,
+                    ) && hit.target.resolved(self.names.unit.as_ref()) == resolved
+                    {
+                        self.resolved.lookup_hits.insert(expr_id, hit);
+                    }
                     self.record_capture(resolved);
                 } else if let Some((owner, member)) = name.rsplit_once("::")
                     && let Some(owner) = self.resolve_name(owner)
@@ -282,7 +292,7 @@ impl<'a> BodyResolver<'a> {
                         self.resolved.scopes[scope.id]
                             .bindings
                             .iter()
-                            .map(|binding| binding.resolved)
+                            .map(|binding| binding.resolved.clone())
                     })
                     .collect();
                 self.closures.push((expr_id, outer, Vec::new()));
@@ -339,7 +349,7 @@ impl<'a> BodyResolver<'a> {
         let Some(resolved) = self.resolve_name(path) else {
             return;
         };
-        if matches!(self.resolved.imports.binding(resolved), Some(ImportTarget::Source(source)) if matches!(source.item, Some(ExportItem::Variant(_))))
+        if matches!(&resolved, ResolvedName::Source(source) if matches!(source.item, SourceItem::Variant(_)))
         {
             self.resolved.pattern_variants.insert(pattern, resolved);
         }
@@ -388,7 +398,7 @@ impl<'a> BodyResolver<'a> {
         match &place.kind {
             PlaceKind::Name(name) => {
                 if let Some(resolved) = self.resolve_name(name) {
-                    self.resolved.insert_place(place_id, resolved);
+                    self.resolved.insert_place(place_id, resolved.clone());
                     self.record_capture(resolved);
                 }
             }
@@ -407,7 +417,7 @@ impl<'a> BodyResolver<'a> {
         }
         for (_, outer, captures) in &mut self.closures {
             if outer.contains(&resolved) && !captures.contains(&resolved) {
-                captures.push(resolved);
+                captures.push(resolved.clone());
             }
         }
     }
@@ -416,7 +426,9 @@ impl<'a> BodyResolver<'a> {
         for scope in self.scopes.iter().rev() {
             if let Some(index) = scope.latest.get(name) {
                 return Some(NameResolution::Unique(
-                    self.resolved.scopes[scope.id].bindings[*index].resolved,
+                    self.resolved.scopes[scope.id].bindings[*index]
+                        .resolved
+                        .clone(),
                 ));
             }
         }
@@ -427,31 +439,21 @@ impl<'a> BodyResolver<'a> {
         if let Some(binding) = self.binding(name) {
             return binding.target();
         }
-        for (split, _) in name.match_indices("::") {
-            let (alias, member) = (&name[..split], &name[split + 2..]);
-            let Some(binding) = self.binding(alias) else {
-                continue;
-            };
-            return match binding.target()? {
-                ResolvedName::SourceImport(index) => {
-                    self.resolved
-                        .imports
-                        .resolve_member(index, member, &self.resolved.hosts)
-                }
-                ResolvedName::Module(id) => {
-                    let index = *self.resolved.imports.module_aliases.get(&id)?;
-                    self.resolved
-                        .imports
-                        .resolve_member(index, member, &self.resolved.hosts)
-                }
-                ResolvedName::HostModule(module) => {
-                    self.resolved.hosts.resolve_name_in(module, member)
-                }
-                _ => None,
-            };
+        if let Some((root, _)) = name.split_once("::")
+            && let Some(binding) = self.binding(root)
+            && matches!(
+                binding,
+                NameResolution::Unique(ResolvedName::Param(_) | ResolvedName::Local(_))
+            )
+        {
+            return None;
         }
-        if let Some(resolved) = self.resolved.hosts.resolve_name(name) {
-            return Some(resolved);
+        if let Some(hit) =
+            self.resolved
+                .catalog
+                .resolve_name(self.names, &self.resolved.hosts, name, &self.cancel)
+        {
+            return Some(hit.target.resolved(self.names.unit.as_ref()));
         }
         if let Some(helper) = BuiltinFunction::from_name(name) {
             return Some(ResolvedName::RuntimeHelper(helper));

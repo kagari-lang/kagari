@@ -2,11 +2,7 @@
 #[cfg(test)]
 mod tests;
 use crate::{
-    hir::{
-        ids::FunctionId,
-        item::{function::FunctionKind, module::Import},
-        ty::TypeKind,
-    },
+    hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
     lower::{LoweredModule, lower_module_controlled},
     native::{
         NativeBinding, NativeTypeKind,
@@ -17,7 +13,6 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
-    span::Span,
 };
 use kagari_source::{
     source::SourceFile,
@@ -36,7 +31,6 @@ use kagari_types::{
         ownership::ReceiverOwners,
     },
     language,
-    visibility::Visibility,
 };
 use std::{collections::HashSet, sync::Arc};
 
@@ -334,47 +328,11 @@ fn attach_dependencies(
             cancel,
         )
         .map_err(|error| DeclarationError(error.to_string()))?;
-    for id in imports {
-        let path = format!("{}::{}", id.module, id.path[0].name);
-        let alias = format!(
-            "{}::{}",
-            module_path(&id.module, providers),
-            id.path[0].name
-        );
-        lowered.module.imports.push(Import {
-            visibility: Visibility::Private,
-            alias,
-            path,
-            span: Span::default(),
-            glob: false,
-        });
-    }
-    let mut occupied: HashSet<_> = lowered
-        .module
-        .imports
+    lowered.native_dependencies = definition
+        .dependencies
         .iter()
-        .map(|item| item.alias.clone())
-        .chain(lowered.module.exports.iter().map(|item| item.name.clone()))
-        .chain(
-            lowered
-                .module
-                .functions
-                .iter()
-                .map(|item| item.name.clone()),
-        )
+        .cloned()
+        .chain(imports.into_iter().map(|id| id.module))
         .collect();
-    for (index, identity) in definition.dependencies.iter().enumerate() {
-        let mut alias = format!("__native_dependency_{index}");
-        while !occupied.insert(alias.clone()) {
-            alias.push('_');
-        }
-        lowered.module.imports.push(Import {
-            visibility: Visibility::Private,
-            alias,
-            path: format!("{}::{}", identity.package.0, identity.path.join("::")),
-            span: Span::default(),
-            glob: false,
-        });
-    }
     Ok(())
 }

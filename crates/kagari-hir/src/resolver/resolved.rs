@@ -5,11 +5,14 @@ use crate::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, OpaqueTypeId,
             ParamId, PatternId, PlaceId, StructId, TraitId,
         },
-        item::{Module, storage::ExportItem},
+        item::Module,
         pattern::PatternKind,
     },
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
-    imports::ModuleImports,
+    imports::{
+        ModuleImportFacts, NamespaceId, SourceDeclRef,
+        catalog::{LookupHit, NamespaceCatalog},
+    },
     resolver::table::NameTable,
 };
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
@@ -31,11 +34,11 @@ pub struct LexicalScope {
     pub bindings: Vec<ScopeBinding>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
     OpaqueType(OpaqueTypeId),
-    SourceImport(usize),
-    SourceItem { import: usize, item: ExportItem },
+    Source(SourceDeclRef),
+    Namespace(NamespaceId),
     HostModule(HostModuleId),
     HostFunction(HostFunctionId),
     HostType(HostTypeId),
@@ -52,7 +55,8 @@ pub enum ResolvedName {
 
 #[derive(Debug, Clone)]
 pub struct DeclarationNames {
-    pub imports: Arc<ModuleImports>,
+    pub imports: Arc<ModuleImportFacts>,
+    pub catalog: Arc<NamespaceCatalog>,
     pub hosts: Arc<HostDeclarations>,
     pub items: Arc<NameTable>,
 }
@@ -65,11 +69,13 @@ pub struct QualifiedMember {
 
 #[derive(Debug, Clone)]
 pub struct ResolvedNames {
-    pub imports: Arc<ModuleImports>,
+    pub imports: Arc<ModuleImportFacts>,
+    pub catalog: Arc<NamespaceCatalog>,
     pub hosts: Arc<HostDeclarations>,
     pub items: Arc<NameTable>,
     pub(crate) scopes: Vec<LexicalScope>,
     exprs: HashMap<ExprId, ResolvedName>,
+    pub(crate) lookup_hits: HashMap<ExprId, LookupHit>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
     pub(crate) pattern_variants: HashMap<PatternId, ResolvedName>,
@@ -77,6 +83,10 @@ pub struct ResolvedNames {
 }
 
 impl ResolvedNames {
+    pub fn lookup_hit(&self, id: ExprId) -> Option<&LookupHit> {
+        self.lookup_hits.get(&id)
+    }
+
     pub fn pattern_is_irrefutable(&self, module: &Module, id: PatternId) -> bool {
         match &module.pattern(id).kind {
             PatternKind::Wildcard => true,
@@ -99,14 +109,17 @@ impl ResolvedNames {
     pub(crate) fn new(
         items: Arc<NameTable>,
         hosts: Arc<HostDeclarations>,
-        imports: Arc<ModuleImports>,
+        imports: Arc<ModuleImportFacts>,
+        catalog: Arc<NamespaceCatalog>,
     ) -> Self {
         Self {
             imports,
+            catalog,
             hosts,
             items,
             scopes: Vec::new(),
             exprs: HashMap::new(),
+            lookup_hits: HashMap::new(),
             places: HashMap::new(),
             qualified_members: HashMap::new(),
             pattern_variants: HashMap::new(),
@@ -131,11 +144,11 @@ impl ResolvedNames {
     }
 
     pub fn expr_resolution(&self, id: ExprId) -> Option<ResolvedName> {
-        self.exprs.get(&id).copied()
+        self.exprs.get(&id).cloned()
     }
 
     pub fn place_resolution(&self, id: PlaceId) -> Option<ResolvedName> {
-        self.places.get(&id).copied()
+        self.places.get(&id).cloned()
     }
 
     pub fn closure_captures(&self, id: ExprId) -> &[ResolvedName] {

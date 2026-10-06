@@ -2,12 +2,11 @@ use crate::{
     AnalysisResult,
     hir::{ids::BodySelection, item::function::FunctionKind},
     host::HostDeclarations,
-    imports::{ModuleGraph, ModuleImports},
+    imports::{ModuleGraph, ModuleImportFacts, catalog::NamespaceCatalog},
     lower::LoweredModule,
     resolver::{
         resolve::BodyResolver,
-        resolved::{DeclarationNames, ResolvedName, ResolvedNames},
-        table::NameTable,
+        resolved::{DeclarationNames, ResolvedNames},
     },
 };
 use smallvec::SmallVec;
@@ -26,7 +25,13 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
         .unwrap()
         .imports
         .clone();
-    let declarations = collect_declarations(lowered, hosts, imports, &Default::default());
+    let declarations = collect_declarations(
+        lowered,
+        hosts,
+        imports,
+        graph.catalog.clone(),
+        &Default::default(),
+    );
     AnalysisResult {
         facts: resolve_bodies(
             lowered,
@@ -41,118 +46,22 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
 pub(crate) fn collect_declarations(
     lowered: &LoweredModule,
     hosts: Arc<HostDeclarations>,
-    imports: Arc<ModuleImports>,
+    imports: Arc<ModuleImportFacts>,
+    catalog: Arc<NamespaceCatalog>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<DeclarationNames> {
-    let mut names = NameTable::default();
+    let names = imports.scope.clone();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
-    let mut declarations = Vec::new();
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             break;
         }
-        if function.kind != FunctionKind::User {
-            continue;
-        }
-        if function.name.is_empty() {
+        if function.kind == FunctionKind::User && function.name.is_empty() {
             diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
-            continue;
-        }
-        declarations.push((
-            &function.name,
-            ResolvedName::Function(function.id),
-            lowered.source_map.function_span(function.id),
-        ));
-    }
-    for item in &lowered.module.consts {
-        if cancel.check().is_err() {
-            break;
-        }
-        if item.owner.is_some() {
-            continue;
-        }
-        declarations.push((
-            &item.name,
-            ResolvedName::Const(item.id),
-            lowered.source_map.const_span(item.id),
-        ));
-    }
-    for item in &lowered.module.modules {
-        if cancel.check().is_err() {
-            break;
-        }
-        declarations.push((
-            &item.name,
-            ResolvedName::Module(item.id),
-            lowered.source_map.module_span(item.id),
-        ));
-    }
-    for item in &lowered.module.opaque_types {
-        if cancel.check().is_err() {
-            break;
-        }
-        declarations.push((
-            &item.name,
-            ResolvedName::OpaqueType(item.id),
-            lowered.source_map.opaque_type_span(item.id),
-        ));
-    }
-    for item in &lowered.module.structs {
-        if cancel.check().is_err() {
-            break;
-        }
-        declarations.push((
-            &item.name,
-            ResolvedName::Struct(item.id),
-            lowered.source_map.struct_span(item.id),
-        ));
-    }
-    for item in &lowered.module.enums {
-        if cancel.check().is_err() {
-            break;
-        }
-        declarations.push((
-            &item.name,
-            ResolvedName::Enum(item.id),
-            lowered.source_map.enum_span(item.id),
-        ));
-    }
-    for item in &lowered.module.traits {
-        if cancel.check().is_err() {
-            break;
-        }
-        declarations.push((
-            &item.name,
-            ResolvedName::Trait(item.id),
-            lowered.source_map.trait_span(item.id),
-        ));
-    }
-    declarations.sort_by_key(|(_, _, span)| span.start);
-    for (name, target, span) in declarations {
-        if cancel.check().is_err() {
-            break;
-        }
-        if !name.is_empty() && !names.insert(name.clone(), Some(target)) {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::DuplicateDeclaration { name: name.clone() })
-                    .with_span(span),
-            );
         }
     }
-
     diagnostics.extend(imports.diagnostics.iter().cloned());
-    for (index, import) in imports.entries.iter().enumerate() {
-        if cancel.check().is_err() {
-            break;
-        }
-        if import.glob_root || import.implicit_module.is_some() || import.internal_namespace {
-            continue;
-        }
-        let target = imports.resolved_name(ResolvedName::SourceImport(index));
-        names.insert(import.alias.clone(), target);
-    }
-
     for enum_def in &lowered.module.enums {
         if cancel.check().is_err() {
             break;
@@ -198,7 +107,7 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        names.insert_impl(impl_block.id);
+
         let mut seen = HashSet::new();
         for method in &impl_block.methods {
             if cancel.check().is_err() {
@@ -218,7 +127,8 @@ pub(crate) fn collect_declarations(
 
     AnalysisResult {
         facts: DeclarationNames {
-            items: Arc::new(names),
+            items: names,
+            catalog,
             hosts,
             imports,
         },
@@ -238,6 +148,7 @@ pub(crate) fn resolve_bodies(
         &lowered.source_map,
         names.hosts.clone(),
         names.imports.clone(),
+        names.catalog.clone(),
         cancel.clone(),
     );
     for const_item in &lowered.module.consts {

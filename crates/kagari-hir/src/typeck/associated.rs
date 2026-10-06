@@ -827,6 +827,7 @@ mod tests {
             lowered,
             HostDeclarations::empty(),
             Default::default(),
+            Default::default(),
             &DefinitionContext::new().unwrap(),
             &Default::default(),
         );

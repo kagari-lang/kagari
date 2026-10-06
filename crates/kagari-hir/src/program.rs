@@ -17,7 +17,7 @@ use {
     crate::{
         CheckedAnalysis,
         analysis::AnalysisSnapshot,
-        imports::{ModuleOrderError, functions::SourceFunctionId},
+        imports::{ModuleOrderError, SourceDeclRef},
     },
     kagari_common::cancellation::CancellationToken,
 };
@@ -63,17 +63,17 @@ impl CheckedProgram {
 
     pub fn source_function(
         &self,
-        id: SourceFunctionId,
+        id: &SourceDeclRef,
     ) -> Option<(&CheckedAnalysis, &TypedFunction<DefinitionId>)> {
-        let module = &self.modules[*self.by_file.get(&id.file)?];
-        if module.lowered.source.revision() != id.revision {
+        let module = &self.modules[*self.by_file.get(&id.unit.file)?];
+        if !id.unit.matches(&module.lowered) {
             return None;
         }
         let function = module
             .typed
             .functions
             .iter()
-            .find(|function| function.id == id.function)?;
+            .find(|function| Some(function.id) == id.function())?;
         Some((module, function))
     }
 }

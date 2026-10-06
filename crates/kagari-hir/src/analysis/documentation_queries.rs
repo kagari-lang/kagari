@@ -8,6 +8,7 @@ use crate::{
     },
     declarations::{Declaration, DeclarationId},
     host::origin::HostDeclarationOrigin,
+    imports::{NamespaceId, ResolvedTarget},
 };
 use kagari_syntax::ast::{
     item::{Item, MethodDef},
@@ -87,12 +88,12 @@ impl AnalysisSnapshot {
         file: FileId,
         offset: usize,
     ) -> Option<ModuleDocumentation> {
-        let target = self.source_import_at(file, offset)?;
-        if target.item.is_some() {
+        let target = self.source_target_at(file, offset)?;
+        let ResolvedTarget::Namespace(NamespaceId::Module(unit)) = target.target else {
             return None;
-        }
+        };
         self.declaration_snapshot()
-            .module_documentation(&target.module)
+            .module_documentation(&unit.module)
     }
 
     /// Read source metadata for the resolved declaration at a use or declaration site.

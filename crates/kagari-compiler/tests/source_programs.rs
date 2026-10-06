@@ -558,7 +558,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let file = old.file(root).unwrap();
-    let target = file
+    let target = &file
         .source_function_at(file.source().text().rfind("value()").unwrap())
         .unwrap()
         .id;

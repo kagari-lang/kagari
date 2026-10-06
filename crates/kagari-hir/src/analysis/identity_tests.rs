@@ -84,7 +84,11 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     assert_eq!(facts.lowered.source.id(), id);
     assert_eq!(facts.lowered.source.revision(), source.revision());
     assert_eq!(facts.lowered.source.module_identity(), &module);
-    let option = facts.declarations.imported_types().get("Maybe").unwrap();
+    let option = facts
+        .declarations
+        .imported_types()
+        .resolved(facts.declarations.resolve_name("Maybe").unwrap())
+        .unwrap();
     assert_eq!(option.declaration.name, "Option");
     assert_ne!(option.declaration.location.file, id);
     assert!(option.native_type.is_none());

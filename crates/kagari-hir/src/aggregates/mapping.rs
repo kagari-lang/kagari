@@ -61,7 +61,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InherentMethodSignature<I> 
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(InherentMethodSignature {
-            id: self.id,
+            id: self.id.clone(),
             declaration: mapper.reference(&self.declaration)?,
             site: self.site.map_identities(mapper)?,
             owner: self.owner.map_identities(mapper)?,

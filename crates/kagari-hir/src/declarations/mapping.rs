@@ -23,7 +23,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for DeclarationId<I> {
                 owner: mapper.reference(owner)?,
                 position: *(position),
             },
-            Self::Binding(field0) => DeclarationId::Binding(*(field0)),
+            Self::Binding(field0) => DeclarationId::Binding(field0.clone()),
         })
     }
 
@@ -97,6 +97,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
             names: self.names.clone(),
             hosts: self.hosts.clone(),
             imports: self.imports.clone(),
+            catalog: self.catalog.clone(),
             analysis: self.analysis,
             definitions: self.definitions.clone(),
             context: self.context.clone(),
@@ -104,26 +105,26 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
                 self.targets.len(),
                 self.targets
                     .iter()
-                    .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
+                    .map(|(key, value)| Ok((key.clone(), (value).map_identities(mapper)?))),
             )?,
             identities: map_hash_entries(
                 self.identities.len(),
                 self.identities
                     .iter()
-                    .map(|(key, value)| Ok(((key).map_identities(mapper)?, *(value)))),
+                    .map(|(key, value)| Ok(((key).map_identities(mapper)?, value.clone()))),
             )?,
             site_ranges: self.site_ranges.clone(),
             impl_identities: map_hash_entries(
                 self.impl_identities.len(),
                 self.impl_identities
                     .iter()
-                    .map(|(key, value)| Ok((*(key), mapper.reference(value)?))),
+                    .map(|(key, value)| Ok((key.clone(), mapper.reference(value)?))),
             )?,
             native_types: map_hash_entries(
                 self.native_types.len(),
                 self.native_types
                     .iter()
-                    .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
+                    .map(|(key, value)| Ok((key.clone(), (value).map_identities(mapper)?))),
             )?,
         })
     }

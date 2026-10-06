@@ -26,7 +26,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedType<I> {
                 .map(|value| (value).map_identities(mapper))
                 .transpose()?,
             associated_arities: self.associated_arities.clone(),
-            id: self.id,
+            id: self.id.clone(),
             declaration: self.declaration.map_identities(mapper)?,
             ty: self.ty.map_identities(mapper)?,
             trait_methods: map_sequence(&self.trait_methods, |value| {
@@ -93,17 +93,11 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTypes<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedTypes {
-            types: map_hash_entries(
-                self.types.len(),
-                self.types
-                    .iter()
-                    .map(|(key, value)| Ok(((key).clone(), (value).map_identities(mapper)?))),
-            )?,
             resolutions: map_hash_entries(
                 self.resolutions.len(),
                 self.resolutions
                     .iter()
-                    .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
+                    .map(|(key, value)| Ok((key.clone(), (value).map_identities(mapper)?))),
             )?,
             nominal_types: map_hash_entries(
                 self.nominal_types.len(),
@@ -115,7 +109,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTypes<I> {
                 self.variants.len(),
                 self.variants
                     .iter()
-                    .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
+                    .map(|(key, value)| Ok((key.clone(), (value).map_identities(mapper)?))),
             )?,
         })
     }
@@ -126,9 +120,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTypes<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for value0 in self.types.values() {
-            (value0).visit_definitions(visit, cancel)?;
-        }
         for value0 in self.resolutions.values() {
             (value0).visit_definitions(visit, cancel)?;
         }

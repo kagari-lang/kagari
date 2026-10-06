@@ -22,7 +22,7 @@ fn signatures_and_imported_calls_survive_dependency_body_errors() {
     let signature = file
         .source_function_at(text.find("lib::echo(42)").unwrap() + "lib::".len())
         .unwrap();
-    assert_eq!(signature.id.file, library);
+    assert_eq!(signature.id.unit.file, library);
     assert_eq!(
         signature.signature.return_type,
         TypeId::Builtin(BuiltinType::I32)

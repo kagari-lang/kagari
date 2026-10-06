@@ -1,300 +1,429 @@
-//! Immutable visible declarations and package spellings for import resolution.
-use crate::hir::ty::TypeKind;
+//! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
 use crate::{
-    hir::{
-        ids::EnumId,
-        item::{function::FunctionKind, storage::ExportItem},
+    host::HostDeclarations,
+    imports::{
+        BindingCandidate, BindingOrigin, NamespaceId, ResolvedTarget, SourceDeclRef, SourceUnit,
     },
-    imports::{ImportTarget, ModuleImports, SourceImport},
-    lower::LoweredModule,
+    resolver::{resolved::ResolvedName, table::NameTable},
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionPath, ModuleIdentity},
+    identity::{ModuleIdentity, PackageId},
 };
-use kagari_source::source::SourceFile;
-use kagari_types::{collection::CollectionAccess, visibility::Visibility};
 use std::{
-    borrow::Cow,
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    iter,
     sync::Arc,
 };
 
-pub(super) struct SourceCatalog<'a> {
-    pub(super) paths: BTreeMap<String, Vec<SourceCatalogEntry<'a>>>,
-    pub(super) package_aliases: BTreeMap<String, BTreeSet<String>>,
-    pub(super) array_interfaces: BTreeMap<CollectionAccess, DefinitionPath>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamespaceTable {
+    pub owner: ModuleIdentity,
+    pub names: Arc<NameTable>,
+    pub glob_allowed: bool,
 }
-
-pub(super) struct SourceCatalogEntry<'a> {
-    pub(super) source: &'a SourceFile,
-    pub(super) installed: bool,
-    pub(super) prelude: bool,
-    pub(super) glob_enums: HashSet<EnumId>,
-    pub(super) members: Arc<BTreeMap<String, Vec<CatalogMember>>>,
-    pub(super) reexports: BTreeMap<usize, ImportTarget>,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NamespaceCatalog {
+    pub(crate) modules: BTreeMap<ModuleIdentity, Vec<SourceUnit>>,
+    pub(crate) namespaces: HashMap<NamespaceId, NamespaceTable>,
+    pub(crate) package_aliases: BTreeMap<String, BTreeSet<PackageId>>,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct CatalogMember {
-    pub(super) item: ExportItem,
-    pub(super) visibility: Visibility,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LookupHit {
+    pub target: ResolvedTarget,
+    pub via: Vec<BindingOrigin>,
 }
-
-impl<'a> SourceCatalog<'a> {
-    pub(super) fn module_path(&self, identity: &ModuleIdentity) -> String {
-        let aliases = self
-            .package_aliases
-            .iter()
-            .filter(|(_, packages)| packages.len() == 1 && packages.contains(&identity.package.0))
-            .collect::<Vec<_>>();
-        let package = if let [(alias, _)] = aliases.as_slice() {
-            alias.as_str()
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LookupResult {
+    Found(LookupHit),
+    Missing,
+    Unresolved,
+    Ambiguous(Vec<BindingCandidate>),
+    Inaccessible(Vec<BindingCandidate>),
+    NotNamespace,
+    StaleSource,
+}
+impl LookupResult {
+    pub(crate) fn hit(self) -> Option<LookupHit> {
+        if let Self::Found(hit) = self {
+            Some(hit)
         } else {
-            &identity.package.0
-        };
-        format!("{}::{}", package, identity.path.join("::"))
-    }
-
-    pub(super) fn source_path<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        if let Some((alias, member)) = path.split_once("::")
-            && let Some(packages) = self.package_aliases.get(alias)
-            && packages.len() == 1
-        {
-            let package = packages.first().expect("one installed package alias");
-            return Cow::Owned(format!("{package}::{member}"));
+            None
         }
-        Cow::Borrowed(path)
     }
-
-    pub(super) fn new(
-        sources: impl IntoIterator<Item = &'a LoweredModule>,
-        imports: Option<&BTreeMap<ModuleIdentity, ModuleImports>>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NamespaceResult {
+    Found(NamespaceId),
+    NotNamespace,
+    StaleSource,
+}
+pub struct LookupContext<'a> {
+    pub importer: &'a ModuleIdentity,
+    pub hosts: &'a HostDeclarations,
+}
+impl NamespaceCatalog {
+    pub(crate) fn valid(&self, unit: &SourceUnit) -> bool {
+        self.modules
+            .get(&unit.module)
+            .is_some_and(|units| units.contains(unit))
+    }
+    pub fn lookup_member(
+        &self,
+        ctx: &LookupContext<'_>,
+        ns: &NamespaceId,
+        name: &str,
         cancel: &CancellationToken,
-    ) -> Result<Self, Cancelled> {
-        let mut paths = BTreeMap::<_, Vec<_>>::new();
-        let mut package_aliases = BTreeMap::<String, BTreeSet<String>>::new();
-        let mut array_interfaces = BTreeMap::new();
-        for module in sources {
-            cancel.check()?;
-            array_interfaces.extend(module.native_array_interfaces.clone());
-            if let Some(alias) = &module.native_package_alias {
-                package_aliases
-                    .entry(alias.clone())
-                    .or_default()
-                    .insert(module.source.module_identity().package.0.clone());
-            }
-            let mut members = BTreeMap::<_, Vec<_>>::new();
-            let mut add = |name: &str, item, visibility| {
-                members
-                    .entry(name.to_owned())
-                    .or_insert_with(Vec::new)
-                    .push(CatalogMember { item, visibility });
-            };
-            for item in module
-                .module
-                .functions
-                .iter()
-                .filter(|item| item.kind == FunctionKind::User)
-            {
-                cancel.check()?;
-                add(&item.name, ExportItem::Function(item.id), item.visibility);
-            }
-            for item in &module.module.consts {
-                cancel.check()?;
-                add(&item.name, ExportItem::Const(item.id), item.visibility);
-            }
-            for item in &module.module.modules {
-                cancel.check()?;
-                add(&item.name, ExportItem::Module(item.id), item.visibility);
-            }
-            for item in &module.module.opaque_types {
-                cancel.check()?;
-                add(&item.name, ExportItem::OpaqueType(item.id), item.visibility);
-            }
-            for item in &module.module.structs {
-                cancel.check()?;
-                add(&item.name, ExportItem::Struct(item.id), item.visibility);
-            }
-            for item in &module.module.enums {
-                cancel.check()?;
-                add(&item.name, ExportItem::Enum(item.id), item.visibility);
-                for variant in &item.variants {
-                    cancel.check()?;
-                    add(
-                        &format!("{}::{}", item.name, variant.name),
-                        ExportItem::Variant(variant.id),
-                        item.visibility,
-                    );
-                }
-            }
-            for item in &module.module.traits {
-                cancel.check()?;
-                add(&item.name, ExportItem::Trait(item.id), item.visibility);
-            }
-            // Direct registration exports have no source import node. Respect
-            // their explicit module aliases alongside qualified enum members.
-            for export in &module.module.exports {
-                if let ExportItem::Variant(_) = export.item {
-                    cancel.check()?;
-                    add(&export.name, export.item, Visibility::Public);
-                }
-            }
-            for implementation in &module.module.impls {
-                cancel.check()?;
-                if implementation.trait_ref.is_some() {
-                    continue;
-                }
-                let Some(reference) = implementation.for_type else {
-                    continue;
-                };
-                let owner = match &module.module.type_ref(reference).kind {
-                    TypeKind::Named(name) | TypeKind::Generic { name, .. } => name,
-                    _ => continue,
-                };
-                let owner_visibility = module
-                    .module
-                    .structs
-                    .iter()
-                    .find(|item| &item.name == owner)
-                    .map(|item| item.visibility)
-                    .or_else(|| {
-                        module
-                            .module
-                            .enums
-                            .iter()
-                            .find(|item| &item.name == owner)
-                            .map(|item| item.visibility)
+    ) -> Result<LookupResult, Cancelled> {
+        cancel.check()?;
+        if let NamespaceId::Host(id) = ns {
+            return Ok(ctx
+                .hosts
+                .resolve_name_in(*id, name)
+                .and_then(host_target)
+                .map_or(LookupResult::Missing, |target| {
+                    LookupResult::Found(LookupHit {
+                        target,
+                        via: vec![],
                     })
-                    .or_else(|| {
-                        module
-                            .module
-                            .opaque_types
-                            .iter()
-                            .find(|item| &item.name == owner)
-                            .map(|item| item.visibility)
-                    });
-                for method in &implementation.methods {
-                    let Some(function) = module
-                        .module
-                        .functions
+                }));
+        }
+        if let NamespaceId::Module(unit) = ns
+            && !self.valid(unit)
+        {
+            return Ok(LookupResult::StaleSource);
+        }
+        if let NamespaceId::Associated(source) = ns
+            && !self.valid(&source.unit)
+        {
+            return Ok(LookupResult::StaleSource);
+        }
+        let Some(table) = self.namespaces.get(ns) else {
+            return Ok(LookupResult::NotNamespace);
+        };
+        let Some((candidates, strong)) = table.names.candidates(name) else {
+            if let NamespaceId::InstalledPrefix(identity) = ns {
+                let aliases = iter::once(identity.package.0.as_str()).chain(
+                    self.package_aliases
                         .iter()
-                        .find(|item| item.id == method.function)
-                    else {
-                        continue;
-                    };
-                    add(
-                        &format!("{owner}::{}", method.name),
-                        ExportItem::Function(method.function),
-                        match (owner_visibility, function.visibility) {
-                            (Some(Visibility::Private), _) | (_, Visibility::Private) => {
-                                Visibility::Private
-                            }
-                            (Some(Visibility::PublicSuper), _) | (_, Visibility::PublicSuper) => {
-                                Visibility::PublicSuper
-                            }
-                            _ => Visibility::Public,
-                        },
-                    );
-                }
-            }
-            for (index, item) in module.module.imports.iter().enumerate() {
-                cancel.check()?;
-                if !item.glob {
-                    add(&item.alias, ExportItem::Import(index), item.visibility);
-                }
-            }
-            let resolved_imports = imports.and_then(|all| all.get(module.source.module_identity()));
-            if let Some(imports) = resolved_imports {
-                for (index, import) in imports.entries.iter().enumerate() {
-                    cancel.check()?;
-                    if index >= module.module.imports.len()
-                        && !import.internal_namespace
-                        && import.target.is_some()
-                        && !members.contains_key(&import.alias)
+                        .filter(|(_, packages)| {
+                            packages.len() == 1 && packages.contains(&identity.package)
+                        })
+                        .map(|(alias, _)| alias.as_str()),
+                );
+                for alias in aliases {
                     {
-                        members.insert(
-                            import.alias.clone(),
-                            vec![CatalogMember {
-                                item: ExportItem::Import(index),
-                                visibility: import.visibility,
-                            }],
-                        );
+                        let path = iter::once(alias)
+                            .chain(identity.path.iter().map(String::as_str))
+                            .chain(iter::once(name))
+                            .collect::<Vec<_>>()
+                            .join("::");
+                        if let Some(target) = ctx
+                            .hosts
+                            .resolve_name(&path)
+                            .or_else(|| ctx.hosts.module(&path).map(ResolvedName::HostModule))
+                            .and_then(host_target)
+                        {
+                            return Ok(LookupResult::Found(LookupHit {
+                                target,
+                                via: vec![],
+                            }));
+                        }
                     }
                 }
             }
-            paths
-                .entry(module.source.module_identity().to_string())
-                .or_default()
-                .push(SourceCatalogEntry {
-                    source: &module.source,
-                    installed: module.registered_native_api,
-                    prelude: module.native_prelude,
-                    glob_enums: module.module.enums.iter().map(|item| item.id).collect(),
-                    members: Arc::new(members),
-                    reexports: resolved_imports.map_or_else(BTreeMap::new, |imports| {
-                        imports
-                            .entries
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(index, entry)| {
-                                entry.target.clone().map(|target| (index, target))
-                            })
-                            .collect()
-                    }),
-                });
+            return Ok(LookupResult::Missing);
+        };
+        let admitted = candidates
+            .iter()
+            .filter(|c| c.visibility.allows(&c.owner, ctx.importer))
+            .cloned()
+            .collect::<Vec<_>>();
+        if admitted.is_empty() {
+            return Ok(LookupResult::Inaccessible(candidates.to_vec()));
         }
-        Ok(Self {
-            paths,
-            package_aliases,
-            array_interfaces,
+        Ok(NameTable::select(&admitted, strong))
+    }
+    pub fn namespace_of(
+        &self,
+        _ctx: &LookupContext<'_>,
+        target: &ResolvedTarget,
+        cancel: &CancellationToken,
+    ) -> Result<NamespaceResult, Cancelled> {
+        cancel.check()?;
+        Ok(match target {
+            ResolvedTarget::Namespace(ns) => match ns {
+                NamespaceId::Module(unit) if !self.valid(unit) => NamespaceResult::StaleSource,
+                NamespaceId::Associated(source) if !self.valid(&source.unit) => {
+                    NamespaceResult::StaleSource
+                }
+                _ => NamespaceResult::Found(ns.clone()),
+            },
+            ResolvedTarget::Source(source) if !self.valid(&source.unit) => {
+                NamespaceResult::StaleSource
+            }
+            ResolvedTarget::Source(source) => {
+                let ns = NamespaceId::Associated(source.clone());
+                if self.namespaces.contains_key(&ns) {
+                    NamespaceResult::Found(ns)
+                } else {
+                    NamespaceResult::NotNamespace
+                }
+            }
+            _ => NamespaceResult::NotNamespace,
         })
     }
-
-    pub(super) fn same_members(&self, other: &Self) -> bool {
-        self.package_aliases == other.package_aliases
-            && self.paths.len() == other.paths.len()
-            && self.paths.iter().all(|(path, entries)| {
-                other.paths.get(path).is_some_and(|old| {
-                    entries.len() == old.len()
-                        && entries.iter().zip(old).all(|(a, b)| {
-                            a.members == b.members
-                                && a.reexports == b.reexports
-                                && a.glob_enums == b.glob_enums
-                        })
-                })
-            })
+    pub fn resolve_path(
+        &self,
+        ctx: &LookupContext<'_>,
+        mut root: LookupResult,
+        suffix: &str,
+        cancel: &CancellationToken,
+    ) -> Result<LookupResult, Cancelled> {
+        for component in suffix.split("::").filter(|c| !c.is_empty()) {
+            cancel.check()?;
+            let LookupResult::Found(previous) = root else {
+                return Ok(root);
+            };
+            let ns = match self.namespace_of(ctx, &previous.target, cancel)? {
+                NamespaceResult::Found(ns) => ns,
+                NamespaceResult::NotNamespace => return Ok(LookupResult::NotNamespace),
+                NamespaceResult::StaleSource => return Ok(LookupResult::StaleSource),
+            };
+            root = self.lookup_member(ctx, &ns, component, cancel)?;
+            if let LookupResult::Found(hit) = &mut root {
+                let mut via = previous.via;
+                via.append(&mut hit.via);
+                hit.via = via;
+            }
+        }
+        Ok(root)
+    }
+    pub(crate) fn absolute(
+        &self,
+        ctx: &LookupContext<'_>,
+        path: &str,
+        cancel: &CancellationToken,
+    ) -> Result<LookupResult, Cancelled> {
+        cancel.check()?;
+        let segments = path.split("::").collect::<Vec<_>>();
+        let Some(package) = segments.first() else {
+            return Ok(LookupResult::Missing);
+        };
+        let packages = self
+            .package_aliases
+            .get(*package)
+            .cloned()
+            .unwrap_or_else(|| BTreeSet::from([PackageId((*package).into())]));
+        if packages.len() > 1 {
+            return Ok(LookupResult::Ambiguous(vec![]));
+        }
+        let package = packages.first().expect("package");
+        for end in 1..segments.len() {
+            let identity = ModuleIdentity {
+                package: package.clone(),
+                path: segments[1..=end].iter().map(|s| (*s).into()).collect(),
+            };
+            if let Some(units) = self.modules.get(&identity) {
+                if units.len() != 1 {
+                    return Ok(LookupResult::Ambiguous(vec![]));
+                }
+                if !self.module_accessible(ctx, &identity, cancel)? {
+                    return Ok(LookupResult::Inaccessible(vec![]));
+                }
+                let root = LookupResult::Found(LookupHit {
+                    target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
+                    via: vec![],
+                });
+                let result =
+                    self.resolve_path(ctx, root, &segments[end + 1..].join("::"), cancel)?;
+                let terminal = ModuleIdentity {
+                    package: package.clone(),
+                    path: segments[1..].iter().map(|s| (*s).to_owned()).collect(),
+                };
+                let physical_collision = self.modules.get(&terminal).is_some_and(|units| {
+                    matches!(&result, LookupResult::Found(hit) if !matches!(&hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if units.as_slice() == [unit.clone()]))
+                });
+                return Ok(
+                    if physical_collision
+                        || ctx.hosts.resolve_name(path).is_some()
+                        || ctx.hosts.module(path).is_some()
+                    {
+                        LookupResult::Ambiguous(vec![])
+                    } else {
+                        result
+                    },
+                );
+            }
+        }
+        if let Some(target) = ctx
+            .hosts
+            .resolve_name(path)
+            .or_else(|| ctx.hosts.module(path).map(ResolvedName::HostModule))
+            .and_then(host_target)
+        {
+            return Ok(LookupResult::Found(LookupHit {
+                target,
+                via: vec![],
+            }));
+        }
+        let prefix = NamespaceId::InstalledPrefix(ModuleIdentity {
+            package: package.clone(),
+            path: vec![],
+        });
+        if self.namespaces.contains_key(&prefix) {
+            return self.resolve_path(
+                ctx,
+                LookupResult::Found(LookupHit {
+                    target: ResolvedTarget::Namespace(prefix),
+                    via: vec![],
+                }),
+                &segments[1..].join("::"),
+                cancel,
+            );
+        }
+        Ok(LookupResult::Missing)
+    }
+    fn module_accessible(
+        &self,
+        ctx: &LookupContext<'_>,
+        identity: &ModuleIdentity,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        let mut parent = identity.clone();
+        while parent.path.len() > 1 {
+            cancel.check()?;
+            let name = parent.path.pop().expect("child");
+            if let Some(units) = self.modules.get(&parent) {
+                for unit in units {
+                    if matches!(
+                        self.lookup_member(ctx, &NamespaceId::Module(unit.clone()), &name, cancel)?,
+                        LookupResult::Inaccessible(_)
+                    ) {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        Ok(true)
+    }
+    pub(crate) fn reachable_sources(
+        &self,
+        names: &NameTable,
+        hosts: &HostDeclarations,
+        cancel: &CancellationToken,
+    ) -> Result<HashSet<SourceDeclRef>, Cancelled> {
+        let Some(unit) = names.unit.as_ref() else {
+            return Ok(HashSet::new());
+        };
+        let ctx = LookupContext {
+            importer: &unit.module,
+            hosts,
+        };
+        let mut pending = names
+            .entries
+            .keys()
+            .filter_map(|name| names.hit(name.as_str()).hit().map(|hit| hit.target))
+            .collect::<Vec<_>>();
+        let mut seen = HashSet::new();
+        let mut sources = HashSet::new();
+        while let Some(target) = pending.pop() {
+            cancel.check()?;
+            if let ResolvedTarget::Source(source) = &target
+                && source.unit != *unit
+            {
+                sources.insert(source.clone());
+            }
+            let NamespaceResult::Found(ns) = self.namespace_of(&ctx, &target, cancel)? else {
+                continue;
+            };
+            if !seen.insert(ns.clone()) {
+                continue;
+            }
+            if let Some(table) = self.namespaces.get(&ns) {
+                for name in table.names.entries.keys() {
+                    if let Some(hit) = self.lookup_member(&ctx, &ns, name.as_str(), cancel)?.hit() {
+                        pending.push(hit.target);
+                    }
+                }
+            }
+        }
+        Ok(sources)
+    }
+    pub(crate) fn resolve_name(
+        &self,
+        names: &NameTable,
+        hosts: &HostDeclarations,
+        name: &str,
+        cancel: &CancellationToken,
+    ) -> Option<LookupHit> {
+        let unit = names.unit.as_ref()?;
+        let ctx = LookupContext {
+            importer: &unit.module,
+            hosts,
+        };
+        let (root, suffix) = name.split_once("::").unwrap_or((name, ""));
+        let result = names.hit(root);
+        let result = if matches!(result, LookupResult::Missing) {
+            self.absolute(&ctx, name, cancel).ok()?
+        } else {
+            self.resolve_path(&ctx, result, suffix, cancel).ok()?
+        };
+        result.hit()
     }
 }
+fn host_target(name: ResolvedName) -> Option<ResolvedTarget> {
+    Some(match name {
+        ResolvedName::HostModule(id) => ResolvedTarget::Namespace(NamespaceId::Host(id)),
+        ResolvedName::HostFunction(id) => ResolvedTarget::HostFunction(id),
+        ResolvedName::HostType(id) => ResolvedTarget::HostType(id),
+        _ => return None,
+    })
+}
 
-impl SourceCatalogEntry<'_> {
-    pub(super) fn target(
+impl NamespaceCatalog {
+    /// A retained file may keep its catalog only when every namespace it can
+    /// enter still has the same qualified targets, candidates and access facts.
+    pub(crate) fn same_namespaces(
         &self,
-        item: Option<ExportItem>,
-        importer: &ModuleIdentity,
-    ) -> SourceImport {
-        SourceImport {
-            module: self.source.module_identity().clone(),
-            file: self.source.id(),
-            revision: self.source.revision(),
-            item,
-            members: Arc::new(
-                self.members
-                    .iter()
-                    .filter_map(|(name, members)| {
-                        let visible = members
-                            .iter()
-                            .filter(|member| {
-                                member
-                                    .visibility
-                                    .allows(self.source.module_identity(), importer)
-                            })
-                            .map(|member| member.item)
-                            .collect::<Vec<_>>();
-                        (!visible.is_empty()).then(|| (name.clone(), visible))
-                    })
-                    .collect(),
-            ),
+        other: &Self,
+        names: &NameTable,
+        hosts: &HostDeclarations,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        let Some(unit) = names.unit.as_ref() else {
+            return Ok(false);
+        };
+        let ctx = LookupContext {
+            importer: &unit.module,
+            hosts,
+        };
+        let mut pending = names
+            .entries
+            .keys()
+            .filter_map(|name| names.hit(name.as_str()).hit().map(|hit| hit.target))
+            .collect::<Vec<_>>();
+        let mut seen = HashSet::new();
+        while let Some(target) = pending.pop() {
+            cancel.check()?;
+            let NamespaceResult::Found(ns) = self.namespace_of(&ctx, &target, cancel)? else {
+                continue;
+            };
+            if !seen.insert(ns.clone()) {
+                continue;
+            }
+            let table = self.namespaces.get(&ns);
+            if table != other.namespaces.get(&ns) {
+                return Ok(false);
+            }
+            if let Some(table) = table {
+                for name in table.names.entries.keys() {
+                    if let Some(hit) = self.lookup_member(&ctx, &ns, name.as_str(), cancel)?.hit() {
+                        pending.push(hit.target);
+                    }
+                }
+            }
         }
+        Ok(self.package_aliases == other.package_aliases)
     }
 }

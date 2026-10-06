@@ -43,7 +43,7 @@ impl FunctionLowerer<'_, '_> {
     fn lower_closure(&mut self, expr_id: ExprId) -> Result<MirValue, MirLoweringError> {
         let mut captures = ValueBuffer::new();
         for resolved in self.analyzed.names.closure_captures(expr_id) {
-            let local = self.lookup_binding(*resolved)?;
+            let local = self.lookup_binding(resolved.clone())?;
             let ty = match resolved {
                 ResolvedName::Local(id) => self
                     .analyzed

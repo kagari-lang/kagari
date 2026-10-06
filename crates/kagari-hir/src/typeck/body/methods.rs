@@ -183,10 +183,10 @@ impl<'a> BodyChecker<'a> {
                     &receiver_ty,
                     self.cancel,
                 )?;
-                let target = if method.id.file == self.lowered.source.id()
-                    && method.id.revision == self.lowered.source.revision()
+                let target = if method.id.unit.file == self.lowered.source.id()
+                    && method.id.unit.revision == self.lowered.source.revision()
                 {
-                    CallTarget::Function(method.id.function)
+                    CallTarget::Function(method.id.function().expect("function target"))
                 } else {
                     CallTarget::SourceFunction(method.declaration.clone())
                 };

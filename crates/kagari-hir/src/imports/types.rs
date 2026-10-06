@@ -3,10 +3,9 @@
 use crate::{
     DeclaredAnalysis,
     declarations::{Declaration, DeclarationId},
-    hir::item::storage::ExportItem,
-    imports::{ImportTarget, ModuleImports, SourceImport},
+    imports::{SourceDeclRef, SourceItem, SourceUnit},
     native::NativeTypeKind,
-    resolver::resolved::ResolvedName,
+    resolver::resolved::{DeclarationNames, ResolvedName},
     typeck::supertraits::trait_supertrait_surface,
     types::{NominalType, TypeId},
 };
@@ -20,21 +19,14 @@ use {
         cancellation::{CancellationToken, Cancelled},
         identity::{DefinitionPath, reference::DefinitionReference},
     },
-    kagari_source::identity::{FileId, Revision},
+    kagari_source::identity::FileId,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SourceTypeId {
-    pub file: FileId,
-    pub revision: Revision,
-    pub item: ExportItem,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedType<I: DefinitionReference = DefinitionPath> {
     pub native_type: Option<NativeTypeKind<I>>,
     pub associated_arities: BTreeMap<String, usize>,
-    pub id: SourceTypeId,
+    pub id: SourceDeclRef,
     pub declaration: Declaration<I>,
     pub ty: TypeId<I>,
     pub trait_methods: Vec<ImportedTraitMethod<I>>,
@@ -50,12 +42,10 @@ pub struct ImportedTraitMethod<I: DefinitionReference = DefinitionPath> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedTypes<I: DefinitionReference = DefinitionPath> {
-    types: HashMap<String, ImportedType<I>>,
-    // Internal namespace entries have no public alias. Resolve by their bound
-    // target so equal member spellings in different modules cannot overwrite facts.
-    resolutions: HashMap<ResolvedName, ImportedType<I>>,
+    // Canonical declarations share one surface across local import spellings.
+    resolutions: HashMap<SourceDeclRef, ImportedType<I>>,
     nominal_types: HashMap<I, ImportedType<I>>,
-    variants: HashMap<ResolvedName, Declaration<I>>,
+    variants: HashMap<SourceDeclRef, Declaration<I>>,
 }
 
 impl ImportedTypes {}
@@ -78,70 +68,25 @@ impl<'a> TypeCatalog<'a> {
 
     pub(crate) fn bindings(
         &self,
-        imports: &ModuleImports,
+        names: &DeclarationNames,
         cancel: &CancellationToken,
     ) -> Result<ImportedTypes, Cancelled> {
         self.prepare_surfaces(cancel)?;
         let mut result = ImportedTypes::default();
-        for (index, import) in imports.entries.iter().enumerate() {
+        for source in names
+            .catalog
+            .reachable_sources(&names.items, &names.hosts, cancel)?
+        {
             cancel.check()?;
-            let Some(ImportTarget::Source(source)) =
-                imports.binding(ResolvedName::SourceImport(index))
-            else {
-                continue;
-            };
-            if let Some(ty) = self.resolve(source, cancel)? {
-                if !import.internal_namespace {
-                    result.types.insert(import.alias.clone(), ty.clone());
-                }
-                result
-                    .resolutions
-                    .insert(ResolvedName::SourceImport(index), ty);
+            if let Some(ty) = self.resolve(&source, cancel)? {
+                result.resolutions.insert(source.clone(), ty);
             }
-            if source.item.is_none() {
-                for (name, items) in source.members.iter() {
-                    cancel.check()?;
-                    let [item] = items.as_slice() else {
-                        continue;
-                    };
-                    let key = ResolvedName::SourceItem {
-                        import: index,
-                        item: *item,
-                    };
-                    let Some(ImportTarget::Source(target)) = imports.binding(key) else {
-                        continue;
-                    };
-                    if let Some(ty) = self.resolve(target, cancel)? {
-                        let name = format!("{}::{name}", import.alias);
-                        result.resolutions.insert(
-                            ResolvedName::SourceItem {
-                                import: index,
-                                item: *item,
-                            },
-                            ty.clone(),
-                        );
-                        if !import.internal_namespace {
-                            result.types.insert(name, ty);
-                        }
-                    }
-                }
-            }
-        }
-        for (key, target) in &imports.bindings {
-            cancel.check()?;
-            let ImportTarget::Source(source) = target else {
-                continue;
-            };
-            let Some(ExportItem::Variant(variant)) = source.item else {
-                continue;
-            };
-            let Some(module) = self.modules.get(&source.file) else {
-                continue;
-            };
-            if module.lowered.source.revision() == source.revision
+            if let SourceItem::Variant(variant) = source.item
+                && let Some(module) = self.modules.get(&source.unit.file)
+                && source.unit.matches(&module.lowered)
                 && let Some(declaration) = module.declarations.variant(variant)
             {
-                result.variants.insert(*key, declaration.clone());
+                result.variants.insert(source.clone(), declaration.clone());
             }
         }
         let cache = self.surfaces.borrow();
@@ -173,21 +118,18 @@ impl<'a> TypeCatalog<'a> {
 
     fn resolve(
         &self,
-        target: &SourceImport,
+        target: &SourceDeclRef,
         cancel: &CancellationToken,
     ) -> Result<Option<ImportedType>, Cancelled> {
         cancel.check()?;
-        let Some(module) = self.modules.get(&target.file) else {
+        let Some(module) = self.modules.get(&target.unit.file) else {
             return Ok(None);
         };
-        let Some(item) = target.item else {
+        if !target.unit.matches(&module.lowered) {
             return Ok(None);
-        };
-        let source = SourceTypeId {
-            file: target.file,
-            revision: target.revision,
-            item,
-        };
+        }
+        let item = target.item;
+        let source = target.clone();
         let Some(surface) = Self::surface(module, source) else {
             return Ok(None);
         };
@@ -197,9 +139,9 @@ impl<'a> TypeCatalog<'a> {
             .as_ref()
             .and_then(|cache| {
                 cache.get(module.declarations.definition(match item {
-                    ExportItem::Struct(id) => ResolvedName::Struct(id),
-                    ExportItem::Enum(id) => ResolvedName::Enum(id),
-                    ExportItem::Trait(id) => ResolvedName::Trait(id),
+                    SourceItem::Struct(id) => ResolvedName::Struct(id),
+                    SourceItem::Enum(id) => ResolvedName::Enum(id),
+                    SourceItem::Trait(id) => ResolvedName::Trait(id),
                     _ => return None,
                 })?)
             })
@@ -207,19 +149,19 @@ impl<'a> TypeCatalog<'a> {
         Ok(Some(imported.unwrap_or(surface)))
     }
 
-    fn surface(module: &DeclaredAnalysis, source: SourceTypeId) -> Option<ImportedType> {
+    fn surface(module: &DeclaredAnalysis, source: SourceDeclRef) -> Option<ImportedType> {
         let item = source.item;
         let resolved = match item {
-            ExportItem::OpaqueType(id) => ResolvedName::OpaqueType(id),
-            ExportItem::Struct(id) => ResolvedName::Struct(id),
-            ExportItem::Enum(id) => ResolvedName::Enum(id),
-            ExportItem::Trait(id) => ResolvedName::Trait(id),
+            SourceItem::OpaqueType(id) => ResolvedName::OpaqueType(id),
+            SourceItem::Struct(id) => ResolvedName::Struct(id),
+            SourceItem::Enum(id) => ResolvedName::Enum(id),
+            SourceItem::Trait(id) => ResolvedName::Trait(id),
             _ => return None,
         };
-        let declaration = module.declarations.target(resolved)?;
+        let declaration = module.declarations.target(resolved.clone())?;
         let identity = module.declarations.definition(resolved)?;
         let native_type = match item {
-            ExportItem::OpaqueType(id) => Some(module.declarations.native_type(id)?),
+            SourceItem::OpaqueType(id) => Some(module.declarations.native_type(id)?),
             _ => None,
         };
         let nominal = NominalType {
@@ -234,15 +176,15 @@ impl<'a> TypeCatalog<'a> {
         };
         let ty = match item {
             _ if native_type.is_some() => native_type.as_ref()?.apply(&nominal.arguments)?,
-            ExportItem::Struct(_) => TypeId::Struct(nominal),
-            ExportItem::Enum(_) => TypeId::Enum(nominal),
-            ExportItem::Trait(_) => TypeId::Trait(nominal),
+            SourceItem::Struct(_) => TypeId::Struct(nominal),
+            SourceItem::Enum(_) => TypeId::Enum(nominal),
+            SourceItem::Trait(_) => TypeId::Trait(nominal),
             _ => return None,
         };
         Some(ImportedType {
             native_type,
             associated_arities: match item {
-                ExportItem::Trait(id) => module
+                SourceItem::Trait(id) => module
                     .lowered
                     .module
                     .traits
@@ -256,7 +198,7 @@ impl<'a> TypeCatalog<'a> {
             },
             supertraits: Vec::new(),
             associated_types: match item {
-                ExportItem::Trait(id) => module
+                SourceItem::Trait(id) => module
                     .lowered
                     .module
                     .traits
@@ -268,15 +210,11 @@ impl<'a> TypeCatalog<'a> {
                     .collect(),
                 _ => Vec::new(),
             },
-            id: SourceTypeId {
-                file: source.file,
-                revision: source.revision,
-                item,
-            },
+            id: source,
             declaration: declaration.clone(),
             ty,
             trait_methods: match item {
-                ExportItem::Trait(id) => module
+                SourceItem::Trait(id) => module
                     .lowered
                     .module
                     .traits
@@ -307,10 +245,9 @@ impl<'a> TypeCatalog<'a> {
         for module in self.modules.values() {
             for item in &module.lowered.module.traits {
                 cancel.check()?;
-                let source = SourceTypeId {
-                    file: module.lowered.source.id(),
-                    revision: module.lowered.source.revision(),
-                    item: ExportItem::Trait(item.id),
+                let source = SourceDeclRef {
+                    unit: SourceUnit::of(&module.lowered),
+                    item: SourceItem::Trait(item.id),
                 };
                 if let Some(surface) = Self::surface(module, source) {
                     let TypeId::Trait(ty) = &surface.ty else {
@@ -329,8 +266,7 @@ impl<'a> TypeCatalog<'a> {
             for module in self.modules.values() {
                 cancel.check()?;
                 let mut declarations = module.declarations.clone();
-                declarations.imported_types =
-                    self.bindings(&module.names.facts().imports, cancel)?;
+                declarations.imported_types = self.bindings(module.names.facts(), cancel)?;
                 for item in &module.lowered.module.traits {
                     let Some(id) = declarations.definition(ResolvedName::Trait(item.id)) else {
                         continue;
@@ -358,7 +294,6 @@ impl<'a> TypeCatalog<'a> {
 impl<I: DefinitionReference> Default for ImportedTypes<I> {
     fn default() -> Self {
         Self {
-            types: Default::default(),
             resolutions: Default::default(),
             nominal_types: Default::default(),
             variants: Default::default(),
@@ -370,18 +305,20 @@ mod mapping;
 
 impl<I: DefinitionReference> ImportedTypes<I> {
     pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration<I>> {
-        self.variants.get(&name)
+        match name {
+            ResolvedName::Source(source) => self.variants.get(&source),
+            _ => None,
+        }
     }
 
     pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType<I>> {
-        self.resolutions.get(&name)
+        match name {
+            ResolvedName::Source(source) => self.resolutions.get(&source),
+            _ => None,
+        }
     }
 
-    pub fn get(&self, name: &str) -> Option<&ImportedType<I>> {
-        self.types.get(name)
-    }
-
-    pub fn target(&self, id: SourceTypeId) -> Option<&ImportedType<I>> {
+    pub fn target(&self, id: SourceDeclRef) -> Option<&ImportedType<I>> {
         self.resolutions.values().find(|ty| ty.id == id)
     }
 

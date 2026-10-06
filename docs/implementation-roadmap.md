@@ -34,20 +34,40 @@ carried build/test failures; their completion does not establish performance gai
 import directives, local bindings and namespace lookup state.
 [The import-resolution plan](import-resolution-plan.md) owns its detailed contract
 and acceptance matrix. This roadmap owns phase order and the progress ledger.
-The plan is ready for implementation; no phase has started. SA1, SA2 and SA3
+IR01 is complete; IR02 is next. SA1, SA2 and SA3
 remain independent findings, including the current iteration-limit concern.
 
-- [ ] **IR01:** Publish shared namespace lookup and qualified declaration targets;
+- [x] **IR01:** Publish shared namespace lookup and qualified declaration targets;
   migrate name/signature/compiler consumers and remove internal namespace imports.
 - [ ] **IR02:** Separate import directives, named scope bindings and provenance;
   preserve diagnostics, re-exports, navigation and direct dependency edges.
 - [ ] **IR03:** Verify snapshot invalidation, tooling and source/artifact/native
   consumers; complete final checks and update implemented architecture.
 
-Ledger: design ready, with required target/binding/catalog models, lookup contracts
-and fixed-version Rust references. All implementation phases remain pending; no
-implementation checks have been attempted. Phase commits use `Import-Phase: IR01`
-through `Import-Phase: IR03` as specified in the plan.
+Ledger:
+
+- IR01 implementation replaces import-index identities with qualified source units,
+  canonical targets and a snapshot-owned catalog. Candidate tiers preserve blocked
+  strong names, glob equality/ambiguity and implicit precedence. Directive model
+  types are introduced with the identity cutover so consumers can compile together;
+  IR02 owns syntax ranges, explicit aliases and complete use-site provenance.
+- Native declaration preparation previously fabricated qualified-name and dependency
+  imports. Qualified names now enter the same catalog directly, while registered
+  dependency metadata contributes graph edges without fabricated scope bindings.
+- Signature projections use canonical declarations reachable from the local scope,
+  rather than all snapshot declarations. Existing arena remappers remain the only
+  reuse path across local lowerings; body and signature cache comparisons have
+  distinct input contracts, and retained catalogs require matching reachable tables.
+- IR01 validation passed: `cargo test -p kagari-hir imports::` (34 tests),
+  `cargo test -p kagari-hir analysis::` (238 tests),
+  `cargo test -p kagari-compiler --test source_programs` (10 tests),
+  `uv run --locked scripts/check_structure.py` (no violations), and
+  `git diff --check`. Deep aliases/direct leaves share canonical declarations;
+  lexical blocking, strong collisions, host/source ambiguity, scoped access,
+  transitive invalidation and retained snapshots pass. All intermediate failures
+  listed above are resolved; no carried build/test errors remain.
+
+Phase commits use `Import-Phase: IR01` through `Import-Phase: IR03`.
 
 ### Interpreter performance follow-up
 

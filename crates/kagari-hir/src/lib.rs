@@ -2,7 +2,10 @@ use crate::analysis::error::AnalysisError;
 use crate::{
     analysis::ownership::recover_invalid_identity,
     hir::ids::BodySelection,
-    imports::{functions::ImportedFunctions, types::ImportedTypes},
+    imports::{
+        ModuleGraph, ModuleImportFacts, catalog::NamespaceCatalog, functions::ImportedFunctions,
+        types::ImportedTypes,
+    },
     language::items as language_items,
     resolver::{
         collect::{collect_declarations, resolve_bodies},
@@ -311,7 +314,7 @@ impl DeclaredAnalysis {
                     .names
                     .facts
                     .imports
-                    .same_bindings(&self.names.facts.imports)
+                    .same_signature_bindings(&self.names.facts.imports)
                 && old.declarations.imported_types == self.declarations.imported_types)
             {
                 return None;
@@ -349,11 +352,26 @@ impl DeclaredAnalysis {
 fn declare_analysis(
     lowered: Arc<lower::LoweredModule>,
     hosts: Arc<host::HostDeclarations>,
-    imports: Arc<imports::ModuleImports>,
+    imports: Arc<ModuleImportFacts>,
+    catalog: Arc<NamespaceCatalog>,
     definitions: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> DeclaredAnalysis {
-    let mut names = collect_declarations(&lowered, hosts, imports, cancel);
+    let (imports, catalog) = if imports.scope.unit.is_none() {
+        let graph = ModuleGraph::build([lowered.as_ref()], &hosts, cancel)
+            .expect("uncancelled standalone declarations");
+        (
+            graph
+                .node(lowered.source.module_identity())
+                .expect("module node")
+                .imports
+                .clone(),
+            graph.catalog,
+        )
+    } else {
+        (imports, catalog)
+    };
+    let mut names = collect_declarations(&lowered, hosts, imports, catalog, cancel);
     if !lowered.source.module_identity().within_path_limit() {
         names
             .diagnostics

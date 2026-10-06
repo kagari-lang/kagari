@@ -3,8 +3,8 @@ use crate::{
     hir::{
         expr::{ExprKind, FieldInit},
         ids::{ExprId, TypeRefId},
-        item::storage::ExportItem,
     },
+    imports::SourceItem,
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv,
@@ -26,7 +26,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(variant) = self
             .names
             .expr_resolution(expr)
-            .and_then(|name| self.declarations.imported_types().variant(name))
+            .and_then(|name| self.declarations.resolved_variant(name))
         {
             let DeclarationId::Definition(id) = &variant.id else {
                 return None;
@@ -41,8 +41,11 @@ impl<'a> BodyChecker<'a> {
                 .definition(ResolvedName::Enum(id))
                 .map(|owner| (owner.clone(), member.name.clone()));
         }
-        let imported = self.declarations.imported_types().resolved(member.owner)?;
-        if !matches!(imported.id.item, ExportItem::Enum(_)) {
+        let imported = self
+            .declarations
+            .imported_types()
+            .resolved(member.owner.clone())?;
+        if !matches!(imported.id.item, SourceItem::Enum(_)) {
             return None;
         }
         let DeclarationId::Definition(id) = &imported.declaration.id else {

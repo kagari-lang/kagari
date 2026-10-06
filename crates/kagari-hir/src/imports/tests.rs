@@ -1,6 +1,9 @@
 use super::*;
+use crate::host::HostDeclarations;
 use crate::{analysis::AnalysisSnapshot, tests::test_analysis};
+use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::PackageId;
+use kagari_source::diagnostic::DiagnosticKind;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::host_interface::value_type::HostValueType;
@@ -266,8 +269,10 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         .node(&identity("root"))
         .unwrap()
         .imports;
-    assert!(imports.entries.iter().any(|entry| entry.alias == "echo"
-        && matches!(entry.target, Some(ImportTarget::HostFunction(_)))));
+    assert!(matches!(
+        imports.scope.lookup("echo").and_then(|b| b.target()),
+        Some(ResolvedName::HostFunction(_))
+    ));
     assert!(
         snapshot
             .file(root)
@@ -384,10 +389,12 @@ fn definition_queries_distinguish_modules_and_follow_source_facades() {
     );
     assert_eq!(
         snapshot
-            .source_import_at(root, text.find("pkg::right").unwrap())
+            .source_target_at(root, text.find("pkg::right").unwrap())
             .unwrap()
-            .module,
-        identity("right")
+            .target,
+        ResolvedTarget::Namespace(NamespaceId::Module(SourceUnit::of(
+            &snapshot.file(right).unwrap().result().facts().lowered
+        )))
     );
 }
 
@@ -662,4 +669,87 @@ fn associated_methods_respect_owner_visibility_and_type_aliases() {
         2
     );
     assert!(analysis.result().clone().into_codegen().is_err());
+}
+
+#[test]
+fn deep_aliases_and_direct_leaves_share_declarations_without_child_bindings() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "m", "pub mod nested;");
+    let leaf = insert(
+        &mut db,
+        "m::nested",
+        "pub fn value() -> i32 { 7 } pub const LIMIT: i32 = 9; pub struct Data {} pub enum Choice { One }",
+    );
+    insert(&mut db, "other", "pub mod nested;");
+    let other = insert(&mut db, "other::nested", "pub fn value() -> i32 { 8 }");
+    let text = "use pkg::m as a; use pkg::m as b; use pkg::m::nested::value as v; use pkg::other as c; fn main() -> i32 { a::nested::value() + b::nested::value() + v() + c::nested::value() }";
+    let root = insert(&mut db, "root", text);
+    let missing = insert(
+        &mut db,
+        "missing",
+        "use pkg::m; fn bad() -> i32 { nested::value() }",
+    );
+    let snapshot = analyze(&db);
+    assert!(
+        snapshot.check_program(root, &Default::default()).is_ok(),
+        "{:?}",
+        snapshot.file(root).unwrap().result().diagnostics()
+    );
+    let hits = [
+        "a::nested::value()",
+        "b::nested::value()",
+        "v()",
+        "c::nested::value()",
+    ]
+    .map(|path| {
+        snapshot
+            .source_target_at(root, text.rfind(path).unwrap() + path.len() - 3)
+            .unwrap()
+    });
+    assert_eq!(hits[0].target, hits[1].target);
+    assert_eq!(hits[0].target, hits[2].target);
+    assert_ne!(hits[0].via, hits[1].via);
+    assert_ne!(hits[0].target, hits[3].target);
+    assert_eq!(
+        snapshot
+            .definition_at(
+                root,
+                text.find("a::nested::value()").unwrap() + "a::nested::".len()
+            )
+            .unwrap()
+            .location
+            .file,
+        leaf
+    );
+    assert_eq!(
+        snapshot
+            .definition_at(
+                root,
+                text.find("c::nested::value()").unwrap() + "c::nested::".len()
+            )
+            .unwrap()
+            .location
+            .file,
+        other
+    );
+    assert!(
+        snapshot
+            .file(root)
+            .unwrap()
+            .result()
+            .facts()
+            .names
+            .items
+            .lookup("nested")
+            .is_none()
+    );
+    assert!(
+        snapshot
+            .file(missing)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::UnknownName { .. }))
+    );
 }

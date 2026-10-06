@@ -143,8 +143,7 @@ impl SignatureSnapshot {
                 self.module_graph(),
                 cancel,
             )?;
-            let mut imported_functions =
-                catalog.bindings(&file.prepared.names.facts.imports, cancel)?;
+            let mut imported_functions = catalog.bindings(&file.prepared.names.facts, cancel)?;
             imported_functions.include_inherent_methods(&aggregates);
             result.insert(
                 *id,
@@ -222,7 +221,7 @@ impl AnalysisDatabase {
         let mut imported_types = HashMap::new();
         for (id, file) in declarations.files.iter() {
             cancel.check()?;
-            imported_types.insert(*id, catalog.bindings(&file.names().imports, cancel)?);
+            imported_types.insert(*id, catalog.bindings(file.names(), cancel)?);
         }
         let mut files = BTreeMap::new();
         for (id, declaration) in declarations.files.iter() {

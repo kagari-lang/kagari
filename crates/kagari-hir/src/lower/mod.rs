@@ -7,7 +7,11 @@ use crate::{
     native::{NativeBinding, NativeTypeKind},
     source_map::SourceMap,
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, span::Span};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionPath, ModuleIdentity},
+    span::Span,
+};
 use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{
@@ -37,6 +41,7 @@ mod ty;
 
 #[derive(Debug, Clone)]
 pub struct LoweredModule {
+    pub(crate) native_dependencies: Vec<ModuleIdentity>,
     pub(crate) registered_enum_failures: HashSet<VariantId>,
     pub source: Arc<SourceFile>,
     pub module: Module,
@@ -166,6 +171,7 @@ pub(crate) fn lower_module_controlled(
         language_foundation: false,
         native_package_alias: None,
         native_prelude: false,
+        native_dependencies: Vec::new(),
         native_array_interfaces: BTreeMap::new(),
         registered_traits: BTreeMap::new(),
         registered_declarations: vec![],

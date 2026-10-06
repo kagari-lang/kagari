@@ -18,7 +18,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedFunction<I> {
     ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedFunction {
-            id: self.id,
+            id: self.id.clone(),
             declaration: mapper.reference(&self.declaration)?,
             site: self.site.map_identities(mapper)?,
             signature: self.signature.map_identities(mapper)?,
@@ -52,7 +52,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedFunctions<I> {
                 self.functions.len(),
                 self.functions
                     .iter()
-                    .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
+                    .map(|(key, value)| Ok((key.clone(), (value).map_identities(mapper)?))),
             )?,
             methods: map_hash_entries(
                 self.methods.len(),

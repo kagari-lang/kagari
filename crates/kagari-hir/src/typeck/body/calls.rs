@@ -36,12 +36,12 @@ impl<'a> BodyChecker<'a> {
             .and_then(|name| self.imported_functions.get(name))
             .or_else(|| self.associated_function(callee))
         {
-            let local = imported.id.file == self.lowered.source.id()
-                && imported.id.revision == self.lowered.source.revision();
+            let local = imported.id.unit.file == self.lowered.source.id()
+                && imported.id.unit.revision == self.lowered.source.revision();
             self.type_table.insert_call(
                 call_expr,
                 if local {
-                    CallTarget::Function(imported.id.function)
+                    CallTarget::Function(imported.id.function().expect("function target"))
                 } else {
                     CallTarget::SourceFunction(imported.declaration.clone())
                 },
@@ -165,7 +165,7 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn associated_owner_shadowed(&self, callee: ExprId) -> bool {
         self.names.qualified_member(callee).is_some_and(|member| {
             !matches!(
-                member.owner,
+                member.owner.clone(),
                 ResolvedName::OpaqueType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
@@ -174,7 +174,7 @@ impl<'a> BodyChecker<'a> {
             ) && self
                 .declarations
                 .imported_types()
-                .resolved(member.owner)
+                .resolved(member.owner.clone())
                 .is_none()
         })
     }
