@@ -11,18 +11,28 @@ use crate::{
     error::RuntimeError,
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     gc::GcHeap,
-    module::LoadedModule,
+    module::{EnumVariantRef, LoadedModule},
     value::Value,
     value_check::matches_type_in,
 };
 use kagari_types::{declaration::verify::types_in_scope_in, ty::Ty};
-use std::{slice, sync::Arc};
+use std::{
+    slice,
+    sync::{Arc, OnceLock},
+};
 
 #[derive(Debug, Clone)]
 pub struct TypeArgument {
+    data: Arc<TypeArgumentData>,
+}
+
+#[derive(Debug)]
+struct TypeArgumentData {
     ty: Ty<DefinitionId>,
     definitions: DefinitionTable,
     origin: Option<Arc<TypeOrigin>>,
+    parameters: OnceLock<Result<Vec<TypeArgument>, RuntimeError>>,
+    variants: OnceLock<Result<Vec<EnumVariantRef>, RuntimeError>>,
 }
 
 #[derive(Debug)]
@@ -37,7 +47,7 @@ struct TypeScope {
     environment: Option<Arc<TypeBindings>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct ScopedSignature {
     pub(crate) params: Vec<TypeArgument>,
     pub(crate) result: TypeArgument,
@@ -45,17 +55,20 @@ pub(crate) struct ScopedSignature {
 
 impl TypeArgument {
     pub(crate) fn view<'a>(&'a self, owner: &'a LoadedModule) -> TypeView<'a> {
-        match &self.origin {
+        match &self.data.origin {
             Some(origin) => TypeView::new(
                 &origin.expression,
                 &origin.scope.owner,
                 origin.scope.environment.as_deref(),
             ),
-            None => TypeView::new(&self.ty, owner, None),
+            None => TypeView::new(&self.data.ty, owner, None),
         }
     }
 
     pub(crate) fn matches_heap(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> bool {
+        if let Some(matches) = self.matches_prepared_enum(heap, value) {
+            return matches;
+        }
         let view = self.view(owner);
         matches_type_in(heap, value, view.ty, view.owner, view.environment)
     }
@@ -66,13 +79,13 @@ impl TypeArgument {
         fallback: &LoadedModule,
         derive: impl FnOnce(&Ty<DefinitionId>) -> Option<Ty<DefinitionId>>,
     ) -> Result<Self, RuntimeError> {
-        let (expression, owner, environment) = match &self.origin {
+        let (expression, owner, environment) = match &self.data.origin {
             Some(origin) => (
                 &origin.expression,
                 &origin.scope.owner,
                 origin.scope.environment.clone(),
             ),
-            None => (&self.ty, fallback, None),
+            None => (&self.data.ty, fallback, None),
         };
         let ty = derive(expression)
             .ok_or_else(|| RuntimeError::module_validation("derived type expression"))?;
@@ -88,45 +101,95 @@ impl TypeArgument {
         fallback: &LoadedModule,
         index: usize,
     ) -> Result<Self, RuntimeError> {
-        self.derive(runtime, fallback, |ty| type_parameter(ty, index).cloned())
+        self.validate(runtime)?;
+        self.data
+            .parameters
+            .get_or_init(|| {
+                (0..)
+                    .map_while(|position| type_parameter(self.ty(), position).map(|_| position))
+                    .map(|position| {
+                        self.derive(runtime, fallback, |ty| {
+                            type_parameter(ty, position).cloned()
+                        })
+                    })
+                    .collect()
+            })
+            .as_ref()
+            .map_err(Clone::clone)?
+            .get(index)
+            .cloned()
+            .ok_or_else(|| RuntimeError::module_validation("derived type parameter"))
+    }
+
+    pub(crate) fn prepared_variants(
+        &self,
+        prepare: impl FnOnce() -> Result<Vec<EnumVariantRef>, RuntimeError>,
+    ) -> Result<&[EnumVariantRef], RuntimeError> {
+        self.data
+            .variants
+            .get_or_init(prepare)
+            .as_deref()
+            .map_err(Clone::clone)
     }
 
     pub fn ty(&self) -> &Ty<DefinitionId> {
-        &self.ty
+        &self.data.ty
     }
 
     pub fn definitions(&self) -> &DefinitionTable {
-        &self.definitions
+        &self.data.definitions
     }
 
     pub(crate) fn has_origin(&self) -> bool {
-        self.origin.is_some()
+        self.data.origin.is_some()
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
         let table = runtime.definition_context().snapshot();
-        self.ty
-            .visit_definitions(
-                &mut |id| {
-                    self.definitions.resolve(*id)?;
-                    table.resolve(*id)?;
-                    Ok(())
-                },
-                &Default::default(),
-            )
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        if let Some(origin) = &self.origin
+        if let Some(origin) = &self.data.origin
             && !origin.scope.owner.belongs_to(runtime.host.owner())
         {
             return Err(RuntimeError::module_validation(
                 "foreign type argument scope",
             ));
         }
+        // Construction validates immutable type facts. The append-only runtime
+        // scope can reuse that evidence; foreign scopes still check every ID.
+        if table.id() != self.data.definitions.id() {
+            self.data
+                .ty
+                .visit_definitions(
+                    &mut |id| {
+                        self.data.definitions.resolve(*id)?;
+                        table.resolve(*id)?;
+                        Ok(())
+                    },
+                    &Default::default(),
+                )
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        }
         Ok(())
     }
 
+    fn matches_prepared_enum(&self, heap: &GcHeap, value: &Value) -> Option<bool> {
+        let Ok(variants) = self.data.variants.get()? else {
+            return None;
+        };
+        let Value::Enum(id) = value else {
+            return Some(false);
+        };
+        Some(heap.enum_layout(*id).is_some_and(|actual| {
+            variants
+                .iter()
+                .any(|expected| actual.matches_layout(expected))
+        }))
+    }
+
     pub(crate) fn matches(&self, runtime: &Runtime, value: &Value, owner: &LoadedModule) -> bool {
-        if let Some(origin) = &self.origin {
+        if let Some(matches) = self.matches_prepared_enum(&runtime.gc, value) {
+            return matches;
+        }
+        if let Some(origin) = &self.data.origin {
             runtime.matches_type_in(
                 value,
                 &origin.expression,
@@ -134,7 +197,7 @@ impl TypeArgument {
                 origin.scope.environment.as_deref(),
             )
         } else {
-            runtime.matches_interface_method_abi(value, &self.ty, owner)
+            runtime.matches_interface_method_abi(value, &self.data.ty, owner)
         }
     }
 }
@@ -277,9 +340,13 @@ impl Runtime {
                 None
             };
             arguments.push(TypeArgument {
-                ty,
-                definitions: definitions.clone(),
-                origin,
+                data: Arc::new(TypeArgumentData {
+                    ty,
+                    definitions: definitions.clone(),
+                    origin,
+                    parameters: OnceLock::new(),
+                    variants: OnceLock::new(),
+                }),
             });
         }
         Ok(arguments)

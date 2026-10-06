@@ -7,6 +7,7 @@ use crate::{
     module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
+        context::CallContext,
         conversion::{FromKagari, IntoKagari, KagariType},
         types::Type,
     },
@@ -39,7 +40,7 @@ impl Default for ConversionLimits {
 pub struct ConversionContext<'runtime> {
     runtime: &'runtime Runtime,
     owner: &'runtime LoadedModule,
-    _program: ProgramLease,
+    _program: Option<ProgramLease>,
     limits: ConversionLimits,
     depth: usize,
     nodes: usize,
@@ -96,8 +97,27 @@ impl<'runtime> ConversionContext<'runtime> {
         Ok(Self {
             runtime,
             owner,
-            _program: program,
+            _program: Some(program),
             limits,
+            depth: 0,
+            nodes: 0,
+            string_bytes: 0,
+            active: HashSet::new(),
+            roots: Vec::new(),
+        })
+    }
+
+    /// The synchronous call already retains its exact program through the
+    /// execution frame or selected-call lease. Only escaping handles add leases.
+    pub(crate) fn in_native_call(call: &'runtime CallContext<'_>) -> NativeResult<Self> {
+        call.heap().ensure_no_native_borrow()?;
+        call.runtime.resources().ensure_execution_allowed()?;
+        call.runtime.validate_loaded_module(call.owner)?;
+        Ok(Self {
+            runtime: call.runtime,
+            owner: call.owner,
+            _program: None,
+            limits: ConversionLimits::default(),
             depth: 0,
             nodes: 0,
             string_bytes: 0,

@@ -1,8 +1,11 @@
 # Kagari Implementation Roadmap
 
 This is the single queue and progress owner for pending work. GO01-GO06 are complete,
-as are the earlier AC, CR, LR and EN tracks. The subsequent interpreter benchmark checkpoint is complete. The user has activated IP01-IP04 under a new continuous goal, with one commit per
-phase. Other queued proposals still require separate activation.
+as are the earlier AC, CR, LR and EN tracks. The subsequent interpreter benchmark
+checkpoint is complete. The bounded IP01-IP04 implementation is complete, with one
+commit per phase.
+Lua parity acceptance remains unmet; measured follow-up is recorded below. Other
+queued proposals still require separate activation.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -30,9 +33,9 @@ The user targets interpreted execution at least as fast as Lua on equivalent
 source workloads and prioritizes architectural improvements over local patches.
 [The 2026-10-06 report](../benchmarks/lua-comparison/README.md#interpreter-baseline-after-go06-2026-10-06)
 owns the evidence, primary-source references and detailed proposed design.
-IP01-IP04 implementation is active by explicit user authorization after IP00.
-Proceed in order, committing each completed phase. No claim of meeting the
-performance goal is made until measured acceptance.
+IP01-IP04 implementation and integration are complete after explicit user
+authorization. Their recorded improvements do not meet Lua parity acceptance;
+remaining architectural costs are recorded with the final measurements.
 
 - [x] **IP00: Current baseline and diagnosis.** Add an explicit interpreter-only
   benchmark route and macOS execution sampler. Run seven paired workloads in two
@@ -65,7 +68,7 @@ performance goal is made until measured acceptance.
   Keep mutable captured cells and alias semantics, left-to-right evaluation, trap
   order, observer variable locations and exact callee versions. Measure dynamic
   instruction counts and call allocation traffic separately from timing.
-- [ ] **IP04: Prepared native/collection paths and acceptance.** Runtime links
+- [x] **IP04: Prepared native/collection paths and acceptance.** Runtime links
   reusable descriptors/type evidence; typed native calls use scoped views and
   create persistent leases for escaping values. Stdlib continues ordinary
   registration. Reprofile collection/enum allocation before choosing representation
@@ -73,7 +76,7 @@ performance goal is made until measured acceptance.
   Repeat matched interpreter/Lua runs and the correctness/feature matrix. Publish
   any remaining gap instead of relaxing the target or bypassing checks.
 
-IP01-IP04 are the active ordered implementation checkpoints.
+IP01-IP04 are completed implementation checkpoints; performance acceptance is separate.
 Acceptance is interpreter/Lua median <= 1.0 for each nontrivial matched workload in
 repeatable same-machine release runs; near parity needs more independent samples
 and uncertainty analysis. Entry overhead is reported separately. Add representative
@@ -159,7 +162,42 @@ fall to 600,015 / 220,015 / 66,030 for arithmetic/calls/maps; their run function
 Maps still allocate 2,001 GC objects and collect five times per workload, with
 allocator/type-normalization costs dominating many samples. See
 [IP03 measurements](performance-baseline.md#register-allocation-and-call-windows-ip03-2026-10-06).
-IP04 is next: prepared native/collection boundaries and final integration.
+IP04 ledger: runtime-local native bindings lazily prepare reusable scoped
+signatures; TypeArgument clones share immutable facts, derived parameters and
+prepared enum layouts. Exact prepared layout identity is checked before structural
+cross-generation compatibility; object/generation/access validation remains per use.
+Typed conversion borrows the synchronous call's program retention, while escaping
+values and public standalone conversion scopes retain independent leases. Argument
+values still snapshot before custom converters; custom conversion type checks are
+not cached as if user code were pure. Shared generic native application rebuilding
+and persistent typed collection handles remain follow-up candidates; no new speed
+claim is made for unmeasured generic applications.
+No Option representation or collector algorithm change is introduced. Initial
+private-field migration compiler errors were corrected. Runtime/VM and strict
+workspace Clippy pass. Full workspace integration found the Cranelift fallback
+fixture's constant remainder now folds under default MIR optimization. The prepared
+SDK entry API does not accept runtime arguments, so the backend-boundary
+fixture explicitly requests unoptimized MIR to retain the unsupported instructions;
+its fallback/result assertions stay unchanged. The actual-native fixture now also
+covers default constant remainder folding. Both corrected fixtures pass. Final
+integration checks
+pass 1,896 workspace tests across 113 summaries (one existing manual benchmark
+ignored), strict workspace all-target Clippy, structure (905 Rust files, no
+violations/exceptions), formatting and diff checks. Independent artifact-only,
+source, native and combined consumers pass 9/10/11/12 tests; all 13 production
+crate boundaries and ABI/contract build graphs pass. CLI JIT passes five tests;
+the host_objects example passes. No carried build/test error remains.
+
+Final IP04 timing completes 308 checked batches: arrays 14.733 ms (IP03 33.781 ms),
+maps 14.362 ms (IP03 20.365 ms). Scalar/call medians are close to IP03. Nontrivial
+VM/Lua ratios remain 27.22–217.20, so the performance target is explicitly unmet.
+Sampling separates scalar cursor/dispatch checks, array retention/module lookup,
+and map type/allocator costs. The bounded four-phase implementation is complete;
+this is not parity acceptance. Further execution-region validation reuse, scoped
+collection access and shared enum layout evidence need a separately bounded follow-up,
+not an unmeasured collector replacement or disabled checks. See
+[final measurements](performance-baseline.md#prepared-native-facts-and-integration-ip04-2026-10-06)
+for full tables, profile limitations, commands and logs.
 
 IP00 validation: both timing processes and all six profiling/counting passes
 completed with correct results; the existing benchmark test checks empty/single

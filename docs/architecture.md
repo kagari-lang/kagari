@@ -505,6 +505,22 @@ Completed payload mutations remain. No universal collection rollback is promised
 Lazy native adapters trace their source/callback edges; iteration scopes retain
 guards through completion or failure. Generic execution does not name MapIterator.
 
+### Prepared native type facts
+
+Runtime-local linked native bindings lazily prepare concrete scoped signatures.
+TypeArgument shares immutable validated type facts, memoized parameters and enum
+layout applications. Caches follow the binding/type descriptor's lifetime and do
+not hold executable leases; nominal provenance retains immutable layout generations.
+Exact prepared enum layout/payload-scope identity permits reuse of its checked
+contract; different applications or generations still compare complete layouts.
+Every value access continues to validate heap ownership, slot generation and access.
+
+Typed callbacks borrow their enclosing synchronous call's program retention.
+Public standalone conversion scopes and escaping handles retain independent leases.
+Argument values snapshot before user converters, and custom Rust mapping checks
+continue to execute before effects. This preparation does not change enum allocation,
+mutation commit ordering or the collector algorithm.
+
 ## Interface dispatch
 
 Interface GC objects reference runtime-owned receiver descriptors by checked IDs.

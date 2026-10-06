@@ -14,7 +14,7 @@ use crate::{
         roots::{RootTable, RootedValue},
         storage::HeapObject,
     },
-    module::{ModuleKey, StructLayoutRef},
+    module::{EnumVariantRef, ModuleKey, StructLayoutRef},
     native::storage::NativeStorage,
     resource::ResourceState,
     session::ExecutionPhase,
@@ -379,6 +379,13 @@ impl GcHeap {
                 .definition_name(layout.layout().declaration)
                 .expect("verified struct definition")
                 .to_owned()
+        })
+    }
+
+    pub(crate) fn enum_layout(&self, id: HeapObjectId) -> Option<EnumVariantRef> {
+        self.with_enum(id, |snapshot| {
+            let EnumTag::Declared(layout) = &snapshot.tag;
+            layout.clone()
         })
     }
 

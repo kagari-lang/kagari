@@ -241,6 +241,15 @@ impl StructLayoutRef {
 }
 
 impl EnumVariantRef {
+    /// Reuse prepared layout and payload scope for another checked member.
+    pub(crate) fn with_variant(&self, variant: u32) -> Option<Self> {
+        self.layout().variants.get(variant as usize)?;
+        Some(Self {
+            variant,
+            ..self.clone()
+        })
+    }
+
     fn type_expression(&self) -> Ty<DefinitionId> {
         Ty::Enum(NominalTy {
             declaration: self.layout().declaration,
@@ -271,6 +280,25 @@ impl EnumVariantRef {
 
     /// Pattern access requires the concrete payload contract, not only a tag identity.
     pub fn matches_layout(&self, other: &Self) -> bool {
+        // Prepared descriptors identify the complete immutable payload scope.
+        // Other applications and generations retain structural compatibility checks.
+        if Arc::ptr_eq(&self.module.program, &other.module.program)
+            && self.module.slot == other.module.slot
+            && self.id == other.id
+            && self.variant == other.variant
+            && match (&self.applied, &other.applied) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
+            && match (&self.environment, &other.environment) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
+        {
+            return true;
+        }
         self.module.registry_owner == other.module.registry_owner
             && self.variant == other.variant
             && self.matches_type(

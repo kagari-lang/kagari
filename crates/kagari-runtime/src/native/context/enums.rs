@@ -23,6 +23,24 @@ impl Runtime {
     ) -> NativeResult<EnumVariantRef> {
         self.validate_loaded_module(fallback)?;
         applied.validate(self)?;
+        applied
+            .prepared_variants(|| self.prepare_enum_variants(fallback, applied))?
+            .iter()
+            .find(|layout| {
+                layout
+                    .module()
+                    .definition_name(layout.variant().declaration)
+                    == Some(member)
+            })
+            .cloned()
+            .ok_or_else(|| RuntimeError::module_validation("variant belongs to another enum"))
+    }
+
+    fn prepare_enum_variants(
+        &self,
+        fallback: &LoadedModule,
+        applied: &TypeArgument,
+    ) -> NativeResult<Vec<EnumVariantRef>> {
         let Ty::Enum(nominal) = applied.ty() else {
             return Err(RuntimeError::module_validation(
                 "native operation requires an enum type",
@@ -36,16 +54,12 @@ impl Runtime {
             RuntimeError::module_validation("native enum layout is absent from the pinned program")
         })?;
         let template = &owner.bytecode.enumerations[id.index()];
-        let index = template
-            .variants
-            .iter()
-            .position(|variant| owner.definition_name(variant.declaration) == Some(member))
-            .ok_or_else(|| RuntimeError::module_validation("variant belongs to another enum"))?;
-        let index = u32::try_from(index)
-            .map_err(|_| RuntimeError::module_validation("enum variant index"))?;
+        if template.variants.is_empty() {
+            return Ok(Vec::new());
+        }
         let mut layout = self
             .modules
-            .applied_enum_variant(&owner, id, &nominal.arguments, index)
+            .applied_enum_variant(&owner, id, &nominal.arguments, 0)
             .ok_or_else(|| RuntimeError::module_validation("native enum layout application"))?;
         let arguments = (0..nominal.arguments.len())
             .map(|position| applied.parameter(self, fallback, position))
@@ -57,7 +71,7 @@ impl Runtime {
                 if template.arguments.iter().zip(&arguments).all(|(compiled, supplied)| {
                     compiled.is_concrete() && supplied.view(fallback).compatible(TypeView::new(compiled, &owner, None))
                 }) {
-                    return Ok(layout);
+                    return enum_variants(&layout);
                 }
                 return Err(RuntimeError::module_validation("scoped enum payload differs from its concrete layout"));
             }
@@ -73,7 +87,7 @@ impl Runtime {
                 arguments,
             )?));
         }
-        Ok(layout)
+        enum_variants(&layout)
     }
 
     pub(crate) fn portable_type_argument(
@@ -194,4 +208,15 @@ impl CallContext<'_> {
             .cloned()
             .ok_or_else(|| RuntimeError::module_validation("native enum payload index"))
     }
+}
+
+fn enum_variants(layout: &EnumVariantRef) -> NativeResult<Vec<EnumVariantRef>> {
+    (0..layout.layout().variants.len())
+        .map(|index| {
+            u32::try_from(index)
+                .ok()
+                .and_then(|index| layout.with_variant(index))
+                .ok_or_else(|| RuntimeError::module_validation("enum variant index"))
+        })
+        .collect()
 }

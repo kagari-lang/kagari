@@ -7,6 +7,98 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Prepared native facts and integration (IP04), 2026-10-06
+
+IP04 prepares runtime-local native signatures once and shares immutable TypeArgument
+facts, derived parameters and enum layout applications. Exact prepared enum
+layout/payload-scope identity reuses checked evidence; other applications/generations
+retain structural compatibility checks. Typed callbacks borrow the enclosing call's
+program retention, while standalone conversion scopes and escaping handles retain
+independent leases. Values still snapshot before custom conversion, and user mapping
+checks still run before effects. No enum representation, collector algorithm,
+allocation/commit order or validation boundary was removed.
+
+Reproduce with `uv run python scripts/benchmark_lua.py --interpreter-only`.
+Candidate is the IP04 diff over IP03 `f1372288`; original baseline production is
+`97804fe7`. Environment: Apple M1 Max (10 logical CPUs), 32 GiB, macOS 26.6.2,
+Rust/Cargo 1.98.1, aarch64/LLVM 22.1.8, workspace release opt-level=3/default target
+and Cargo parallelism, warm build cache, SDK source/native features with native
+preparation/execution disabled, PUC Lua 5.4.8. All paired workload source hashes
+match IP03. Two fresh sequential processes, three warmups and eleven samples per
+route, rotating route order and reversed second-process order complete all 308
+checked timed batches and warmups. Build (19.663 seconds), source compilation,
+setup and linking are excluded; host entry/return and default GC remain included.
+No concurrent agent build/test/profile ran during timing. Phase comparisons are
+sequential observations, not interleaved trials; desktop load, core placement and
+frequency remain uncontrolled. Raw metadata, hashes, ranges and setup data:
+`target/lua-comparison/20261006T030014Z/`.
+
+Times are microseconds per complete workload (entry per call):
+
+| Workload | IP00 VM | IP03 VM | IP04 VM | IP04 Lua | IP04 VM/Lua |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| entry | 3.097 | 1.342 | 1.360 | 0.029 | 46.85 |
+| arithmetic | 274,713.312 | 20,017.959 | 20,194.230 | 389.812 | 51.80 |
+| branches | 348,287.125 | 21,955.666 | 22,161.583 | 814.021 | 27.22 |
+| calls | 94,889.042 | 12,386.229 | 12,380.958 | 228.583 | 54.16 |
+| fibonacci | 110,080.500 | 17,980.500 | 17,948.709 | 353.688 | 50.75 |
+| arrays | 66,748.750 | 33,781.125 | 14,733.271 | 67.834 | 217.20 |
+| maps | 47,415.375 | 20,364.729 | 14,361.583 | 66.646 | 215.49 |
+
+The native preparation phase records 2.29x lower array and 1.42x lower map median
+time than IP03. Scalar/call medians are close to IP03; no improvement is claimed
+for their small fluctuations. Against IP00, recorded arithmetic time decreases
+13.60x, branches 15.72x, calls 7.66x, Fibonacci 6.13x, arrays 4.53x and maps 3.30x.
+The six nontrivial IP04 VM/Lua ratios remain 27.22–217.20: **Lua parity acceptance
+is not met**. These finite workloads do not establish general language performance.
+
+Separate sampling/counting used
+`uv run python scripts/profile_lua_macos.py arithmetic arrays maps`, with raw data
+under `target/lua-comparison/20261006T030129Z-macos-profile/`. Timing above has no
+profiler or allocator-counting overhead. Logical counts are 600,015 / 78,030 /
+66,030, versus Lua 250,007 / 42,012 / 24,012. Run functions use 6 / 7 / 9 physical
+temporary slots plus 3 / 4 / 9 fixed locals, versus 14 / 43 / 70 logical temporaries.
+Arithmetic still allocates no script heap objects and collects zero times. Arrays
+allocate one object and collect twice per workload; maps allocate 2,001 objects
+and collect five times. Type/layout preparation does not eliminate ordinary Option
+objects or change observable enum semantics.
+
+Remaining sampled costs are distinct:
+
+- Arithmetic still spends many leaf samples in the VM loop, cursor authority checks,
+  operand reads/writes and collection eligibility. The prepared representation has
+  not established a narrower internal execution interface that can reuse region-level
+  validation while preserving observer, cancellation and boundary checks.
+- Arrays show module-key hashing, program retention and allocator work. Typed
+  collection handles and their access/conversion scopes still acquire independent
+  retention. Borrowing a native callback's top-level program lease removes only one
+  part of this cost; escaping values still require durable leases.
+- Maps still show allocator traffic and TypeView normalization/compatibility.
+  Prepared native result layouts do not yet share all evidence with bytecode
+  pattern access across lexical owners. Generic native application rebuilding is
+  also unchanged; this suite makes no new claim about unmeasured generic workloads.
+
+Samples identify follow-up areas, not exact CPU cycle shares; optimized/inlined
+and deduplicated symbols limit attribution. Further work should define reusable
+execution/type/retention evidence at these boundaries, with bounded preparation and
+explicit escape behavior. No collector replacement or special Option shortcut is
+justified by the scalar profiles. A broader parity claim additionally requires
+strings, objects, closures, traits and host-callback workloads.
+
+Final integration passes 1,896 workspace tests across 113 summaries, zero failures,
+one existing ignored manual benchmark; strict workspace all-target Clippy; structure
+(905 Rust files, zero violations/exceptions); formatting and diff checks. Independent
+artifact-only/source/native/combined consumers pass 9/10/11/12 tests, 13 production
+crate dependency boundaries and ABI/contract build graphs pass, CLI JIT passes five
+tests, and the host_objects example passes. The fallback fixture explicitly retains
+unoptimized MIR to test unsupported instructions; the native fixture covers default
+constant-remainder folding. Neither fallback assertions nor production checks were
+weakened. The low-level native allocation probe now includes cached declared-type
+and element-type access and remains zero-allocation after warmup; this does not
+imply that the complete high-level typed native path allocates nothing.
+Final logs: `target/ip04-workspace-final.log`, `target/ip04-clippy-final.log`,
+`target/ip04-features.log`, `target/ip04-cli-jit.log`, and related `target/ip04-*`.
+
 ## Register allocation and call windows (IP03), 2026-10-06
 
 The SDK now enables bounded, reverified MIR copy/constant simplification by default.

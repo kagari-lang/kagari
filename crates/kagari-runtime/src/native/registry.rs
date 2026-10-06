@@ -93,6 +93,7 @@ pub(crate) fn link_host(
         binding: entry,
         signature,
         scoped_signature: None,
+        prepared_signature: Default::default(),
         selected: Box::new([]),
         result_adapter: None,
     })
@@ -296,6 +297,7 @@ impl NativeRegistry {
             signature,
             result_adapter: LinkedResultAdapter::link(import, program)?,
             scoped_signature: None,
+            prepared_signature: Default::default(),
             selected: selected.into_boxed_slice(),
         }))
     }

@@ -22,7 +22,10 @@ use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
 };
-use std::{fmt, slice, sync::Arc};
+use std::{
+    fmt, slice,
+    sync::{Arc, OnceLock},
+};
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
 
@@ -178,11 +181,35 @@ pub struct LinkedNativeFunction {
     pub(crate) binding: NativeBinding,
     pub(crate) signature: Signature<DefinitionId>,
     pub(crate) scoped_signature: Option<Arc<ScopedSignature>>,
+    pub(crate) prepared_signature: OnceLock<NativeResult<ScopedSignature>>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,
 }
 
 impl LinkedNativeFunction {
+    /// Runtime-local bindings own this preparation; immutable type provenance
+    /// does not create an executable retention lease or a program ownership cycle.
+    pub(crate) fn type_signature<'a>(
+        &'a self,
+        runtime: &Runtime,
+        owner: &LoadedModule,
+    ) -> NativeResult<&'a ScopedSignature> {
+        if let Some(signature) = &self.scoped_signature {
+            return Ok(signature);
+        }
+        self.prepared_signature
+            .get_or_init(|| {
+                let params = runtime.type_arguments(owner, None, &self.signature.params)?;
+                let result = runtime
+                    .type_arguments(owner, None, slice::from_ref(&self.signature.result))?
+                    .pop()
+                    .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
+                Ok(ScopedSignature { params, result })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
     pub(crate) fn check_requirement(
         &self,
         owner: &LoadedModule,
@@ -233,6 +260,7 @@ impl LinkedNativeFunction {
             binding: self.binding.clone(),
             signature,
             scoped_signature,
+            prepared_signature: OnceLock::new(),
             result_adapter: self
                 .result_adapter
                 .as_ref()
@@ -280,7 +308,11 @@ impl LinkedNativeFunction {
         context.poll()?;
         let value = result?;
         if (!self.binding.converted_result || self.result_adapter.is_some())
-            && !match &self.scoped_signature {
+            && !match self.scoped_signature.as_deref().or_else(|| {
+                self.prepared_signature
+                    .get()
+                    .and_then(|signature| signature.as_ref().ok())
+            }) {
                 Some(signature) => signature
                     .result
                     .matches(context.runtime, &value, context.owner),

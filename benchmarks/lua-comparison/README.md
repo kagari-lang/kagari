@@ -22,9 +22,9 @@ cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
 The current architectural follow-up is recorded in
-[IP03 register and call measurements](../../docs/performance-baseline.md#register-allocation-and-call-windows-ip03-2026-10-06).
-The seven original workloads remain unchanged. IP03 improves their measured VM
-medians, but the six nontrivial cases still take 26.87–491.51x Lua time; parity
+[IP04 native preparation and final measurements](../../docs/performance-baseline.md#prepared-native-facts-and-integration-ip04-2026-10-06).
+The seven original workloads remain unchanged. IP01–IP04 improve their recorded VM
+medians, but the six nontrivial cases still take 27.22–217.20x Lua time; parity
 has not been achieved. The post-GO06 report below remains the IP00 baseline.
 
 ## Matching and timing

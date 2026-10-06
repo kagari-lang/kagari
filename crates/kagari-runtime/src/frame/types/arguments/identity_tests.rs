@@ -35,9 +35,13 @@ fn binder(definitions: &DefinitionContext, module: &str) -> GenericParam<Definit
 
 fn argument(kind: BuiltinType) -> TypeArgument {
     TypeArgument {
-        ty: Ty::Builtin(kind),
-        definitions: DefinitionContext::new().unwrap().snapshot(),
-        origin: None,
+        data: Arc::new(TypeArgumentData {
+            ty: Ty::Builtin(kind),
+            definitions: DefinitionContext::new().unwrap().snapshot(),
+            origin: None,
+            parameters: OnceLock::new(),
+            variants: OnceLock::new(),
+        }),
     }
 }
 
@@ -149,6 +153,8 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
         .pop()
         .unwrap();
     assert!(retained.has_origin());
+    // Warm derived facts before collecting their supplying execution environments.
+    let cached_element = retained.parameter(&runtime, layout.module(), 0).unwrap();
     drop((child, parent));
     assert_eq!(
         runtime
@@ -173,6 +179,7 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
     let element = retained.parameter(&runtime, layout.module(), 0).unwrap();
     assert_eq!(element.ty(), &nominal);
     assert!(element.matches(&runtime, &record, layout.module()));
+    assert!(cached_element.matches(&runtime, &record, layout.module()));
 }
 
 #[test]

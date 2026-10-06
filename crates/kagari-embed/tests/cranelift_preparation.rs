@@ -2,7 +2,7 @@ use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
-    engine::KagariEngine,
+    engine::{KagariEngine, source::ArtifactOptions},
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
@@ -15,7 +15,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
-            SourceFile::new("native.kgr", "fn main() -> i32 { 40 + 2 }"),
+            SourceFile::new("native.kgr", "fn main() -> i32 { 40 + 2 % 5 }"),
             Default::default(),
         )
         .unwrap();
@@ -74,8 +74,12 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
             42,
         ),
     ] {
+        // Preserve unsupported MIR operations for this backend-boundary fixture.
+        // The native test above separately covers default constant folding.
+        let mut options = ArtifactOptions::default();
+        options.lowering.optimization = None;
         let artifact = engine
-            .compile_to_artifact(SourceFile::new("fallback.kgr", source), Default::default())
+            .compile_to_artifact(SourceFile::new("fallback.kgr", source), options)
             .unwrap();
         let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
         let program =

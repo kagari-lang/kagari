@@ -44,7 +44,17 @@ fn module() -> NativeModule {
     module
         .bind(
             add,
-            |_cx: &mut CallContext<'_>, a: i32, b: i32| -> NativeResult<i32> { Ok(a + b) },
+            |cx: &mut CallContext<'_>, a: i32, b: i32| -> NativeResult<i32> {
+                assert_eq!(
+                    cx.argument_type_argument(0)?.ty(),
+                    &Ty::Builtin(BuiltinType::I32)
+                );
+                assert_eq!(
+                    cx.result_type_argument()?.ty(),
+                    &Ty::Builtin(BuiltinType::I32)
+                );
+                Ok(a + b)
+            },
         )
         .unwrap();
     let sum = module
@@ -57,7 +67,11 @@ fn module() -> NativeModule {
     module
         .bind(
             sum,
-            |_cx: &mut CallContext<'_>, values: SequenceHandle<'_>| -> NativeResult<i32> {
+            |cx: &mut CallContext<'_>, values: SequenceHandle<'_>| -> NativeResult<i32> {
+                assert_eq!(
+                    cx.argument_type_parameter(0, 0)?.ty(),
+                    &Ty::Builtin(BuiltinType::I32)
+                );
                 values.with_slice::<i32, _>(|values| Ok(values.iter().copied().sum()))
             },
         )

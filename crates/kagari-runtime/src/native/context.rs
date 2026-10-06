@@ -7,7 +7,7 @@ use crate::{
     frame::{
         types::{
             TypeEnvironment,
-            arguments::{ScopedSignature, TypeArgument, type_parameter},
+            arguments::{ScopedSignature, TypeArgument},
             compatibility::TypeView,
         },
         values::FrameSlots,
@@ -319,14 +319,12 @@ impl<'call> CallContext<'call> {
 
     /// Retain the declared argument's supplying type/layout generation.
     pub fn argument_type_argument(&self, index: usize) -> NativeResult<TypeArgument> {
-        match &self.function.scoped_signature {
-            Some(signature) => signature
-                .params
-                .get(index)
-                .cloned()
-                .ok_or_else(|| RuntimeError::module_validation("native argument type scope")),
-            None => self.resolve_type(self.argument_type(index)?),
-        }
+        self.function
+            .type_signature(self.runtime, self.owner)?
+            .params
+            .get(index)
+            .cloned()
+            .ok_or_else(|| RuntimeError::module_validation("native argument type scope"))
     }
 
     pub fn argument_type_parameter(
@@ -349,22 +347,19 @@ impl<'call> CallContext<'call> {
     }
 
     pub fn result_type_parameter(&self, index: usize) -> NativeResult<TypeArgument> {
-        match &self.function.scoped_signature {
-            Some(signature) => signature.result.parameter(self.runtime, self.owner, index),
-            None => {
-                self.resolve_type(type_parameter(self.result_type(), index).ok_or_else(|| {
-                    RuntimeError::module_validation("native result type parameter")
-                })?)
-            }
-        }
+        self.function
+            .type_signature(self.runtime, self.owner)?
+            .result
+            .parameter(self.runtime, self.owner, index)
     }
 
     /// Retain the complete result type, including nominal payload scopes.
     pub fn result_type_argument(&self) -> NativeResult<TypeArgument> {
-        match &self.function.scoped_signature {
-            Some(signature) => Ok(signature.result.clone()),
-            None => self.resolve_type(self.result_type()),
-        }
+        Ok(self
+            .function
+            .type_signature(self.runtime, self.owner)?
+            .result
+            .clone())
     }
 
     /// Derive a nested type parameter while retaining its supplying scope.

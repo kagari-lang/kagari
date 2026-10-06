@@ -172,30 +172,27 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
     entry: &impl Fn(&mut NativeContext<'_>, A) -> NativeResult<R>,
 ) -> NativeResult<Value> {
     let mut context = NativeContext {
-        conversion: ConversionContext::new(call.runtime, call.owner)?,
+        conversion: ConversionContext::in_native_call(call)?,
         invoke_script: Some(call.invoke_script),
         function: Some(call.function),
     };
-    let result_type = call.result_type_argument()?;
+    let signature = call.function.type_signature(call.runtime, call.owner)?;
+    let result_type = &signature.result;
     // A mismatch known before invocation cannot run any argument converter or
     // callback. The final value is still checked: user adapters are not trusted.
-    context.conversion.check_type::<R>(&result_type)?;
-    let mut types = Vec::new();
+    context.conversion.check_type::<R>(result_type)?;
+    let types = &signature.params;
     let mut values = Vec::new();
-    types
-        .try_reserve_exact(call.arguments.len())
-        .map_err(|_| RuntimeError::resource_limit("native argument types"))?;
     values
         .try_reserve_exact(call.arguments.len())
         .map_err(|_| RuntimeError::resource_limit("native argument values"))?;
     for slot in 0..call.arguments.len() {
-        types.push(call.argument_type_argument(slot)?);
         values.push(call.argument(slot)?);
     }
-    A::check_types(&context.conversion, &types)?;
-    let arguments = A::from_arguments(&mut context.conversion, &types, &values)?;
+    A::check_types(&context.conversion, types)?;
+    let arguments = A::from_arguments(&mut context.conversion, types, &values)?;
     let result = entry(&mut context, arguments)?;
-    context.conversion.encode_value(&result_type, result)
+    context.conversion.encode_value(result_type, result)
     // No safepoint occurs between dropping this scope and the caller publishing
     // the returned value. LinkedResultAdapter protects it before allocating.
 }
