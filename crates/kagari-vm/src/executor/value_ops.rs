@@ -35,46 +35,17 @@ impl Executor<'_> {
                     .map_err(VmError::RuntimeError)?;
                 Ok(Value::Bool(if op == BinaryOp::Eq { equal } else { !equal }))
             }
-            BinaryOp::Lt => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs < rhs)),
-                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs < rhs)),
-                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs < rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs < rhs)),
-                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs < rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "lt expects matching numeric operands",
-                )),
-            },
-            BinaryOp::Gt => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs > rhs)),
-                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs > rhs)),
-                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs > rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs > rhs)),
-                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs > rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "gt expects matching numeric operands",
-                )),
-            },
-            BinaryOp::Le => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs <= rhs)),
-                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
-                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs <= rhs)),
-                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "le expects matching numeric operands",
-                )),
-            },
-            BinaryOp::Ge => match (lhs, rhs) {
-                (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs >= rhs)),
-                (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
-                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
-                (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs >= rhs)),
-                (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
-                _ => Err(VmError::TypeMismatch(
-                    "ge expects matching numeric operands",
-                )),
-            },
+            BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {
+                numeric::scalar_binary(op, lhs, rhs).map_err(|_| {
+                    VmError::TypeMismatch(match op {
+                        BinaryOp::Lt => "lt expects matching numeric operands",
+                        BinaryOp::Gt => "gt expects matching numeric operands",
+                        BinaryOp::Le => "le expects matching numeric operands",
+                        BinaryOp::Ge => "ge expects matching numeric operands",
+                        _ => unreachable!(),
+                    })
+                })
+            }
         }
     }
 }

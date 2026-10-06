@@ -13,6 +13,8 @@ use kagari_bytecode::{
 };
 use std::cell::{Ref, RefMut};
 
+pub mod kernel;
+
 /// A transient interpreter view. Release it before GC, observation, native calls,
 /// stack growth or synchronous reentry; the stores reject conflicting borrows.
 /// Slot access preserves bounds and publication checks without host root leases.
@@ -56,11 +58,8 @@ impl ExecutionCursor<'_> {
     /// Publish the next logical PC before deciding whether a full boundary is
     /// needed. Cancellation is completed outside this borrow so its trace can
     /// inspect the stack. Observers and collections always run without a cursor.
-    pub fn prepare_instruction(&mut self) -> Result<bool, RuntimeError> {
+    fn prepare_instruction(&mut self) -> Result<bool, RuntimeError> {
         self.frame.prepare_instruction();
-        self.runtime
-            .resources()
-            .ensure_cursor_allowed(&self.session)?;
         Ok(self.session.options.cancellation.check().is_err()
             || self.session.observer_attached.get()
             || self.runtime.gc().collection_due()
@@ -172,6 +171,10 @@ impl ExecutionCursor<'_> {
             .gc()
             .resources()
             .ensure_cursor_allowed(&self.session)?;
+        self.jump(target)
+    }
+
+    fn jump(&mut self, target: usize) -> Result<(), RuntimeError> {
         if self
             .frame
             .function()

@@ -18,6 +18,21 @@ use kagari_types::{
     scalar::BuiltinType,
 };
 
+mod compare;
+
+/// Execute a plain numeric/boolean operation without consulting the heap.
+pub fn scalar_binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeError> {
+    match op {
+        BinaryOp::Eq
+        | BinaryOp::NotEq
+        | BinaryOp::Lt
+        | BinaryOp::Le
+        | BinaryOp::Gt
+        | BinaryOp::Ge => compare::compare(op, lhs, rhs),
+        _ => binary(op, lhs, rhs),
+    }
+}
+
 pub fn arithmetic_trap(error: ArithmeticError) -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, error.message())
 }

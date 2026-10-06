@@ -429,7 +429,7 @@ no intermediate error may survive final acceptance.
   Loading validates all facts without source. Gate: matrix completeness and focused
   numeric/compiler/verifier conformance pass; no production behavior change is
   accepted without its corresponding contract and test.
-- [ ] **NE02: Reusable execution validation.** Introduce the checked region and
+- [x] **NE02: Reusable execution validation.** Introduce the checked region and
   explicit exit protocol while retaining current value storage and canonical
   cancellation/observer positions. Scalar operands reuse region authority; cold
   APIs keep admission validation. Gate: reentry/quarantine, traps, cancellation,
@@ -549,8 +549,41 @@ Structural review finds no new reexports, production globs, ownership growth or
 LOC exception. No carried build/test error remains. Baseline commands, environment,
 instruction counts and measurements are recorded in
 [performance measurements](performance-baseline.md#typed-numeric-execution-baseline-ne01-2026-10-06).
-NE02 is next; this checkpoint claims source-width contracts and coverage, not a
-measured scalar speedup.
+This checkpoint claims source-width contracts and coverage, not a measured scalar
+speedup.
+
+NE02 ledger: the runtime cursor now owns a closed scalar execution region over
+sealed operations. Session authority and native-borrow admission are checked once
+at entry, with no caller-supplied values or callbacks inside the region. The VM
+keeps cold dispatch, frame transitions, safepoints and observers. Cancellation,
+collection eligibility and observer checks retain every canonical instruction
+position; the first position remains checked by the driver before cursor entry.
+Bounds and checked arithmetic remain enforced. Managed operands/replacement and
+identity comparisons exit before general ownership/drop or heap semantics run.
+Destinations are preflighted before an operation can trap, preventing a cold exit
+from evaluating the operation twice. No frame storage or format changed.
+
+Validation: 611 runtime/VM tests pass (one existing manual benchmark ignored),
+including reentry/quarantine, cancellation, call-depth exhaustion, roots/forced GC,
+observer origins, source-free numeric products and generation-pinned reload. The
+cursor quarantine regression now also rejects closed-region execution after a
+conflicting collection attempt. Strict runtime/VM all-target Clippy, formatting,
+structure (911 Rust files, zero violations/exceptions) and diff checks pass.
+Structural review finds no new reexports, production globs or LOC exceptions.
+No carried build/test error remains.
+
+NE02 measurement: two fresh processes/308 checked timed batches, release/default
+features with interpreter-only execution, after tests/Clippy finished. Raw data:
+`target/lua-comparison/20261006T081153Z/results.json`. Compared with NE01's fresh
+baseline, arithmetic is 10.541 versus 20.302 ms, branches 12.495 versus 22.161 ms,
+calls 8.774 versus 12.576 ms and Fibonacci 15.303 versus 18.406 ms. These sequential
+desktop observations are not an isolated causal comparison. Arrays regress to
+16.862 from 15.046 ms and maps to 15.604 from 14.743 ms: general-value moves/returns
+now release and reacquire the region. NE03 storage and NE04 transfers own that
+integration cost; preserve this regression in the final paired acceptance checks.
+Lua parity is not achieved (nontrivial workload ratios 15.40-248.58). Sampling and
+counting run independently from timing; the arithmetic route retains 600,015
+logical instructions and no script allocations/collections. NE03 remains next.
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
 

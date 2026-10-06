@@ -462,6 +462,44 @@ allocation counting is separate. Owned clones perform 600,000 allocations with a
 Black-box barriers retain the operations. These isolated results do not imply
 the same compiler/runtime speedup; full-pipeline costs above include owner tables.
 
+## Closed execution region (NE02), 2026-10-06
+
+Use `uv run python scripts/benchmark_lua.py --interpreter-only` after correctness
+checks finish. The same M1 Max/toolchain/profile/features and two-process protocol
+as NE01 produce 308 checked batches; raw data is under
+`target/lua-comparison/20261006T081153Z/results.json`. Build time (17.795 seconds),
+source compilation, preparation and initialization are excluded from execution.
+Host entry/return and default GC policy remain included. Desktop background work
+and core frequencies are uncontrolled; final acceptance needs interleaved original
+and candidate executables rather than attributing every sequential difference.
+
+| Workload | NE02 VM (us) | Lua (us) | VM/Lua |
+| --- | ---: | ---: | ---: |
+| entry | 1.332 | 0.029 | 46.35 |
+| arithmetic | 10,540.688 | 390.292 | 27.01 |
+| branches | 12,494.688 | 811.270 | 15.40 |
+| calls | 8,773.729 | 226.980 | 38.65 |
+| fibonacci | 15,303.084 | 350.541 | 43.66 |
+| arrays | 16,861.854 | 67.834 | 248.58 |
+| maps | 15,603.896 | 66.459 | 234.79 |
+
+The closed scalar region removes per-operand and per-instruction authority checks;
+cancellation, observer and collection eligibility still retain original PCs.
+Value storage and boxed numeric helpers remain for NE03. Compared with NE01,
+arrays/maps regress: managed moves/returns now exit to general ownership handling.
+NE03 storage and NE04 typed transfers own this integration cost, with final paired
+checks retaining all seven workloads. No parity claim is supported.
+
+Independent `uv run python scripts/profile_lua_macos.py arithmetic` sampling and
+instruction counting is saved under
+`target/lua-comparison/20261006T081335Z-macos-profile`. The route retains 600,015
+Kagari versus 250,007 Lua logical instructions, six physical temporary slots and
+three locals, Value size 32 bytes and prepared instruction size 24 bytes, with no
+script allocations or collections. The optimized call tree attributes remaining
+work to the region, collection eligibility, boxed numeric helpers and Value drop;
+authority admission is no longer a per-instruction callee. Sampling is outside
+timing and is not an exact cycle-share measurement; inline attribution is limited.
+
 ## Matched Kagari/Lua baseline, 2026-10-03
 
 The [benchmark package and report](../benchmarks/lua-comparison/README.md) compare

@@ -616,8 +616,13 @@ call arguments and other variable-length metadata remain in the canonical immuta
 instruction records. Their logical PC is the index, so normalization and hot reload
 do not require a second semantic description or change debug locations. The VM
 borrows these records at slow boundaries instead of cloning wide instructions.
-Its cursor runs consecutive non-reentrant instructions, checking cancellation and
-collection/observer eligibility at each original program point. Full safepoints
+The runtime cursor supplies a closed scalar execution region: it fetches only
+sealed operations and reuses entry authority without admitting caller callbacks
+or external Values. Managed operands/replacements and identity comparisons leave
+the region before normal ownership/drop and heap semantics run. The VM owns the
+frame driver, cold dispatch, safepoints and observation. The cursor checks
+cancellation and collection/observer eligibility at each original program point;
+the driver has already checked the first PC before acquiring it. Full safepoints
 and error observation run after releasing the cursor. Values retain full scalar
 precision and complete handle identities; large immutable host descriptors are
 shared out of line rather than inflating every scalar execution slot.

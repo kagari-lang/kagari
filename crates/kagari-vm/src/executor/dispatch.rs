@@ -7,7 +7,7 @@ use kagari_bytecode::instruction::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
-use kagari_runtime::{host::HostPathDescriptorId, range::RangeValue, value::Value};
+use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
 use kagari_types::ty::Ty;
 use std::{iter, ops::Bound, slice, sync::Arc};
 
@@ -66,6 +66,62 @@ impl<'a> Executor<'a> {
         instruction: &BytecodeInstruction<DefinitionId>,
     ) -> Result<(), VmError> {
         match *instruction {
+            BytecodeInstruction::LoadLocal { dst, local } => {
+                let value = self.current_frame()?.read_local(self.runtime, local)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
+            }
+            BytecodeInstruction::StoreLocal { local, src } => {
+                let value = self.current_frame()?.read_register(self.runtime, src)?;
+                self.current_frame_mut()?
+                    .write_local(self.runtime, local, value)?;
+            }
+            BytecodeInstruction::Move { dst, src } => {
+                let value = self.current_frame()?.read_register(self.runtime, src)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
+            }
+            BytecodeInstruction::Unary { dst, op, operand } => {
+                let value = self.current_frame()?.read_register(self.runtime, operand)?;
+                let value = Self::apply_unary(op, value)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
+            }
+            BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
+                let lhs = self.current_frame()?.read_register(self.runtime, lhs)?;
+                let rhs = self.current_frame()?.read_register(self.runtime, rhs)?;
+                let value = self.apply_binary(op, lhs, rhs)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
+            }
+            BytecodeInstruction::Convert {
+                dst,
+                src,
+                conversion,
+            } => {
+                let value = self.current_frame()?.read_register(self.runtime, src)?;
+                let value = numeric::convert(conversion, value)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
+            }
+            BytecodeInstruction::Numeric {
+                dst,
+                operation,
+                lhs,
+                rhs,
+            } => {
+                let lhs = self.current_frame()?.read_register(self.runtime, lhs)?;
+                let rhs = rhs
+                    .map(|r| {
+                        self.current_frame()?
+                            .read_register(self.runtime, r)
+                            .map_err(VmError::RuntimeError)
+                    })
+                    .transpose()?;
+                let value = numeric::fixed_integer(operation, lhs, rhs)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
+            }
             BytecodeInstruction::Iter {
                 dst,
                 value,
@@ -110,15 +166,19 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, result)?;
             }
-            BytecodeInstruction::LoadConst {
-                dst,
-                constant: ConstantOperand::Str(ref value),
-            } => {
-                self.current_frame_mut()?.write_register(
-                    self.runtime,
-                    dst,
-                    Value::Str(value.clone()),
-                )?;
+            BytecodeInstruction::LoadConst { dst, ref constant } => {
+                let value = match *constant {
+                    ConstantOperand::Unit => Value::Unit,
+                    ConstantOperand::Bool(v) => Value::Bool(v),
+                    ConstantOperand::I32(v) => Value::I32(v),
+                    ConstantOperand::I64(v) => Value::I64(v),
+                    ConstantOperand::U64(v) => Value::U64(v),
+                    ConstantOperand::F32(v) => Value::F32(v),
+                    ConstantOperand::F64(v) => Value::F64(v),
+                    ConstantOperand::Str(ref v) => Value::Str(v.clone()),
+                };
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::LoadModule { dst, slot } => {
                 let loaded = self.current_loaded()?;
@@ -431,16 +491,8 @@ impl<'a> Executor<'a> {
                 )?;
             }
             BytecodeInstruction::Return(_)
-            | BytecodeInstruction::LoadConst { .. }
-            | BytecodeInstruction::LoadLocal { .. }
-            | BytecodeInstruction::StoreLocal { .. }
-            | BytecodeInstruction::Move { .. }
-            | BytecodeInstruction::Unary { .. }
-            | BytecodeInstruction::Binary { .. }
             | BytecodeInstruction::Jump { .. }
-            | BytecodeInstruction::Branch { .. }
-            | BytecodeInstruction::Convert { .. }
-            | BytecodeInstruction::Numeric { .. } => {
+            | BytecodeInstruction::Branch { .. } => {
                 return Err(VmError::UnsupportedInstruction(
                     "cursor operation at slow boundary",
                 ));

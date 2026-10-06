@@ -4,7 +4,11 @@ mod loop_body;
 pub(crate) mod native;
 mod value_ops;
 
-use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, Register},
+    module::CallableTarget,
+    program::ModuleRef,
+};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
@@ -118,6 +122,23 @@ impl<'a> Executor<'a> {
                         .ok_or(VmError::UnsupportedInstruction(
                             "missing boundary instruction",
                         ))?;
+                    if let BytecodeInstruction::Return(register) = instruction {
+                        let value = register
+                            .map(|register| {
+                                self.current_frame()?
+                                    .read_register(self.runtime, register)
+                                    .map_err(VmError::RuntimeError)
+                            })
+                            .transpose()?
+                            .unwrap_or(Value::Unit);
+                        let result = self.stack.finish_return(self.runtime, value);
+                        if let Some(value) =
+                            self.report_operation(result.map_err(VmError::RuntimeError))?
+                        {
+                            return Ok(value);
+                        }
+                        continue;
+                    }
                     let result = self.dispatch_instruction(instruction);
                     self.report_operation(result)?;
                 }
