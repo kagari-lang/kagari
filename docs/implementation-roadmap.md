@@ -30,10 +30,11 @@ carried build/test failures; their completion does not establish performance gai
 
 ### Import and namespace resolution (IR01-IR03, planned)
 
-The user requested an execution plan for [SA4](review.md#sa4-import-records-also-represent-namespace-lookup-state).
+[SA4](review.md#sa4-import-records-also-represent-namespace-lookup-state) separates
+import directives, local bindings and namespace lookup state.
 [The import-resolution plan](import-resolution-plan.md) owns its detailed contract
 and acceptance matrix. This roadmap owns phase order and the progress ledger.
-Plan preparation is authorized; implementation has not started. SA1, SA2 and SA3
+The plan is ready for implementation; no phase has started. SA1, SA2 and SA3
 remain independent findings, including the current iteration-limit concern.
 
 - [ ] **IR01:** Publish shared namespace lookup and qualified declaration targets;

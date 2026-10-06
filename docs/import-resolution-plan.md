@@ -1,9 +1,38 @@
 # Import and namespace resolution (SA4)
 
-Status: planned; this request authorizes plan preparation. Implementation has not
-started. The [roadmap](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-planned)
+Status: ready for implementation; IR01-IR03 have not started.
+The [roadmap](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-planned)
 owns activation, phase order, checkboxes and the progress ledger. This document
 owns the implementation contract for [SA4](review.md#sa4-import-records-also-represent-namespace-lookup-state).
+
+## Starting point
+
+`ResolvedImport` currently represents real imports, module declarations, implicit
+package/prelude bindings and auxiliary namespace entries. `ModuleImports` stores
+these in one vector; `ResolvedName::SourceItem { import, item }` and
+`resolve_member(import_index, path)` use its positions to identify namespaces.
+Entering a child module therefore requires another synthetic import with an empty
+alias and `internal_namespace`, although the child is already in the module catalog.
+
+The migration separates local name introduction from namespace traversal and
+declaration identity. Importing a module as `m` introduces only `m`; resolving
+`m::nested::value()` enters the imported module and its child directly. Another
+alias of that module must reach the same declaration while retaining its own
+navigation and direct dependency provenance.
+
+| Starting implementation | Responsibility |
+| --- | --- |
+| [imports/mod.rs](../crates/kagari-hir/src/imports/mod.rs), [catalog.rs](../crates/kagari-hir/src/imports/catalog.rs), [bindings.rs](../crates/kagari-hir/src/imports/bindings.rs) | Module graph, mixed records, exports and member lookup. |
+| [resolver/resolved.rs](../crates/kagari-hir/src/resolver/resolved.rs), [table.rs](../crates/kagari-hir/src/resolver/table.rs), [resolve.rs](../crates/kagari-hir/src/resolver/resolve.rs) | Resolved identities, scope names and body path resolution. |
+| [imports/functions.rs](../crates/kagari-hir/src/imports/functions.rs), [types.rs](../crates/kagari-hir/src/imports/types.rs), [declarations.rs](../crates/kagari-hir/src/declarations.rs) | Imported signatures/types and declaration consumers. |
+| [analysis/mod.rs](../crates/kagari-hir/src/analysis/mod.rs), [declaration_queries.rs](../crates/kagari-hir/src/analysis/declaration_queries.rs) | Snapshot/cache integration and source queries. |
+
+Read [AGENTS.md](../AGENTS.md), the module specification and the roadmap ledger
+before execution. Inspect the current status/diff and relevant implementation/tests;
+preserve unrelated edits. Start at the first incomplete phase, using the ledger and
+phase commits to resume. An assignment to execute this plan covers IR01 through
+IR03 in order; record bounded implementation decisions in the ledger and follow
+the checkpoint rules below.
 
 ## Outcome and scope
 
@@ -60,8 +89,8 @@ calls, constants, types and enum members use target identities, not import-vecto
 indices. Unresolved imports remain queryable diagnostics. No second active
 namespace resolver or compatibility facade remains.
 
-Primary owners: `imports/{mod,catalog,bindings,members,functions,types}.rs`,
-`resolver/`, `declarations.rs`, `analysis/` and affected compiler source lowering.
+Primary owners: the HIR files above, `crates/kagari-hir/src/imports/members.rs`
+and affected lowering under `crates/kagari-compiler/src/source/`.
 
 ## IR02: Separate directives, bindings and provenance
 
@@ -121,8 +150,9 @@ Focused checks: `cargo test -p kagari-hir imports::`,
 `cargo test -p kagari-compiler --test source_programs` when consumers change.
 At each implementation checkpoint run the structure checker and diff check.
 IR03 additionally runs `cargo test -p kagari-embed --test source_snapshots`,
-the existing `syntax_examples` source/artifact test and applicable native
-preparation/artifact tests, followed by:
+`cargo test -p kagari-embed --test syntax_examples`,
+`cargo test -p kagari-embed --test cranelift_preparation` and
+`cargo test -p kagari-cli --features jit`, followed by:
 
 ```text
 uv run --locked scripts/check_structure.py
@@ -137,4 +167,4 @@ git diff --check
 
 Native acceptance must execute the existing applicable native tests, not only
 compile that feature. Preserve source-free artifact behavior. Documentation-only
-plan preparation requires local-link/content and diff checks, not Rust builds.
+changes require local-link/content and diff checks, not Rust builds.
