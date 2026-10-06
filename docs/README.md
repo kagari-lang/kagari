@@ -36,6 +36,7 @@ owns activation, dependencies and phase order.
 - [Contract/common and declaration ownership cleanup](architecture.md#contract-and-common-responsibility-cleanup).
 - [Nominal enum registration and protocol-based propagation](enum-propagation-plan.md).
 - [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md).
+- [Import and namespace resolution (SA4, IR01-IR03)](import-resolution-plan.md).
 - [Rust value/opaque interoperability](rust-interop-design.md).
 - [Host API unification](host-api-refactor.md).
 - [Packages and dependency resolution](package-design.md).

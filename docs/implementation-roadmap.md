@@ -2613,6 +2613,24 @@ is assumed. Open implementation errors and resumption state belong here.
   exhausted identities, sibling-witness visibility, metadata-only scheduling,
   cached native applications, parent views, heap/program cycles, exact old-version
   execution, cancellation, traps, callback reentry and panic-safe collection.
+### Import and namespace resolution (IR01-IR03, planned)
+
+The user requested an execution plan for [SA4](review.md#sa4-import-records-also-represent-namespace-lookup-state).
+[The import-resolution plan](import-resolution-plan.md) owns its detailed contract
+and acceptance matrix. This roadmap owns phase order and the progress ledger.
+Plan preparation is authorized; implementation has not started. SA1, SA2 and SA3
+remain independent findings, including the current iteration-limit concern.
+
+- [ ] **IR01:** Publish shared namespace lookup and qualified declaration targets;
+  migrate name/signature/compiler consumers and remove internal namespace imports.
+- [ ] **IR02:** Separate import directives, named scope bindings and provenance;
+  preserve diagnostics, re-exports, navigation and direct dependency edges.
+- [ ] **IR03:** Verify snapshot invalidation, tooling and source/artifact/native
+  consumers; complete final checks and update implemented architecture.
+
+Ledger: plan prepared; all implementation phases pending. No implementation checks
+have been attempted for this track. Phase commits use `Import-Phase: IR01` through
+`Import-Phase: IR03` as specified in the plan.
 
 ### Other proposals
 
@@ -2636,9 +2654,9 @@ No new restoration checklist for retired standard-library APIs is active.
 ## Outstanding review and performance questions
 
 The [review document](review.md) records inline module AST reuse, import-resolution
-scheduling and iteration-exhaustion findings. Append future review findings there.
-Follow-up for these entries belongs to HIR analysis/imports; no implementation
-track is activated.
+scheduling, iteration exhaustion and mixed import/namespace records. Append future
+review findings there. SA4 has the planned IR01-IR03 track above; implementation
+has not started. SA1-SA3 remain unactivated HIR analysis/import follow-ups.
 
 [The architecture review](architecture-review-2026-10-03.md#outstanding-findings)
 retains R1/R2/R5/R7/R8 for current-code confirmation: raw-kind safety, prepared-JIT

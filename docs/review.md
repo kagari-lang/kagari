@@ -50,6 +50,8 @@ alias/glob chains, valid cycles, unresolved cycles and cancellation.
 ## SA4 Import records also represent namespace lookup state
 
 Inspected against `b27ea8a3`.
+Follow-up: [IR01-IR03 execution plan](import-resolution-plan.md); implementation
+has not started. Phase status and the ledger belong to the roadmap.
 [ResolvedImport](../crates/kagari-hir/src/imports/mod.rs) combines named bindings,
 glob roots, module declarations, implicit package/prelude bindings and internal
 namespace entries. Auxiliary entries require empty aliases and flags to exclude
