@@ -6,6 +6,7 @@ pub(crate) mod common;
 mod interface_signatures;
 mod lower;
 mod never;
+mod numeric;
 mod origins;
 mod passes;
 mod program_points;

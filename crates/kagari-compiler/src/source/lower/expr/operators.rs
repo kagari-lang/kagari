@@ -441,11 +441,24 @@ impl FunctionLowerer<'_, '_> {
                     _ => unreachable!(),
                 };
                 let dst = self.alloc_temp(result_ty);
-                if protocol == Protocol::Rem
-                    && let TypeId::Builtin(input @ (BuiltinType::I8 | BuiltinType::I16)) = ty
+                if let TypeId::Builtin(
+                    input @ (BuiltinType::I8
+                    | BuiltinType::I16
+                    | BuiltinType::U8
+                    | BuiltinType::U16
+                    | BuiltinType::U32),
+                ) = ty
                 {
-                    let operation = types::lower_numeric_operation(HirBinaryOp::Rem, input, input)
-                        .expect("integer remainder");
+                    let source_op = match protocol {
+                        Protocol::Add => HirBinaryOp::Add,
+                        Protocol::Sub => HirBinaryOp::Sub,
+                        Protocol::Mul => HirBinaryOp::Mul,
+                        Protocol::Div => HirBinaryOp::Div,
+                        Protocol::Rem => HirBinaryOp::Rem,
+                        _ => unreachable!(),
+                    };
+                    let operation = types::lower_numeric_operation(source_op, input, input)
+                        .expect("checked integer arithmetic");
                     self.emit(Instruction::Numeric {
                         dst,
                         operation,
@@ -467,6 +480,26 @@ impl FunctionLowerer<'_, '_> {
                 && matches!(protocol, Protocol::Neg | Protocol::Not)
             {
                 let dst = self.alloc_temp(result_ty);
+                if protocol == Protocol::Neg
+                    && let TypeId::Builtin(input @ (BuiltinType::I8 | BuiltinType::I16)) = ty
+                {
+                    let zero = self.lower_constant(Constant::I32(0), result_ty);
+                    self.function
+                        .semantic
+                        .registers
+                        .insert(zero.temp.index(), lower_type(&ty));
+                    self.emit(Instruction::Numeric {
+                        dst,
+                        operation: NumericOperation {
+                            op: IntegerOp::CheckedSub,
+                            input,
+                            rhs: Some(input),
+                        },
+                        lhs: zero,
+                        rhs: Some(args[0]),
+                    });
+                    return Ok(dst);
+                }
                 self.emit(Instruction::Unary {
                     dst,
                     op: if protocol == Protocol::Neg {

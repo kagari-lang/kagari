@@ -6,6 +6,8 @@ checkpoint is complete. The bounded IP01-IP04 implementation is complete, with o
 commit per phase.
 Lua parity acceptance remains unmet; measured follow-up is recorded below. Other
 queued proposals still require separate activation.
+NE01-NE05 typed numeric execution is active after explicit user authorization.
+Its phase checklist and ledger below own the current execution work.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -233,6 +235,322 @@ completed with correct results; the existing benchmark test checks empty/single
 inputs on interpreter/Lua and supported native routes. Structure, formatting,
 focused strict Clippy, Python syntax and report consistency checks are recorded at
 this checkpoint. No production crate changes or carried build errors are introduced.
+
+## Typed numeric execution (NE01-NE05, active, 2026-10-06)
+
+Authorized scope: implement the next interpreter architecture so changing arithmetic
+operations, numeric types or ordinary source expression forms does not send known
+scalar operations through repeated Value/type/authority processing. Implementation
+started with NE01 after the user's goal-mode activation. This roadmap remains the
+phase/checklist/ledger owner.
+
+### Evidence and objective
+
+IP04 measured 50,000 arithmetic loop iterations at 20.194 ms on M1 Max, compared
+with 0.390 ms for PUC Lua 5.4.8. That workload executes 600,015 Kagari logical
+instructions and allocates no script heap objects. The measured revision predates
+SV01; a fresh same-revision baseline is required before implementation. These
+observations support improving the scalar execution path, not estimating NES FPS
+or changing the collector. See [measurements](performance-baseline.md).
+
+Current `module/execution.rs` prepares compact physical instructions, but ordinary
+Binary operations still carry generic operators and use Value operands. Cursor
+reads/writes repeat session checks; scalar writes use the generic value publication
+interface. Physical allocation reuses temporary slots, while locals remain separate
+fixed slots. Source integer types may share physical representations: i8/i16/i32
+use I32 storage, but their checked arithmetic domains remain distinct. Existing
+NumericOperation and NumericConversion contracts already retain some semantic facts;
+extend and consume those facts rather than inventing another type resolver.
+
+The intended pipeline is:
+
+```text
+checked source / concrete generic instances
+  -> verified MIR with exact operation/type/effect/origin facts
+  -> independently verified canonical bytecode (also usable without source)
+  -> immutable prepared instructions + frame layout + call transfer plans
+  -> runtime-owned scalar/managed frame storage
+  -> VM execution regions with explicit publication boundaries
+```
+
+Static types determine operation selection and storage access before dispatch.
+Normal scalar execution has no Value cloning, per-operand session resolution,
+nominal type lookup, program lease acquisition or allocation. Different operations
+retain their inherent machine cost and specified checks; equal runtime cost for
+add, divide, f32, f64 or actual dynamic calls is not promised.
+
+### Numeric coverage and semantic ownership
+
+Cover all ten integer types (i8/i16/i32/i64/isize and
+u8/u16/u32/u64/usize), f32/f64, and bool results/conversions where supported.
+Kagari currently defines isize/usize as 64-bit domains; do not infer their width
+from the execution host. Unit remains representable; Never has no value slot.
+
+The coverage matrix includes literals/moves, arithmetic, supported negation,
+comparisons/equality, integer bit operations/shifts, and every supported numeric
+conversion. Existing internal wrapping/saturating/overflowing/checked integer
+helper contracts and rotations must share scalar semantic kernels when invoked,
+with their existing result adapters. These Rust helpers do not imply installed
+script methods: the script method catalog remains deferred under
+[value semantics](spec/value-semantics.md#explicit-integer-arithmetic).
+Checked helper results returning Option and overflowing helper results returning
+tuples retain ordinary result representation and allocation semantics in this track.
+Unsupported combinations remain language errors, not fabricated matrix entries.
+
+Preserve source-width overflow, signed division/remainder corner cases, zero
+divisors, shift-domain checks, conversion rejection and floating-point behavior,
+including NaN, infinities and signed zero. Do not reduce every numeric operation
+to i32 or change checked arithmetic into wrapping arithmetic. Numeric behavior
+continues to have one owner in `kagari-types`; constant evaluation, interpreter
+and existing native execution consume the same rules. Typed helper implementations
+may use Rust primitives, but their semantics and error classification must be
+shared and checked against the existing width/policy contract. Avoid a second VM
+arithmetic implementation with independently maintained semantics.
+
+| Owner | Responsibility in this proposal |
+| --- | --- |
+| types | Width, signedness, arithmetic/conversion policies and reusable scalar kernels |
+| contract | Checked portable operation signatures, representations and effects |
+| MIR/compiler | Preserve exact numeric facts, lower selected primitive bindings, specialize ordinary concrete generics, and reverify transforms |
+| bytecode | Independently validate operand/result types, operation domains, CFG and initialization before sealing |
+| runtime | Prepare operation/layout/call facts, own frame storage and GC tracing, admit values at checked boundaries |
+| VM | Dispatch prepared operations, schedule execution boundaries and publish exact error/debug state |
+| stdlib/embed | Continue ordinary registration and host composition; use the same admitted-value interfaces |
+
+No new crate, common utility bucket, frontend dependency in executable crates,
+compatibility interpreter, version bump or old artifact reader is required.
+Regenerate affected development products once at coherent checkpoints if their
+layout actually changes; retain meaningful source-free acceptance.
+
+### Execution region and validation boundaries
+
+Acquire a region through a checked stack entry that pins the runtime/session,
+frame window and exact program/environment generation. Prepared operands are
+constructible only from the sealed preparation path. Within the region, scalar
+operations use its bounded slot view instead of repeating host-facing admission
+checks. Safe indexing remains; verified range evidence does not authorize arbitrary
+unchecked memory access or forged slots.
+
+The permitted operation set must be explicit: scalar instructions cannot call
+arbitrary Rust/script code, allocate script objects, collect, resize the arena,
+replace installed code or release resources with user-defined destruction. Calls,
+native/host access, allocating operations, managed-value cleanup that may execute
+external code, observation and collection release the region first. A new region
+revalidates after the boundary. Sticky termination and quarantine still forbid
+execution, including rejected reentry and swallowed host failures.
+
+Initially retain cancellation and observer checks at each canonical logical PC.
+Eliminate repeated checks on individual operands through the region's invariants;
+do not bundle a cancellation polling-rate change into that ownership migration.
+Collection eligibility may use prepared effects and pending state only after
+showing which operations can change it; explicit/forced collection still runs
+after releasing borrows. Error paths publish the faulting PC and release the region
+before traces, observer callbacks or cleanup inspect the stack. Left-to-right,
+once-only evaluation, trap order and completed side effects remain unchanged.
+
+### Frame representation and prepared operations
+
+Use two frame storage classes as the initial target:
+
+- A contiguous scalar payload bank, with 64-bit payload slots holding every
+  supported scalar's complete bits. Accessors preserve f32/f64 bits and integer
+  interpretation using safe conversions. Source type belongs to the verified
+  operation/layout, rather than a repeated tag in each payload. Track initialization
+  and debug availability explicitly so uninitialized storage cannot appear as a
+  valid zero and partially constructed frames cannot expose invalid values.
+- A managed Value bank for GC references and values whose representation remains
+  general, including unresolved shared-generic storage. Preserve complete
+  owner/slot/generation handles and ordinary ownership/drop behavior.
+
+FrameLayout maps canonical registers/locals to a storage class and physical slot.
+Reused physical slots never move between these classes during an activation.
+GC traces only managed slots and existing program/environment roots, including
+suspended callers; it never interprets scalar payload bits as references. Clearing
+and releasing managed slots retains cleanup and lifetime behavior. Initialization,
+retention and debug-location metadata count toward measured frame memory.
+
+Prepared scalar operations carry concrete width, operation and result-access
+facts. Conceptual examples are I8AddChecked, U64MulChecked, F32Add, I32Compare
+and F64ToI32Cast. Explicit checked conversion and ordinary cast policies remain
+distinct. The exact Rust enum/encoding is an implementation detail;
+choose an exhaustive, compiler-checkable representation covering the supported
+matrix, with operation-specific handlers. Generation may remove repetitive Rust
+code, but must not create independently maintained semantic or verification tables.
+Avoid a generic numeric helper that examines Value or reconstructs contracts for
+each instruction. Keep instruction size/code footprint and preparation time bounded
+and measured; 32-bit encoding is not a prerequisite for this migration.
+
+### Calls, generic bodies and source forms
+
+Prepared script call transfers copy scalar payloads between frame windows and
+move/copy managed values under their checked contracts. They retain repeated or
+reordered arguments, exact callee versions, caller roots, and fallible arena growth
+before access. Return transfers use the same layout facts. Host/native admission
+checks external Values and converts them to the declared scalar representation;
+boxing for a public Value API occurs at the API boundary, not between scalar
+script instructions. Debugger inspection materializes ordinary Values on demand.
+
+Ordinary reachable monomorphized functions use the same prepared scalar path as
+direct expressions. Shared generic methods and actual interface calls retain
+their checked type environment and selected witnesses; they do not resolve traits
+from syntax or nominal metadata during arithmetic. A concrete selected callee
+uses the scalar kernel even when its call site is dynamic. Genuinely unresolved
+operations retain explicit dynamic dispatch and its measured cost. Do not promise
+that an interface call has the cost of a direct arithmetic instruction or add
+unbounded runtime specialization caches.
+
+Primitive method lowering must follow the already selected registered operation
+contract, never method spelling or a standard-library-only shortcut. User operator
+implementations retain their normal callable semantics. Field, cell, collection
+and host reads admit their numeric results into scalar slots after normal access
+validation. Their shared mutation/alias effects remain observable; immutable local
+bindings do not justify hoisting reads from mutable referents.
+
+Local/temporary coalescing is a separate final transform over verified dataflow.
+It requires debug locations/availability for original program points and must not
+change observable named values, evaluation or trap order. Observable execution
+may retain stores/materialization that the unobserved route can eliminate. Both
+routes share operation semantics; no second interpreter or numeric implementation
+is introduced.
+
+### Phase order and checkpoints
+
+Implementation is activated. Each phase owns a coherent checkpoint
+commit with `Roadmap-Step: NExx`; breaking internal APIs use Conventional Commit
+`!`. Keep affected subsystems building at checkpoints. If a structural transition
+temporarily breaks a build, record the command, diagnostic and owning follow-up;
+no intermediate error may survive final acceptance.
+
+- [x] **NE01: Coverage, baseline and checked scalar facts.** Establish the complete
+  supported type/operation/source-form matrix and semantic edge regressions. Record
+  a fresh interpreter-only baseline and independently counted execution routes.
+  Normalize missing numeric facts through existing types/contracts/MIR/bytecode
+  ownership, including source-width operations currently expanded into range checks.
+  Loading validates all facts without source. Gate: matrix completeness and focused
+  numeric/compiler/verifier conformance pass; no production behavior change is
+  accepted without its corresponding contract and test.
+- [ ] **NE02: Reusable execution validation.** Introduce the checked region and
+  explicit exit protocol while retaining current value storage and canonical
+  cancellation/observer positions. Scalar operands reuse region authority; cold
+  APIs keep admission validation. Gate: reentry/quarantine, traps, cancellation,
+  forced GC, suspended frames, call-depth failure and pinned reload coverage pass;
+  profile operand policy work separately from numeric dispatch.
+- [ ] **NE03: Scalar storage and complete prepared numeric dispatch.** Integrate
+  scalar/managed frame layout, initialization, tracing and debugger materialization
+  across every existing boundary. Prepare and execute all supported scalar operator
+  and conversion families. Gate: no known concrete scalar operation falls back to
+  Value arithmetic; bit precision, source-width failures, frame reuse and mixed
+  scalar/managed roots are proven. Measure payload/metadata footprint and operation
+  throughput across all types, not only i32 addition.
+- [ ] **NE04: Uniform script and primitive boundaries.** Prepare typed argument and
+  return transfers, native admission/result adapters, and selected numeric primitive
+  method paths. Verify ordinary concrete generics, shared generic/interface calls,
+  closures, fields/cells and host callbacks retain declared semantics. Gate: concrete
+  callee arithmetic uses the same kernel across source forms; repeated/reordered
+  arguments and warm scalar frame transfers introduce no Rust allocations. Report
+  actual dynamic/managed-result costs separately.
+- [ ] **NE05: Dataflow, representative workloads and final acceptance.** Coalesce
+  locals/temporaries with checked origin/location mappings and remove redundant
+  scalar moves at the general lowering/allocation boundary. Repeat the paired Lua
+  suite and expanded numeric/source-form matrix; add a deterministic byte-oriented
+  state-machine workload with shifts, wrapping arithmetic and bounded memory access.
+  Publish preparation, execution, memory and allocation results. Complete final
+  correctness/features/structure checks, update implemented architecture and report
+  parity status per workload.
+
+Do not preselect a required speedup multiplier. The architectural gates above and
+measured performance target are distinct: the target remains interpreter/Lua median
+<= 1.0 for each genuinely matched nontrivial workload, with repeated same-machine
+runs and uncertainty analysis near parity. Finishing these changes does not imply
+that this target has been achieved. A failed performance gate remains recorded as
+open acceptance with evidence; do not silently extend the phase scope or claim
+success because code is implemented.
+
+### Verification and measurement matrix
+
+Use existing subsystem/conformance suites and add behavioral tests for the new
+boundaries. Test empty/single/loop inputs, width extrema, signed/unsigned full-width
+values, overflow/zero/shift/cast failures, float bit cases, alias mutation and trap
+side effects. Exercise serialized source-free products, rejected malformed type/
+slot/initialization facts, forced GC through mixed and suspended frames, cancellation
+with an attached observer, host reentry, cleanup and old-version calls after reload.
+
+For supported operators/types, compare direct expressions, locals, parameters,
+returns and ordinary concrete generic bodies. Measure closures/interface/native/
+field access separately so their real boundary cost is visible. Primitive methods
+with managed results retain result allocation accounting. Prefer bounded recurrences
+and runtime inputs that prevent constant folding while producing checked reference
+results. A trivial wrapping helper may be inlined by an authorized general pass;
+call benchmarks must also include a body whose call remains in the counted route.
+
+Lua matching is limited to equivalent value domains and behavior. Lua has no direct
+equivalent for every narrow integer or f32 operation; report these Kagari cases
+against checked Rust/reference results rather than inventing a Lua parity ratio.
+Keep the existing suite unchanged for historical comparison. Count new scalar/
+managed transfers, dynamic instruction counts, prepared operation families, Rust
+allocations, script allocations/collections and frame footprint independently of
+unprofiled timing. Accounting includes initialization and debug metadata overhead.
+
+Record revision, toolchain, machine, profile, features, default build parallelism,
+cache state and exact workload. Disable native/JIT execution explicitly. Separate
+source compilation, verification, physical preparation, linking and execution;
+include the declared host entry/exit and GC scope consistently. Run baseline and
+candidate in interleaved fresh release processes on the same machine without
+concurrent builds/profiling. Preserve raw logs under ignored target and durable
+commands/results in [measurements](performance-baseline.md).
+
+At final integration run the existing source/native/artifact-only feature and
+backend behavior matrix, dependency-boundary checks and:
+
+```text
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+git diff --check
+```
+
+### Deferred scope and proposal ledger
+
+This track does not activate collector replacement, enum unboxing/escape analysis,
+general native collection lease redesign, JIT expansion, new language numeric
+features or a complete NES emulator. Numeric kernels and scalar ingress are shared
+capabilities; generic host/collection boundary costs remain visible measurements,
+not an implicit additional migration. A real NES CPU/PPU/APU frame benchmark is a
+separate workload project; the byte-oriented fixture alone cannot prove realtime
+emulation or hardware correctness.
+
+Proposal ledger: 2026-10-06, inspected current preparation, cursor, frame windows,
+numeric contracts/helpers, compiler primitive lowering and bytecode verification.
+The user activated NE01-NE05 in goal mode on 2026-10-06.
+
+NE01 ledger: fresh baseline on `ba170cc7` completes two processes/308 timed batches;
+the historical scalar gap remains. Narrow i8/i16/u8/u16/u32 arithmetic now lowers
+to checked source-width NumericOperation instead of physical arithmetic plus range
+comparison/assert expansion. Narrow signed negation uses checked subtraction from
+a correctly annotated zero. Full-width Binary instructions remain accepted by the
+existing native backend. No format identifier or language API changed.
+
+Coverage: ten integer domains cover arithmetic, bit operations, mixed-width shift
+counts, comparison, locals/parameters and ordinary concrete Add generics; all twelve
+numeric domains cover the 144 cast combinations, plus bool-to-integer casts. Sixty-five
+overflow/zero/shift/signed-minimum source fixtures trap in source and independently
+serialized/decoded products. Float cases cover NaN and signed-zero comparisons.
+Compiler tests verify narrow fact preservation and reject malformed operation
+domains; existing SV01/types tests retain full-range and float-bit coverage.
+
+The first focused VM/compiler run rejected narrow negation because its generated
+zero lacked source-width semantic metadata (`invalid collection access flow`).
+The compiler now annotates that constant; no verifier check was relaxed. Focused
+VM numeric tests (four tests), the added bool conversion rerun, 273 types/contract/
+MIR/compiler/bytecode unit tests, strict compiler/VM all-target Clippy, structure
+(909 Rust files, zero violations/exceptions), formatting and diff checks pass.
+Structural review finds no new reexports, production globs, ownership growth or
+LOC exception. No carried build/test error remains. Baseline commands, environment,
+instruction counts and measurements are recorded in
+[performance measurements](performance-baseline.md#typed-numeric-execution-baseline-ne01-2026-10-06).
+NE02 is next; this checkpoint claims source-width contracts and coverage, not a
+measured scalar speedup.
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
 

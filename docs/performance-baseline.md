@@ -7,6 +7,49 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Typed numeric execution baseline (NE01), 2026-10-06
+
+Before numeric execution changes, run
+`uv run python scripts/benchmark_lua.py --interpreter-only` on `ba170cc7`.
+Raw metadata and two-process/308-batch checked results are under
+`target/lua-comparison/20261006T073128Z/`. The pending roadmap was the only changed
+file when the command began; the compiled production baseline is unmodified SV01.
+Machine is Apple M1 Max (10 logical CPUs), 32 GiB, macOS 26.6.2, Rust/Cargo 1.98.1,
+aarch64/LLVM 22.1.8. Use workspace release opt-level=3, default target and build
+parallelism, warm compilation cache, SDK source/native features with native
+preparation/execution disabled, and PUC Lua 5.4.8. Three execution warmups and
+eleven samples per route/process use rotating order and reversed second-process
+order. Source compilation, setup, linking and the 49.384-second build are excluded;
+host entry/exit and default GC are included. Desktop/core/frequency activity and
+editor-triggered background checks are not isolated, so final acceptance requires
+fresh interleaved baseline/candidate trials rather than assuming these initial
+observations establish a small speed difference.
+
+Times are microseconds per complete workload (entry per call):
+
+| Workload | NE01 baseline VM | Lua | VM/Lua |
+| --- | ---: | ---: | ---: |
+| entry | 1.353 | 0.029 | 46.52 |
+| arithmetic | 20,301.688 | 393.833 | 51.55 |
+| branches | 22,160.708 | 833.042 | 26.60 |
+| calls | 12,576.208 | 230.146 | 54.64 |
+| fibonacci | 18,405.854 | 360.688 | 51.03 |
+| arrays | 15,046.000 | 75.125 | 200.28 |
+| maps | 14,743.396 | 71.312 | 206.74 |
+
+Retain the original compiled executable as ignored
+`target/lua-comparison/20261006T073128Z/baseline-executable` for later paired trials;
+its hash is the `binary_sha256` in results.json. Independent counting uses
+`target/lua-comparison/20261006T073128Z/baseline-executable --interpreter-only --profile=arithmetic`
+and writes `arithmetic-counts.log` in the same directory. Arithmetic still executes
+600,015 Kagari instructions versus 250,007 Lua instructions, uses six physical
+temporary slots plus three fixed locals, allocates no script heap objects and
+collects zero times. Value is 32 bytes and prepared instruction is 24 bytes.
+This counted/profile route is separate from the timing above.
+
+NE01 changes narrow integer lowering and adds numeric source/source-free contract
+coverage. It does not claim a post-change speedup or Lua parity.
+
 ## Prepared native facts and integration (IP04), 2026-10-06
 
 IP04 prepares runtime-local native signatures once and shares immutable TypeArgument
