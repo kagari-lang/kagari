@@ -427,3 +427,30 @@ impl NamespaceCatalog {
         Ok(self.package_aliases == other.package_aliases)
     }
 }
+
+impl NamespaceCatalog {
+    /// Syntactic facade/module edges survive even when a terminal name is missing.
+    pub(crate) fn path_dependencies(
+        &self,
+        path: &str,
+        dependencies: &mut BTreeSet<ModuleIdentity>,
+    ) {
+        let mut segments = path.split("::");
+        let Some(package) = segments.next() else {
+            return;
+        };
+        let package = self
+            .package_aliases
+            .get(package)
+            .filter(|packages| packages.len() == 1)
+            .and_then(|packages| packages.first())
+            .cloned()
+            .unwrap_or_else(|| PackageId(package.into()));
+        let components = segments.map(str::to_owned).collect::<Vec<_>>();
+        for identity in self.modules.keys() {
+            if identity.package == package && components.starts_with(&identity.path) {
+                dependencies.insert(identity.clone());
+            }
+        }
+    }
+}

@@ -26,6 +26,8 @@ mod cache;
 pub mod catalog;
 pub mod functions;
 #[cfg(test)]
+mod provenance_tests;
+#[cfg(test)]
 mod signature_tests;
 #[cfg(test)]
 mod tests;
@@ -195,6 +197,7 @@ pub struct NameEntry {
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleImportFacts {
+    pub(crate) path_hits: Vec<(FileSpan, catalog::LookupHit)>,
     pub directives: Vec<ImportDirective>,
     pub scope: Arc<NameTable>,
     pub diagnostics: Vec<Diagnostic>,

@@ -34,12 +34,12 @@ carried build/test failures; their completion does not establish performance gai
 import directives, local bindings and namespace lookup state.
 [The import-resolution plan](import-resolution-plan.md) owns its detailed contract
 and acceptance matrix. This roadmap owns phase order and the progress ledger.
-IR01 is complete; IR02 is next. SA1, SA2 and SA3
+IR01 and IR02 are complete; IR03 is next. SA1, SA2 and SA3
 remain independent findings, including the current iteration-limit concern.
 
 - [x] **IR01:** Publish shared namespace lookup and qualified declaration targets;
   migrate name/signature/compiler consumers and remove internal namespace imports.
-- [ ] **IR02:** Separate import directives, named scope bindings and provenance;
+- [x] **IR02:** Separate import directives, named scope bindings and provenance;
   preserve diagnostics, re-exports, navigation and direct dependency edges.
 - [ ] **IR03:** Verify snapshot invalidation, tooling and source/artifact/native
   consumers; complete final checks and update implemented architecture.
@@ -66,6 +66,17 @@ Ledger:
   lexical blocking, strong collisions, host/source ambiguity, scoped access,
   transitive invalidation and retained snapshots pass. All intermediate failures
   listed above are resolved; no carried build/test errors remain.
+
+- IR02 retains one directive per real import leaf, explicit alias presence, grouped
+  leaf/root ranges and selected provenance for import, expression and type path
+  prefixes. Equal glob targets retain both origins. Dependency collection records
+  syntactic module paths before terminal lookup, preserving unused imports and
+  unresolved facade edges. Foreign directive origins are qualified by their source
+  unit before local directive indexing.
+- IR02 validation passed: import tests (37), analysis tests (238), compiler
+  `source_programs` (10), the structure checker (no violations), and diff checks.
+  Initial focused failures exposed whitespace in syntax ranges and foreign origin
+  indexing; both were corrected and the affected suites passed. No carried errors.
 
 Phase commits use `Import-Phase: IR01` through `Import-Phase: IR03`.
 
@@ -193,8 +204,7 @@ Lua parity and the shared-bound source-analysis capability remain open above.
 
 The [review document](review.md) records inline module AST reuse, import-resolution
 scheduling, iteration exhaustion and mixed import/namespace records. Append future
-review findings there. SA4 has the planned IR01-IR03 track above; implementation
-has not started. SA1-SA3 remain unactivated HIR analysis/import follow-ups.
+review findings there. SA4 follows the IR01-IR03 track above; IR01 and IR02 are complete. SA1-SA3 remain unactivated HIR analysis/import follow-ups.
 
 [The architecture review](architecture-review-2026-10-03.md#outstanding-findings)
 retains R1/R2/R5/R7/R8 for current-code confirmation: raw-kind safety, prepared-JIT

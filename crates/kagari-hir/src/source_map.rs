@@ -34,6 +34,8 @@ pub struct SourceMap {
     block_owners: Vec<HirOwner>,
     expr_spans: Vec<Span>,
     expr_reference_spans: HashMap<ExprId, Span>,
+    expr_paths: HashMap<ExprId, Vec<(String, Span)>>,
+    import_paths: HashMap<usize, Vec<(String, Span)>>,
     expr_owner_spans: HashMap<ExprId, Span>,
     struct_field_spans: HashMap<ExprId, Vec<Option<Span>>>,
     expr_owners: Vec<HirOwner>,
@@ -47,11 +49,32 @@ pub struct SourceMap {
     pattern_owners: Vec<HirOwner>,
     type_spans: Vec<Span>,
     type_name_spans: HashMap<TypeRefId, Span>,
+    type_paths: HashMap<TypeRefId, Vec<(String, Span)>>,
     type_terminal_spans: HashMap<TypeRefId, Span>,
     type_owners: Vec<HirOwner>,
 }
 
 impl SourceMap {
+    pub(crate) fn insert_type_path(&mut self, id: TypeRefId, path: Vec<(String, Span)>) {
+        self.type_paths.insert(id, path);
+    }
+    pub(crate) fn type_path(&self, id: TypeRefId) -> &[(String, Span)] {
+        self.type_paths.get(&id).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn insert_expr_path(&mut self, id: ExprId, path: Vec<(String, Span)>) {
+        self.expr_paths.insert(id, path);
+    }
+    pub(crate) fn expr_path(&self, id: ExprId) -> &[(String, Span)] {
+        self.expr_paths.get(&id).map_or(&[], Vec::as_slice)
+    }
+    pub(crate) fn insert_import_path(&mut self, slot: usize, path: Vec<(String, Span)>) {
+        self.import_paths.insert(slot, path);
+    }
+    pub(crate) fn import_path(&self, slot: usize) -> &[(String, Span)] {
+        self.import_paths.get(&slot).map_or(&[], Vec::as_slice)
+    }
+
     pub(crate) fn push_opaque_type(&mut self, span: Span) -> OpaqueTypeId {
         let id = OpaqueTypeId::new(self.opaque_type_spans.len());
         self.opaque_type_spans.push(span);

@@ -185,6 +185,22 @@ impl<'a> BodyResolver<'a> {
         match &expr.kind {
             ExprKind::Missing => {}
             ExprKind::Name { name, .. } => {
+                for (prefix, span) in self.source_map.expr_path(expr_id) {
+                    if self.cancel.check().is_err() {
+                        return;
+                    }
+                    if let Some(resolved) = self.resolve_name(prefix)
+                        && let Some(hit) = self.resolved.catalog.resolve_name(
+                            self.names,
+                            &self.resolved.hosts,
+                            prefix,
+                            &self.cancel,
+                        )
+                        && hit.target.resolved(self.names.unit.as_ref()) == resolved
+                    {
+                        self.resolved.path_hits.push((*span, hit));
+                    }
+                }
                 if let Some(resolved) = self.resolve_name(name) {
                     self.resolved.insert_expr(expr_id, resolved.clone());
                     if let Some(hit) = self.resolved.catalog.resolve_name(

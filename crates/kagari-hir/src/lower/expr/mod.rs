@@ -382,6 +382,24 @@ impl Lowerer {
                 }
             }
             Expr::PathExpr(path) => {
+                let mut prefix = String::new();
+                let mut sites = Vec::new();
+                let segments = path
+                    .path()
+                    .map(|path| path.segments().collect::<Vec<_>>())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(path.name());
+                for segment in segments {
+                    if let Some(name) = segment.text() {
+                        if !prefix.is_empty() {
+                            prefix.push_str("::");
+                        }
+                        prefix.push_str(&name);
+                        sites.push((prefix.clone(), token_span(&segment)));
+                    }
+                }
+                self.source_map.insert_expr_path(id, sites);
                 let name = path
                     .name()
                     .or_else(|| path.path()?.segments().last())

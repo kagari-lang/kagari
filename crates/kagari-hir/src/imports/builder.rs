@@ -505,11 +505,14 @@ fn resolve_imports(
                 ImportKind::Glob
             } else {
                 ImportKind::Named {
-                    alias: Some(LocalName::new(&import.alias).expect("lowered import name")),
+                    alias: import
+                        .alias_explicit
+                        .then(|| LocalName::new(&import.alias))
+                        .flatten(),
                 }
             },
             span: location(module, import.span),
-            root_span: location(module, import.span),
+            root_span: location(module, import.root_span),
             visibility: import.visibility,
             resolution: DirectiveResolution::Pending,
             direct_dependencies: BTreeSet::new(),
@@ -518,6 +521,22 @@ fn resolve_imports(
     for directive in &mut result.directives {
         cancel.check()?;
         let path = normalize_import_path(&directive.path, &unit.module);
+        catalog.path_dependencies(&path, &mut directive.direct_dependencies);
+        for (prefix, span) in module.source_map.import_path(directive.id.slot as usize) {
+            cancel.check()?;
+            let path = normalize_import_path(prefix, &unit.module);
+            if let Some(mut hit) = catalog.absolute(&ctx, &path, cancel)?.hit() {
+                hit.via.insert(
+                    0,
+                    if matches!(directive.kind, ImportKind::Glob) {
+                        BindingOrigin::GlobImport(directive.id.clone())
+                    } else {
+                        BindingOrigin::NamedImport(directive.id.clone())
+                    },
+                );
+                result.path_hits.push((location(module, *span), hit));
+            }
+        }
         let lookup = catalog.absolute(&ctx, &path, cancel)?;
         match lookup {
             LookupResult::Found(hit)
@@ -532,8 +551,13 @@ fn resolve_imports(
                 add_dependencies(&hit, &mut directive.direct_dependencies);
                 directive.resolution = DirectiveResolution::Resolved(hit.target.clone());
                 match &directive.kind {
-                    ImportKind::Named { alias: Some(name) } => {
-                        let entry = names.entries.get_mut(name).expect("reserved import");
+                    ImportKind::Named { .. } => {
+                        let Some(name) = LocalName::new(
+                            &module.module.imports[directive.id.slot as usize].alias,
+                        ) else {
+                            continue;
+                        };
+                        let entry = names.entries.get_mut(&name).expect("reserved import");
                         for c in &mut entry.strong {
                             if c.origin == BindingOrigin::NamedImport(directive.id.clone()) {
                                 c.target = Some(hit.target.clone());
@@ -594,7 +618,6 @@ fn resolve_imports(
                             }
                         }
                     }
-                    _ => {}
                 }
             }
             other => {
@@ -737,6 +760,7 @@ fn resolve_imports(
             );
         }
     }
+    result.path_hits.retain(|(_, hit)| !hit.via.iter().any(|origin| matches!(origin, BindingOrigin::NamedImport(id) if id.unit == unit && result.directives.get(id.slot as usize).is_some_and(|directive| matches!(directive.resolution, DirectiveResolution::Ambiguous)))));
     result.dependencies = dependencies.into_iter().collect();
     result.scope = Arc::new(names);
     Ok(result)

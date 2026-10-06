@@ -13,7 +13,8 @@ use crate::{
     hir::{expr::ExprKind, place::PlaceKind},
     host::HostDeclarations,
     imports::{
-        ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit, functions::ImportedFunction,
+        BindingOrigin, ImportKind, ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit,
+        functions::ImportedFunction,
     },
     lower::LoweredModule,
     native::render::DeclarationSource,
@@ -35,6 +36,7 @@ use kagari_common::{
         reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
+    span::Span,
 };
 use kagari_source::{
     identity::{FileId, Revision},
@@ -72,9 +74,11 @@ pub mod body_queries;
 pub mod declaration_queries;
 pub(crate) mod ownership;
 pub mod signature_queries;
+mod target_queries;
 
 #[derive(Debug)]
 pub struct FileAnalysis {
+    type_hits: Vec<(Span, LookupHit)>,
     signatures_reused: bool,
     source: Arc<SourceFile>,
 
@@ -993,7 +997,9 @@ impl AnalysisDatabase {
                         .publish_definitions(definitions.clone());
                     records.facts.signatures = scoped_prepared.signatures.clone();
                     let result = DefinitionMetadata::checked(definitions, records, cancel)?;
+                    let type_hits = target_queries::type_hits(result.records().facts(), cancel)?;
                     Arc::new(FileAnalysis {
+                        type_hits,
                         signatures_reused,
                         source: file,
                         parsed,
@@ -1067,7 +1073,35 @@ impl AnalysisSnapshot {
 
     /// Canonical namespace/declaration hit and the binding origins selected at this use.
     pub fn source_target_at(&self, file: FileId, offset: usize) -> Option<LookupHit> {
-        let facts = self.analysis_at(file, offset)?.result.records().facts();
+        let analysis = self.analysis_at(file, offset)?;
+        if let Some((_, hit)) = analysis
+            .type_hits
+            .iter()
+            .filter(|(span, _)| span.start <= offset && offset < span.end)
+            .min_by_key(|(span, _)| span.end - span.start)
+        {
+            return Some(hit.clone());
+        }
+        let facts = analysis.result.records().facts();
+        if let Some((_, hit)) = facts
+            .names
+            .path_hits
+            .iter()
+            .filter(|(span, _)| span.start <= offset && offset < span.end)
+            .min_by_key(|(span, _)| span.end - span.start)
+        {
+            return Some(hit.clone());
+        }
+        if let Some((_, hit)) = facts
+            .names
+            .imports
+            .path_hits
+            .iter()
+            .filter(|(span, _)| span.range.start <= offset && offset < span.range.end)
+            .min_by_key(|(span, _)| span.range.end - span.range.start)
+        {
+            return Some(hit.clone());
+        }
         facts
             .lowered
             .module
@@ -1094,9 +1128,14 @@ impl AnalysisSnapshot {
                     }
                     Some(LookupHit {
                         target: directive.resolution.target()?.clone(),
-                        via: vec![crate::imports::BindingOrigin::NamedImport(
-                            directive.id.clone(),
-                        )],
+                        via: vec![match directive.kind {
+                            ImportKind::Named { .. } => {
+                                BindingOrigin::NamedImport(directive.id.clone())
+                            }
+                            ImportKind::Glob { .. } => {
+                                BindingOrigin::GlobImport(directive.id.clone())
+                            }
+                        }],
                     })
                 })
             })
@@ -1112,8 +1151,18 @@ impl AnalysisSnapshot {
         {
             return self.declaration(&DeclarationId::Definition(member));
         }
-        let hit = self.source_target_at(file, offset)?;
-        let ResolvedTarget::Source(target) = hit.target else {
+        let target = facts
+            .names
+            .imports
+            .directives
+            .iter()
+            .find_map(|directive| {
+                (directive.span.range.start <= offset && offset < directive.span.range.end)
+                    .then(|| directive.resolution.target().cloned())
+                    .flatten()
+            })
+            .or_else(|| self.source_target_at(file, offset).map(|hit| hit.target))?;
+        let ResolvedTarget::Source(target) = target else {
             return None;
         };
         let file = self.file(target.unit.file)?;

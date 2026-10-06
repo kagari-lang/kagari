@@ -86,6 +86,24 @@ impl Lowerer {
         };
 
         let id = self.alloc_type(syntax_span(ty), TypeData { kind });
+        let mut prefix = String::new();
+        let mut sites = Vec::new();
+        let segments = ty
+            .path()
+            .map(|path| path.segments().collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into_iter()
+            .chain(ty.name());
+        for segment in segments {
+            if let Some(name) = segment.text() {
+                if !prefix.is_empty() {
+                    prefix.push_str("::");
+                }
+                prefix.push_str(&name);
+                sites.push((prefix.clone(), token_span(&segment)));
+            }
+        }
+        self.source_map.insert_type_path(id, sites);
         if let Some(name) = ty
             .path()
             .map(|path| token_span(&path))

@@ -31,6 +31,12 @@ use kagari_common::span::Span;
 
 use smallvec::SmallVec;
 
+#[derive(Clone, Default)]
+struct ImportPath {
+    text: String,
+    sites: Vec<(String, Span)>,
+}
+
 fn lower_visibility(visibility: AstVisibility) -> Visibility {
     match visibility {
         AstVisibility::Private => Visibility::Private,
@@ -177,61 +183,68 @@ impl Lowerer {
         let Some(tree) = use_decl.tree() else {
             return;
         };
-        let visibility = lower_visibility(use_decl.visibility());
-        self.lower_use_tree(visibility, None, &tree);
+        self.lower_use_tree(
+            lower_visibility(use_decl.visibility()),
+            None,
+            &tree,
+            token_span(&tree),
+        );
     }
-
     fn lower_use_tree(
         &mut self,
         visibility: Visibility,
-        base_path: Option<String>,
+        base: Option<ImportPath>,
         tree: &UseTree,
+        root_span: Span,
     ) {
-        let path = match (base_path, tree.path().and_then(|path| path.text())) {
-            (Some(base), Some(path)) => format!("{base}::{path}"),
-            (Some(base), None) => base,
-            (None, Some(path)) => path,
-            (None, None) => String::new(),
-        };
-
+        let mut path = base.unwrap_or_default();
+        if let Some(local) = tree.path() {
+            for segment in local.segments() {
+                if let Some(name) = segment.text() {
+                    if !path.text.is_empty() {
+                        path.text.push_str("::");
+                    }
+                    path.text.push_str(&name);
+                    path.sites.push((path.text.clone(), token_span(&segment)));
+                }
+            }
+        }
         let nested = tree.nested_trees().collect::<Vec<_>>();
         if nested.is_empty() {
-            self.lower_import(
-                visibility,
-                &path,
-                syntax_span(tree),
-                tree.alias().and_then(|alias| alias.text()),
-                tree.is_glob(),
-            );
-            return;
-        }
-
-        for child in nested {
-            self.lower_use_tree(visibility, Some(path.clone()), &child);
+            self.lower_import(visibility, path, tree, root_span);
+        } else {
+            for child in nested {
+                self.lower_use_tree(visibility, Some(path.clone()), &child, root_span);
+            }
         }
     }
-
     fn lower_import(
         &mut self,
         visibility: Visibility,
-        path: &str,
-        span: Span,
-        alias: Option<String>,
-        glob: bool,
+        path: ImportPath,
+        tree: &UseTree,
+        root_span: Span,
     ) {
-        let alias =
-            alias.unwrap_or_else(|| path.rsplit("::").next().unwrap_or_default().to_owned());
+        let explicit = tree.alias().and_then(|alias| alias.text());
+        let alias_explicit = explicit.is_some();
+        let alias = explicit
+            .unwrap_or_else(|| path.text.rsplit("::").next().unwrap_or_default().to_owned());
+        let glob = tree.is_glob();
         if visibility == Visibility::Public && !glob {
             self.module.exports.push(Export {
                 name: alias.clone(),
                 item: ExportItem::Import(self.module.imports.len()),
             });
         }
+        self.source_map
+            .insert_import_path(self.module.imports.len(), path.sites);
         self.module.imports.push(Import {
             visibility,
             alias,
-            path: path.to_owned(),
-            span,
+            alias_explicit,
+            path: path.text,
+            span: token_span(tree),
+            root_span,
             glob,
         });
     }

@@ -12,6 +12,8 @@ pub struct ModuleDecl {
 
 #[derive(Debug, Clone)]
 pub struct Import {
+    pub alias_explicit: bool,
+    pub root_span: Span,
     pub visibility: Visibility,
     pub alias: String,
     pub path: String,
