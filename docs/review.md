@@ -46,3 +46,30 @@ sufficient. No failing input has been reproduced.
 Establish the bound or use a termination argument for the chosen solver, and
 handle exhaustion explicitly rather than treating it as convergence. Cover long
 alias/glob chains, valid cycles, unresolved cycles and cancellation.
+
+## SA4 Import records also represent namespace lookup state
+
+Inspected against `b27ea8a3`.
+[ResolvedImport](../crates/kagari-hir/src/imports/mod.rs) combines named bindings,
+glob roots, module declarations, implicit package/prelude bindings and internal
+namespace entries. Auxiliary entries require empty aliases and flags to exclude
+them from ordinary name collection, exports and dependency collection.
+[resolve_member](../crates/kagari-hir/src/imports/bindings.rs) and
+`ResolvedName::SourceItem` use an import-vector index as the namespace identity,
+so entering a child module requires another auxiliary import entry. This is a
+responsibility-boundary finding; no functional failure or speedup is established.
+
+- Give the shared analysis module catalog a member lookup interface keyed by
+  module/namespace identity. Resolve nested paths directly through that interface,
+  with importer visibility and canonical re-export targets.
+- Separate import directives from scope bindings. Directives retain source paths,
+  spans, visibility and direct dependency edges; bindings always have a local name,
+  a target and explicit provenance (explicit, glob, module or implicit).
+- Record resolved source declarations using snapshot-qualified identities rather
+  than import-vector positions. Adapt imported signature/type consumers together;
+  retain navigation provenance separately. Remove internal namespace entries only
+  after these consumers no longer require them.
+
+First replace the lookup/data boundary, then address SA2 scheduling separately.
+Cover deep paths, grouped imports, aliases/re-exports, visibility, glob precedence
+and ambiguity, legal cycles, unused-import reachability and old/new snapshots.
