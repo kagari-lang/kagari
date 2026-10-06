@@ -564,7 +564,7 @@ The active [runtime ownership and host object API](runtime-ownership-and-host-ap
 replaces distributed Rc ownership with central checked stores and automatic host
 leases, and targets exclusive execution in a Send runtime. It also owns typed
 registration, managed object mutation and checked host function/trait calls. The
-following paragraphs describe the implemented GO baseline and IP01 execution storage.
+following paragraphs describe the implemented GO baseline and IP01–IP02 interpreter storage.
 
 The runtime owns values, the script GC heap, explicit roots, host registry,
 module versions, installed native code owners and execution sessions. The VM
@@ -583,6 +583,18 @@ interpreter cursors borrow the checked frame, session and operand window once,
 without a session/root-table lookup for each operand. Cursors are released before
 GC, observation, calls and reentry; bounds, publication and sticky termination
 checks remain enforced. Window generation checks reject expired native views.
+VerifiedProgram derives compact physical operations once from sealed bytecode.
+Scalar operands and numeric contracts are inline; identity-bearing types, strings,
+call arguments and other variable-length metadata remain in the canonical immutable
+instruction records. Their logical PC is the index, so normalization and hot reload
+do not require a second semantic description or change debug locations. The VM
+borrows these records at slow boundaries instead of cloning wide instructions.
+Its cursor runs consecutive non-reentrant instructions, checking cancellation and
+collection/observer eligibility at each original program point. Full safepoints
+and error observation run after releasing the cursor. Values retain full scalar
+precision and complete handle identities; large immutable host descriptors are
+shared out of line rather than inflating every scalar execution slot.
+
 Leases can move across threads and outlive runtime teardown without owning heap
 storage. Runtime owns session, frame, program and executable metadata stores by
 value. Borrowed execution/host scopes prevent owner replacement during execution

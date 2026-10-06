@@ -33,7 +33,7 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
         .unwrap();
     assert_eq!(
         runtime
-            .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+            .read_host_path(&Value::HostRoot(root.into()), descriptor, vec![])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowConflict
@@ -46,11 +46,16 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
         .borrow_shared(root.object_id(), root.type_id())
         .unwrap();
     runtime
-        .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+        .read_host_path(&Value::HostRoot(root.into()), descriptor, vec![])
         .unwrap();
     assert_eq!(
         runtime
-            .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+            .set_host_path(
+                &Value::HostRoot(root.into()),
+                descriptor,
+                vec![],
+                Value::I32(20)
+            )
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowConflict
@@ -58,7 +63,12 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
     assert!(runtime.host_dirty_paths().is_empty());
     drop(scope);
     runtime
-        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+        .set_host_path(
+            &Value::HostRoot(root.into()),
+            descriptor,
+            vec![],
+            Value::I32(20),
+        )
         .unwrap();
     assert_eq!(runtime.host_dirty_paths().len(), 1);
     assert_eq!(runtime.gc().active_roots(), 0);
@@ -87,7 +97,7 @@ fn path_callback_borrows_cannot_escape_in_read_results() {
         .unwrap();
     assert_eq!(
         runtime
-            .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+            .read_host_path(&Value::HostRoot(root.into()), descriptor, vec![])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowEscape
@@ -155,7 +165,7 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
             let error = if modifying {
                 runtime
                     .modify_host_path(
-                        &Value::HostRoot(root),
+                        &Value::HostRoot(root.into()),
                         descriptor,
                         vec![],
                         BinaryOp::Add,
@@ -164,7 +174,12 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
                     .unwrap_err()
             } else {
                 runtime
-                    .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+                    .set_host_path(
+                        &Value::HostRoot(root.into()),
+                        descriptor,
+                        vec![],
+                        Value::I32(20),
+                    )
                     .unwrap_err()
             };
             assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
@@ -176,7 +191,12 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
         }
         reject.store(false, Ordering::SeqCst);
         runtime
-            .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+            .set_host_path(
+                &Value::HostRoot(root.into()),
+                descriptor,
+                vec![],
+                Value::I32(20),
+            )
             .unwrap();
         assert_eq!(target.load(Ordering::SeqCst), 20);
         assert_eq!(runtime.host_dirty_paths().len(), 1);
@@ -231,7 +251,12 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
     options.cancellation = token;
     let session = runtime.begin_execution(&module, options).unwrap();
     runtime
-        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+        .set_host_path(
+            &Value::HostRoot(root.into()),
+            descriptor,
+            vec![],
+            Value::I32(20),
+        )
         .unwrap();
     assert_eq!(target.load(Ordering::SeqCst), 20);
     assert_eq!(runtime.host_dirty_paths().len(), 1);
@@ -244,7 +269,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
     drop(session);
     assert_eq!(
         runtime
-            .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+            .read_host_path(&Value::HostRoot(root.into()), descriptor, vec![])
             .unwrap(),
         Value::I32(20)
     );
@@ -264,14 +289,19 @@ fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
         .register_host_path_adapter(
             descriptor,
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::HostRoot(root)))
+                .with_read(move |_, _| Ok(Value::HostRoot(root.into())))
                 .with_prepare_write(|_, _, _| {
                     panic!("invalid dirty payload must reject before host preparation")
                 }),
         )
         .unwrap();
     let error = runtime
-        .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+        .set_host_path(
+            &Value::HostRoot(root.into()),
+            descriptor,
+            vec![],
+            Value::I32(20),
+        )
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
     assert!(runtime.host_dirty_paths().is_empty());
@@ -350,7 +380,12 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
         let runtime = Rc::new(runtime);
         COMMIT_RUNTIME.with(|access| *access.borrow_mut() = Some(Rc::downgrade(&runtime)));
         let error = runtime
-            .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(20))
+            .set_host_path(
+                &Value::HostRoot(root.into()),
+                descriptor,
+                vec![],
+                Value::I32(20),
+            )
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
         assert!(committed.load(Ordering::SeqCst));
@@ -367,14 +402,19 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
         );
         assert_eq!(
             runtime
-                .read_host_path(&Value::HostRoot(root), descriptor, vec![])
+                .read_host_path(&Value::HostRoot(root.into()), descriptor, vec![])
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::EngineFault
         );
         assert_eq!(
             runtime
-                .set_host_path(&Value::HostRoot(root), descriptor, vec![], Value::I32(30))
+                .set_host_path(
+                    &Value::HostRoot(root.into()),
+                    descriptor,
+                    vec![],
+                    Value::I32(30)
+                )
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::EngineFault
@@ -440,7 +480,7 @@ fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
                 }),
         )
         .unwrap();
-    let root_value = Value::HostRoot(root);
+    let root_value = Value::HostRoot(root.into());
 
     assert_eq!(
         runtime
@@ -497,7 +537,7 @@ fn path_execution_classifies_validation_failures() {
             HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(1))),
         )
         .unwrap();
-    let root_value = Value::HostRoot(root);
+    let root_value = Value::HostRoot(root.into());
 
     assert_eq!(
         runtime
@@ -557,7 +597,7 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
             .unwrap();
         let error = runtime
             .modify_host_path(
-                &Value::HostRoot(root),
+                &Value::HostRoot(root.into()),
                 descriptor,
                 vec![],
                 op,
@@ -610,7 +650,7 @@ fn path_execution_uses_installed_descriptor() {
 
     assert_eq!(
         runtime
-            .read_host_path(&Value::HostRoot(root), descriptor_id, Vec::new())
+            .read_host_path(&Value::HostRoot(root.into()), descriptor_id, Vec::new())
             .unwrap(),
         Value::I32(99)
     );

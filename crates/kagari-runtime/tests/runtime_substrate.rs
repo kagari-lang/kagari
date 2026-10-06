@@ -34,7 +34,7 @@ fn host_root_value(object_id: u64) -> Value {
     let Value::HostPathView(view) = path_view_value(object_id) else {
         unreachable!()
     };
-    Value::HostRoot(view.root())
+    Value::HostRoot(view.root().into())
 }
 
 fn path_view_value(object_id: u64) -> Value {
@@ -78,7 +78,8 @@ fn path_view_value(object_id: u64) -> Value {
         runtime
             .host()
             .make_path_view(root, descriptor, DynamicPathArguments::empty())
-            .unwrap(),
+            .unwrap()
+            .into(),
     )
 }
 

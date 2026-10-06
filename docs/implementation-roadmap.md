@@ -50,7 +50,7 @@ performance goal is made until measured acceptance.
   forced GC across active/suspended frames, nested calls, call-depth failure,
   sticky cancellation, cleanup, quarantine and generation-pinned reload. Benchmark
   scalar and call workloads after this coherent ownership change.
-- [ ] **IP02: Compact typed interpreter representation.** Bytecode/execution
+- [x] **IP02: Compact typed interpreter representation.** Bytecode/execution
   preparation owns compact operations plus indexed constant/type/call tables;
   runtime owns compact slots and their tracing contract. Use verified operand types
   without cloning owned semantic metadata during dispatch. Preserve bounded
@@ -104,8 +104,31 @@ The same-machine IP01 benchmark completed two processes/308 timed batches. Arith
 improved from 274.713 ms to 115.614 ms; calls from 94.889 ms to 41.443 ms; Fibonacci
 from 110.081 ms to 50.078 ms. Nontrivial VM/Lua ratios remain 140.78–579.70: the goal
 is not achieved. See [measurements](performance-baseline.md#execution-windows-ip01-2026-10-06).
-IP02 next: compact prepared operations/operand slots and execution-oriented dispatch;
-retain wire verification, source/debug correspondence and all checked boundaries.
+IP02 ledger: compact prepared operations/operand slots and execution-oriented
+dispatch retain wire verification, source/debug correspondence and checked boundaries.
+The value-layout step shares immutable out-of-line host descriptors instead of
+inlining their complete schemas/path/borrow data into every scalar slot. Preserve
+all i64/u64/f64 bits and complete owner/slot/generation identities; no NaN boxing or
+truncated handles. Only immutable descriptors use Arc; heap/host resources and
+execution storage remain runtime-owned. The value migration passes workspace/all-target
+compilation, 135 runtime unit tests and 47 host-boundary tests. Compact execution
+records are now derived by VerifiedProgram from sealed bytecode and shared across
+identity normalization. Canonical PCs index immutable semantic/call records; VM
+boundary dispatch borrows these records instead of cloning instructions. The scalar
+loop pins one cursor until a collection, observation, call or allocation boundary.
+It polls cancellation and collection eligibility at each original logical PC;
+termination/observation runs only after releasing cursor borrows so traces and GC
+can inspect the complete stack. Numeric semantics still use the shared checked
+runtime helpers. Intermediate borrow-conversion compiler/Clippy diagnostics are
+resolved. 296 runtime and 296 VM tests pass (one existing manual benchmark ignored),
+as do strict runtime/VM all-target Clippy, structure (901 Rust files), formatting
+and diff checks. No carried build/test errors remain. Two same-machine timing
+processes/308 checked batches show arithmetic 23.975 ms, calls 13.350 ms and
+Fibonacci 19.678 ms; nontrivial VM/Lua ratios remain 35.63–435.72. Reprofiling
+arithmetic/calls/maps confirms remaining cursor checks, redundant instructions,
+call entry and native type/allocator traffic. See
+[IP02 measurements](performance-baseline.md#compact-execution-ip02-2026-10-06).
+IP03 is next: register allocation/coalescing and reusable script call windows.
 
 IP00 validation: both timing processes and all six profiling/counting passes
 completed with correct results; the existing benchmark test checks empty/single

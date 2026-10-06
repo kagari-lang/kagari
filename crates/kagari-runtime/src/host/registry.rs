@@ -777,7 +777,7 @@ impl HostRegistry {
                 let registered_root = self.roots.get(&root.object_id).ok_or_else(|| {
                     RuntimeError::typed_path_validation("host root is not registered")
                 })?;
-                if registered_root != root {
+                if registered_root != root.as_ref() {
                     return Err(RuntimeError::typed_path_validation(
                         "host root handle does not match registered root metadata",
                     ));
@@ -792,7 +792,7 @@ impl HostRegistry {
                         "path descriptor schema epoch does not match host root epoch",
                     ));
                 }
-                (*root, None)
+                (**root, None)
             }
             Value::HostPathView(view) => {
                 if !self.matches_root(view.root) {

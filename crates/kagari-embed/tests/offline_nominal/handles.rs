@@ -115,7 +115,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 interface.functions[0].clone(),
                 move |_, _| {
                     calls.lock().unwrap().push("receiver");
-                    Ok(Value::HostRoot(root))
+                    Ok(Value::HostRoot(root.into()))
                 },
             ))
             .unwrap();
@@ -281,7 +281,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
                 interface.functions[0].clone(),
                 move |_, _| {
                     calls.lock().unwrap().push("make");
-                    Ok(Value::HostRoot(root))
+                    Ok(Value::HostRoot(root.into()))
                 },
             ))
             .unwrap();

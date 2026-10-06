@@ -887,7 +887,7 @@ impl Runtime {
                     })
             }
             (Value::HostRoot(root), Ty::Host(id)) => {
-                self.host.matches_root(*root)
+                self.host.matches_root(**root)
                     && implementation.host_type(*id) == Some(root.type_id())
             }
             _ => matches_type(&self.gc, value, ty, implementation),

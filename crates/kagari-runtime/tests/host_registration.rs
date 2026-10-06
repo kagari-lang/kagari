@@ -21,7 +21,8 @@ fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
     Value::HostRoot(
         runtime
             .register_host_root(HostObjectId(object_id), ty, HostSchemaEpoch::new(0))
-            .unwrap(),
+            .unwrap()
+            .into(),
     )
 }
 
@@ -50,7 +51,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
                     .borrow_unique(HostObjectId(1), TypeId::new(0))
                     .unwrap();
                 Ok(Value::Ephemeral(
-                    kagari_runtime::value::EphemeralValue::HostMut(token),
+                    kagari_runtime::value::EphemeralValue::HostMut(token.into()),
                 ))
             },
         ))

@@ -1,4 +1,5 @@
 pub(crate) mod collection;
+pub mod execution;
 mod layouts;
 mod records;
 pub mod retention;
@@ -11,6 +12,7 @@ use crate::{
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
     module::{
+        execution::ExecutionModule,
         records::ModuleRecord,
         retention::{ProgramLease, Retentions},
         staging::StagedProgram,
@@ -110,6 +112,7 @@ pub struct VerifiedProgram {
     root: ModuleRef,
     modules: Arc<[Arc<BytecodeModule<DefinitionId>>]>,
     definitions: DefinitionTable,
+    execution: Arc<[ExecutionModule]>,
     version: Arc<[Arc<BytecodeModule<DefinitionId>>]>,
     version_definitions: DefinitionTable,
     dependencies: ReloadDependencySnapshot,
@@ -145,7 +148,12 @@ impl VerifiedProgram {
             .cloned()
             .map(Arc::new)
             .collect();
+        let execution = modules
+            .iter()
+            .map(|module| ExecutionModule::prepare(module))
+            .collect();
         Self {
+            execution,
             root: program.program().root,
             version: modules.clone(),
             version_definitions: definitions.clone(),
@@ -228,6 +236,7 @@ impl VerifiedProgram {
             root: self.root,
             modules,
             definitions: context.snapshot(),
+            execution: self.execution.clone(),
             version: self.version.clone(),
             version_definitions: self.version_definitions.clone(),
             dependencies: self.dependencies.clone(),
@@ -277,6 +286,10 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
+    pub(crate) fn execution(&self) -> &ExecutionModule {
+        &self.program.code.execution[self.slot.index()]
+    }
+
     pub(crate) fn host_type(&self, id: DefinitionId) -> Option<TypeId> {
         self.host_types.get(&id).copied()
     }

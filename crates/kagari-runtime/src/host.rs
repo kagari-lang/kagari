@@ -336,7 +336,7 @@ impl HostPathDescriptor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HostPathViewHandle {
     root: HostRootHandle,
-    base: Option<Box<HostPathViewHandle>>,
+    base: Option<Arc<HostPathViewHandle>>,
     descriptor_id: HostPathDescriptorId,
     result_type: TypeId,
     access: PathAccess,
@@ -347,13 +347,13 @@ pub struct HostPathViewHandle {
 impl HostPathViewHandle {
     fn new(
         root: HostRootHandle,
-        base: Option<HostPathViewHandle>,
+        base: Option<Arc<HostPathViewHandle>>,
         descriptor: &HostPathDescriptor,
         dynamic_args: DynamicPathArguments,
     ) -> Self {
         Self {
             root,
-            base: base.map(Box::new),
+            base,
             descriptor_id: descriptor.id,
             result_type: descriptor.result_type,
             access: descriptor.access,
@@ -394,7 +394,7 @@ impl HostPathViewHandle {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HostPathContext {
     pub root: HostRootHandle,
-    pub base_view: Option<HostPathViewHandle>,
+    pub base_view: Option<Arc<HostPathViewHandle>>,
     pub descriptor: HostPathDescriptor,
     pub dynamic_args: DynamicPathArguments,
 }
@@ -402,7 +402,7 @@ pub struct HostPathContext {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HostPathMutationRecord {
     pub root: HostRootHandle,
-    pub base_view: Option<HostPathViewHandle>,
+    pub base_view: Option<Arc<HostPathViewHandle>>,
     pub descriptor_id: HostPathDescriptorId,
     pub operation: HostPathOperation,
     pub dynamic_args: DynamicPathArguments,
@@ -1077,7 +1077,7 @@ impl HostFunction {
                             ));
                         }
                     };
-                    context.runtime().validate_host_borrow(*token, required)?;
+                    context.runtime().validate_host_borrow(**token, required)?;
                 }
                 _ => {}
             }
@@ -1125,7 +1125,7 @@ fn host_value_matches(
             | (Value::F64(_), HostValueType::F64)
             | (Value::Str(_), HostValueType::String) => {}
             (Value::HostRoot(root), HostValueType::Opaque(declaration)) => {
-                if !runtime.host().matches_root(root)
+                if !runtime.host().matches_root(*root)
                     || !runtime.host().matches_type(root.type_id(), declaration)
                 {
                     return Ok(false);

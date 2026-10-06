@@ -13,6 +13,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     slice,
+    sync::Arc,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,8 +84,8 @@ pub enum ValueCategory {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EphemeralValue {
-    HostRef(FrameHostBorrowToken),
-    HostMut(FrameHostBorrowToken),
+    HostRef(Arc<FrameHostBorrowToken>),
+    HostMut(Arc<FrameHostBorrowToken>),
     Runtime(EphemeralValueId),
 }
 
@@ -252,6 +253,8 @@ impl MapKey {
     }
 }
 
+/// Tagged runtime values keep immutable host descriptors out of scalar slots.
+/// Sharing those descriptors never retains a Rust host resource or script heap.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Unit,
@@ -273,8 +276,8 @@ pub enum Value {
     Interface(InterfaceObjectId),
     Closure(HeapObjectId),
     Cell(HeapObjectId),
-    HostRoot(HostRootHandle),
-    HostPathView(HostPathViewHandle),
+    HostRoot(Arc<HostRootHandle>),
+    HostPathView(Arc<HostPathViewHandle>),
     Ephemeral(EphemeralValue),
 }
 
@@ -397,11 +400,11 @@ impl Value {
     }
 
     pub fn host_ref(token: FrameHostBorrowToken) -> Self {
-        Self::Ephemeral(EphemeralValue::HostRef(token))
+        Self::Ephemeral(EphemeralValue::HostRef(Arc::new(token)))
     }
 
     pub fn host_mut(token: FrameHostBorrowToken) -> Self {
-        Self::Ephemeral(EphemeralValue::HostMut(token))
+        Self::Ephemeral(EphemeralValue::HostMut(Arc::new(token)))
     }
 }
 
@@ -422,6 +425,14 @@ mod tests {
         value_type::HostValueType,
     };
 
+    use std::mem::size_of;
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn scalar_slot_layout_does_not_inline_host_descriptors() {
+        // An interpreter storage budget, not a serialized or external ABI.
+        assert!(size_of::<Value>() <= 32);
+    }
     fn host_root(object_id: u64) -> HostRootHandle {
         HostRootHandle::new(
             Default::default(),
@@ -473,7 +484,8 @@ mod tests {
             runtime
                 .host()
                 .make_path_view(root, descriptor, DynamicPathArguments::empty())
-                .unwrap(),
+                .unwrap()
+                .into(),
         )
     }
 
@@ -500,7 +512,7 @@ mod tests {
     #[test]
     fn classifies_storable_and_ephemeral_value_categories() {
         let scalar = Value::I32(1);
-        let host_root = Value::HostRoot(host_root(7));
+        let host_root = Value::HostRoot(host_root(7).into());
         let path_view = path_view_value(3);
         let host_ref = shared_borrow_value(9);
         let host_mut = unique_borrow_value(10);
@@ -527,7 +539,7 @@ mod tests {
         assert!(Value::Tuple(vec![Value::Unit]).is_default_heap_payload());
         let mut runtime = crate::Runtime::default();
         assert!(crate::layout_fixtures::interface_value(&mut runtime).is_default_heap_payload());
-        assert!(!Value::HostRoot(host_root(1)).is_default_heap_payload());
+        assert!(!Value::HostRoot(host_root(1).into()).is_default_heap_payload());
         assert!(!path_view_value(1).is_default_heap_payload());
         assert!(!shared_borrow_value(1).is_default_heap_payload());
         assert!(!Value::Tuple(vec![unique_borrow_value(1)]).is_default_heap_payload());

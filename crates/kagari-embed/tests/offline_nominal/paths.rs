@@ -77,7 +77,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 declarations.functions[0].clone(),
                 move |_, _| {
                     calls.lock().unwrap().push("root");
-                    Ok(Value::HostRoot(root))
+                    Ok(Value::HostRoot(root.into()))
                 },
             ))
             .unwrap();
@@ -257,7 +257,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
                 calls.lock().unwrap().push("make");
-                Ok(Value::HostRoot(root))
+                Ok(Value::HostRoot(root.into()))
             }))
             .unwrap();
         for (declaration, label, result) in [
@@ -441,7 +441,11 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                         move |_, _| {
                             calls.lock().unwrap().push("root");
                             let first = root_calls.fetch_add(1, Ordering::SeqCst) == 0;
-                            Ok(Value::HostRoot(if first { root } else { replacement }))
+                            Ok(Value::HostRoot(if first {
+                                root.into()
+                            } else {
+                                replacement.into()
+                            }))
                         },
                     ))
                     .unwrap();

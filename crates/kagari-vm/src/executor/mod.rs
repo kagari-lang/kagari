@@ -1,12 +1,10 @@
 mod aggregate_ops;
 mod dispatch;
+mod loop_body;
 pub(crate) mod native;
 mod value_ops;
 
-use kagari_bytecode::{
-    instruction::{BytecodeInstruction, Register},
-    program::ModuleRef,
-};
+use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
@@ -17,7 +15,7 @@ use kagari_runtime::{
 };
 use std::cell::{Ref, RefMut};
 
-use crate::error::VmError;
+use crate::{error::VmError, executor::loop_body::LoopExit};
 
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
@@ -87,26 +85,10 @@ impl<'a> Executor<'a> {
             self.runtime
                 .observe_execution(ExecutionEvent::BeforeInstruction)?;
 
-            let instruction = {
-                let mut frame = self.current_frame_mut()?;
-                frame.next_instruction()
-            };
-
-            let Some(instruction) = instruction else {
-                return Err(VmError::RuntimeError(
-                    self.runtime
-                        .quarantine_execution_invariant("verified function fell through"),
-                ));
-            };
-
-            match instruction {
-                BytecodeInstruction::Return(value) => {
-                    let value = match value {
-                        Some(register) => self
-                            .current_frame()?
-                            .read_register(self.runtime, register)?,
-                        None => Value::Unit,
-                    };
+            let result = self.run_cursor();
+            match self.report_operation(result)? {
+                LoopExit::Safepoint => continue,
+                LoopExit::Return(value) => {
                     let result = self.stack.finish_return(self.runtime, value);
                     if let Some(value) =
                         self.report_operation(result.map_err(VmError::RuntimeError))?
@@ -114,7 +96,28 @@ impl<'a> Executor<'a> {
                         return Ok(value);
                     }
                 }
-                instruction => {
+                LoopExit::Boundary => {
+                    let (loaded, target, pc) = {
+                        let frame = self.current_frame()?;
+                        (
+                            frame.loaded().clone(),
+                            frame.target(),
+                            frame.instruction_offset(),
+                        )
+                    };
+                    let CallableTarget::Script(function) = target else {
+                        return Err(VmError::UnsupportedInstruction(
+                            "native boundary in script cursor",
+                        ));
+                    };
+                    let instruction = loaded
+                        .bytecode
+                        .functions
+                        .get(function.index())
+                        .and_then(|function| function.instructions.get(pc))
+                        .ok_or(VmError::UnsupportedInstruction(
+                            "missing boundary instruction",
+                        ))?;
                     let result = self.dispatch_instruction(instruction);
                     self.report_operation(result)?;
                 }

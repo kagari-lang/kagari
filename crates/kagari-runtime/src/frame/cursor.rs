@@ -3,11 +3,14 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionFrame, ExecutionStack},
-    gc::GcHeap,
+    module::execution::ExecutionInstruction,
     session::SessionState,
     value::Value,
 };
-use kagari_bytecode::instruction::{LocalSlot, Register};
+use kagari_bytecode::{
+    instruction::{LocalSlot, Register},
+    module::CallableTarget,
+};
 use std::cell::{Ref, RefMut};
 
 /// A transient interpreter view. Release it before GC, observation, native calls,
@@ -16,7 +19,7 @@ use std::cell::{Ref, RefMut};
 pub struct ExecutionCursor<'a> {
     frame: RefMut<'a, ExecutionFrame>,
     values: RefMut<'a, [Value]>,
-    heap: &'a GcHeap,
+    runtime: &'a Runtime,
     session: Ref<'a, SessionState>,
 }
 
@@ -43,15 +46,48 @@ impl ExecutionStack<'_> {
         Ok(ExecutionCursor {
             frame,
             values,
-            heap: runtime.gc(),
+            runtime,
             session: self.session.state(),
         })
     }
 }
 
 impl ExecutionCursor<'_> {
+    /// Publish the next logical PC before deciding whether a full boundary is
+    /// needed. Cancellation is completed outside this borrow so its trace can
+    /// inspect the stack. Observers and collections always run without a cursor.
+    pub fn prepare_instruction(&mut self) -> Result<bool, RuntimeError> {
+        self.frame.prepare_instruction();
+        self.runtime
+            .resources()
+            .ensure_cursor_allowed(&self.session)?;
+        Ok(self.session.options.cancellation.check().is_err()
+            || self.session.observer_attached.get()
+            || self.runtime.gc().collection_due()
+            || (self.runtime.gc().automatic_collection_enabled()
+                && self.runtime.modules.has_abandoned_programs()?))
+    }
+
+    pub fn next_instruction(&mut self) -> Option<ExecutionInstruction> {
+        let CallableTarget::Script(function) = self.frame.target else {
+            return None;
+        };
+        let instruction = self
+            .frame
+            .loaded
+            .execution()
+            .functions
+            .get(function.index())?
+            .get(self.frame.ip)
+            .copied()?;
+        self.frame.executing = Some(self.frame.ip);
+        self.frame.ip += 1;
+        Some(instruction)
+    }
+
     fn invalid(&self) -> RuntimeError {
-        self.heap
+        self.runtime
+            .gc()
             .resources()
             .quarantine("invalid execution operand slot")
     }
@@ -72,7 +108,10 @@ impl ExecutionCursor<'_> {
     }
 
     fn read(&self, index: usize) -> Result<Value, RuntimeError> {
-        self.heap.resources().ensure_cursor_allowed(&self.session)?;
+        self.runtime
+            .gc()
+            .resources()
+            .ensure_cursor_allowed(&self.session)?;
         self.values
             .get(index)
             .cloned()
@@ -80,9 +119,12 @@ impl ExecutionCursor<'_> {
     }
 
     fn write(&mut self, index: usize, value: Value) -> Result<(), RuntimeError> {
-        self.heap.ensure_no_native_borrow()?;
-        self.heap.resources().ensure_cursor_allowed(&self.session)?;
-        if !self.heap.validate_value(&value) {
+        self.runtime.gc().ensure_no_native_borrow()?;
+        self.runtime
+            .gc()
+            .resources()
+            .ensure_cursor_allowed(&self.session)?;
+        if !self.runtime.gc().validate_value(&value) {
             return Err(self.invalid());
         }
         if index >= self.values.len() {
@@ -109,14 +151,17 @@ impl ExecutionCursor<'_> {
     }
 
     pub fn jump_to(&mut self, target: usize) -> Result<(), RuntimeError> {
-        self.heap.resources().ensure_cursor_allowed(&self.session)?;
+        self.runtime
+            .gc()
+            .resources()
+            .ensure_cursor_allowed(&self.session)?;
         if self
             .frame
             .function()
             .is_none_or(|function| target >= function.instructions.len())
         {
             return Err(self
-                .heap
+                .runtime
                 .resources()
                 .quarantine("invalid frame jump target"));
         }

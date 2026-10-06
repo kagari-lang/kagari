@@ -32,7 +32,8 @@ fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionPath) ->
     let value = Value::HostRoot(
         runtime
             .register_host_root(HostObjectId(ty.index() as u64), ty, HostSchemaEpoch::new(0))
-            .unwrap(),
+            .unwrap()
+            .into(),
     );
     (ty, value)
 }
@@ -293,15 +294,15 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
             .unwrap();
         let view = runtime
             .host()
-            .make_path_view(root, descriptor, DynamicPathArguments::empty())
+            .make_path_view(*root, descriptor, DynamicPathArguments::empty())
             .unwrap();
         views.push(view);
     }
     assert_eq!(views[0].descriptor_id(), views[1].descriptor_id());
     assert_eq!(views[0].result_type(), views[1].result_type());
     let id = views[0].descriptor_id();
-    let local_view = Value::HostPathView(views[0].clone());
-    let foreign_view = Value::HostPathView(views[1].clone());
+    let local_view = Value::HostPathView(views[0].clone().into());
+    let foreign_view = Value::HostPathView(views[1].clone().into());
     assert!(
         local
             .host()

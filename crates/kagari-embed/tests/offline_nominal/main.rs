@@ -174,7 +174,7 @@ fn assert_source_index_path(field_prefix: bool) {
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
                 calls.lock().unwrap().push("make");
-                Ok(Value::HostRoot(root))
+                Ok(Value::HostRoot(root.into()))
             }))
             .unwrap();
         let calls = trace.clone();

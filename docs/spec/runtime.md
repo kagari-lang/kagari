@@ -256,8 +256,11 @@ read/preparation callbacks, including preparation that explicitly collects. Comm
 actions only apply prepared host state; they cannot collect or execute scripts.
 Register/local slots occupy reusable contiguous windows and stay conservatively
 rooted until overwritten or their frame is dropped. Persistent host leases are
-separate. Checked cursors borrow the current frame/session/window for an instruction
-and release all borrows before collection, observation, calls and reentry. Window
+separate. Checked cursors borrow the current frame/session/window across consecutive
+non-reentrant instructions and release all borrows before collection, observation,
+calls and reentry. Cancellation and collection/observer eligibility are checked at
+each original logical PC; the compact execution product retains a one-to-one mapping
+to verified bytecode and source/debug records. Window
 identities check owner and generation before native access. Active-root diagnostics
 count both persistent root groups and execution windows. Trap and
 call-depth failure drop frame roots through the same frame cleanup path.

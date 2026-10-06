@@ -1,22 +1,9 @@
-use kagari_bytecode::instruction::{BinaryOp, ConstantOperand, UnaryOp};
+use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_runtime::{numeric, value::Value, value_semantics};
 
 use crate::{error::VmError, executor::Executor};
 
 impl Executor<'_> {
-    pub(crate) fn constant_to_value(constant: ConstantOperand) -> Value {
-        match constant {
-            ConstantOperand::Unit => Value::Unit,
-            ConstantOperand::Bool(value) => Value::Bool(value),
-            ConstantOperand::I32(value) => Value::I32(value),
-            ConstantOperand::I64(value) => Value::I64(value),
-            ConstantOperand::U64(value) => Value::U64(value),
-            ConstantOperand::F32(value) => Value::F32(value),
-            ConstantOperand::F64(value) => Value::F64(value),
-            ConstantOperand::Str(value) => Value::Str(value),
-        }
-    }
-
     pub(crate) fn apply_unary(op: UnaryOp, value: Value) -> Result<Value, VmError> {
         numeric::unary(op, value).map_err(VmError::RuntimeError)
     }

@@ -21,6 +21,12 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
+The current architectural follow-up is recorded in
+[IP02 compact execution measurements](../../docs/performance-baseline.md#compact-execution-ip02-2026-10-06).
+The seven original workloads remain unchanged. IP02 improves their measured VM
+medians, but the six nontrivial cases still take 35.63–435.72x Lua time; parity
+has not been achieved. The post-GO06 report below remains the IP00 baseline.
+
 ## Matching and timing
 
 Kagari and Lua have different grammars. The paired `.kgr` and `.lua` files use

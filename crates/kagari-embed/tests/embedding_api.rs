@@ -78,7 +78,7 @@ fn register_embedding_host_path_runtime(
                 vec![],
                 HostValueType::opaque("game.Player"),
             ),
-            move |_, _| Ok(Value::HostRoot(root)),
+            move |_, _| Ok(Value::HostRoot(root.into())),
         ))
         .unwrap();
 

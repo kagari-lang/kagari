@@ -102,7 +102,7 @@ fn main() {
                 .with_read(move |_, _| Ok(Value::I32(preview_hp.load(Ordering::SeqCst)))),
         )
         .unwrap();
-    let root = Value::HostRoot(root);
+    let root = Value::HostRoot(root.into());
     assert_eq!(
         runtime.read_host_path(&root, preview, vec![]).unwrap(),
         Value::I32(10)

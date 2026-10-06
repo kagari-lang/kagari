@@ -147,7 +147,7 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
                 calls.lock().unwrap().push(0);
-                Ok(Value::HostRoot(root))
+                Ok(Value::HostRoot(root.into()))
             }))
             .unwrap();
         let calls = trace.clone();
@@ -239,7 +239,7 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root))
+            Ok(Value::HostRoot(root.into()))
         }))
         .unwrap();
     runtime
@@ -383,7 +383,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .unwrap();
     vm.runtime_mut()
         .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root))
+            Ok(Value::HostRoot(root.into()))
         }))
         .unwrap();
     vm.runtime_mut()
@@ -441,7 +441,10 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     assert!(vm.execute(&loaded, "fail").is_err());
     assert_eq!(vm.runtime().gc().active_roots(), 1);
     {
-        let scope = vm.runtime().host_scope(&[Value::HostRoot(root)]).unwrap();
+        let scope = vm
+            .runtime()
+            .host_scope(&[Value::HostRoot(root.into())])
+            .unwrap();
         assert!(
             scope
                 .borrows()
@@ -497,11 +500,14 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .unwrap();
     assert!(
         vm.runtime()
-            .make_interface(&loaded, 0, Value::HostRoot(foreign_root))
+            .make_interface(&loaded, 0, Value::HostRoot(foreign_root.into()))
             .is_err()
     );
     {
-        let scope = vm.runtime().host_scope(&[Value::HostRoot(root)]).unwrap();
+        let scope = vm
+            .runtime()
+            .host_scope(&[Value::HostRoot(root.into())])
+            .unwrap();
         let token = scope
             .borrows()
             .borrow_shared(root.object_id(), root.type_id())
@@ -616,7 +622,7 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(value))
+            Ok(Value::HostRoot(value.into()))
         }))
         .unwrap();
     runtime
@@ -668,7 +674,7 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         .unwrap();
     vm.runtime_mut()
         .register_host_function(HostFunction::new(make.clone(), move |_, _| {
-            Ok(Value::HostRoot(root))
+            Ok(Value::HostRoot(root.into()))
         }))
         .unwrap();
     let calls = Arc::new(Mutex::new(0));
@@ -787,13 +793,16 @@ fn interface_method_results_validate_nested_host_roots() {
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root))
+            Ok(Value::HostRoot(root.into()))
         }))
         .unwrap();
     runtime
         .register_host_function(
             HostFunction::method(&host, &host.methods[0].id, move |_, args| {
-                Ok(Value::Tuple(vec![Value::HostRoot(root), args[1].clone()]))
+                Ok(Value::Tuple(vec![
+                    Value::HostRoot(root.into()),
+                    args[1].clone(),
+                ]))
             })
             .unwrap(),
         )
@@ -829,7 +838,7 @@ fn interface_method_results_validate_nested_host_roots() {
         .runtime()
         .validate_interface_method_result(
             &method,
-            &Value::Tuple(vec![Value::HostRoot(root), Value::I32(42)]),
+            &Value::Tuple(vec![Value::HostRoot(root.into()), Value::I32(42)]),
         )
         .unwrap();
     let mut foreign = {
@@ -852,7 +861,7 @@ fn interface_method_results_validate_nested_host_roots() {
             .runtime()
             .validate_interface_method_result(
                 &method,
-                &Value::Tuple(vec![Value::HostRoot(invalid), Value::I32(42)])
+                &Value::Tuple(vec![Value::HostRoot(invalid.into()), Value::I32(42)])
             )
             .is_err()
     );

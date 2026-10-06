@@ -393,7 +393,7 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     let borrowed = Value::host_ref(scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap());
     let heap = runtime.gc();
     let before = heap.stats();
-    for invalid in [Value::HostRoot(host), borrowed] {
+    for invalid in [Value::HostRoot(host.into()), borrowed] {
         assert!(
             heap.map_insert(*map, Value::I32(1), invalid.clone())
                 .is_err()

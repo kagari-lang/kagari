@@ -131,7 +131,7 @@ fn main() {
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root))
+            Ok(Value::HostRoot(root.into()))
         }))
         .unwrap();
     runtime

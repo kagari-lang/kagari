@@ -7,6 +7,67 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Compact execution (IP02), 2026-10-06
+
+IP02 moves immutable host descriptors out of Value's inline layout (104 to 32 bytes
+on aarch64) and derives Copy execution records within a tested 24-byte budget,
+versus the canonical 136-byte bytecode enum. The canonical verified code remains
+immutable and retains variable-length semantic/call data. Runtime identity
+normalization shares the physical product; logical PCs still map one-to-one.
+The interpreter holds one cursor across non-reentrant instructions, releasing it
+before collection, observation, calls and reentry. Boundary dispatch borrows
+canonical records instead of cloning wide instructions. Scalar precision, full
+handle identities and checked numeric semantics remain intact.
+
+Reproduce with `uv run python scripts/benchmark_lua.py --interpreter-only`.
+Candidate is the IP02 production diff over IP01 `38140f16`. The same M1 Max,
+32 GiB, macOS 26.6.2, Rust/Cargo 1.98.1, default target/Cargo parallelism and
+workspace release profile are used, with SDK source/native features but native
+preparation/execution disabled, PUC Lua 5.4.8, unchanged workload sources and
+three warmups/eleven samples per route in two sequential fresh processes.
+All 308 timed batches and warmup checksums pass. Compilation (19.961 seconds),
+setup and linking are excluded; host entry, return and default GC are included.
+No concurrent agent build/test/profile ran during timing. These are sequential
+same-day observations, not interleaved baseline/candidate trials; desktop load,
+core placement and frequency remain uncontrolled. Raw ranges, metadata and hashes:
+`target/lua-comparison/20261006T014054Z/results.json` and sibling CSVs/logs.
+
+Times are microseconds per complete workload (entry per call):
+
+| Workload | IP01 VM | IP02 VM | IP02 Lua | Recorded VM improvement | IP02 VM/Lua |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| entry | 1.820 | 1.384 | 0.029 | 1.32x | 47.32 |
+| arithmetic | 115,614.167 | 23,974.625 | 392.709 | 4.82x | 61.05 |
+| branches | 150,262.604 | 30,183.291 | 847.125 | 4.98x | 35.63 |
+| calls | 41,442.812 | 13,350.021 | 230.667 | 3.10x | 57.88 |
+| fibonacci | 50,078.229 | 19,677.709 | 353.146 | 2.54x | 55.72 |
+| arrays | 45,807.938 | 34,875.874 | 80.041 | 1.31x | 435.72 |
+| maps | 30,704.541 | 21,161.395 | 72.709 | 1.45x | 291.04 |
+
+The 35.63–435.72x nontrivial ratios still miss Lua parity. A separate warmed macOS
+sample pass (`uv run python scripts/profile_lua_macos.py arithmetic calls maps`)
+used the same release binary, with no profiling overhead in the timing table.
+Raw evidence: `target/lua-comparison/20261006T014244Z-macos-profile/`.
+Arithmetic's 4,012 main-thread samples attribute 31.51% exclusive samples to the
+VM run loop, 20.84% to cursor authority/termination checks and 7.30% to collection
+eligibility. Session hashing and wide instruction cloning no longer dominate that
+scalar path. Optimized/inlined frames and deduplicated symbols limit attribution;
+these are wall-clock stack samples, not exact CPU cycle costs.
+Calls still show frame entry/authority costs. Maps show substantial Rust allocator
+and repeated type-normalization traffic, in addition to execution; they still
+allocate 2,001 GC objects and collect five times per complete workload. Arithmetic
+and calls have no script heap allocations or collections in the measured window.
+Logical instruction totals remain 750,014 / 240,014 / 81,030 respectively, exactly
+matching IP00. The compact product has not yet coalesced locals/registers or removed
+redundant logical instructions. IP03 owns this work and script argument windows;
+IP04 owns prepared native type/retention boundaries. No collector algorithm or
+semantic/ownership checks were removed to obtain these timings.
+
+Validation: 296 runtime unit/integration tests and 296 VM tests pass; one existing
+manual performance test remains ignored. The value migration also passed workspace
+all-target compilation and host tests. Strict runtime/VM all-target Clippy, structure,
+formatting and diff checks pass. Full cross-backend integration remains IP04 work.
+
 ## Execution windows (IP01), 2026-10-06
 
 IP01 replaces per-frame host root leases with a reusable runtime-owned value arena,

@@ -333,7 +333,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         runtime
             .register_host_function(HostFunction::new(make.clone(), move |_, _| {
                 trace.lock().unwrap().push("make");
-                Ok(Value::HostRoot(root))
+                Ok(Value::HostRoot(root.into()))
             }))
             .unwrap();
         let trace = calls.clone();

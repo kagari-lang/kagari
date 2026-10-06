@@ -3,13 +3,13 @@ use crate::{
     executor::{Executor, native::invoke_script},
 };
 use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
+    BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register, RuntimeHelper,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
-use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
+use kagari_runtime::{host::HostPathDescriptorId, range::RangeValue, value::Value};
 use kagari_types::ty::Ty;
-use std::{iter, ops::Bound, slice};
+use std::{iter, ops::Bound, slice, sync::Arc};
 
 impl<'a> Executor<'a> {
     fn dispatch_iterator(
@@ -63,43 +63,20 @@ impl<'a> Executor<'a> {
 
     pub(crate) fn dispatch_instruction(
         &mut self,
-        instruction: BytecodeInstruction<DefinitionId>,
+        instruction: &BytecodeInstruction<DefinitionId>,
     ) -> Result<(), VmError> {
-        match instruction {
-            BytecodeInstruction::Convert {
+        match *instruction {
+            BytecodeInstruction::Iter {
                 dst,
-                src,
-                conversion,
+                value,
+                ref ty,
+                op,
             } => {
-                let value = self.current_frame()?.read_register(self.runtime, src)?;
-                let value = numeric::convert(conversion, value)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
-            }
-            BytecodeInstruction::Numeric {
-                dst,
-                operation,
-                lhs,
-                rhs,
-            } => {
-                let lhs = self.current_frame()?.read_register(self.runtime, lhs)?;
-                let rhs = rhs
-                    .map(|r| {
-                        self.current_frame().and_then(|frame| {
-                            frame.read_register(self.runtime, r).map_err(Into::into)
-                        })
-                    })
-                    .transpose()?;
-                let value = numeric::fixed_integer(operation, lhs, rhs)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
-            }
-            BytecodeInstruction::Iter { dst, value, ty, op } => {
                 let source = self.current_frame()?.read_register(
                     self.runtime,
                     value.ok_or(VmError::TypeMismatch("iterator source"))?,
                 )?;
-                self.dispatch_iterator(&source, &ty, op, Some(dst))?;
+                self.dispatch_iterator(&source, ty, op, Some(dst))?;
             }
 
             BytecodeInstruction::BeginIteration { collection } => {
@@ -113,10 +90,10 @@ impl<'a> Executor<'a> {
                 dst,
                 value,
                 enumeration,
-                arguments,
+                ref arguments,
                 variant,
             } => {
-                let result = self.test_enum_variant(value, enumeration, &arguments, variant)?;
+                let result = self.test_enum_variant(value, enumeration, arguments, variant)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, result)?;
             }
@@ -124,24 +101,24 @@ impl<'a> Executor<'a> {
                 dst,
                 value,
                 enumeration,
-                arguments,
+                ref arguments,
                 variant,
                 index,
             } => {
                 let result =
-                    self.read_enum_payload(value, enumeration, &arguments, variant, index)?;
+                    self.read_enum_payload(value, enumeration, arguments, variant, index)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, result)?;
             }
-            BytecodeInstruction::LoadConst { dst, constant } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                let value = Self::constant_to_value(constant);
-                frame.write_register(dst, value)?;
-            }
-            BytecodeInstruction::LoadLocal { dst, local } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                let value = frame.read_local(local)?;
-                frame.write_register(dst, value)?;
+            BytecodeInstruction::LoadConst {
+                dst,
+                constant: ConstantOperand::Str(ref value),
+            } => {
+                self.current_frame_mut()?.write_register(
+                    self.runtime,
+                    dst,
+                    Value::Str(value.clone()),
+                )?;
             }
             BytecodeInstruction::LoadModule { dst, slot } => {
                 let loaded = self.current_loaded()?;
@@ -149,78 +126,41 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
-            BytecodeInstruction::StoreLocal { local, src } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                let value = frame.read_register(src)?;
-                frame.write_local(local, value)?;
-            }
             BytecodeInstruction::StoreModule { slot, src } => {
                 let value = self.current_frame()?.read_register(self.runtime, src)?;
                 let loaded = self.current_loaded()?;
                 self.runtime.write_module_slot(&loaded, slot, value)?;
             }
-            BytecodeInstruction::Move { dst, src } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                let value = frame.read_register(src)?;
-                frame.write_register(dst, value)?;
-            }
-            BytecodeInstruction::Unary { dst, op, operand } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                let value = frame.read_register(operand)?;
-                let result = Self::apply_unary(op, value)?;
-                frame.write_register(dst, result)?;
-            }
-            BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                let lhs = frame.read_register(lhs)?;
-                let rhs = frame.read_register(rhs)?;
-                let result = self.apply_binary(op, lhs, rhs)?;
-                frame.write_register(dst, result)?;
-            }
-            BytecodeInstruction::Jump { target } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                frame.jump_to(target.index())?;
-            }
-            BytecodeInstruction::Branch {
-                cond,
-                then_target,
-                else_target,
+            BytecodeInstruction::Call {
+                dst,
+                ref callee,
+                ref args,
             } => {
-                let mut frame = self.stack.cursor(self.runtime)?;
-                let cond = frame.read_register(cond)?;
-                let target = match cond {
-                    Value::Bool(true) => then_target,
-                    Value::Bool(false) => else_target,
-                    _ => return Err(VmError::InvalidBranchCondition),
-                };
-                frame.jump_to(target.index())?;
-            }
-            BytecodeInstruction::Call { dst, callee, args } => {
                 self.dispatch_call(dst, callee, args)?;
             }
             BytecodeInstruction::Unreachable => {
                 return Err(VmError::Trap("unreachable"));
             }
-            BytecodeInstruction::MakeTuple { dst, elements } => {
-                let value = self.make_tuple(&elements)?;
+            BytecodeInstruction::MakeTuple { dst, ref elements } => {
+                let value = self.make_tuple(elements)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::RangeBound {
                 dst,
                 value,
-                range,
-                bound,
+                ref range,
+                ref bound,
                 upper,
             } => {
                 let value = self.current_frame()?.read_register(self.runtime, value)?;
-                self.dispatch_range_bound(value, &range, &bound, upper, Some(dst))?;
+                self.dispatch_range_bound(value, range, bound, upper, Some(dst))?;
             }
             BytecodeInstruction::MakeRange {
                 dst,
                 start,
                 end,
-                ty,
+                ref ty,
             } => {
                 let frame = self.current_frame()?;
                 let start = start
@@ -230,7 +170,7 @@ impl<'a> Executor<'a> {
                     .map(|r| frame.read_register(self.runtime, r))
                     .transpose()?;
                 drop(frame);
-                let value = RangeValue::new(&ty, start.as_ref(), end.as_ref())
+                let value = RangeValue::new(ty, start.as_ref(), end.as_ref())
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, Value::Range(value))?;
@@ -239,7 +179,7 @@ impl<'a> Executor<'a> {
                 dst,
                 value,
                 count,
-                element,
+                ref element,
             } => {
                 let value = self.current_frame()?.read_register(self.runtime, value)?;
                 let Value::U64(count) = self.current_frame()?.read_register(self.runtime, count)?
@@ -250,26 +190,26 @@ impl<'a> Executor<'a> {
                     .map_err(|_| VmError::Trap("array length exceeds platform capacity"))?;
                 let array = self
                     .current_frame()?
-                    .alloc_array_repeat(self.runtime, &element, value, count)
+                    .alloc_array_repeat(self.runtime, element, value, count)
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, Value::Array(array))?;
             }
             BytecodeInstruction::MakeArray {
                 dst,
-                elements,
-                element,
+                ref elements,
+                ref element,
             } => {
-                let value = self.make_array(&element, &elements)?;
+                let value = self.make_array(element, elements)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::MakeClosure {
                 dst,
                 function,
-                captures,
+                ref captures,
             } => {
-                let values = self.read_path_args(&captures)?;
+                let values = self.read_path_args(captures)?;
                 let loaded = self.current_loaded()?;
                 let environment = self.current_frame()?.environment();
                 let closure = self
@@ -310,19 +250,19 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::UpcastInterface {
                 dst,
                 value,
-                source,
-                target,
+                ref source,
+                ref target,
             } => {
                 let Ty::Trait(source) = self
                     .current_frame()?
-                    .resolve_type(&Ty::Trait(source))?
+                    .resolve_type(&Ty::Trait(source.clone()))?
                     .into_owned()
                 else {
                     return Err(VmError::TypeMismatch("interface upcast source"));
                 };
                 let Ty::Trait(target) = self
                     .current_frame()?
-                    .resolve_type(&Ty::Trait(target))?
+                    .resolve_type(&Ty::Trait(target.clone()))?
                     .into_owned()
                 else {
                     return Err(VmError::TypeMismatch("interface upcast target"));
@@ -340,12 +280,12 @@ impl<'a> Executor<'a> {
                 value,
                 module,
                 implementation,
-                arguments,
+                ref arguments,
             } => {
                 let receiver = self.current_frame()?.read_register(self.runtime, value)?;
                 let arguments = self
                     .current_frame()?
-                    .type_arguments(self.runtime, &arguments)?;
+                    .type_arguments(self.runtime, arguments)?;
                 let loaded = self.current_loaded()?.member(module).ok_or(
                     VmError::UnsupportedInstruction("invalid interface module slot"),
                 )?;
@@ -359,30 +299,38 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::MakeEnum {
                 dst,
                 enumeration,
-                arguments,
+                ref arguments,
                 variant,
-                fields,
+                ref fields,
             } => {
-                let value = self.make_enum(enumeration, &arguments, variant, &fields)?;
+                let value = self.make_enum(enumeration, arguments, variant, fields)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::MakeStruct {
                 dst,
                 structure,
-                arguments,
-                fields,
+                ref arguments,
+                ref fields,
             } => {
-                let value = self.make_struct(structure, &arguments, &fields)?;
+                let value = self.make_struct(structure, arguments, fields)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
-            BytecodeInstruction::ReadAggregateField { dst, base, field } => {
+            BytecodeInstruction::ReadAggregateField {
+                dst,
+                base,
+                ref field,
+            } => {
                 let value = self.read_field(base, field)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
-            BytecodeInstruction::WriteAggregateField { base, field, value } => {
+            BytecodeInstruction::WriteAggregateField {
+                base,
+                ref field,
+                value,
+            } => {
                 self.write_field(base, field, value)?;
             }
             BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
@@ -397,12 +345,12 @@ impl<'a> Executor<'a> {
                 dst,
                 root_or_view,
                 path,
-                dynamic_args,
+                ref dynamic_args,
             } => {
                 let root_or_view = self
                     .current_frame()?
                     .read_register(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let dynamic_args = self.read_path_args(dynamic_args)?;
                 let value = self
                     .runtime
                     .read_host_path(&root_or_view, self.descriptor_id(path)?, dynamic_args)
@@ -413,13 +361,13 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::SetPath {
                 root_or_view,
                 path,
-                dynamic_args,
+                ref dynamic_args,
                 value,
             } => {
                 let root_or_view = self
                     .current_frame()?
                     .read_register(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let dynamic_args = self.read_path_args(dynamic_args)?;
                 let value = self.current_frame()?.read_register(self.runtime, value)?;
                 self.runtime
                     .set_host_path(
@@ -434,14 +382,14 @@ impl<'a> Executor<'a> {
                 dst,
                 root_or_view,
                 path,
-                dynamic_args,
+                ref dynamic_args,
                 op,
                 value,
             } => {
                 let root_or_view = self
                     .current_frame()?
                     .read_register(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let dynamic_args = self.read_path_args(dynamic_args)?;
                 let value = self.current_frame()?.read_register(self.runtime, value)?;
                 let value = self
                     .runtime
@@ -462,12 +410,12 @@ impl<'a> Executor<'a> {
                 dst,
                 root_or_view,
                 path,
-                dynamic_args,
+                ref dynamic_args,
             } => {
                 let root_or_view = self
                     .current_frame()?
                     .read_register(self.runtime, root_or_view)?;
-                let dynamic_args = self.read_path_args(&dynamic_args)?;
+                let dynamic_args = self.read_path_args(dynamic_args)?;
                 let view = self
                     .runtime
                     .make_host_path_view_from_value(
@@ -479,10 +427,24 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?.write_register(
                     self.runtime,
                     dst,
-                    Value::HostPathView(view),
+                    Value::HostPathView(Arc::new(view)),
                 )?;
             }
-            BytecodeInstruction::Return(_) => unreachable!("return handled in run loop"),
+            BytecodeInstruction::Return(_)
+            | BytecodeInstruction::LoadConst { .. }
+            | BytecodeInstruction::LoadLocal { .. }
+            | BytecodeInstruction::StoreLocal { .. }
+            | BytecodeInstruction::Move { .. }
+            | BytecodeInstruction::Unary { .. }
+            | BytecodeInstruction::Binary { .. }
+            | BytecodeInstruction::Jump { .. }
+            | BytecodeInstruction::Branch { .. }
+            | BytecodeInstruction::Convert { .. }
+            | BytecodeInstruction::Numeric { .. } => {
+                return Err(VmError::UnsupportedInstruction(
+                    "cursor operation at slow boundary",
+                ));
+            }
         }
 
         Ok(())
@@ -497,13 +459,13 @@ impl<'a> Executor<'a> {
     fn dispatch_call(
         &mut self,
         dst: Option<Register>,
-        callee: CallTarget<DefinitionId>,
-        args: Vec<Register>,
+        callee: &CallTarget<DefinitionId>,
+        args: &[Register],
     ) -> Result<(), VmError> {
         if let CallTarget::Native(import) = callee {
             return self
                 .stack
-                .invoke_native(self.runtime, import, &args, dst, invoke_script)
+                .invoke_native(self.runtime, *import, args, dst, invoke_script)
                 .map_err(VmError::RuntimeError);
         }
         let arg_values = args
@@ -511,7 +473,7 @@ impl<'a> Executor<'a> {
             .map(|arg| Ok::<_, VmError>(self.current_frame()?.read_register(self.runtime, *arg)?))
             .collect::<Result<Vec<_>, _>>()?;
 
-        match callee {
+        match *callee {
             CallTarget::Shared { .. } => self
                 .stack
                 .push_shared_call(self.runtime, &arg_values, dst)
@@ -533,11 +495,11 @@ impl<'a> Executor<'a> {
                 let module = self.current_frame()?.module();
                 self.push_frame(module, id, &arg_values, dst)
             }
-            CallTarget::InterfaceMethod { contract, .. } => {
+            CallTarget::InterfaceMethod { ref contract, .. } => {
                 let receiver = arg_values.first().unwrap_or(&Value::Unit);
                 let resolved = self
                     .runtime
-                    .resolve_interface_call(&*self.current_frame()?, &contract, receiver)
+                    .resolve_interface_call(&*self.current_frame()?, contract, receiver)
                     .map_err(VmError::RuntimeError)?;
                 let arguments = if contract.receiver.is_some() {
                     arg_values
@@ -550,15 +512,17 @@ impl<'a> Executor<'a> {
                     .push_interface_method(self.runtime, resolved, &arguments, dst)
                     .map_err(VmError::RuntimeError)
             }
-            CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(Box::new(callee))),
+            CallTarget::Register(_) => {
+                Err(VmError::UnsupportedCallTarget(Box::new(callee.clone())))
+            }
             CallTarget::ClosureRegister {
                 register,
-                params,
+                ref params,
                 return_type,
             } => {
                 let (params, return_type) = self
                     .current_frame()?
-                    .closure_signature(register, &params, return_type)
+                    .closure_signature(register, params, return_type)
                     .map_err(VmError::RuntimeError)?;
                 let value = self
                     .current_frame()?
@@ -582,7 +546,7 @@ impl<'a> Executor<'a> {
             CallTarget::RuntimePrimitive(intrinsic) => {
                 self.dispatch_standard_intrinsic(intrinsic, dst, arg_values)
             }
-            CallTarget::RuntimeHelper(helper) => {
+            CallTarget::RuntimeHelper(ref helper) => {
                 self.dispatch_runtime_helper(helper, dst, arg_values)
             }
         }
@@ -607,7 +571,7 @@ impl<'a> Executor<'a> {
 
     fn dispatch_runtime_helper(
         &mut self,
-        helper: RuntimeHelper,
+        helper: &RuntimeHelper,
         dst: Option<Register>,
         args: Vec<Value>,
     ) -> Result<(), VmError> {
@@ -636,7 +600,7 @@ impl<'a> Executor<'a> {
                 };
                 let reflected = self
                     .runtime
-                    .reflect_get_field(base, &field_name)
+                    .reflect_get_field(base, field_name)
                     .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?
@@ -652,7 +616,7 @@ impl<'a> Executor<'a> {
                 };
                 let reflected = self
                     .runtime
-                    .reflect_set_field(base, &field_name, next_value.clone())
+                    .reflect_set_field(base, field_name, next_value.clone())
                     .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?

@@ -150,7 +150,7 @@ impl Executor<'_> {
     pub(crate) fn read_field(
         &self,
         base: Register,
-        field: FieldRef<DefinitionId>,
+        field: &FieldRef<DefinitionId>,
     ) -> Result<Value, VmError> {
         let layout =
             self.current_frame()?
@@ -198,7 +198,7 @@ impl Executor<'_> {
     pub(crate) fn write_field(
         &self,
         base: Register,
-        field: FieldRef<DefinitionId>,
+        field: &FieldRef<DefinitionId>,
         value: Register,
     ) -> Result<(), VmError> {
         let value = self.current_frame()?.read_register(self.runtime, value)?;

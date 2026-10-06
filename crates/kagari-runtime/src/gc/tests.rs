@@ -124,13 +124,16 @@ fn layout(name: &str, field: &str, ty: Ty) -> crate::module::StructLayoutRef {
 }
 
 fn host_root_value(object_id: u64) -> Value {
-    Value::HostRoot(HostRootHandle::new(
-        Default::default(),
-        HostObjectId(object_id),
-        TypeId::new(0),
-        HostSchemaEpoch::new(0),
-        AbiFingerprint(1),
-    ))
+    Value::HostRoot(
+        HostRootHandle::new(
+            Default::default(),
+            HostObjectId(object_id),
+            TypeId::new(0),
+            HostSchemaEpoch::new(0),
+            AbiFingerprint(1),
+        )
+        .into(),
+    )
 }
 
 fn path_view_value(object_id: u64) -> Value {
@@ -174,7 +177,8 @@ fn path_view_value(object_id: u64) -> Value {
         runtime
             .host()
             .make_path_view(root, descriptor, DynamicPathArguments::empty())
-            .unwrap(),
+            .unwrap()
+            .into(),
     )
 }
 

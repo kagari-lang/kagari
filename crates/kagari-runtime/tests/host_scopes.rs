@@ -47,7 +47,8 @@ fn root(runtime: &mut Runtime) -> Value {
     Value::HostRoot(
         runtime
             .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
-            .unwrap(),
+            .unwrap()
+            .into(),
     )
 }
 

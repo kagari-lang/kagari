@@ -84,7 +84,7 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
                 vec![],
                 HostValueType::opaque("game.Player"),
             ),
-            move |_, _| Ok(Value::HostRoot(root)),
+            move |_, _| Ok(Value::HostRoot(root.into())),
         ))
         .unwrap();
     let descriptor_id = runtime

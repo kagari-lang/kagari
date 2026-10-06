@@ -84,7 +84,7 @@ impl<'a> HostResourceScope<'a> {
         while let Some(value) = pending.pop() {
             match value {
                 Value::Tuple(elements) => pending.extend(elements),
-                Value::HostRoot(root) if !self.runtime.host().matches_root(*root) => {
+                Value::HostRoot(root) if !self.runtime.host().matches_root(**root) => {
                     return Err(RuntimeError::host_call_failure(
                         "host root belongs to another registry or is not registered",
                     ));
@@ -96,10 +96,10 @@ impl<'a> HostResourceScope<'a> {
                 }
                 Value::Ephemeral(EphemeralValue::HostRef(token)) => self
                     .runtime
-                    .validate_host_borrow(*token, HostBorrowKind::Shared)?,
+                    .validate_host_borrow(**token, HostBorrowKind::Shared)?,
                 Value::Ephemeral(EphemeralValue::HostMut(token)) => self
                     .runtime
-                    .validate_host_borrow(*token, HostBorrowKind::Unique)?,
+                    .validate_host_borrow(**token, HostBorrowKind::Unique)?,
                 _ => {}
             }
         }
