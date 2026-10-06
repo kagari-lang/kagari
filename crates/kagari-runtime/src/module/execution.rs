@@ -1,14 +1,17 @@
 //! Compact physical operations derived once from sealed, verified bytecode.
 //! Logical PCs remain one-to-one with the canonical code. Identity-bearing and
 //! variable-length operands stay in that immutable code, addressed by the PC.
+pub(crate) mod allocation;
+mod operands;
+
+use crate::module::execution::allocation::RegisterAllocation;
 use kagari_bytecode::{
-    instruction::{
-        BinaryOp, BytecodeInstruction, ConstantOperand, JumpTarget, LocalSlot, Register, UnaryOp,
-    },
+    instruction::{BinaryOp, BytecodeInstruction, ConstantOperand, JumpTarget, Register, UnaryOp},
     module::BytecodeModule,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::numeric::{NumericConversion, NumericOperation};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ScalarConstant {
@@ -21,53 +24,55 @@ pub enum ScalarConstant {
     F64(f64),
 }
 
+/// A bounded physical operand in a prepared function's value window.
+#[derive(Debug, Clone, Copy)]
+pub struct OperandSlot(u32);
+
+impl OperandSlot {
+    pub(crate) fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ExecutionInstruction {
     Constant {
-        dst: Register,
+        dst: OperandSlot,
         value: ScalarConstant,
     },
-    LoadLocal {
-        dst: Register,
-        local: LocalSlot,
-    },
-    StoreLocal {
-        local: LocalSlot,
-        src: Register,
-    },
     Move {
-        dst: Register,
-        src: Register,
+        dst: OperandSlot,
+        src: OperandSlot,
     },
     Unary {
-        dst: Register,
+        dst: OperandSlot,
         op: UnaryOp,
-        operand: Register,
+        operand: OperandSlot,
     },
     Binary {
-        dst: Register,
+        dst: OperandSlot,
         op: BinaryOp,
-        lhs: Register,
-        rhs: Register,
+        lhs: OperandSlot,
+        rhs: OperandSlot,
     },
     Convert {
-        dst: Register,
-        src: Register,
+        dst: OperandSlot,
+        src: OperandSlot,
         conversion: NumericConversion,
     },
     Numeric {
-        dst: Register,
+        dst: OperandSlot,
         operation: NumericOperation,
-        lhs: Register,
-        rhs: Option<Register>,
+        lhs: OperandSlot,
+        rhs: Option<OperandSlot>,
     },
     Jump(JumpTarget),
     Branch {
-        cond: Register,
+        cond: OperandSlot,
         then_target: JumpTarget,
         else_target: JumpTarget,
     },
-    Return(Option<Register>),
+    Return(Option<OperandSlot>),
     /// Consult the canonical instruction at the current logical PC after
     /// releasing the cursor, before a potentially allocating/reentrant operation.
     Boundary,
@@ -75,24 +80,35 @@ pub enum ExecutionInstruction {
 
 #[derive(Debug)]
 pub(crate) struct ExecutionModule {
-    pub functions: Vec<Box<[ExecutionInstruction]>>,
+    pub functions: Vec<ExecutionFunction>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ExecutionFunction {
+    pub instructions: Box<[ExecutionInstruction]>,
+    pub registers: Arc<RegisterAllocation>,
 }
 
 impl ExecutionModule {
     // Only VerifiedProgram constructs this product, after artifact verification.
     // Identity normalization preserves instruction order and physical operands,
     // so the product can be shared across runtime-local definition scopes.
-    pub(super) fn prepare(module: &BytecodeModule<DefinitionId>) -> Self {
+    pub(super) fn prepare(module: &BytecodeModule<DefinitionId>, work: &mut usize) -> Self {
         Self {
             functions: module
                 .functions
                 .iter()
                 .map(|function| {
-                    function
+                    let registers = Arc::new(RegisterAllocation::prepare(function, work));
+                    let instructions = function
                         .instructions
                         .iter()
-                        .map(ExecutionInstruction::prepare)
-                        .collect()
+                        .map(|instruction| ExecutionInstruction::prepare(instruction, &registers))
+                        .collect();
+                    ExecutionFunction {
+                        instructions,
+                        registers,
+                    }
                 })
                 .collect(),
         }
@@ -100,7 +116,18 @@ impl ExecutionModule {
 }
 
 impl ExecutionInstruction {
-    fn prepare(instruction: &BytecodeInstruction<DefinitionId>) -> Self {
+    fn prepare(
+        instruction: &BytecodeInstruction<DefinitionId>,
+        registers: &RegisterAllocation,
+    ) -> Self {
+        let slot = |register: Register| {
+            OperandSlot(
+                registers
+                    .index(register.index())
+                    .expect("verified register") as u32,
+            )
+        };
+
         match *instruction {
             BytecodeInstruction::LoadConst { dst, ref constant } => {
                 let value = match *constant {
@@ -113,20 +140,41 @@ impl ExecutionInstruction {
                     ConstantOperand::F64(v) => ScalarConstant::F64(v),
                     ConstantOperand::Str(_) => return Self::Boundary,
                 };
-                Self::Constant { dst, value }
+                Self::Constant {
+                    dst: slot(dst),
+                    value,
+                }
             }
-            BytecodeInstruction::LoadLocal { dst, local } => Self::LoadLocal { dst, local },
-            BytecodeInstruction::StoreLocal { local, src } => Self::StoreLocal { local, src },
-            BytecodeInstruction::Move { dst, src } => Self::Move { dst, src },
-            BytecodeInstruction::Unary { dst, op, operand } => Self::Unary { dst, op, operand },
-            BytecodeInstruction::Binary { dst, op, lhs, rhs } => Self::Binary { dst, op, lhs, rhs },
+            BytecodeInstruction::LoadLocal { dst, local } => Self::Move {
+                dst: slot(dst),
+                src: OperandSlot((registers.count + local.index()) as u32),
+            },
+            BytecodeInstruction::StoreLocal { local, src } => Self::Move {
+                dst: OperandSlot((registers.count + local.index()) as u32),
+                src: slot(src),
+            },
+            BytecodeInstruction::Move { dst, src } => Self::Move {
+                dst: slot(dst),
+                src: slot(src),
+            },
+            BytecodeInstruction::Unary { dst, op, operand } => Self::Unary {
+                dst: slot(dst),
+                op,
+                operand: slot(operand),
+            },
+            BytecodeInstruction::Binary { dst, op, lhs, rhs } => Self::Binary {
+                dst: slot(dst),
+                op,
+                lhs: slot(lhs),
+                rhs: slot(rhs),
+            },
             BytecodeInstruction::Convert {
                 dst,
                 src,
                 conversion,
             } => Self::Convert {
-                dst,
-                src,
+                dst: slot(dst),
+                src: slot(src),
                 conversion,
             },
             BytecodeInstruction::Numeric {
@@ -135,10 +183,10 @@ impl ExecutionInstruction {
                 lhs,
                 rhs,
             } => Self::Numeric {
-                dst,
+                dst: slot(dst),
                 operation,
-                lhs,
-                rhs,
+                lhs: slot(lhs),
+                rhs: rhs.map(slot),
             },
             BytecodeInstruction::Jump { target } => Self::Jump(target),
             BytecodeInstruction::Branch {
@@ -146,11 +194,11 @@ impl ExecutionInstruction {
                 then_target,
                 else_target,
             } => Self::Branch {
-                cond,
+                cond: slot(cond),
                 then_target,
                 else_target,
             },
-            BytecodeInstruction::Return(value) => Self::Return(value),
+            BytecodeInstruction::Return(value) => Self::Return(value.map(slot)),
             _ => Self::Boundary,
         }
     }

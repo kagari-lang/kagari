@@ -17,7 +17,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     frame::ExecutionFrame,
-    module::LoadedModule,
+    module::{LoadedModule, execution::ExecutionInstruction},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -40,6 +40,7 @@ pub(super) fn count_lua(lua: &Lua, entry: &Function, expected: i32) {
 #[derive(Debug, Default)]
 struct InstructionCounts {
     counts: RefCell<InstructionCountMap>,
+    layouts: HashMap<String, (u16, usize, u16)>,
 }
 
 type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction<DefinitionId>>, (String, u64)>;
@@ -59,6 +60,14 @@ impl ExecutionObserver for InstructionCounts {
                 .function()
                 .and_then(|function| function.instructions.get(frame.instruction_offset()))
         {
+            let function = frame.function().expect("script instruction");
+            self.layouts
+                .entry(format!("{}::{}", frame.loaded().name, function.name))
+                .or_insert((
+                    function.register_count,
+                    frame.physical_register_count(),
+                    function.local_count,
+                ));
             let mut counts = self.counts.borrow_mut();
             let (_, count) = counts.entry(discriminant(instruction)).or_insert_with(|| {
                 let text = format!("{instruction:?}");
@@ -102,9 +111,10 @@ pub(super) fn run(
     }
     let before = runtime.runtime().gc().stats();
     println!(
-        "PROFILE_LAYOUT,value_bytes={},instruction_bytes={}",
+        "PROFILE_LAYOUT,value_bytes={},instruction_bytes={},execution_bytes={}",
         size_of::<Value>(),
-        size_of::<BytecodeInstruction<DefinitionId>>()
+        size_of::<BytecodeInstruction<DefinitionId>>(),
+        size_of::<ExecutionInstruction>()
     );
     println!("PROFILE_READY,{name}");
     io::stdout().flush().unwrap();
@@ -151,6 +161,19 @@ pub(super) fn run(
         .values()
         .cloned()
         .collect();
+    {
+        let observer = runtime
+            .runtime()
+            .execution_observer::<InstructionCounts>()
+            .unwrap();
+        let mut layouts = observer.layouts.iter().collect::<Vec<_>>();
+        layouts.sort_by_key(|(name, _)| *name);
+        for (name, (logical, physical, locals)) in layouts {
+            println!(
+                "FRAME_LAYOUT,{name},logical_registers={logical},physical_registers={physical},locals={locals}"
+            );
+        }
+    }
     runtime.runtime().clear_execution_observer().unwrap();
     counts.sort_by_key(|(_, count)| Reverse(*count));
     println!(

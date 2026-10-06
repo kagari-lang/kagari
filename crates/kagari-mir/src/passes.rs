@@ -10,6 +10,7 @@ use crate::verify::{
     MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir,
 };
 mod constants;
+mod copies;
 mod dead;
 mod scalar;
 
@@ -33,6 +34,8 @@ pub struct PassStatistics {
     pub constants_folded: usize,
     pub branches_simplified: usize,
     pub dead_operations_removed: usize,
+    pub copies_removed: usize,
+    pub constants_reused: usize,
 }
 
 #[derive(Debug)]
@@ -58,6 +61,7 @@ pub fn optimize(
     let mut statistics = PassStatistics::default();
     let mut raw = module.to_unverified(cancel)?;
     constants::simplify(&mut raw, &mut statistics, &mut work)?;
+    copies::simplify(&mut raw, &mut statistics, &mut work)?;
     let module = verify_mir(raw, cancel)?;
     let removals = dead::find(&module, &mut work)?;
     statistics.dead_operations_removed = removals.len();

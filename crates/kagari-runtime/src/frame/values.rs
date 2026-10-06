@@ -4,12 +4,15 @@ use crate::{
     execution_metadata::MetadataRoot,
     frame::{arguments::FrameArguments, types::TypeEnvironment},
     gc::GcHeap,
-    module::LoadedModule,
+    module::{LoadedModule, execution::allocation::RegisterAllocation},
     value::Value,
 };
 use std::{
     ops::Range,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +28,20 @@ struct Window {
     range: Range<usize>,
     program: LoadedModule,
     environment: Option<TypeEnvironment>,
+    registers: Option<Arc<RegisterAllocation>>,
+}
+
+impl Window {
+    fn physical_index(&self, logical: usize) -> Option<usize> {
+        let physical = match &self.registers {
+            Some(registers) if logical < registers.slots.len() => registers.index(logical)?,
+            Some(registers) => registers
+                .count
+                .checked_add(logical - registers.slots.len())?,
+            None => logical,
+        };
+        (physical < self.range.len()).then_some(physical)
+    }
 }
 
 /// The complete active/suspended stack is a GC root. Windows are released on all
@@ -59,6 +76,7 @@ impl ExecutionValues {
         arguments: &FrameArguments<'_>,
         program: LoadedModule,
         environment: Option<TypeEnvironment>,
+        registers: Option<Arc<RegisterAllocation>>,
     ) -> Result<FrameSlots, RuntimeError> {
         if argument_offset
             .checked_add(arguments.len())
@@ -66,6 +84,23 @@ impl ExecutionValues {
         {
             return Err(RuntimeError::module_validation("frame argument window"));
         }
+        let source = arguments
+            .window()
+            .map(|(slots, operands)| {
+                let window = self
+                    .window(slots)
+                    .ok_or_else(|| RuntimeError::module_validation("expired frame arguments"))?;
+                if operands
+                    .iter()
+                    .any(|r| window.physical_index(r.index()).is_none())
+                {
+                    return Err(RuntimeError::module_validation(
+                        "invalid frame argument register",
+                    ));
+                }
+                Ok((slots, operands))
+            })
+            .transpose()?;
         let generation = self
             .next_generation
             .checked_add(1)
@@ -78,8 +113,19 @@ impl ExecutionValues {
             .map_err(|_| RuntimeError::resource_limit("execution frame windows"))?;
         let start = self.values.len();
         self.values.resize(start + count, Value::Unit);
-        for (index, value) in arguments.iter().enumerate() {
-            self.values[start + argument_offset + index] = value.clone();
+        if let Some((source, registers)) = source {
+            // Resolve indices after reserve/resize: growth can relocate the arena.
+            // Caller and callee windows are disjoint, including recursive calls.
+            for (index, register) in registers.iter().enumerate() {
+                self.values[start + argument_offset + index] = self
+                    .value(source, register.index())
+                    .expect("checked source window")
+                    .clone();
+            }
+        } else {
+            for (index, value) in arguments.iter().enumerate() {
+                self.values[start + argument_offset + index] = value.clone();
+            }
         }
         self.next_generation = generation;
         let slots = FrameSlots {
@@ -92,6 +138,7 @@ impl ExecutionValues {
             range: start..start + count,
             program,
             environment,
+            registers,
         }));
         Ok(slots)
     }
@@ -106,6 +153,7 @@ impl ExecutionValues {
             .filter(|window| window.generation == slots.generation)
     }
 
+    #[cfg(test)]
     pub(crate) fn get(&self, slots: FrameSlots) -> Option<&[Value]> {
         self.values.get(self.window(slots)?.range.clone())
     }
@@ -113,6 +161,18 @@ impl ExecutionValues {
     pub(crate) fn get_mut(&mut self, slots: FrameSlots) -> Option<&mut [Value]> {
         let range = self.window(slots)?.range.clone();
         self.values.get_mut(range)
+    }
+
+    pub(crate) fn value(&self, slots: FrameSlots, logical: usize) -> Option<&Value> {
+        let window = self.window(slots)?;
+        self.values
+            .get(window.range.start + window.physical_index(logical)?)
+    }
+
+    fn value_mut(&mut self, slots: FrameSlots, logical: usize) -> Option<&mut Value> {
+        let window = self.window(slots)?;
+        let index = window.range.start + window.physical_index(logical)?;
+        self.values.get_mut(index)
     }
 
     pub(crate) fn release(&mut self, slots: FrameSlots) -> Option<()> {
@@ -164,7 +224,7 @@ impl FrameSlots {
         read: impl FnOnce(&Value) -> R,
     ) -> Option<R> {
         let values = heap.resources().frame_values.try_borrow().ok()?;
-        values.get(self)?.get(index).map(read)
+        values.value(self, index).map(read)
     }
 
     pub(crate) fn get(self, heap: &GcHeap, index: usize) -> Option<Value> {
@@ -177,7 +237,7 @@ impl FrameSlots {
             return None;
         }
         let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
-        *values.get_mut(self)?.get_mut(index)? = value;
+        *values.value_mut(self, index)? = value;
         Some(())
     }
 }

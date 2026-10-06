@@ -564,7 +564,7 @@ The active [runtime ownership and host object API](runtime-ownership-and-host-ap
 replaces distributed Rc ownership with central checked stores and automatic host
 leases, and targets exclusive execution in a Send runtime. It also owns typed
 registration, managed object mutation and checked host function/trait calls. The
-following paragraphs describe the implemented GO baseline and IP01–IP02 interpreter storage.
+following paragraphs describe the implemented GO baseline and IP01–IP03 interpreter storage.
 
 The runtime owns values, the script GC heap, explicit roots, host registry,
 module versions, installed native code owners and execution sessions. The VM
@@ -584,6 +584,12 @@ without a session/root-table lookup for each operand. Cursors are released befor
 GC, observation, calls and reentry; bounds, publication and sticky termination
 checks remain enforced. Window generation checks reject expired native views.
 VerifiedProgram derives compact physical operations once from sealed bytecode.
+Bounded control-flow liveness and conservative intervals assign reusable physical
+temporary slots without renaming canonical registers used by contract verification.
+Prepared operands directly name physical slots. Cold instructions, native views and
+frame inspection translate logical indices; named locals retain fixed debug slots.
+If the preparation work/state budget is exhausted, that function keeps distinct
+register slots. The budget is shared across the complete verified program.
 Scalar operands and numeric contracts are inline; identity-bearing types, strings,
 call arguments and other variable-length metadata remain in the canonical immutable
 instruction records. Their logical PC is the index, so normalization and hot reload
@@ -594,6 +600,16 @@ collection/observer eligibility at each original program point. Full safepoints
 and error observation run after releasing the cursor. Values retain full scalar
 precision and complete handle identities; large immutable host descriptors are
 shared out of line rather than inflating every scalar execution slot.
+
+The SDK's default artifact path applies the bounded MIR pass pipeline before both
+bytecode and portable native input emission. Copy forwarding requires equal complete
+semantic contracts and immutable temporary definitions. It retains local stores,
+heap/module/cell reads, checked traps and side effects. Scalar constants are shared
+and moved to the dominating entry block; entry operations retain their order.
+Modified MIR is reverified to rebuild control flow, roots and source/debug facts.
+Explicit diagnostic lowering can disable these passes. Ordinary script calls copy
+checked register arguments directly between arena windows after capacity growth,
+without an intermediate value vector; callers remain rooted during the copy.
 
 Leases can move across threads and outlive runtime teardown without owning heap
 storage. Runtime owns session, frame, program and executable metadata stores by

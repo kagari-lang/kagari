@@ -254,8 +254,13 @@ are traced; Rust host objects and borrowed resources remain host-owned. Path-ope
 arguments and old/new values are temporarily rooted across host
 read/preparation callbacks, including preparation that explicitly collects. Commit
 actions only apply prepared host state; they cannot collect or execute scripts.
-Register/local slots occupy reusable contiguous windows and stay conservatively
-rooted until overwritten or their frame is dropped. Persistent host leases are
+Execution slots occupy reusable contiguous windows. Canonical temporary registers
+map to physical slots using prepared control-flow liveness; values stay rooted until
+the physical slot is overwritten or its frame is dropped. Simultaneously live
+registers cannot alias, including loop backedges and call operands/results. Named
+locals retain distinct fixed slots and their debugger availability. Cold/native
+access translates canonical indices, while prepared instructions use bounded
+physical operands directly. Persistent host leases are
 separate. Checked cursors borrow the current frame/session/window across consecutive
 non-reentrant instructions and release all borrows before collection, observation,
 calls and reentry. Cancellation and collection/observer eligibility are checked at

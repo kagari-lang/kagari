@@ -32,6 +32,7 @@ use kagari_hir::{
 };
 use kagari_mir::{
     codec::{MirCodecError, encode_program},
+    passes::PassOptions,
     program::ProgramErrorKind,
 };
 use kagari_source::{
@@ -71,13 +72,26 @@ impl CheckedModule {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ArtifactOptions {
     pub build: ArtifactBuildOptions,
     pub lowering: MirLoweringOptions,
     /// Controls native input generated from the same verified MIR as bytecode.
     /// Supersedes any opaque payload in `build.portable_mir`.
     pub native_input: NativeInputExport,
+}
+
+impl Default for ArtifactOptions {
+    fn default() -> Self {
+        Self {
+            build: ArtifactBuildOptions::default(),
+            lowering: MirLoweringOptions {
+                optimization: Some(PassOptions::default()),
+                ..MirLoweringOptions::default()
+            },
+            native_input: NativeInputExport::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

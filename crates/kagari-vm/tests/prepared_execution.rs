@@ -186,6 +186,9 @@ fn optimized_execution_preserves_results_traps_and_source_origins() {
         "fn main() -> u8 { 255u8 << 1 }",
         "fn main() -> i32 { 1 / 0 }",
         "fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }",
+        "fn main() -> i32 { var x = 1; val old = x; x = 2; old * 10 + x }",
+        "fn main() -> i32 { var x = 0; var sum = 0; while x < 20 { sum += x % 7; x += 1; } sum }",
+        "fn add(a: i32, b: i32, c: i32) -> i32 { a * 100 + b * 10 + c } fn main() -> i32 { var x = 2; val y = x; x = 3; add(x, y, x) }",
     ] {
         let original = compile(source, false);
         let optimized = compile(source, true);

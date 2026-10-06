@@ -5,7 +5,7 @@ use crate::{
     execution_metadata::MetadataRoot,
     frame::{arguments::FrameArguments, types::TypeEnvironment, values::FrameSlots},
     gc::CollectionIteration,
-    module::LoadedModule,
+    module::{LoadedModule, execution::allocation::RegisterAllocation},
     resource::ResourceState,
     session::ExecutionSession,
     value::Value,
@@ -25,6 +25,7 @@ use std::{
     fmt,
     fmt::{Debug, Formatter},
     ptr,
+    sync::Arc,
 };
 
 mod arguments;
@@ -169,6 +170,49 @@ impl<'runtime> ExecutionStack<'runtime> {
             args,
             return_dst,
             None,
+        )
+    }
+
+    /// Copy ordinary script arguments directly from the suspended caller's
+    /// window into the callee's reusable arena range. No temporary value vector
+    /// or borrowed arena pointer survives stack growth.
+    pub fn push_registers(
+        &self,
+        runtime: &Runtime,
+        module: ModuleRef,
+        function: FunctionRef,
+        registers: &[Register],
+        return_dst: Option<Register>,
+    ) -> Result<(), RuntimeError> {
+        self.validate_runtime(runtime)?;
+        let (loaded, slots) = {
+            let caller = self.current()?;
+            if registers
+                .iter()
+                .any(|register| register.index() >= caller.register_count)
+            {
+                return Err(runtime
+                    .resources()
+                    .quarantine("invalid script argument register"));
+            }
+            (
+                caller
+                    .loaded
+                    .member(module)
+                    .ok_or_else(|| runtime.resources().quarantine("invalid script call module"))?,
+                caller.slots,
+            )
+        };
+        self.push_arguments(
+            runtime,
+            loaded,
+            CallableTarget::Script(function),
+            FrameArguments::frame(slots, registers),
+            return_dst,
+            FrameDispatch {
+                interface_method: None,
+                environment: None,
+            },
         )
     }
 
@@ -323,10 +367,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         dispatch: FrameDispatch,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
-        if !args
-            .iter()
-            .all(|value| runtime.gc.validate_candidate_value(value))
-        {
+        if !args.all(runtime, |value| runtime.gc.validate_candidate_value(value))? {
             return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate call arguments",
             ));
@@ -438,6 +479,7 @@ pub struct ExecutionFrame {
     executing: Option<usize>,
     slots: FrameSlots,
     register_count: usize,
+    registers: Option<Arc<RegisterAllocation>>,
     return_to: ReturnDestination,
     interface_method: Option<RootedInterfaceMethod>,
     iterations: Vec<CollectionIteration>,
@@ -495,7 +537,7 @@ impl ExecutionFrame {
             interface_method,
             environment,
         } = dispatch;
-        let (register_count, slot_count, argument_offset, native_entry) = match target {
+        let (register_count, slot_count, argument_offset, native_entry, registers) = match target {
             CallableTarget::Script(function) => {
                 let metadata = loaded
                     .bytecode
@@ -523,11 +565,15 @@ impl ExecutionFrame {
                     ));
                 }
                 let register_count = usize::from(metadata.register_count);
+                let registers = loaded.execution().functions[function.index()]
+                    .registers
+                    .clone();
                 (
                     register_count,
-                    register_count + usize::from(metadata.local_count),
-                    register_count,
+                    registers.count + usize::from(metadata.local_count),
+                    registers.count,
                     NativeEntryState::Script,
+                    Some(registers),
                 )
             }
             CallableTarget::Native(import) => {
@@ -549,12 +595,12 @@ impl ExecutionFrame {
                 if args.len() != signature.params.len() {
                     return Err(RuntimeError::module_validation("native frame arguments"));
                 }
-                (0, args.len() + 1, 1, NativeEntryState::Pending)
+                (0, args.len() + 1, 1, NativeEntryState::Pending, None)
             }
         };
 
         heap.ensure_execution_allowed()?;
-        if !args.iter().all(|value| heap.validate_value(value)) {
+        if !args.all(runtime, |value| heap.validate_value(value))? {
             return Err(RuntimeError::module_validation("invalid heap argument"));
         }
         runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
@@ -571,6 +617,7 @@ impl ExecutionFrame {
                 &args,
                 loaded.clone(),
                 environment.clone(),
+                registers.clone(),
             )?;
         Ok(Self {
             environment,
@@ -581,11 +628,20 @@ impl ExecutionFrame {
             executing: None,
             slots,
             register_count,
+            registers,
             return_to: ReturnDestination::Register(return_dst),
             interface_method,
             iterations: Vec::new(),
             mutations: Vec::new(),
         })
+    }
+
+    /// Temporary storage after preparation. Logical register identities in the
+    /// function metadata remain stable; named locals occupy separate fixed slots.
+    pub fn physical_register_count(&self) -> usize {
+        self.registers
+            .as_ref()
+            .map_or(0, |registers| registers.count)
     }
 
     pub fn environment(&self) -> Option<TypeEnvironment> {

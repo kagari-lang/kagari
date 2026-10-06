@@ -7,6 +7,74 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Register allocation and call windows (IP03), 2026-10-06
+
+The SDK now enables bounded, reverified MIR copy/constant simplification by default.
+Physical preparation allocates temporary registers from checked CFG liveness;
+canonical logical identities and fixed debugger locals remain intact. Compact
+instructions contain physical operands. Direct script calls copy arguments between
+runtime-owned windows after capacity growth, preserving source generations and
+repeated/reordered arguments without a temporary argument vector.
+
+Candidate is the IP03 diff over `d8404fe4`. Reproduce with
+`uv run python scripts/benchmark_lua.py --interpreter-only`. Environment remains
+Apple M1 Max (10 logical CPUs), 32 GiB, macOS 26.6.2, Rust/Cargo 1.98.1,
+aarch64/LLVM 22.1.8, workspace release defaults, default target/Cargo parallelism,
+warm build cache, SDK source/native features with native preparation/execution
+disabled and PUC Lua 5.4.8. Sources and inputs are unchanged. Two fresh sequential
+processes use three warmups and eleven samples per route, with rotating route order
+and reversed second-process order. All 308 timed batches and warmups pass checksums.
+Build (25.743 seconds), compilation/setup/linking are excluded; host entry/return
+and default GC remain included. No concurrent agent build/test/profile ran during
+measurement. Desktop load, frequency and core placement remain uncontrolled; these
+are sequential phase observations, not interleaved baseline/candidate trials.
+Raw metadata, hashes, ranges and CSVs are under
+`target/lua-comparison/20261006T021400Z/`.
+
+Times are microseconds per complete workload (entry per call):
+
+| Workload | IP02 VM | IP03 VM | IP03 Lua | IP03 VM/Lua |
+| --- | ---: | ---: | ---: | ---: |
+| entry | 1.384 | 1.342 | 0.029 | 46.37 |
+| arithmetic | 23,974.625 | 20,017.959 | 388.146 | 51.57 |
+| branches | 30,183.291 | 21,955.666 | 817.229 | 26.87 |
+| calls | 13,350.021 | 12,386.229 | 226.958 | 54.57 |
+| fibonacci | 19,677.709 | 17,980.500 | 349.938 | 51.38 |
+| arrays | 34,875.874 | 33,781.125 | 68.730 | 491.51 |
+| maps | 21,161.395 | 20,364.729 | 68.604 | 296.84 |
+
+Every recorded VM median decreases, but Lua collection medians also decrease;
+ratios alone do not indicate a VM regression. Nontrivial ratios of 26.87–491.51
+still miss parity. Separate macOS sampling/counting with
+`uv run python scripts/profile_lua_macos.py arithmetic calls maps` records:
+
+| Diagnostic | Arithmetic | Calls | Maps |
+| --- | ---: | ---: | ---: |
+| IP02 logical instructions | 750,014 | 240,014 | 81,030 |
+| IP03 logical instructions | 600,015 | 220,015 | 66,030 |
+| Lua instructions | 250,007 | 110,007 | 24,012 |
+| Run function logical temporaries | 14 | 15 | 70 |
+| Run function physical temporaries | 6 | 5 | 9 |
+| Separate fixed local slots | 3 | 3 | 9 |
+
+Value remains 32 bytes and execution records 24 bytes. Sampling still identifies
+cursor checks and dispatch on scalar/call paths, and substantial allocator/type
+normalization on maps. Arithmetic/calls allocate no script heap objects; maps still
+allocate 2,001 objects and collect five times per complete workload. No Option
+representation or collector semantics changed. Raw samples/counts are under
+`target/lua-comparison/20261006T021521Z-macos-profile/`; optimized/inlined and
+deduplicated symbols limit attribution.
+
+The separate native_allocations regression records zero Rust allocations,
+reallocations, deallocations or requested bytes across 1,000 warmed direct scalar
+frame entries/exits, including reordered/repeated arguments. This is a call-window
+probe, not a claim that complete script execution or host entry allocates nothing.
+Focused MIR equivalence, CFG backedge/liveness and frame-growth tests pass;
+297 final VM tests pass (one existing manual benchmark ignored), along with strict
+affected all-target Clippy, structure, formatting and diff checks. The earlier
+runtime/VM suite passed before final physical operand encoding; final cross-backend
+and full-workspace acceptance remains IP04 work.
+
 ## Compact execution (IP02), 2026-10-06
 
 IP02 moves immutable host descriptors out of Value's inline layout (104 to 32 bytes

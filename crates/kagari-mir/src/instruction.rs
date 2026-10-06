@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 mod operands;
+mod rewrite;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirValue {

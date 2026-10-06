@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionFrame, ExecutionStack},
-    module::execution::ExecutionInstruction,
+    module::execution::{ExecutionInstruction, OperandSlot},
     session::SessionState,
     value::Value,
 };
@@ -78,6 +78,7 @@ impl ExecutionCursor<'_> {
             .execution()
             .functions
             .get(function.index())?
+            .instructions
             .get(self.frame.ip)
             .copied()?;
         self.frame.executing = Some(self.frame.ip);
@@ -94,7 +95,11 @@ impl ExecutionCursor<'_> {
 
     fn register_index(&self, register: Register) -> Result<usize, RuntimeError> {
         if register.index() < self.frame.register_count {
-            Ok(register.index())
+            self.frame
+                .registers
+                .as_ref()
+                .and_then(|registers| registers.index(register.index()))
+                .ok_or_else(|| self.invalid())
         } else {
             Err(self.invalid())
         }
@@ -102,7 +107,9 @@ impl ExecutionCursor<'_> {
 
     fn local_index(&self, local: LocalSlot) -> Result<usize, RuntimeError> {
         self.frame
-            .register_count
+            .registers
+            .as_ref()
+            .map_or(0, |registers| registers.count)
             .checked_add(local.index())
             .ok_or_else(|| self.invalid())
     }
@@ -132,6 +139,16 @@ impl ExecutionCursor<'_> {
         }
         self.values[index] = value;
         Ok(())
+    }
+
+    /// Prepared operands already name the bounded physical window; canonical
+    /// registers are translated only at host/debug and cold instruction boundaries.
+    pub fn read_operand(&self, slot: OperandSlot) -> Result<Value, RuntimeError> {
+        self.read(slot.index())
+    }
+
+    pub fn write_operand(&mut self, slot: OperandSlot, value: Value) -> Result<(), RuntimeError> {
+        self.write(slot.index(), value)
     }
 
     pub fn read_register(&self, register: Register) -> Result<Value, RuntimeError> {

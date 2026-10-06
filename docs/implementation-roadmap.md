@@ -58,9 +58,10 @@ performance goal is made until measured acceptance.
   scalar precision and generation checks. Do not assume a fixed NaN-boxed encoding
   before its type/handle requirements are proven. Measure header sizes, instruction
   fetch cost and scalar throughput; retain debug origin mapping.
-- [ ] **IP03: Register allocation and script call convention.** Compiler lowering
-  coalesces ordinary locals/temporaries and removes redundant moves/constants using
-  general dataflow; VM calls use reusable register windows and return destinations.
+- [x] **IP03: Register allocation and script call convention.** Compiler MIR passes
+  forward ordinary local/temporary values and remove redundant moves/constants.
+  Execution preparation allocates physical registers from checked control-flow
+  liveness while retaining canonical logical identities; VM calls use reusable register windows and return destinations.
   Keep mutable captured cells and alias semantics, left-to-right evaluation, trap
   order, observer variable locations and exact callee versions. Measure dynamic
   instruction counts and call allocation traffic separately from timing.
@@ -128,7 +129,37 @@ Fibonacci 19.678 ms; nontrivial VM/Lua ratios remain 35.63–435.72. Reprofiling
 arithmetic/calls/maps confirms remaining cursor checks, redundant instructions,
 call entry and native type/allocator traffic. See
 [IP02 measurements](performance-baseline.md#compact-execution-ip02-2026-10-06).
-IP03 is next: register allocation/coalescing and reusable script call windows.
+IP03 ledger: register allocation/coalescing and reusable script call windows are implemented.
+Direct script calls now copy checked register arguments within the runtime-owned
+arena after capacity growth, without a temporary argument Vec. Repeated/reordered
+arguments and suspended caller roots remain supported; source window generations
+are checked. Closure, shared-generic and interface argument adaptation retain their
+existing semantic paths until their preparation requirements are addressed.
+Physical allocation belongs in the prepared execution product because bytecode
+access/type validation uses logical register identities. Bounded CFG liveness and
+conservative intervals reuse temporary slots; fixed local slots preserve debugger
+availability, while all API/native accesses translate logical indices. This is a
+physical execution transform, not syntax analysis or a second type resolver.
+Compiler MIR copy forwarding and scalar constant commoning/hoisting consume the
+old seal and reverify before publication; heap/module/cell reads and local debug
+stores remain. SDK ArtifactOptions now enables the bounded MIR pipeline by default;
+explicit diagnostic lowering with optimization=None remains available. The physical instruction stream now contains translated operand slots; locals and
+register moves share the same physical move operation. Existing optimization tests
+retain their assertions; the initial scalar-hoisting reorder of entry operations
+was corrected to preserve entry order. New backedge tests and optimized execution
+comparisons pass. The allocation probe records zero Rust allocations, reallocations
+or bytes for 1,000 warmed direct scalar frame entries/exits, including reordered
+and repeated arguments. Strict affected all-target Clippy and final VM checks are
+passing (297 VM tests, one existing manual benchmark ignored). Structure, formatting
+and diff checks pass; no carried build/test errors remain. Two fresh timing processes
+complete 308 checked batches. Arithmetic is 20.018 ms, calls 12.386 ms and maps
+20.365 ms; nontrivial VM/Lua ratios remain 26.87–491.51. Separate instruction counts
+fall to 600,015 / 220,015 / 66,030 for arithmetic/calls/maps; their run functions use
+6 / 5 / 9 physical temporary slots instead of 14 / 15 / 70 logical registers.
+Maps still allocate 2,001 GC objects and collect five times per workload, with
+allocator/type-normalization costs dominating many samples. See
+[IP03 measurements](performance-baseline.md#register-allocation-and-call-windows-ip03-2026-10-06).
+IP04 is next: prepared native/collection boundaries and final integration.
 
 IP00 validation: both timing processes and all six profiling/counting passes
 completed with correct results; the existing benchmark test checks empty/single

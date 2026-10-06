@@ -148,9 +148,10 @@ impl VerifiedProgram {
             .cloned()
             .map(Arc::new)
             .collect();
+        let mut allocation_work = 0;
         let execution = modules
             .iter()
-            .map(|module| ExecutionModule::prepare(module))
+            .map(|module| ExecutionModule::prepare(module, &mut allocation_work))
             .collect();
         Self {
             execution,

@@ -468,6 +468,17 @@ impl<'a> Executor<'a> {
                 .invoke_native(self.runtime, *import, args, dst, invoke_script)
                 .map_err(VmError::RuntimeError);
         }
+        let direct = match *callee {
+            CallTarget::Function(function) => Some((self.current_frame()?.module(), function)),
+            CallTarget::ModuleFunction { module, function } => Some((module, function)),
+            _ => None,
+        };
+        if let Some((module, function)) = direct {
+            return self
+                .stack
+                .push_registers(self.runtime, module, function, args, dst)
+                .map_err(VmError::RuntimeError);
+        }
         let arg_values = args
             .iter()
             .map(|arg| Ok::<_, VmError>(self.current_frame()?.read_register(self.runtime, *arg)?))
@@ -479,21 +490,8 @@ impl<'a> Executor<'a> {
                 .push_shared_call(self.runtime, &arg_values, dst)
                 .map_err(VmError::RuntimeError),
             CallTarget::Native(_) => unreachable!("native calls execute before argument packing"),
-            CallTarget::ModuleFunction { module, function } => {
-                self.current_loaded()?
-                    .member_data(module)
-                    .and_then(|member| member.bytecode.functions.get(function.index()))
-                    .ok_or(VmError::InvalidFunctionRef(function))?;
-                self.push_frame(module, function, &arg_values, dst)
-            }
-            CallTarget::Function(id) => {
-                self.current_loaded()?
-                    .bytecode
-                    .functions
-                    .get(id.index())
-                    .ok_or(VmError::InvalidFunctionRef(id))?;
-                let module = self.current_frame()?.module();
-                self.push_frame(module, id, &arg_values, dst)
+            CallTarget::ModuleFunction { .. } | CallTarget::Function(_) => {
+                unreachable!("direct script calls use frame windows")
             }
             CallTarget::InterfaceMethod { ref contract, .. } => {
                 let receiver = arg_values.first().unwrap_or(&Value::Unit);

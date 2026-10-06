@@ -30,7 +30,7 @@ impl Executor<'_> {
                 ))?;
             match instruction {
                 ExecutionInstruction::Constant { dst, value } => {
-                    frame.write_register(
+                    frame.write_operand(
                         dst,
                         match value {
                             ScalarConstant::Unit => Value::Unit,
@@ -43,34 +43,26 @@ impl Executor<'_> {
                         },
                     )?;
                 }
-                ExecutionInstruction::LoadLocal { dst, local } => {
-                    let value = frame.read_local(local)?;
-                    frame.write_register(dst, value)?;
-                }
-                ExecutionInstruction::StoreLocal { local, src } => {
-                    let value = frame.read_register(src)?;
-                    frame.write_local(local, value)?;
-                }
                 ExecutionInstruction::Move { dst, src } => {
-                    let value = frame.read_register(src)?;
-                    frame.write_register(dst, value)?;
+                    let value = frame.read_operand(src)?;
+                    frame.write_operand(dst, value)?;
                 }
                 ExecutionInstruction::Unary { dst, op, operand } => {
-                    let value = frame.read_register(operand)?;
-                    frame.write_register(dst, Self::apply_unary(op, value)?)?;
+                    let value = frame.read_operand(operand)?;
+                    frame.write_operand(dst, Self::apply_unary(op, value)?)?;
                 }
                 ExecutionInstruction::Binary { dst, op, lhs, rhs } => {
-                    let lhs = frame.read_register(lhs)?;
-                    let rhs = frame.read_register(rhs)?;
-                    frame.write_register(dst, self.apply_binary(op, lhs, rhs)?)?;
+                    let lhs = frame.read_operand(lhs)?;
+                    let rhs = frame.read_operand(rhs)?;
+                    frame.write_operand(dst, self.apply_binary(op, lhs, rhs)?)?;
                 }
                 ExecutionInstruction::Convert {
                     dst,
                     src,
                     conversion,
                 } => {
-                    let value = frame.read_register(src)?;
-                    frame.write_register(dst, numeric::convert(conversion, value)?)?;
+                    let value = frame.read_operand(src)?;
+                    frame.write_operand(dst, numeric::convert(conversion, value)?)?;
                 }
                 ExecutionInstruction::Numeric {
                     dst,
@@ -78,9 +70,9 @@ impl Executor<'_> {
                     lhs,
                     rhs,
                 } => {
-                    let lhs = frame.read_register(lhs)?;
-                    let rhs = rhs.map(|r| frame.read_register(r)).transpose()?;
-                    frame.write_register(dst, numeric::fixed_integer(operation, lhs, rhs)?)?;
+                    let lhs = frame.read_operand(lhs)?;
+                    let rhs = rhs.map(|r| frame.read_operand(r)).transpose()?;
+                    frame.write_operand(dst, numeric::fixed_integer(operation, lhs, rhs)?)?;
                 }
                 ExecutionInstruction::Jump(target) => frame.jump_to(target.index())?,
                 ExecutionInstruction::Branch {
@@ -88,7 +80,7 @@ impl Executor<'_> {
                     then_target,
                     else_target,
                 } => {
-                    let target = match frame.read_register(cond)? {
+                    let target = match frame.read_operand(cond)? {
                         Value::Bool(true) => then_target,
                         Value::Bool(false) => else_target,
                         _ => return Err(VmError::InvalidBranchCondition),
@@ -97,7 +89,7 @@ impl Executor<'_> {
                 }
                 ExecutionInstruction::Return(register) => {
                     let value = register
-                        .map(|r| frame.read_register(r))
+                        .map(|r| frame.read_operand(r))
                         .transpose()?
                         .unwrap_or(Value::Unit);
                     return Ok(LoopExit::Return(value));

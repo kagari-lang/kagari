@@ -294,3 +294,43 @@ fn live_float_arithmetic_and_potentially_trapping_casts_are_preserved() {
         );
     }
 }
+
+#[test]
+fn local_forwarding_keeps_stores_and_moves_loop_constants_to_entry() {
+    let result = optimized(checked(
+        "fn main(n: i32) -> i32 { var i = 0; var sum = 0; while i < n { val old = i; sum += old % 7; i = old + 1; } sum }",
+    ));
+    assert!(result.statistics.copies_removed > 0);
+    assert!(result.statistics.constants_reused > 0);
+    let function = &result.module.functions[0];
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .any(|instruction| matches!(instruction, Instruction::StoreLocal { .. }))
+    );
+    for (index, block) in function.blocks.iter().enumerate() {
+        if index != function.entry.index() {
+            assert!(!block.instructions.iter().any(|instruction| matches!(
+                instruction,
+                Instruction::LoadConst {
+                    constant: Constant::I32(7 | 1),
+                    ..
+                }
+            )));
+        }
+    }
+    assert!(
+        function.blocks[function.entry.index()]
+            .instructions
+            .iter()
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::LoadConst {
+                    constant: Constant::I32(7),
+                    ..
+                }
+            ))
+    );
+}
