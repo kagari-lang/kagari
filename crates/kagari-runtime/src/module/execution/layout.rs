@@ -6,8 +6,9 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::BytecodeFunction;
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{native_import::NativeImport, representation::semantic_representation};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, iter};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Location {
@@ -17,6 +18,23 @@ pub(crate) struct Location {
 }
 
 impl Location {
+    pub(crate) fn admits_payload(self, representation: ValueType, bits: u64) -> bool {
+        if self.operand.managed() || self.representation != representation {
+            return false;
+        }
+        if representation == ValueType::Bool && bits > 1 {
+            return false;
+        }
+        let Some((min, max)) = self.semantic.and_then(BuiltinType::integer_bounds) else {
+            return true;
+        };
+        let value = match representation {
+            ValueType::I32 | ValueType::I64 => i128::from(bits as i64),
+            ValueType::U64 => i128::from(bits),
+            _ => return false,
+        };
+        value >= min && value <= max
+    }
     pub(crate) fn admits(self, value: &Value) -> bool {
         if !value.has_representation(self.representation) {
             return false;
@@ -50,6 +68,32 @@ pub(crate) struct FrameLayout {
 }
 
 impl FrameLayout {
+    pub(super) fn native(import: &NativeImport<DefinitionId>) -> Self {
+        let mut scalar_count = 0;
+        let mut managed_count = 0;
+        let locations = iter::once(&import.signature.result)
+            .chain(import.signature.params.iter())
+            .map(|ty| {
+                let representation = semantic_representation(ty);
+                Location {
+                    operand: allocate(
+                        scalar_type(representation).is_none(),
+                        &mut scalar_count,
+                        &mut managed_count,
+                    ),
+                    representation,
+                    semantic: builtin(Some(ty)),
+                }
+            })
+            .collect();
+        Self {
+            locations,
+            register_count: 0,
+            count: 0,
+            scalar_count,
+            managed_count,
+        }
+    }
     pub(super) fn prepare(function: &BytecodeFunction<DefinitionId>, work: &mut usize) -> Self {
         let registers = RegisterAllocation::prepare(function, work);
         let mut scalar_count = 0;

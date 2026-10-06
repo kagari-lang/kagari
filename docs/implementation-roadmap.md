@@ -442,7 +442,7 @@ no intermediate error may survive final acceptance.
   Value arithmetic; bit precision, source-width failures, frame reuse and mixed
   scalar/managed roots are proven. Measure payload/metadata footprint and operation
   throughput across all types, not only i32 addition.
-- [ ] **NE04: Uniform script and primitive boundaries.** Prepare typed argument and
+- [x] **NE04: Uniform script and primitive boundaries.** Prepare typed argument and
   return transfers, native admission/result adapters, and selected numeric primitive
   method paths. Verify ordinary concrete generics, shared generic/interface calls,
   closures, fields/cells and host callbacks retain declared semantics. Gate: concrete
@@ -652,6 +652,29 @@ logical instructions and no allocations/collections; prepared scalar kernels
 replace boxed numeric helpers, while collection eligibility and dispatch remain
 visible costs. Raw paths and reproducible environment/commands are in the
 [performance report](performance-baseline.md#scalar-frame-banks-and-prepared-kernels-ne03-2026-10-06).
+
+NE04 checkpoint (2026-10-06): prepared layouts now own both script and native
+callable storage. Register-window arguments resolve sealed locations and copy
+complete scalar payloads directly; domain, initialization and owner/generation
+admission precedes transactional bank growth. Managed arguments keep normal
+ownership/root admission. Source scalar locations prove absence of heap edges,
+so candidate/heap validation no longer materializes scalar Values. These prepared
+location facts serve the transfer plan; no duplicate per-call location table is
+needed. Concrete return packets remain opaque payloads until a caller managed slot
+or public host boundary. Shared environments and interface adapters keep their
+existing checks. Native arithmetic/source-width operations and casts now use the
+same payload kernels, including the corrected unsigned remainder diagnostic.
+Integer methods with Option/tuple results retain their normal carriers and roots.
+
+Validation: 613 runtime/VM tests pass (one existing manual benchmark ignored),
+including all numeric/source-free, closure, shared/interface, native callback,
+forced-GC, cancellation and reload cases. The focused allocation rerun passes:
+1,000 warmed repeated/reordered-argument scalar calls including execution and
+checked caller return write perform zero Rust allocations/reallocations/frees.
+The previous scalar native and contiguous bulk allocation assertions still pass.
+Strict runtime/VM all-target Clippy, formatting, structure (917 Rust files, zero
+violations/exceptions) and diff checks pass. No carried error. Expanded source-form
+throughput and final paired measurements belong to NE05; Lua parity remains open.
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
 

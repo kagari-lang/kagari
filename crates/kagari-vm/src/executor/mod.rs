@@ -12,7 +12,7 @@ use kagari_bytecode::{
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
-    frame::{ExecutionFrame, ExecutionStack},
+    frame::{ExecutionFrame, ExecutionStack, transfer::ReturnValue},
     module::LoadedModule,
     session::ExecutionEvent,
     value::Value,
@@ -67,7 +67,9 @@ impl<'a> Executor<'a> {
         loop {
             let native_return = self.current_frame()?.native_return(self.runtime)?;
             if let Some(value) = native_return {
-                let result = self.stack.finish_return(self.runtime, value);
+                let result = self
+                    .stack
+                    .finish_return(self.runtime, ReturnValue::general(value));
                 if let Some(value) = self.report_operation(result.map_err(VmError::RuntimeError))? {
                     return Ok(value);
                 }
@@ -131,7 +133,9 @@ impl<'a> Executor<'a> {
                             })
                             .transpose()?
                             .unwrap_or(Value::Unit);
-                        let result = self.stack.finish_return(self.runtime, value);
+                        let result = self
+                            .stack
+                            .finish_return(self.runtime, ReturnValue::general(value));
                         if let Some(value) =
                             self.report_operation(result.map_err(VmError::RuntimeError))?
                         {

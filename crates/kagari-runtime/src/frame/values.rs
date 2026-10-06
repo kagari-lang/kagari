@@ -127,12 +127,7 @@ impl ExecutionValues {
         if let Some((source, operands)) = arguments.window() {
             for (index, register) in operands.iter().enumerate() {
                 let target = destination(argument_offset + index).expect("checked argument range");
-                if !self
-                    .with_value(source, register.index(), |value| {
-                        registers.is_none() || target.admits(value)
-                    })
-                    .unwrap_or(false)
-                {
+                if !self.admits_transfer(source, register.index(), target, registers.is_none()) {
                     return Err(RuntimeError::module_validation(
                         "invalid frame argument type or window",
                     ));
@@ -192,11 +187,24 @@ impl ExecutionValues {
         if let Some((source, operands)) = arguments.window() {
             for (index, register) in operands.iter().enumerate() {
                 // Resolve after both banks grow; caller/callee remain disjoint.
-                let value = self
-                    .with_value(source, register.index(), Value::clone)
-                    .expect("checked source window");
-                self.set(slots, argument_offset + index, value)
-                    .expect("admitted argument");
+                if let Some((representation, bits)) = self.scalar_value(source, register.index())
+                    && !self
+                        .window(slots)
+                        .expect("published window")
+                        .location(argument_offset + index)
+                        .expect("argument location")
+                        .operand
+                        .managed()
+                {
+                    self.set_scalar(slots, argument_offset + index, representation, bits)
+                        .expect("admitted scalar argument");
+                } else {
+                    let value = self
+                        .with_value(source, register.index(), Value::clone)
+                        .expect("checked source window");
+                    self.set(slots, argument_offset + index, value)
+                        .expect("admitted argument");
+                }
             }
         } else {
             for (index, value) in arguments.iter().enumerate() {
@@ -205,6 +213,71 @@ impl ExecutionValues {
             }
         }
         Ok(slots)
+    }
+
+    fn admits_transfer(
+        &self,
+        source: FrameSlots,
+        logical: usize,
+        target: Location,
+        unrestricted: bool,
+    ) -> bool {
+        if let Some((representation, bits)) = self.scalar_value(source, logical)
+            && !target.operand.managed()
+        {
+            return target.admits_payload(representation, bits);
+        }
+        self.with_value(source, logical, |value| {
+            unrestricted || target.admits(value)
+        })
+        .unwrap_or(false)
+    }
+
+    pub(crate) fn scalar_value(
+        &self,
+        slots: FrameSlots,
+        logical: usize,
+    ) -> Option<(ValueType, u64)> {
+        let window = self.window(slots)?;
+        let location = window.location(logical)?;
+        let slot = location.operand.scalar()?;
+        Some((location.representation, self.payload(&window.ranges, slot)?))
+    }
+
+    pub(crate) fn check_managed(
+        &self,
+        slots: FrameSlots,
+        logical: usize,
+        check: impl FnOnce(&Value) -> bool,
+    ) -> Option<bool> {
+        let window = self.window(slots)?;
+        let location = window.location(logical)?;
+        if let Some(slot) = location.operand.scalar() {
+            self.payload(&window.ranges, slot)?;
+            return Some(true);
+        }
+        self.with_value(slots, logical, check)
+    }
+
+    pub(crate) fn set_scalar(
+        &mut self,
+        slots: FrameSlots,
+        logical: usize,
+        representation: ValueType,
+        bits: u64,
+    ) -> Option<()> {
+        let window = self.window(slots)?;
+        let location = window.location(logical)?;
+        if location.operand.managed() {
+            return self.set(slots, logical, scalar::decode(representation, bits)?);
+        }
+        if !location.admits_payload(representation, bits) {
+            return None;
+        }
+        let index = window.ranges.scalars.start + location.operand.index();
+        *self.payloads.get_mut(index)? = bits;
+        *self.initialized.get_mut(index)? = true;
+        Some(())
     }
 
     fn window(&self, slots: FrameSlots) -> Option<&Window> {

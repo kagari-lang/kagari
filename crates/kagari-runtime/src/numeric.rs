@@ -1,8 +1,8 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
+    frame::values::scalar,
     value::Value,
 };
-use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_contract::{
     numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
@@ -10,15 +10,31 @@ use kagari_contract::{
 };
 use kagari_types::{
     arithmetic,
-    arithmetic::{ArithmeticError, IntegerBinaryOp},
+    arithmetic::ArithmeticError,
     conversion, integer,
     integer::IntegerMethod,
-    numeric,
-    numeric::Number,
+    payload::{self, ScalarBinaryOp},
     scalar::BuiltinType,
 };
 
 mod compare;
+
+pub(crate) fn binary_operation(op: BinaryOp) -> ScalarBinaryOp {
+    match op {
+        BinaryOp::Add => ScalarBinaryOp::Add,
+        BinaryOp::Sub => ScalarBinaryOp::Sub,
+        BinaryOp::Mul => ScalarBinaryOp::Mul,
+        BinaryOp::Div => ScalarBinaryOp::Div,
+        BinaryOp::Rem => ScalarBinaryOp::Rem,
+        BinaryOp::Eq => ScalarBinaryOp::Eq,
+        BinaryOp::NotEq => ScalarBinaryOp::NotEq,
+        BinaryOp::Lt => ScalarBinaryOp::Lt,
+        BinaryOp::Le => ScalarBinaryOp::Le,
+        BinaryOp::Gt => ScalarBinaryOp::Gt,
+        BinaryOp::Ge => ScalarBinaryOp::Ge,
+        BinaryOp::Numeric(_) | BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => unreachable!(),
+    }
+}
 
 /// Execute a plain numeric/boolean operation without consulting the heap.
 pub fn scalar_binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeError> {
@@ -59,66 +75,35 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
     if let BinaryOp::Numeric(operation) = op {
         return fixed_integer(operation, lhs, Some(rhs));
     }
-    let op = match op {
-        BinaryOp::Add => IntegerBinaryOp::Add,
-        BinaryOp::Sub => IntegerBinaryOp::Sub,
-        BinaryOp::Mul => IntegerBinaryOp::Mul,
-        BinaryOp::Div => IntegerBinaryOp::Div,
-        BinaryOp::Rem => IntegerBinaryOp::Rem,
-        _ => {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected arithmetic operation",
-            ));
-        }
-    };
-    Ok(match (lhs, rhs) {
-        (Value::I32(lhs), Value::I32(rhs)) => {
-            Value::I32(arithmetic::i32_binary(op, lhs, rhs).map_err(arithmetic_trap)?)
-        }
-        (Value::I64(lhs), Value::I64(rhs)) => {
-            Value::I64(arithmetic::i64_binary(op, lhs, rhs).map_err(arithmetic_trap)?)
-        }
-        (Value::U64(lhs), Value::U64(rhs)) => {
-            let result = match op {
-                IntegerBinaryOp::Add => lhs.checked_add(rhs),
-                IntegerBinaryOp::Sub => lhs.checked_sub(rhs),
-                IntegerBinaryOp::Mul => lhs.checked_mul(rhs),
-                IntegerBinaryOp::Div => lhs.checked_div(rhs),
-                IntegerBinaryOp::Rem => lhs.checked_rem(rhs),
-            };
-            Value::U64(result.ok_or_else(|| {
-                RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    if rhs == 0 && matches!(op, IntegerBinaryOp::Div | IntegerBinaryOp::Rem) {
-                        "integer division by zero"
-                    } else {
-                        "integer overflow"
-                    },
-                )
-            })?)
-        }
-        (Value::F32(lhs), Value::F32(rhs)) => Value::F32(match op {
-            IntegerBinaryOp::Add => lhs + rhs,
-            IntegerBinaryOp::Sub => lhs - rhs,
-            IntegerBinaryOp::Mul => lhs * rhs,
-            IntegerBinaryOp::Div => lhs / rhs,
-            IntegerBinaryOp::Rem => lhs % rhs,
-        }),
-        (Value::F64(lhs), Value::F64(rhs)) => Value::F64(match op {
-            IntegerBinaryOp::Add => lhs + rhs,
-            IntegerBinaryOp::Sub => lhs - rhs,
-            IntegerBinaryOp::Mul => lhs * rhs,
-            IntegerBinaryOp::Div => lhs / rhs,
-            IntegerBinaryOp::Rem => lhs % rhs,
-        }),
+    let ty = match (&lhs, &rhs) {
+        (Value::I32(_), Value::I32(_)) => BuiltinType::I32,
+        (Value::I64(_), Value::I64(_)) => BuiltinType::I64,
+        (Value::U64(_), Value::U64(_)) => BuiltinType::U64,
+        (Value::F32(_), Value::F32(_)) => BuiltinType::F32,
+        (Value::F64(_), Value::F64(_)) => BuiltinType::F64,
         _ => {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "arithmetic requires matching numeric operands",
             ));
         }
-    })
+    };
+    if !matches!(
+        op,
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
+    ) {
+        return Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "expected arithmetic operation",
+        ));
+    }
+    let kernel = payload::binary_kernel(binary_operation(op), ty).expect("numeric carrier");
+    let bits = kernel(
+        scalar::encode(&lhs).expect("scalar"),
+        scalar::encode(&rhs).expect("scalar"),
+    )
+    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+    Ok(scalar::decode(builtin_representation(ty), bits).expect("numeric result"))
 }
 
 /// Execute the verified source-width contract, independently of Value storage width.
@@ -129,21 +114,17 @@ pub fn fixed_integer(
 ) -> Result<Value, RuntimeError> {
     let invalid = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric operand");
     operation.contract().ok_or_else(invalid)?;
-    let lhs = read_integer(operation.input, &lhs)?;
+    let lhs = read_integer(operation.input, &lhs)? as u64;
     let rhs = match (operation.rhs, rhs) {
-        (Some(ty), Some(value)) => read_integer(ty, &value)?,
+        (Some(ty), Some(value)) => read_integer(ty, &value)? as u64,
         (None, None) => 0,
         _ => return Err(invalid()),
     };
-    let (bits, signed) = operation.input.integer_layout().ok_or_else(invalid)?;
-    let result = integer::integer_operation(operation.op, lhs, rhs, bits, signed)
+    let kernel = payload::integer_kernel(operation.op, operation.input, operation.rhs)
+        .ok_or_else(invalid)?;
+    let bits = kernel(lhs, rhs)
         .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
-
-    Ok(match operation.input {
-        BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(result as i32),
-        BuiltinType::U64 | BuiltinType::USize => Value::U64(result as u64),
-        _ => Value::I64(result as i64),
-    })
+    Ok(scalar::decode(builtin_representation(operation.input), bits).expect("integer result"))
 }
 
 pub fn integer_method(
@@ -226,31 +207,11 @@ pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, Run
     if !value.has_representation(builtin_representation(conversion.source)) {
         return Err(fail());
     }
-    if conversion.source.integer_layout().is_some() {
-        read_integer(conversion.source, &value)?;
-    }
-    if conversion.source == conversion.target {
-        return Ok(value);
-    }
-    let value = match value {
-        Value::Bool(v) => Number::Integer(i128::from(v)),
-        Value::I32(v) => Number::Integer(i128::from(v)),
-        Value::I64(v) => Number::Integer(i128::from(v)),
-        Value::U64(v) => Number::Integer(i128::from(v)),
-        Value::F32(v) => Number::F32(v),
-        Value::F64(v) => Number::F64(v),
-        _ => return Err(fail()),
-    };
-    let value = match numeric::cast(value, conversion.target.number_type().ok_or_else(fail)?) {
-        Number::F32(v) => Value::F32(v),
-        Number::F64(v) => Value::F64(v),
-        Number::Integer(v) => match builtin_representation(conversion.target) {
-            ValueType::I32 => Value::I32(v as i32),
-            ValueType::U64 => Value::U64(v as u64),
-            _ => Value::I64(v as i64),
-        },
-    };
-    Ok(value)
+    let kernel =
+        payload::conversion_kernel(conversion.source, conversion.target).ok_or_else(fail)?;
+    let bits = kernel(scalar::encode(&value).ok_or_else(fail)?, 0)
+        .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+    scalar::decode(builtin_representation(conversion.target), bits).ok_or_else(fail)
 }
 
 pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, RuntimeError> {

@@ -5,6 +5,7 @@ pub(crate) mod allocation;
 pub(crate) mod layout;
 mod operands;
 
+use crate::numeric::binary_operation;
 use crate::{
     frame::values::scalar,
     module::execution::layout::{FrameLayout, scalar_type},
@@ -16,7 +17,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_types::payload::{self, ScalarBinaryOp, ScalarKernel};
+use kagari_types::payload::{self, ScalarKernel};
 use std::sync::Arc;
 
 /// A bounded physical operand in a prepared function's value window.
@@ -89,6 +90,7 @@ pub enum ExecutionInstruction {
 #[derive(Debug)]
 pub(crate) struct ExecutionModule {
     pub functions: Vec<ExecutionFunction>,
+    pub native_layouts: Vec<Arc<FrameLayout>>,
 }
 
 #[derive(Debug)]
@@ -103,6 +105,11 @@ impl ExecutionModule {
     // so the product can be shared across runtime-local definition scopes.
     pub(super) fn prepare(module: &BytecodeModule<DefinitionId>, work: &mut usize) -> Self {
         Self {
+            native_layouts: module
+                .native_imports
+                .iter()
+                .map(|import| Arc::new(FrameLayout::native(import)))
+                .collect(),
             functions: module
                 .functions
                 .iter()
@@ -196,7 +203,7 @@ impl ExecutionInstruction {
                     }
                     BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => None,
                     _ => scalar_type(location(lhs).representation)
-                        .and_then(|ty| payload::binary_kernel(binary_op(op), ty)),
+                        .and_then(|ty| payload::binary_kernel(binary_operation(op), ty)),
                 };
                 scalar(dst, lhs, rhs, kernel)
             }
@@ -246,23 +253,6 @@ impl ExecutionInstruction {
             (Some(dst), Some(src)) => Self::Move { dst, src },
             _ => Self::Boundary,
         }
-    }
-}
-
-fn binary_op(op: BinaryOp) -> ScalarBinaryOp {
-    match op {
-        BinaryOp::Add => ScalarBinaryOp::Add,
-        BinaryOp::Sub => ScalarBinaryOp::Sub,
-        BinaryOp::Mul => ScalarBinaryOp::Mul,
-        BinaryOp::Div => ScalarBinaryOp::Div,
-        BinaryOp::Rem => ScalarBinaryOp::Rem,
-        BinaryOp::Eq => ScalarBinaryOp::Eq,
-        BinaryOp::NotEq => ScalarBinaryOp::NotEq,
-        BinaryOp::Lt => ScalarBinaryOp::Lt,
-        BinaryOp::Le => ScalarBinaryOp::Le,
-        BinaryOp::Gt => ScalarBinaryOp::Gt,
-        BinaryOp::Ge => ScalarBinaryOp::Ge,
-        BinaryOp::Numeric(_) | BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => unreachable!(),
     }
 }
 

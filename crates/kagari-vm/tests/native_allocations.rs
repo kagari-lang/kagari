@@ -7,6 +7,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
+    frame::cursor::kernel::RegionExit,
     module::LoadedModule,
     native::{
         binding::NativeResult,
@@ -278,20 +279,20 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         .iter()
         .find(|function| function.name == "script_caller")
         .unwrap();
-    let (module, callee, arguments) = caller
+    let (module, callee, arguments, destination) = caller
         .instructions
         .iter()
         .find_map(|instruction| match instruction {
             BytecodeInstruction::Call {
                 callee: CallTarget::ModuleFunction { module, function },
                 args,
-                ..
-            } => Some((*module, *function, args.as_slice())),
+                dst,
+            } => Some((*module, *function, args.as_slice(), *dst)),
             BytecodeInstruction::Call {
                 callee: CallTarget::Function(function),
                 args,
-                ..
-            } => Some((loaded.slot(), *function, args.as_slice())),
+                dst,
+            } => Some((loaded.slot(), *function, args.as_slice(), *dst)),
             _ => None,
         })
         .unwrap();
@@ -332,7 +333,11 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             Value::I32(expected)
         );
     }
-    stack.pop().unwrap();
+    let RegionExit::Return(value) = stack.cursor(&runtime).unwrap().execute_region().unwrap()
+    else {
+        panic!("concrete scalar callee must remain in its prepared region");
+    };
+    stack.finish_return(&runtime, value).unwrap();
     let external = [Value::I32(11), Value::I32(20), Value::I32(11)];
     stack
         .push(&runtime, module, callee, &external, None)
@@ -346,6 +351,39 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             stack.pop().unwrap();
         }
     });
+    let (returned, _) = measured(|| {
+        for _ in 0..1000 {
+            for (register, value) in arguments.iter().zip(&external) {
+                stack
+                    .current_mut()
+                    .unwrap()
+                    .write_register(&runtime, *register, value.clone())
+                    .unwrap();
+            }
+            stack
+                .push_registers(&runtime, module, callee, black_box(arguments), destination)
+                .unwrap();
+            let RegionExit::Return(value) =
+                stack.cursor(&runtime).unwrap().execute_region().unwrap()
+            else {
+                panic!("scalar return");
+            };
+            assert!(stack.finish_return(&runtime, value).unwrap().is_none());
+            assert_eq!(
+                stack
+                    .current()
+                    .unwrap()
+                    .read_register(&runtime, destination.unwrap())
+                    .unwrap(),
+                Value::I32(42)
+            );
+        }
+    });
+    assert_eq!(
+        returned,
+        Counts::default(),
+        "warm scalar entry, execution and return must not allocate"
+    );
     let (slice, _) = measured(|| {
         for _ in 0..1000 {
             stack

@@ -50,7 +50,7 @@ impl<'args> FrameArguments<'args> {
         self.window
     }
 
-    pub(crate) fn all(
+    pub(crate) fn all_managed(
         self,
         runtime: &Runtime,
         mut check: impl FnMut(&Value) -> bool,
@@ -65,7 +65,7 @@ impl<'args> FrameArguments<'args> {
         })?;
         for register in registers {
             let valid = storage
-                .with_value(slots, register.index(), &mut check)
+                .check_managed(slots, register.index(), &mut check)
                 .ok_or_else(|| {
                     runtime
                         .resources()

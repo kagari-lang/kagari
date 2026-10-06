@@ -622,6 +622,16 @@ incoming representations/domains. Unavailable scalar inspection produces Unit;
 executing an uninitialized operand quarantines. Frame entry reserves both banks
 before copying arguments; release clears managed roots and initialization state.
 
+Concrete script arguments transfer complete payloads directly between disjoint
+frame banks, using sealed source/destination locations and destination semantic
+admission. Window identity and initialization are checked before transactional
+frame publication. Scalar-only sources skip heap-reference walks. Concrete scalar
+returns use an opaque packet until the caller slot or public host boundary;
+shared environments and interface adapters retain their full return validation.
+Native callable frames have prepared signature layouts. Native arithmetic and
+casts admit tagged inputs once and invoke the same payload kernels as scripts.
+Managed results retain their normal allocation/root protocol.
+
 Scalar operations prepare concrete function pointers to shared `kagari-types`
 payload kernels after sealing. All integer widths, arithmetic/bit/shift families,
 numeric comparisons, f32/f64 operations and supported casts use raw payloads;

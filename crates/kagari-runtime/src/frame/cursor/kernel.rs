@@ -1,21 +1,20 @@
 //! Closed scalar operations reuse authority without admitting callbacks or values.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    frame::{cursor::ExecutionCursor, values::scalar},
+    frame::{cursor::ExecutionCursor, transfer::ReturnValue},
     module::execution::{ExecutionInstruction, ScalarSlot},
-    value::Value,
 };
 
 pub enum RegionExit {
     Safepoint,
     Boundary,
-    Return(Value),
+    Return(ReturnValue),
 }
 
 enum CursorProgress {
     Continue,
     Boundary,
-    Return(Value),
+    Return(ReturnValue),
 }
 
 impl ExecutionCursor<'_> {
@@ -91,12 +90,11 @@ impl ExecutionCursor<'_> {
             } => {
                 let value = match value {
                     Some(slot) if slot.managed() => return Ok(CursorProgress::Boundary),
-                    Some(slot) => scalar::decode(
+                    Some(slot) => ReturnValue::scalar(
                         representation,
                         self.payload(slot.scalar().expect("scalar return"))?,
-                    )
-                    .ok_or_else(|| self.invalid())?,
-                    None => Value::Unit,
+                    ),
+                    None => ReturnValue::scalar(representation, 0),
                 };
                 return Ok(CursorProgress::Return(value));
             }

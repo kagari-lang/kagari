@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, NativeEntryState, ReturnDestination},
+    frame::{ExecutionStack, NativeEntryState, ReturnDestination, transfer::ReturnValue},
     native::context::{ArgumentSlots, ArgumentView, CallContext, ScriptInvoker},
     value::Value,
 };
@@ -117,9 +117,42 @@ impl ExecutionStack<'_> {
     pub fn finish_return(
         &self,
         runtime: &Runtime,
-        mut value: Value,
+        packet: ReturnValue,
     ) -> Result<Option<Value>, RuntimeError> {
         self.validate_runtime(runtime)?;
+        if let Some((representation, bits)) = packet.payload() {
+            let destination = {
+                let frame = self.current()?;
+                (frame.environment().is_none() && frame.interface_method().is_none())
+                    .then_some(frame.return_to)
+            };
+            if let Some(destination) = destination {
+                self.pop()?;
+                if self.is_empty()? {
+                    return packet.materialize().map(Some).ok_or_else(|| {
+                        RuntimeError::module_validation("scalar return representation")
+                    });
+                }
+                if let ReturnDestination::Register(Some(register)) = destination {
+                    runtime.gc.ensure_execution_allowed()?;
+                    let frame = self.current()?;
+                    let mut values = runtime
+                        .resources()
+                        .frame_values
+                        .try_borrow_mut()
+                        .map_err(|_| runtime.resources().quarantine("return window borrowed"))?;
+                    values
+                        .set_scalar(frame.slots, register.index(), representation, bits)
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("scalar return destination")
+                        })?;
+                }
+                return Ok(None);
+            }
+        }
+        let mut value = packet
+            .materialize()
+            .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
         let destination = {
             let frame = self.current()?;
             if frame.interface_method().is_none()

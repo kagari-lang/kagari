@@ -1,12 +1,12 @@
 //! Run non-reentrant operations with one frame/window borrow. Slow boundaries
 //! publish the logical PC and release all borrows before entering the runtime.
 use crate::{error::VmError, executor::Executor};
-use kagari_runtime::{frame::cursor::kernel::RegionExit, value::Value};
+use kagari_runtime::frame::{cursor::kernel::RegionExit, transfer::ReturnValue};
 
 pub(super) enum LoopExit {
     Safepoint,
     Boundary,
-    Return(Value),
+    Return(ReturnValue),
 }
 
 impl Executor<'_> {

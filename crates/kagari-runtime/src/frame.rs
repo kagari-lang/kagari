@@ -33,6 +33,7 @@ pub mod cursor;
 mod layouts;
 mod native;
 mod shared;
+pub mod transfer;
 pub mod types;
 pub(crate) mod values;
 
@@ -367,7 +368,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         dispatch: FrameDispatch,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
-        if !args.all(runtime, |value| runtime.gc.validate_candidate_value(value))? {
+        if !args.all_managed(runtime, |value| runtime.gc.validate_candidate_value(value))? {
             return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate call arguments",
             ));
@@ -577,6 +578,12 @@ impl ExecutionFrame {
                 )
             }
             CallableTarget::Native(import) => {
+                let registers = loaded
+                    .execution()
+                    .native_layouts
+                    .get(import.index())
+                    .cloned()
+                    .ok_or_else(|| resources.quarantine("invalid prepared native layout"))?;
                 let import = loaded
                     .bytecode
                     .native_imports
@@ -595,12 +602,18 @@ impl ExecutionFrame {
                 if args.len() != signature.params.len() {
                     return Err(RuntimeError::module_validation("native frame arguments"));
                 }
-                (0, args.len() + 1, 1, NativeEntryState::Pending, None)
+                (
+                    0,
+                    args.len() + 1,
+                    1,
+                    NativeEntryState::Pending,
+                    Some(registers),
+                )
             }
         };
 
         heap.ensure_execution_allowed()?;
-        if !args.all(runtime, |value| heap.validate_value(value))? {
+        if !args.all_managed(runtime, |value| heap.validate_value(value))? {
             return Err(RuntimeError::module_validation("invalid heap argument"));
         }
         runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
