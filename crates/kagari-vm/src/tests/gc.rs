@@ -6,10 +6,14 @@ use crate::{
     },
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    instruction::{BytecodeInstruction, Register},
+};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeapConfig, resource::RuntimeLimits,
+    value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -265,4 +269,70 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
     assert_eq!(vm.runtime().gc().array_get(array, 0), Some(Value::I32(7)));
     drop(binding);
     assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);
+}
+
+#[test]
+fn growing_execution_windows_keep_outer_values_alive_and_release_them_on_return() {
+    let program = compile_test_bytecode(
+        r#"
+fn descend(n: i32, kept: Vec<i32>) -> Vec<i32> {
+    if n == 0 { kept } else {
+        val inner = [n];
+        val returned = descend(n - 1, inner);
+        kept.push(returned[0]);
+        kept
+    }
+}
+fn main() -> i32 {
+    val original = [42];
+    val returned = descend(32, original);
+    returned[0] + returned[1]
+}
+"#,
+    );
+    let mut runtime = runtime();
+    let loaded = runtime.load_program("growing_windows", program).unwrap();
+    let vm = Vm::new(runtime);
+    let report = vm.execute(&loaded, "main").unwrap();
+    assert_eq!(
+        report.return_value.value(vm.runtime().gc()),
+        Some(Value::I32(74))
+    );
+    assert!(vm.runtime().gc().stats().collections > 0);
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    drop(report);
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(vm.runtime().gc().allocated_objects(), 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn collection_during_an_instruction_cursor_quarantines_without_further_writes() {
+    let program = compile_test_bytecode("fn main() -> i32 { 42 }");
+    let mut runtime = runtime();
+    let loaded = runtime.load_program("cursor_borrow", program).unwrap();
+    let entry = loaded
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap()
+        .id;
+    let stack = runtime.enter_execution_stack(&loaded).unwrap();
+    stack
+        .push(&runtime, loaded.slot(), entry, &[], None)
+        .unwrap();
+    let mut cursor = stack.cursor(&runtime).unwrap();
+    let error = runtime.collect_garbage().unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+    assert!(
+        cursor
+            .write_register(Register::new(0), Value::I32(99))
+            .is_err()
+    );
+    assert!(cursor.read_register(Register::new(0)).is_err());
+    drop(cursor);
+    drop(stack);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }

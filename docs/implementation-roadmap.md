@@ -1,9 +1,8 @@
 # Kagari Implementation Roadmap
 
 This is the single queue and progress owner for pending work. GO01-GO06 are complete,
-as are the earlier AC, CR, LR and EN tracks. The subsequent interpreter benchmark checkpoint is complete. Proposed performance
-implementation stages below are not marked active by the completed GO goal; other
-queued proposals still require separate activation.
+as are the earlier AC, CR, LR and EN tracks. The subsequent interpreter benchmark checkpoint is complete. The user has activated IP01-IP04 under a new continuous goal, with one commit per
+phase. Other queued proposals still require separate activation.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -31,9 +30,9 @@ The user targets interpreted execution at least as fast as Lua on equivalent
 source workloads and prioritizes architectural improvements over local patches.
 [The 2026-10-06 report](../benchmarks/lua-comparison/README.md#interpreter-baseline-after-go06-2026-10-06)
 owns the evidence, primary-source references and detailed proposed design.
-Current scope is measurement, diagnosis and implementation sequencing. Production
-interpreter replacement is proposed below, not silently included in this benchmark
-checkpoint. No claim of meeting the performance goal is made.
+IP01-IP04 implementation is active by explicit user authorization after IP00.
+Proceed in order, committing each completed phase. No claim of meeting the
+performance goal is made until measured acceptance.
 
 - [x] **IP00: Current baseline and diagnosis.** Add an explicit interpreter-only
   benchmark route and macOS execution sampler. Run seven paired workloads in two
@@ -43,7 +42,7 @@ checkpoint. No claim of meeting the performance goal is made.
   median times on those six cases. 24,143 stack samples identify repeated session
   hashing, frame/termination checks, instruction cloning and native allocation
   paths. There is no production optimization or historical speedup claim.
-- [ ] **IP01: Execution stack ownership and direct access.** Runtime owns reusable
+- [x] **IP01: Execution stack ownership and direct access.** Runtime owns reusable
   contiguous execution slots and frame windows; VM acquires validated cursors.
   Separate frame tracing from persistent host root leases, avoid per-operand
   session lookup, and publish/reacquire state at GC/observer/native/reentry
@@ -73,14 +72,40 @@ checkpoint. No claim of meeting the performance goal is made.
   Repeat matched interpreter/Lua runs and the correctness/feature matrix. Publish
   any remaining gap instead of relaxing the target or bypassing checks.
 
-IP01-IP04 are ordered proposed checkpoints, not approved performance claims.
+IP01-IP04 are the active ordered implementation checkpoints.
 Acceptance is interpreter/Lua median <= 1.0 for each nontrivial matched workload in
 repeatable same-machine release runs; near parity needs more independent samples
 and uncertainty analysis. Entry overhead is reported separately. Add representative
 strings, objects, closures, traits and host-callback workloads before any general
 language parity claim. No JIT expansion, collector algorithm replacement or source
 compilation optimization is activated by this report. Keep one implementation
-checkpoint commit per phase, with `Roadmap-Step: IPxx`, if implementation proceeds.
+checkpoint commit per phase, with `Roadmap-Step: IPxx`.
+
+IP01 ledger: runtime-owned reusable value windows now replace frame RootSet leases.
+The collector traces their values and immutable program/environment edges, including
+suspended frames. Session frame storage is indexed; checked instruction cursors pin
+one frame/session/window and check sticky termination without per-operand lookup.
+Native argument views reference checked window identities; cleanup invalidates them
+on every frame exit. Host leases and observable safepoint/observer positions remain.
+Window metadata stays independently traceable even when a frame descriptor has an
+immutable inspection borrow. No unsafe code or root/bounds/generation bypass was added.
+
+Validation: 134 runtime tests, 295 VM/unit/integration tests plus the new cursor
+borrow/quarantine regression pass (one existing manual performance test remains
+ignored). Includes window reuse/foreign identity, recursive stack growth with GC,
+native callbacks, generics, collection mutation, source-free products, cancellation,
+observer traces, candidate sessions and pinned reload. The transient active-root
+counter failure is resolved by counting both persistent roots and execution windows;
+the original cleanup assertions remain unchanged. Structure (899 Rust files, zero
+violations/exceptions), formatting, strict runtime/VM all-target Clippy and diff
+checks pass. No carried build/test error remains.
+
+The same-machine IP01 benchmark completed two processes/308 timed batches. Arithmetic
+improved from 274.713 ms to 115.614 ms; calls from 94.889 ms to 41.443 ms; Fibonacci
+from 110.081 ms to 50.078 ms. Nontrivial VM/Lua ratios remain 140.78–579.70: the goal
+is not achieved. See [measurements](performance-baseline.md#execution-windows-ip01-2026-10-06).
+IP02 next: compact prepared operations/operand slots and execution-oriented dispatch;
+retain wire verification, source/debug correspondence and all checked boundaries.
 
 IP00 validation: both timing processes and all six profiling/counting passes
 completed with correct results; the existing benchmark test checks empty/single

@@ -35,7 +35,7 @@ impl ExecutionStack<'_> {
             (
                 frame.loaded.clone(),
                 import,
-                frame.slots.clone(),
+                frame.slots,
                 frame.environment(),
             )
         };
@@ -63,9 +63,9 @@ impl ExecutionStack<'_> {
             owner: &loaded,
             function: &function,
             invoke_script,
-            arguments: ArgumentView::new(
+            arguments: ArgumentView::frame(
                 &runtime.gc,
-                &roots,
+                roots,
                 ArgumentSlots::Contiguous {
                     start: 1,
                     count: function.signature.params.len(),
@@ -93,7 +93,7 @@ impl ExecutionStack<'_> {
         self.validate_runtime(runtime)?;
         let (loaded, roots) = {
             let frame = self.current()?;
-            (frame.loaded.clone(), frame.slots.clone())
+            (frame.loaded.clone(), frame.slots)
         };
         let function = runtime
             .modules
@@ -104,7 +104,7 @@ impl ExecutionStack<'_> {
             owner: &loaded,
             function: &function,
             invoke_script,
-            arguments: ArgumentView::new(&runtime.gc, &roots, ArgumentSlots::Registers(arguments)),
+            arguments: ArgumentView::frame(&runtime.gc, roots, ArgumentSlots::Registers(arguments)),
         };
         let value = function.invoke(&mut context)?;
         if let Some(destination) = destination {

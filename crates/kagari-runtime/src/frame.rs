@@ -3,9 +3,10 @@ use crate::{
     closure::ClosureTarget,
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::MetadataRoot,
-    frame::{arguments::FrameArguments, types::TypeEnvironment},
-    gc::{CollectionIteration, roots::RootSet},
+    frame::{arguments::FrameArguments, types::TypeEnvironment, values::FrameSlots},
+    gc::CollectionIteration,
     module::LoadedModule,
+    resource::ResourceState,
     session::ExecutionSession,
     value::Value,
 };
@@ -27,10 +28,12 @@ use std::{
 };
 
 mod arguments;
+pub mod cursor;
 mod layouts;
 mod native;
 mod shared;
 pub mod types;
+pub(crate) mod values;
 
 /// An execution scope over the root session's shared frame stack.
 /// Dropping it unwinds only the frames entered by this scope.
@@ -373,7 +376,9 @@ impl<'runtime> ExecutionStack<'runtime> {
                 .resources
                 .quarantine("frame scope attempted to pop its caller"));
         }
-        frames.pop();
+        if let Some(frame) = frames.pop() {
+            frame.release_values(self.session.resources);
+        }
         self.session.resources.leave_call();
         Ok(())
     }
@@ -403,7 +408,9 @@ impl Drop for ExecutionStack<'_> {
             return;
         };
         while frames.len() > self.base {
-            frames.pop();
+            if let Some(frame) = frames.pop() {
+                frame.release_values(self.session.resources);
+            }
             self.session.resources.leave_call();
         }
     }
@@ -429,7 +436,7 @@ pub struct ExecutionFrame {
     native_entry: NativeEntryState,
     ip: usize,
     executing: Option<usize>,
-    slots: RootSet,
+    slots: FrameSlots,
     register_count: usize,
     return_to: ReturnDestination,
     interface_method: Option<RootedInterfaceMethod>,
@@ -453,6 +460,18 @@ struct FrameDispatch {
 }
 
 impl ExecutionFrame {
+    pub(crate) fn release_values(&self, resources: &ResourceState) {
+        if resources
+            .frame_values
+            .try_borrow_mut()
+            .ok()
+            .and_then(|mut values| values.release(self.slots))
+            .is_none()
+        {
+            resources.quarantine("execution slots remained borrowed during frame cleanup");
+        }
+    }
+
     fn validate_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
         if !self.slots.belongs_to(&runtime.gc) {
             return Err(RuntimeError::module_validation(
@@ -476,7 +495,7 @@ impl ExecutionFrame {
             interface_method,
             environment,
         } = dispatch;
-        let (register_count, slots, native_entry) = match target {
+        let (register_count, slot_count, argument_offset, native_entry) = match target {
             CallableTarget::Script(function) => {
                 let metadata = loaded
                     .bytecode
@@ -504,12 +523,12 @@ impl ExecutionFrame {
                     ));
                 }
                 let register_count = usize::from(metadata.register_count);
-                let mut slots =
-                    vec![Value::Unit; register_count + usize::from(metadata.local_count)];
-                for (slot, value) in args.iter().enumerate() {
-                    slots[register_count + slot] = value.clone();
-                }
-                (register_count, slots, NativeEntryState::Script)
+                (
+                    register_count,
+                    register_count + usize::from(metadata.local_count),
+                    register_count,
+                    NativeEntryState::Script,
+                )
             }
             CallableTarget::Native(import) => {
                 let import = loaded
@@ -530,22 +549,29 @@ impl ExecutionFrame {
                 if args.len() != signature.params.len() {
                     return Err(RuntimeError::module_validation("native frame arguments"));
                 }
-                let mut slots = vec![Value::Unit];
-                slots.extend(args.iter().cloned());
-                (0, slots, NativeEntryState::Pending)
+                (0, args.len() + 1, 1, NativeEntryState::Pending)
             }
         };
 
-        let slots = heap
-            .root_execution_values(slots)
-            .ok_or_else(|| RuntimeError::module_validation("invalid heap argument"))?;
-        let mut metadata = vec![MetadataRoot::Program(loaded.clone())];
-        metadata.extend(
-            environment
-                .iter()
-                .map(|environment| MetadataRoot::Environment(environment.id)),
-        );
-        slots.set_metadata(runtime, metadata)?;
+        heap.ensure_execution_allowed()?;
+        if !args.iter().all(|value| heap.validate_value(value)) {
+            return Err(RuntimeError::module_validation("invalid heap argument"));
+        }
+        runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
+        if let Some(environment) = &environment {
+            runtime.validate_metadata(MetadataRoot::Environment(environment.id).edge())?;
+        }
+        let slots = resources
+            .frame_values
+            .try_borrow_mut()
+            .map_err(|_| resources.quarantine("execution slots borrowed during frame entry"))?
+            .allocate(
+                slot_count,
+                argument_offset,
+                &args,
+                loaded.clone(),
+                environment.clone(),
+            )?;
         Ok(Self {
             environment,
             loaded,

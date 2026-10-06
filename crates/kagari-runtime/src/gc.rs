@@ -273,8 +273,9 @@ impl GcHeap {
         }
     }
 
+    /// Active persistent root groups and separately traced execution windows.
     pub fn active_roots(&self) -> usize {
-        self.roots.borrow().active()
+        self.roots.borrow().active() + self.resources.frame_values.borrow().active_windows()
     }
 
     pub(crate) fn alloc_struct(

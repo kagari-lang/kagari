@@ -134,14 +134,14 @@ impl<'a> Executor<'a> {
                     .write_register(self.runtime, dst, result)?;
             }
             BytecodeInstruction::LoadConst { dst, constant } => {
+                let mut frame = self.stack.cursor(self.runtime)?;
                 let value = Self::constant_to_value(constant);
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
+                frame.write_register(dst, value)?;
             }
             BytecodeInstruction::LoadLocal { dst, local } => {
-                let value = self.current_frame()?.read_local(self.runtime, local)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
+                let mut frame = self.stack.cursor(self.runtime)?;
+                let value = frame.read_local(local)?;
+                frame.write_register(dst, value)?;
             }
             BytecodeInstruction::LoadModule { dst, slot } => {
                 let loaded = self.current_loaded()?;
@@ -150,9 +150,9 @@ impl<'a> Executor<'a> {
                     .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::StoreLocal { local, src } => {
-                let value = self.current_frame()?.read_register(self.runtime, src)?;
-                self.current_frame_mut()?
-                    .write_local(self.runtime, local, value)?;
+                let mut frame = self.stack.cursor(self.runtime)?;
+                let value = frame.read_register(src)?;
+                frame.write_local(local, value)?;
             }
             BytecodeInstruction::StoreModule { slot, src } => {
                 let value = self.current_frame()?.read_register(self.runtime, src)?;
@@ -160,40 +160,40 @@ impl<'a> Executor<'a> {
                 self.runtime.write_module_slot(&loaded, slot, value)?;
             }
             BytecodeInstruction::Move { dst, src } => {
-                let value = self.current_frame()?.read_register(self.runtime, src)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
+                let mut frame = self.stack.cursor(self.runtime)?;
+                let value = frame.read_register(src)?;
+                frame.write_register(dst, value)?;
             }
             BytecodeInstruction::Unary { dst, op, operand } => {
-                let value = self.current_frame()?.read_register(self.runtime, operand)?;
+                let mut frame = self.stack.cursor(self.runtime)?;
+                let value = frame.read_register(operand)?;
                 let result = Self::apply_unary(op, value)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, result)?;
+                frame.write_register(dst, result)?;
             }
             BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
-                let lhs = self.current_frame()?.read_register(self.runtime, lhs)?;
-                let rhs = self.current_frame()?.read_register(self.runtime, rhs)?;
+                let mut frame = self.stack.cursor(self.runtime)?;
+                let lhs = frame.read_register(lhs)?;
+                let rhs = frame.read_register(rhs)?;
                 let result = self.apply_binary(op, lhs, rhs)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, result)?;
+                frame.write_register(dst, result)?;
             }
             BytecodeInstruction::Jump { target } => {
-                self.current_frame_mut()?
-                    .jump_to(self.runtime, target.index())?;
+                let mut frame = self.stack.cursor(self.runtime)?;
+                frame.jump_to(target.index())?;
             }
             BytecodeInstruction::Branch {
                 cond,
                 then_target,
                 else_target,
             } => {
-                let cond = self.current_frame()?.read_register(self.runtime, cond)?;
+                let mut frame = self.stack.cursor(self.runtime)?;
+                let cond = frame.read_register(cond)?;
                 let target = match cond {
                     Value::Bool(true) => then_target,
                     Value::Bool(false) => else_target,
                     _ => return Err(VmError::InvalidBranchCondition),
                 };
-                self.current_frame_mut()?
-                    .jump_to(self.runtime, target.index())?;
+                frame.jump_to(target.index())?;
             }
             BytecodeInstruction::Call { dst, callee, args } => {
                 self.dispatch_call(dst, callee, args)?;

@@ -273,7 +273,13 @@ impl Runtime {
 
 impl GcHeap {
     pub(super) fn metadata_snapshots(&self) -> Option<Vec<MetadataRoot>> {
-        Some(self.roots.try_borrow_mut().ok()?.metadata_snapshots())
+        let mut roots = self.roots.try_borrow_mut().ok()?.metadata_snapshots();
+        self.resources
+            .frame_values
+            .try_borrow()
+            .ok()?
+            .append_metadata(&mut roots);
+        Some(roots)
     }
 
     pub fn root_value(&self, value: Value) -> Option<RootedValue> {
@@ -294,7 +300,13 @@ impl GcHeap {
     }
 
     pub(super) fn root_snapshots(&self) -> Option<Vec<Value>> {
-        Some(self.roots.try_borrow_mut().ok()?.snapshots())
+        let mut roots = self.roots.try_borrow_mut().ok()?.snapshots();
+        self.resources
+            .frame_values
+            .try_borrow()
+            .ok()?
+            .append_values(&mut roots);
+        Some(roots)
     }
 }
 

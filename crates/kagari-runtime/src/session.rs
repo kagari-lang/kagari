@@ -372,7 +372,11 @@ impl Drop for ExecutionSession<'_> {
             }
             self.resources.end_execution(self.id);
             drop(state);
-            if self.resources.sessions.remove(self.id).is_none() {
+            if let Some((_state, frames)) = self.resources.sessions.remove(self.id) {
+                for frame in frames {
+                    frame.release_values(self.resources);
+                }
+            } else {
                 self.resources
                     .quarantine("session records remained borrowed during cleanup");
             }

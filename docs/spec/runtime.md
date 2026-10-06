@@ -203,8 +203,10 @@ The marker walks identities through storage-provided edges. Object representatio
 own reference traversal; closure signatures and runtime type compatibility have
 separate execution owners. Heap objects and executable programs share one mark
 worklist. Published and staged programs, active-call/code leases, host roots and
-heap root records seed traversal. Frame, prepared-method and selected-native-call
-metadata is stored alongside execution roots; public leases never own that storage.
+heap root records seed traversal. Runtime-owned execution windows independently
+seed their values and program/environment metadata, including suspended callers.
+Prepared-method and selected-native-call metadata is stored alongside persistent
+roots; public leases never own that storage.
 A reached program traces its dependency members'
 module slots; a reached closure or interface traces its executable owner and
 environment. Metadata traversal uses an explicit worklist, visits shared descriptors
@@ -246,14 +248,18 @@ Runtime::collect_garbage reports reclaimed heap objects, reclaimed_operation_gro
 reclaimed_method_applications, reclaimed_interface_snapshots and reclaimed_modules;
 there is no independent module-only sweep that could discard code reached from the heap.
 
-Runtime::collect_garbage includes registered host/frame/debug roots, module slots,
+Runtime::collect_garbage includes registered host/debug roots, execution windows, module slots,
 initializer results and pending host-path mutation records. Path-view dynamic arguments
 are traced; Rust host objects and borrowed resources remain host-owned. Path-operation
 arguments and old/new values are temporarily rooted across host
 read/preparation callbacks, including preparation that explicitly collects. Commit
 actions only apply prepared host state; they cannot collect or execute scripts.
-Register/local
-slots stay conservatively rooted until overwritten or their frame is dropped. Trap and
+Register/local slots occupy reusable contiguous windows and stay conservatively
+rooted until overwritten or their frame is dropped. Persistent host leases are
+separate. Checked cursors borrow the current frame/session/window for an instruction
+and release all borrows before collection, observation, calls and reentry. Window
+identities check owner and generation before native access. Active-root diagnostics
+count both persistent root groups and execution windows. Trap and
 call-depth failure drop frame roots through the same frame cleanup path.
 Commit invariant failures use this cleanup path too, and quarantine the runtime.
 Execution, allocation, collection and mutation entry points then reject further

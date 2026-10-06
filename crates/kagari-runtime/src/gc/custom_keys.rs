@@ -2,17 +2,22 @@
 //! frames between these operations, never inside a borrowed hash table.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
+    frame::values::FrameSlots,
     gc::{GcHeap, GcObjectKind, HeapObjectId, leases::BorrowedLease, roots::RootSet},
+    native::hash_storage::HashMapStorage,
     value::{MapKey, Value},
 };
 
-use crate::native::hash_storage::HashMapStorage;
-
-/// The synchronous native frame already roots the collection. This borrow pins
-/// that argument scope without allocating another RootSet for each key lookup.
+/// The calling scope keeps a persistent root group or execution window live.
+/// This guard excludes structural mutation for that scope without another root.
 pub(crate) struct KeyLookupGuard<'roots> {
-    _roots: &'roots RootSet,
+    _roots: KeyLookupRoots<'roots>,
     _lease: BorrowedLease<'roots>,
+}
+
+pub(crate) enum KeyLookupRoots<'a> {
+    Host(&'a RootSet),
+    Frame(FrameSlots),
 }
 
 fn invalid() -> RuntimeError {
@@ -40,9 +45,16 @@ impl GcHeap {
     pub(crate) fn begin_key_lookup<'roots>(
         &'roots self,
         value: &Value,
-        roots: &'roots RootSet,
+        roots: KeyLookupRoots<'roots>,
     ) -> Result<KeyLookupGuard<'roots>, RuntimeError> {
         self.ensure_execution_allowed()?;
+        let valid = match &roots {
+            KeyLookupRoots::Host(roots) => roots.belongs_to(self),
+            KeyLookupRoots::Frame(slots) => slots.get(self, 0).is_some(),
+        };
+        if !valid {
+            return Err(invalid());
+        }
         let id = match value {
             Value::Map(id) if self.object_kind(*id) == Some(GcObjectKind::Map) => *id,
             Value::Set(id) if self.object_kind(*id) == Some(GcObjectKind::Set) => *id,

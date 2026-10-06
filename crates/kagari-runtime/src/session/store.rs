@@ -7,8 +7,8 @@ use crate::{
     session::{ExecutionOptions, SessionState},
 };
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
-    collections::HashMap,
+    cell::{Ref, RefCell, RefMut},
+    mem,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -35,8 +35,7 @@ struct Records {
 pub(crate) struct SessionStore {
     owner: u64,
     records: RefCell<Records>,
-    frames: RefCell<HashMap<SessionId, Vec<ExecutionFrame>>>,
-    retired_frames: Cell<bool>,
+    frames: RefCell<Vec<Vec<ExecutionFrame>>>,
 }
 
 impl Default for SessionStore {
@@ -48,28 +47,12 @@ impl Default for SessionStore {
         Self {
             owner,
             records: RefCell::new(Records::default()),
-            frames: RefCell::new(HashMap::new()),
-            retired_frames: Cell::new(false),
+            frames: RefCell::new(Vec::new()),
         }
     }
 }
 
 impl SessionStore {
-    fn prune_frames(
-        &self,
-        frames: &mut HashMap<SessionId, Vec<ExecutionFrame>>,
-        records: &Records,
-    ) {
-        if self.retired_frames.replace(false) {
-            frames.retain(|id, _| {
-                records
-                    .slots
-                    .get(id.slot)
-                    .is_some_and(|slot| slot.generation == id.generation && slot.state.is_some())
-            });
-        }
-    }
-
     pub(crate) fn insert(
         &self,
         root: LoadedModule,
@@ -83,9 +66,13 @@ impl SessionStore {
         let mut frames = self.frames.try_borrow_mut().map_err(|_| {
             RuntimeError::module_validation("frame stack borrowed across session entry")
         })?;
-        self.prune_frames(&mut frames, &records);
+        let needed = records
+            .slots
+            .len()
+            .saturating_add(1)
+            .saturating_sub(frames.len());
         frames
-            .try_reserve(1)
+            .try_reserve(needed)
             .map_err(|_| RuntimeError::resource_limit("session frames"))?;
         if records.free.is_empty() {
             records
@@ -107,7 +94,8 @@ impl SessionStore {
             generation: slot.generation,
         };
         slot.state = Some(SessionState::new(id, root, options, baseline, program));
-        frames.insert(id, Vec::new());
+        frames.resize_with(records.slots.len(), Vec::new);
+        debug_assert!(frames[index].is_empty());
         Ok(id)
     }
 
@@ -126,16 +114,13 @@ impl SessionStore {
 
     pub(crate) fn frames(&self, id: SessionId) -> Option<Ref<'_, Vec<ExecutionFrame>>> {
         self.get(id)?;
-        Ref::filter_map(self.frames.try_borrow().ok()?, |frames| frames.get(&id)).ok()
+        Ref::filter_map(self.frames.try_borrow().ok()?, |frames| frames.get(id.slot)).ok()
     }
 
     pub(crate) fn frames_mut(&self, id: SessionId) -> Option<RefMut<'_, Vec<ExecutionFrame>>> {
         self.get(id)?;
-        let mut frames = self.frames.try_borrow_mut().ok()?;
-        if self.retired_frames.get() {
-            self.prune_frames(&mut frames, &self.records.borrow());
-        }
-        RefMut::filter_map(frames, |frames| frames.get_mut(&id)).ok()
+        let frames = self.frames.try_borrow_mut().ok()?;
+        RefMut::filter_map(frames, |frames| frames.get_mut(id.slot)).ok()
     }
 
     /// Detach records before dropping them; their members may release other resources.
@@ -148,7 +133,7 @@ impl SessionStore {
         // An immutable view of a different session must not postpone semantic
         // cleanup. Only an empty bucket may wait for the next mutable access;
         // roots, program leases and session state are detached immediately.
-        if frames.is_none() && !self.frames.try_borrow().ok()?.get(&id)?.is_empty() {
+        if frames.is_none() && !self.frames.try_borrow().ok()?.get(id.slot)?.is_empty() {
             return None;
         }
         let slot = records.slots.get_mut(id.slot)?;
@@ -157,11 +142,8 @@ impl SessionStore {
         }
         let state = slot.state.take()?;
         let frames = match frames.as_mut() {
-            Some(frames) => frames.remove(&id).expect("session owns its frame stack"),
-            None => {
-                self.retired_frames.set(true);
-                Vec::new()
-            }
+            Some(frames) if !frames[id.slot].is_empty() => mem::take(&mut frames[id.slot]),
+            Some(_) | None => Vec::new(),
         };
         if let Some(generation) = slot.generation.checked_add(1) {
             slot.generation = generation;

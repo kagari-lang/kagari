@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::{HeapObjectId, roots::RootedValue},
+    gc::{HeapObjectId, custom_keys::KeyLookupRoots, roots::RootedValue},
     native::{
         binding::NativeResult, conversion::context::ConversionContext,
         function_handle::PreparedFunction, typed::NativeContext,
@@ -132,7 +132,7 @@ impl HashHandle {
         let roots = heap
             .root_execution_values(vec![collection.clone(), key.clone()])
             .ok_or_else(|| RuntimeError::module_validation("key lookup retention"))?;
-        let _lookup = heap.begin_key_lookup(collection, &roots)?;
+        let _lookup = heap.begin_key_lookup(collection, KeyLookupRoots::Host(&roots))?;
         let hash = protocol.hash.call_values(cx, slice::from_ref(key))?;
         let Some(Value::I64(hash)) = hash.value(heap) else {
             return Err(RuntimeError::module_validation("Hash result must be i64"));

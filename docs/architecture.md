@@ -564,7 +564,7 @@ The active [runtime ownership and host object API](runtime-ownership-and-host-ap
 replaces distributed Rc ownership with central checked stores and automatic host
 leases, and targets exclusive execution in a Send runtime. It also owns typed
 registration, managed object mutation and checked host function/trait calls. The
-following paragraphs describe the implemented baseline until GO phases land.
+following paragraphs describe the implemented GO baseline and IP01 execution storage.
 
 The runtime owns values, the script GC heap, explicit roots, host registry,
 module versions, installed native code owners and execution sessions. The VM
@@ -574,8 +574,15 @@ checked typed paths rather than retained Rust references or reflective field loo
 See [runtime](spec/runtime.md), [host interop](spec/host-interop.md) and
 [typed path mutation](spec/typed-path-mutation.md).
 
-Root values live in a heap-owned generational table. Host/frame/debug handles carry
-Arc leases and checked root identities; value access requires the owning heap.
+Persistent root values live in a heap-owned generational table. Host/debug handles
+carry Arc leases and checked root identities; value access requires the owning heap.
+Execution values instead occupy reusable contiguous runtime-owned frame windows.
+GC traces these windows and their program/environment edges, including suspended
+callers, independently of host leases. Session frames use indexed storage; transient
+interpreter cursors borrow the checked frame, session and operand window once,
+without a session/root-table lookup for each operand. Cursors are released before
+GC, observation, calls and reentry; bounds, publication and sticky termination
+checks remain enforced. Window generation checks reject expired native views.
 Leases can move across threads and outlive runtime teardown without owning heap
 storage. Runtime owns session, frame, program and executable metadata stores by
 value. Borrowed execution/host scopes prevent owner replacement during execution

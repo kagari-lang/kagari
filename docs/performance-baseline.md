@@ -7,6 +7,53 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Execution windows (IP01), 2026-10-06
+
+IP01 replaces per-frame host root leases with a reusable runtime-owned value arena,
+indexed session frame storage and checked operand cursors. GC traces frame windows
+and their program/environment edges; native views retain checked window identities.
+Persistent host roots and safepoint/observer locations remain unchanged. The cursor
+pins its session record and reads sticky termination directly. Root diagnostics count
+both storage classes; trap/quarantine cleanup assertions remain intact.
+
+Reproduce with `uv run python scripts/benchmark_lua.py --interpreter-only`.
+Candidate is the IP01 production diff over `b99702b2`; baseline production is
+`97804fe7` in the post-GO06 measurement below. Both use the same matched sources,
+M1 Max/32 GiB/macOS 26.6.2, Rust/Cargo 1.98.1, workspace release defaults, SDK
+source/native features with JIT preparation/execution disabled, PUC Lua 5.4.8,
+default target and default Cargo parallelism. These are sequential same-day runs,
+not interleaved baseline/candidate trials. Desktop background activity, core
+placement and frequency remain uncontrolled. Ratios below describe the recorded
+medians, not universal speedup guarantees.
+
+Two sequential candidate processes, three warmups and eleven samples per route per
+process, reverse second-process order: all 308 timed batches and warmup checksums
+pass. No concurrent agent build/test/profile during timing. Compilation, setup and
+linking are excluded; the reused release build took 19.633 seconds. Raw metadata,
+hashes, setup timings and all sample ranges are under ignored
+`target/lua-comparison/20261006T011517Z/results.json` and its sibling logs/CSVs.
+
+All times are microseconds per complete workload (entry per call):
+
+| Workload | IP00 VM | IP01 VM | IP01 Lua | Recorded VM improvement | IP01 VM/Lua |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| entry | 3.097 | 1.820 | 0.029 | 1.70x | 62.41 |
+| arithmetic | 274,713.312 | 115,614.167 | 383.438 | 2.38x | 301.52 |
+| branches | 348,287.125 | 150,262.604 | 830.188 | 2.32x | 181.00 |
+| calls | 94,889.042 | 41,442.812 | 229.437 | 2.29x | 180.63 |
+| fibonacci | 110,080.500 | 50,078.229 | 355.729 | 2.20x | 140.78 |
+| arrays | 66,748.750 | 45,807.938 | 79.020 | 1.46x | 579.70 |
+| maps | 47,415.375 | 30,704.541 | 74.541 | 1.54x | 411.91 |
+
+IP01 does not change opcode counts or the 104-byte Value/136-byte instruction
+headers. Repeated instruction fetch/clone and between-instruction frame/session
+checks remain, along with native retention/type and container allocation costs.
+The remaining 140.78–579.70x nontrivial ratios do not meet Lua parity. IP02 owns
+compact execution representation; IP03 register allocation/calls and IP04 prepared
+native boundaries follow. No new collector, JIT expansion or disabled check accounts
+for the observed improvements. Focused acceptance passed 134 runtime tests and
+296 VM/unit/integration tests; one existing manual performance test stayed ignored.
+
 ## Post-GO06 interpreter baseline, 2026-10-06
 
 [The current Lua comparison](../benchmarks/lua-comparison/README.md#interpreter-baseline-after-go06-2026-10-06)
