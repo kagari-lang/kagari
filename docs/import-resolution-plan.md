@@ -48,32 +48,263 @@ features and Rust macro/multiple-namespace machinery remain separate work.
 Retain the current fixed-point scheduling and round limit in this migration;
 doing so does not resolve SA2 or SA3. No format/ABI bump or new crate is required.
 
-## Target responsibilities
+## Design references
 
-| Data | Responsibility |
+The structural references are pinned to Rust 1.90.0; they guide responsibility
+boundaries, not Kagari language rules:
+
+| Rust reference | Adopted distinction |
 | --- | --- |
-| Import directive | Named/glob syntax, path, optional explicit alias, visibility, spans, resolution status and direct dependency provenance. Grouped leaves remain separate directives. |
-| Scope binding | Nonempty local name, resolved/unresolved/ambiguous state and provenance: explicit import, glob, module declaration, package or prelude. |
-| Namespace catalog | Shared immutable module/associated-namespace member tables, qualified targets, visibility and canonical re-export links. Direct lookup by member name retains multiple candidates for diagnostics. |
-| Resolved source target | Actual module/declaration identity, independent of import-vector positions. Existing host IDs remain host targets. |
+| [ModuleData](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_resolve/src/lib.rs#L572), [NameBindingKind](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_resolve/src/lib.rs#L802) | A module has member resolutions; a binding distinguishes its resolved definition from an import provenance layer. |
+| [ImportKind](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_resolve/src/imports.rs#L62), [ImportData](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_resolve/src/imports.rs#L149) | Import syntax/state retains named/glob distinctions, source ranges and the introducing scope. |
+| [NameResolution](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_resolve/src/imports.rs#L244) | Resolution retains strong and glob candidates rather than choosing whichever was inserted last. |
 
-During graph construction, qualify lowered source handles by file/revision and
-their owning HIR arena where applicable. Reuse the existing definition context and
-table mapping for published semantic facts; do not introduce a second global ID
-registry. A declaration identity alone does not validate a source revision.
+The [Rust compiler guide](https://rustc-dev-guide.rust-lang.org/name-resolution.html)
+provides broader context. Here, a namespace means a member container. Rust's
+type/value/macro namespace partition, macros, arena-pointer ownership and solver
+scheduling are not imported into this migration. Kagari visibility and shadowing
+remain governed by its module specification.
 
-Publish the namespace catalog with the analysis snapshot. Resolver contexts share
-it alongside local bindings; the catalog must not own a back-reference to its
-resolver contexts. Lookup receives the importer context, so shared tables never
-reuse another importer's visibility-filtered result. Keep direct dependency and
-navigation edges separate from canonical targets. Move array-interface metadata
-to the existing catalog/declaration environment rather than coupling it to imports.
+## Required data model
+
+The following Rust-shaped declarations specify keys, ownership and enum cases;
+imports/derives are omitted. Implement these distinctions directly, with no old
+model adapter. Naming/container refinements must retain these contracts and be
+recorded in the roadmap ledger. Keep visibility private unless an actual existing
+consumer requires otherwise; no forwarding modules or new re-exports.
+
+### Qualified targets
+
+```rust
+struct SourceUnit {
+    module: ModuleIdentity,
+    file: FileId,
+    revision: Revision,
+    arena: HirArenaId,
+}
+enum SourceItem {
+    Function(FunctionId), Const(ConstId), Struct(StructId), Enum(EnumId),
+    OpaqueType(OpaqueTypeId), Trait(TraitId), Variant(VariantId),
+}
+struct SourceDeclRef { unit: SourceUnit, item: SourceItem }
+enum NamespaceId {
+    Module(SourceUnit),
+    Associated(SourceDeclRef),
+    Host(HostModuleId),
+    InstalledPrefix(ModuleIdentity),
+}
+enum ResolvedTarget {
+    Namespace(NamespaceId), Source(SourceDeclRef),
+    HostFunction(HostFunctionId), HostType(HostTypeId),
+}
+```
+
+`SourceUnit` identifies one immutable lowering, using `LoweredModule.source` and
+`module.body.arena()`. Inline-module targets use the child's lowered source identity;
+physical navigation uses its source map. Validate module/file/revision/arena before
+dereferencing an item. A declaration reference cannot contain `Import(usize)` or a
+module-declaration index. Source type namespaces derive from the existing checked
+enum/type-alias/inherent-member rules; type-relative resolution stays in type checking.
+
+`InstalledPrefix` represents only prefixes admitted by current installed-package
+lookup, including a package root without a physical source module. It is a catalog
+node, never an import directive. Keep existing host IDs/providers and host-revision
+invalidation. Reuse `DefinitionContext`/`DefinitionTable` to map source declarations
+to published semantic identities; no second global ID registry is introduced.
+
+Replace `ResolvedName::SourceImport`/`SourceItem` with source/namespace target cases.
+Local function/type and lexical local/parameter cases remain; qualification uses
+their owning `SourceUnit`. Module path bindings resolve directly to `NamespaceId`;
+the local `ModuleId` survives only as declaration provenance. Update Copy-dependent
+consumers to borrow/clone these qualified values rather than inventing unqualified
+numeric handles. No target stores an alias, directive ID or copied member map.
+At the resolver boundary, a source target from the current lowering projects to
+its existing local `ResolvedName` case; foreign targets retain the qualified ref.
+Both map to the same published declaration identity. Store use-site `LookupHit`
+provenance alongside existing reference/source-map facts, including resolved path
+prefixes; it is not part of the canonical target or the shared declaration cache.
+
+### Directives and scope bindings
+
+```rust
+struct DirectiveId { unit: SourceUnit, slot: u32 }
+struct LocalName(String); // Private field; checked nonempty single-component name.
+enum ImportKind { Named { alias: Option<LocalName> }, Glob }
+enum DirectiveResolution {
+    Pending, Resolved(ResolvedTarget), Unresolved, Ambiguous,
+}
+struct ImportDirective {
+    id: DirectiveId,
+    path: String,
+    kind: ImportKind,
+    span: FileSpan,
+    root_span: FileSpan,
+    visibility: Visibility,
+    resolution: DirectiveResolution,
+    direct_dependencies: BTreeSet<ModuleIdentity>,
+}
+enum BindingOrigin {
+    Declaration(SourceDeclRef),
+    ModuleDeclaration { unit: SourceUnit, module: ModuleId },
+    NamedImport(DirectiveId), GlobImport(DirectiveId),
+    Package(PackageId), Prelude(NamespaceId),
+}
+struct BindingCandidate {
+    target: Option<ResolvedTarget>,
+    origin: BindingOrigin,
+    owner: ModuleIdentity,
+    visibility: Visibility,
+    location: Option<FileSpan>,
+}
+struct NameEntry {
+    strong: Vec<BindingCandidate>,
+    globs: Vec<BindingCandidate>,
+    implicit: Vec<BindingCandidate>,
+}
+struct ModuleImportFacts {
+    directives: Vec<ImportDirective>,
+    scope: Arc<NameTable>,
+    diagnostics: Vec<Diagnostic>,
+    dependencies: Vec<ModuleIdentity>,
+}
+```
+
+Each flattened syntactic import leaf gets a directive, preserving its path roots
+(`self`/`super`/`crate`), leaf range and enclosing use-tree range. An absent named
+alias derives its binding name from existing lowering rules. A glob has no alias
+field; it introduces admitted immediate members, not a name for the glob itself.
+Use existing identifier rules for `LocalName`; a path such as `core::ops` is not a
+scope key. Extend lowering/source-map facts if root ranges or explicit-alias presence
+are lost.
+
+Extend the existing `NameTable` to map `LocalName` to `NameEntry`; keep its impl
+inventory and lexical `ScopeBinding` separate. Strong candidates are declarations,
+module declarations and named imports; globs are weaker, package/prelude candidates
+are weakest. Presence in a stronger tier blocks fallback even when unresolved or
+ambiguous. Strong collisions remain errors even for equal targets. Equal canonical
+glob targets resolve once while retaining all origins; distinct targets are ambiguous.
+Filter glob admission/re-exports under existing visibility rules, not insertion order.
+
+Published facts contain no `Pending` resolution: retain unresolved/ambiguous
+diagnostics when the existing solver stops. A missing target reserves the known
+binding name. Package/prelude/module bindings have no fabricated directive.
+Directive IDs address source/provenance only. Dependencies include syntactic facade
+edges and unused imports, not just final canonical targets; module declarations and
+implicit installed bindings contribute their existing edges independently.
+Installed-prefix bindings retain the currently admitted source-module dependency
+set; a synthetic prefix is not a registered graph node or a replacement for those edges.
+
+### Shared catalog and lookup
+
+```rust
+struct NamespaceTable {
+    owner: ModuleIdentity,
+    names: Arc<NameTable>,
+    glob_allowed: bool,
+}
+struct NamespaceCatalog {
+    modules: BTreeMap<ModuleIdentity, Vec<SourceUnit>>,
+    namespaces: HashMap<NamespaceId, NamespaceTable>,
+    package_aliases: BTreeMap<String, BTreeSet<PackageId>>,
+}
+struct LookupHit { target: ResolvedTarget, via: Vec<BindingOrigin> }
+enum LookupResult {
+    Found(LookupHit), Missing, Unresolved,
+    Ambiguous(Vec<BindingCandidate>), Inaccessible(Vec<BindingCandidate>),
+    NotNamespace, StaleSource,
+}
+enum NamespaceResult { Found(NamespaceId), NotNamespace, StaleSource }
+```
+
+Module namespace tables share the same `Arc<NameTable>` as their module facts.
+Associated tables store immediate member spellings, not flattened `Enum::Variant`
+strings. Preserve existing enum-glob eligibility and associated-method policy.
+Duplicate logical module identities retain diagnostics/candidates instead of being
+silently overwritten. Host namespaces delegate to `HostDeclarations`.
+
+`ModuleGraph` owns `Arc<NamespaceCatalog>` alongside nodes containing
+`Arc<ModuleImportFacts>`; the analysis snapshot owns that graph. Declaration/body
+resolver contexts borrow/share the catalog and local names. Catalogs contain no
+resolver, snapshot, import-facts or parent-Arc back-reference. Member tables are
+unfiltered: each lookup receives the importer's module and current host provider.
+Array-interface metadata remains in the existing declaration environment.
+
+Required lookup interfaces, with importer/hosts passed in a `LookupContext`:
+
+```rust
+fn lookup_member(&self, ctx: &LookupContext, ns: &NamespaceId, name: &str,
+                 cancel: &CancellationToken) -> Result<LookupResult, Cancelled>;
+fn namespace_of(&self, ctx: &LookupContext, target: &ResolvedTarget,
+                cancel: &CancellationToken) -> Result<NamespaceResult, Cancelled>;
+fn resolve_path(&self, ctx: &LookupContext, root: LookupResult, suffix: &str,
+                cancel: &CancellationToken) -> Result<LookupResult, Cancelled>;
+```
+
+`LookupContext` contains the importer `ModuleIdentity` and a borrowed current
+`HostDeclarations`. The caller resolves the first component with existing
+lexical/module/root rules and passes that result plus the remaining path to
+`resolve_path`; unresolved/ambiguous/local-value prefixes block package/helper
+fallback. For each remaining component, enter `namespace_of(target)` and do a keyed
+member lookup, checking access and cancellation. A non-namespace stops with
+`NotNamespace`; existing type-relative recovery remains with the type checker. Return the
+canonical target plus selected provenance; ambiguity/inaccessibility stay diagnostic
+states, not a generic missing result. Runtime field/method access remains outside
+this namespace-path API.
+
+During the existing fixed-point build, use mutable draft tables and explicit pending
+re-export edges keyed by directive IDs. Finalize them to canonical targets with
+cycle guards and publish immutable facts; never recursively canonicalize unchecked
+cycles. Preserve the current round policy, including its documented SA3 limitation.
+A public facade entry checks its own visibility and the original target's permitted
+export visibility; do not re-check a hidden implementation path as if the caller
+had spelled it. Preserve direct export edges in origins/dependencies.
+
+### Concrete lookup and consumer replacement
+
+For `use pkg::m; fn main() -> i32 { m::nested::value() }`, with public `nested`
+and `value`, the stored facts are:
+
+| Location | Stored fact |
+| --- | --- |
+| Root directives | D0: named `pkg::m`, no explicit alias, resolved namespace M. |
+| Root name table | `m` -> namespace M, origin `NamedImport(D0)`. |
+| Catalog M | `nested` -> namespace N, origin `ModuleDeclaration`. |
+| Catalog N | `value` -> qualified function F, origin `Declaration(F)`. |
+
+Lookup is `scope["m"] -> M["nested"] -> N["value"] -> F`. The root has no
+`nested` binding or helper import. `use pkg::m::nested::value as v` binds `v` to
+the same F with its own directive/provenance; both calls use one checked function
+signature keyed by F, without copying namespace members into either directive.
+
+| Old representation/API | Required replacement |
+| --- | --- |
+| `SourceImport { item, members, ... }`, `SourceItem { import, item }` | Qualified source/namespace targets; source item kind excludes imports. |
+| `module_aliases`, `namespace_entries`, `internal_namespace` | Module declaration bindings and direct catalog lookup; delete helper entries/maps. |
+| `glob_root`, `implicit_module` | Explicit directive kinds and `BindingOrigin` cases. |
+| `resolve_member(import_index, path)`, `resolve_export(SourceImport)` | Catalog lookup and canonical final targets; builder export edges remain provenance only. |
+| Imported function/type maps keyed by import-dependent `ResolvedName` | Qualified declaration keys; local alias lookup belongs only to `NameTable`. |
+| `SourceFunctionId`/`SourceTypeId` | Reuse/project qualified source refs, validating their unit before signature/type access. |
+| `source_import_at` | Replace with `source_target_at` returning the canonical hit plus provenance; migrate navigation/docs/tests directly. |
+
+Keep existing DefinitionId-keyed nominal/method projections; replace only their
+alias/import-dependent resolution keys. Place target/directive/catalog facts under
+`imports/`, name-entry policy under `resolver/table.rs`, query adaptation under
+`analysis/` and semantic identity mapping under `declarations.rs`.
+
+Cache comparisons include target units, namespace surfaces, visibility, ambiguity,
+dependency edges and host revision. Conservatively invalidate changed dependents;
+retained snapshots keep their own catalogs. Existing arena/table remapping is the
+only route for reusing facts against another lowering. Never compare aliases alone.
 
 ## IR01: Replace namespace lookup and target identities
 
 - Build the snapshot namespace catalog from the existing source catalog/module
   graph. Include source modules, module re-exports and existing enum/associated
   member behavior; keep declared host lookup through its existing provider.
+- Introduce qualified targets, candidate-based `NameTable`, binding origins and
+  catalog lookup; migrate the consumer replacements above. Real-import records may
+  remain for IR02 syntax production, already storing qualified targets and syntactic
+  directive provenance. They cannot act as namespace identities.
 - Replace `resolve_member(import_index, path)` with namespace-based lookup.
   Resolve each path component with visibility, ambiguity and cancellation checks.
 - Migrate `ResolvedName`, declaration collection, body resolution, imported
@@ -101,9 +332,12 @@ and affected lowering under `crates/kagari-compiler/src/source/`.
   with their own provenance. Keep local/explicit precedence over globs.
 - Keep directive IDs only for source provenance and export edges, never for
   namespace/declaration identity. Preserve grouped-leaf and root source ranges.
+- Cut over the syntax/state producer to `ImportDirective` and publish
+  `ModuleImportFacts`; retain the shared tables introduced in IR01 and remove the
+  remaining `ResolvedImport` model.
 - Build dependency edges from actual declarations/directives and implicit package
   bindings, including unused imports. Preserve deterministic reachable ordering.
-- Update `source_import_at`, definition/navigation queries and public re-export
+- Complete `source_target_at`, definition/navigation queries and public re-export
   consumers to the intended model, then remove obsolete record types and branches.
 
 Acceptance: every scope binding has a real name; every directive represents real
@@ -136,6 +370,15 @@ existing semantics and source attribution.
 | Associated namespaces | Enum variants, constructors, type aliases and existing associated method resolution. |
 | Dependencies and recovery | Unused imports remain reachable; legal module cycles, unresolved re-export cycles and cancellation terminate as before. |
 | Snapshots and tooling | Overlay add/remove, stale target rejection, unchanged/transitive callers, old snapshots and physical navigation locations. |
+
+Extend existing `definition_queries_distinguish_modules_and_follow_source_facades`,
+`associated_methods_respect_owner_visibility_and_type_aliases`,
+`shared_facade_resolution_rejects_stale_targets_and_terminates_cycles` and
+`facade_signature_changes_invalidate_unchanged_transitive_callers` in the import
+test modules. Add missing deep-alias coverage: qualified and direct leaf calls
+agree, an unqualified child name remains unresolved, and different owners' same-named
+leaves remain distinct. Keep unresolved strong imports blocking a valid glob/prelude
+candidate. These are observable identity/lookup tests, not struct-layout assertions.
 
 ## Checkpoints and validation
 

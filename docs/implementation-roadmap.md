@@ -44,9 +44,10 @@ remain independent findings, including the current iteration-limit concern.
 - [ ] **IR03:** Verify snapshot invalidation, tooling and source/artifact/native
   consumers; complete final checks and update implemented architecture.
 
-Ledger: plan prepared; all implementation phases pending. No implementation checks
-have been attempted for this track. Phase commits use `Import-Phase: IR01` through
-`Import-Phase: IR03` as specified in the plan.
+Ledger: design ready, with required target/binding/catalog models, lookup contracts
+and fixed-version Rust references. All implementation phases remain pending; no
+implementation checks have been attempted. Phase commits use `Import-Phase: IR01`
+through `Import-Phase: IR03` as specified in the plan.
 
 ### Interpreter performance follow-up
 
