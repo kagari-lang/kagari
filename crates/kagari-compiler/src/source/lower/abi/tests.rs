@@ -1,4 +1,5 @@
-use super::collect_module_abi;
+use super::{collect_module_abi, const_abi_value};
+use crate::source::lower::support::lower_scalar;
 use kagari_common::identity::associated_type_id;
 use kagari_contract::{
     types as abi,
@@ -6,8 +7,9 @@ use kagari_contract::{
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
-    native::NativeBinding as HirNativeBinding,
+    native::NativeBinding as HirNativeBinding, typeck::scalar::ScalarValue,
 };
+use kagari_mir::instruction::Constant;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
@@ -17,9 +19,70 @@ use kagari_types::{
     },
     language as traits,
     language::Protocol,
+    scalar::IntegerType,
     ty::{NominalTy, Ty, inheritance::trait_closure},
 };
 use std::collections::BTreeMap;
+
+#[test]
+fn unified_integers_preserve_constant_encoding_and_physical_lowering() {
+    for (ty, value, encoded, constant) in [
+        (
+            IntegerType::I8,
+            -128,
+            "const-v2:i8:-128",
+            Constant::I32(-128),
+        ),
+        (
+            IntegerType::I16,
+            -32768,
+            "const-v2:i16:-32768",
+            Constant::I32(-32768),
+        ),
+        (IntegerType::I32, 42, "const-v1:i32:42", Constant::I32(42)),
+        (
+            IntegerType::I64,
+            i128::from(i64::MIN),
+            "const-v2:i64:-9223372036854775808",
+            Constant::I64(i64::MIN),
+        ),
+        (
+            IntegerType::ISize,
+            i128::from(i64::MAX),
+            "const-v2:isize:9223372036854775807",
+            Constant::I64(i64::MAX),
+        ),
+        (IntegerType::U8, 255, "const-v2:u8:255", Constant::I64(255)),
+        (
+            IntegerType::U16,
+            65535,
+            "const-v2:u16:65535",
+            Constant::I64(65535),
+        ),
+        (
+            IntegerType::U32,
+            i128::from(u32::MAX),
+            "const-v2:u32:4294967295",
+            Constant::I64(i64::from(u32::MAX)),
+        ),
+        (
+            IntegerType::U64,
+            i128::from(u64::MAX),
+            "const-v2:u64:18446744073709551615",
+            Constant::U64(u64::MAX),
+        ),
+        (
+            IntegerType::USize,
+            i128::from(u64::MAX),
+            "const-v2:usize:18446744073709551615",
+            Constant::U64(u64::MAX),
+        ),
+    ] {
+        let scalar = ScalarValue::integer(value, ty).unwrap();
+        assert_eq!(const_abi_value(&scalar), encoded);
+        assert_eq!(lower_scalar(scalar), constant);
+    }
+}
 
 #[test]
 fn installed_native_declarations_keep_public_representation_and_payload_contracts() {

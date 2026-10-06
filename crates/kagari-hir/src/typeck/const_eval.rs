@@ -16,11 +16,12 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    arithmetic, arithmetic::IntegerBinaryOp, integer, integer::IntegerOp, scalar::BuiltinType,
-};
+use kagari_types::{arithmetic::IntegerBinaryOp, integer, integer::IntegerOp, scalar::IntegerType};
 use smallvec::SmallVec;
 use std::collections::HashMap;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn evaluate_constants(
     lowered: &LoweredModule,
@@ -108,17 +109,14 @@ impl Evaluator<'_> {
                 return self.expression(owner, *expr)?.cast_numeric(target);
             }
             ExprKind::Prefix { op, expr } => match (op, self.expression(owner, *expr)?) {
-                (PrefixOp::Neg, ScalarValue::I32(value)) => arithmetic::i32_neg(value)
-                    .map(ScalarValue::I32)
-                    .map_err(|error| error.message()),
                 (PrefixOp::Neg, ScalarValue::F32(value)) => Ok(ScalarValue::F32(-value)),
                 (PrefixOp::Neg, ScalarValue::F64(value)) => Ok(ScalarValue::F64(-value)),
                 (PrefixOp::Neg, ScalarValue::Integer { value, ty }) => {
-                    ScalarValue::integer(-value, ty)
+                    integer_value(IntegerOp::CheckedSub, 0, value, ty)
                 }
                 (PrefixOp::Not, ScalarValue::Bool(value)) => Ok(ScalarValue::Bool(!value)),
-                (PrefixOp::Not, value) => {
-                    scalar_bits(IntegerOp::BitNot, value, ScalarValue::I32(0))?
+                (PrefixOp::Not, ScalarValue::Integer { value, ty }) => {
+                    integer_value(IntegerOp::BitNot, value, 0, ty)
                 }
                 _ => return None,
             },
@@ -175,9 +173,6 @@ fn binary(
     };
     if let Some(op) = arithmetic_op {
         return Some(match (lhs, rhs) {
-            (ScalarValue::I32(lhs), ScalarValue::I32(rhs)) => arithmetic::i32_binary(op, lhs, rhs)
-                .map(ScalarValue::I32)
-                .map_err(|error| error.message()),
             (ScalarValue::F32(lhs), ScalarValue::F32(rhs)) => Ok(ScalarValue::F32(match op {
                 IntegerBinaryOp::Add => lhs + rhs,
                 IntegerBinaryOp::Sub => lhs - rhs,
@@ -199,23 +194,14 @@ fn binary(
                     ty: right,
                 },
             ) if ty == right => {
-                if matches!(op, IntegerBinaryOp::Rem)
-                    && ty.integer_layout().is_some_and(|(bits, signed)| {
-                        signed && lhs == integer::bounds(bits, signed).0 && rhs == -1
-                    })
-                {
-                    return Some(Err("integer overflow"));
-                }
-                let value = match op {
-                    IntegerBinaryOp::Add => lhs.checked_add(rhs),
-                    IntegerBinaryOp::Sub => lhs.checked_sub(rhs),
-                    IntegerBinaryOp::Mul => lhs.checked_mul(rhs),
-                    IntegerBinaryOp::Div => lhs.checked_div(rhs),
-                    IntegerBinaryOp::Rem => lhs.checked_rem(rhs),
+                let op = match op {
+                    IntegerBinaryOp::Add => IntegerOp::CheckedAdd,
+                    IntegerBinaryOp::Sub => IntegerOp::CheckedSub,
+                    IntegerBinaryOp::Mul => IntegerOp::CheckedMul,
+                    IntegerBinaryOp::Div => IntegerOp::CheckedDiv,
+                    IntegerBinaryOp::Rem => IntegerOp::CheckedRem,
                 };
-                value
-                    .ok_or("integer overflow or division by zero")
-                    .and_then(|value| ScalarValue::integer(value, ty))
+                integer_value(op, lhs, rhs, ty)
             }
             _ => return None,
         });
@@ -239,7 +225,6 @@ fn binary(
             BinaryOp::NotEq => false,
             _ => return None,
         },
-        (ScalarValue::I32(lhs), ScalarValue::I32(rhs)) => compare!(lhs, rhs),
         (ScalarValue::F32(lhs), ScalarValue::F32(rhs)) => compare!(lhs, rhs),
         (ScalarValue::F64(lhs), ScalarValue::F64(rhs)) => compare!(lhs, rhs),
         (
@@ -267,16 +252,22 @@ fn scalar_bits(
     lhs: ScalarValue,
     rhs: ScalarValue,
 ) -> Option<Result<ScalarValue, &'static str>> {
-    let unpack = |v| match v {
-        ScalarValue::I32(v) => Some((i128::from(v), BuiltinType::I32)),
-        ScalarValue::Integer { value, ty } => Some((value, ty)),
-        _ => None,
+    let ScalarValue::Integer { value: lhs, ty } = lhs else {
+        return None;
     };
-    let (lhs, ty) = unpack(lhs)?;
-    let (rhs, _) = unpack(rhs)?;
-    let (bits, signed) = ty.integer_layout()?;
-    Some(
-        integer::integer_operation(op, lhs, rhs, bits, signed)
-            .and_then(|v| ScalarValue::integer(v, ty)),
-    )
+    let ScalarValue::Integer { value: rhs, .. } = rhs else {
+        return None;
+    };
+    Some(integer_value(op, lhs, rhs, ty))
+}
+
+fn integer_value(
+    op: IntegerOp,
+    lhs: i128,
+    rhs: i128,
+    ty: IntegerType,
+) -> Result<ScalarValue, &'static str> {
+    let (bits, signed) = ty.layout();
+    integer::integer_operation(op, lhs, rhs, bits, signed)
+        .and_then(|value| ScalarValue::integer(value, ty))
 }

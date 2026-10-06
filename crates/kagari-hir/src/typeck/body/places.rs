@@ -14,7 +14,11 @@ use crate::{
 };
 use kagari_common::identity::DefinitionPath;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType};
+use kagari_types::{
+    collection::CollectionAccess,
+    language::Protocol,
+    scalar::{BuiltinType, IntegerType},
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn resolve_assignment_target_type(
@@ -449,7 +453,10 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         match scalar {
-            ScalarValue::I32(value) => usize::try_from(*value).ok(),
+            ScalarValue::Integer {
+                value,
+                ty: IntegerType::I32,
+            } => usize::try_from(*value).ok(),
             _ => None,
         }
     }

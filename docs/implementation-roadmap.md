@@ -27,6 +27,35 @@ are implemented. Remaining measured costs and reproduction commands live in
 remains after GO06 final integration. A fresh post-GO06 interpreter baseline is recorded below; the ownership cleanup
 itself has not been compared against its parent on the same machine.
 
+## Scalar fact cleanup (SV01, 2026-10-06)
+
+User-authorized scope: remove the special `ScalarValue::I32` representation and
+restrict integer scalar tags to integer types. This does not activate further
+runtime representation or numeric API migrations.
+
+- [x] **SV01 implementation:** all HIR integers use
+  `Integer { value: i128, ty: IntegerType }`; `kagari-types::scalar` owns the
+  integer-only identity and its width/range mapping. Literals and casts retain
+  checked construction. Constant evaluation uses shared checked integer operations
+  for every width. Range-pattern and tuple-index checks still require i32.
+  Lowering retains existing physical constants and public const encodings.
+- [x] **SV01 validation:** focused types/HIR/compiler tests, full workspace tests
+  and strict all-target Clippy, structure, formatting and diff checks.
+
+Ledger: boundary regressions cover all ten integer types, full u64/usize values,
+casts, checked arithmetic, division/remainder/negation overflow, shifts and
+physical/ABI lowering. The first focused test build overlapped creation of the
+new test modules and failed with E0583 at `typeck/{scalar,const_eval}.rs`;
+the error is resolved after adding both module files. Reproduction: `cargo test
+-p kagari-hir -p kagari-compiler -p kagari-types` now passes 651 tests.
+`cargo test --workspace` passes 1,900 tests across 113 summaries (one existing
+manual benchmark remains ignored). `cargo clippy --workspace --all-targets --
+-D warnings`, `uv run --locked scripts/check_structure.py` (907 Rust files,
+zero violations/exceptions), `cargo fmt --all -- --check` and `git diff --check`
+pass. Structural review retains types/HIR/compiler ownership and explicit
+production imports; no structural debt or carried build/test error remains.
+Use `Roadmap-Step: SV01` for this checkpoint.
+
 ## Interpreter performance follow-up
 
 The user targets interpreted execution at least as fast as Lua on equivalent

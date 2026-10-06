@@ -102,6 +102,11 @@ lowering, not script execution. Backends consume the verified handoff without
 recovering semantics from bytecode or re-resolving syntax. Runtime owns shared
 execution services; the VM supplies the interpreter frame driver.
 
+HIR scalar facts represent every integer, including i32, as an i128 payload with
+an integer-only `kagari-types::scalar::IntegerType` tag. Checked construction
+enforces the selected type's range; constant evaluation uses the shared integer
+operations. Compiler lowering selects physical constants from that checked tag.
+
 Bytecode-owned `VerifiedBytecodeProgram` retains resource-bounded graph verification
 in an immutable, non-serializable value. Consuming artifact validation checks the
 entire open envelope and retains that seal. Native preparation decodes and verifies

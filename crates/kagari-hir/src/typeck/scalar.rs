@@ -3,15 +3,22 @@ use crate::{
     types::TypeId,
 };
 use kagari_source::literal;
-use kagari_types::{numeric, numeric::Number, scalar::BuiltinType, surface::builtin_type};
+use kagari_types::{
+    numeric,
+    numeric::Number,
+    scalar::{BuiltinType, IntegerType},
+    surface::builtin_type,
+};
+
+#[cfg(test)]
+mod tests;
 
 /// A checked scalar fact shared by literals, const evaluation and code generation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScalarValue {
     Unit,
     Bool(bool),
-    I32(i32),
-    Integer { value: i128, ty: BuiltinType },
+    Integer { value: i128, ty: IntegerType },
     F32(f32),
     F64(f64),
     String(String),
@@ -22,8 +29,7 @@ impl ScalarValue {
         TypeId::Builtin(match self {
             Self::Unit => BuiltinType::Unit,
             Self::Bool(_) => BuiltinType::Bool,
-            Self::I32(_) => BuiltinType::I32,
-            Self::Integer { ty, .. } => *ty,
+            Self::Integer { ty, .. } => ty.builtin_type(),
             Self::F32(_) => BuiltinType::F32,
             Self::F64(_) => BuiltinType::F64,
             Self::String(_) => BuiltinType::String,
@@ -62,17 +68,10 @@ impl ScalarValue {
         });
         match literal.kind {
             LiteralKind::Number => {
-                let ty = suffix_type.or(expected).unwrap_or(BuiltinType::I32);
-                if negative
-                    && matches!(
-                        ty,
-                        BuiltinType::U8
-                            | BuiltinType::U16
-                            | BuiltinType::U32
-                            | BuiltinType::U64
-                            | BuiltinType::USize
-                    )
-                {
+                let ty =
+                    IntegerType::from_builtin(suffix_type.or(expected).unwrap_or(BuiltinType::I32))
+                        .ok_or("integer literal requires an integer type")?;
+                if negative && !ty.layout().1 {
                     return Err("unsigned integers do not support negation");
                 }
                 let value = i128::from(literal::parse_integer_literal(&literal.text)?);
@@ -106,18 +105,12 @@ impl ScalarValue {
         }
     }
 
-    pub fn integer(value: i128, ty: BuiltinType) -> Result<Self, &'static str> {
-        let (min, max) = ty
-            .integer_bounds()
-            .ok_or("integer literal requires an integer type")?;
+    pub fn integer(value: i128, ty: IntegerType) -> Result<Self, &'static str> {
+        let (min, max) = ty.bounds();
         if !(min..=max).contains(&value) {
             return Err("integer literal is outside the target type range");
         }
-        if ty == BuiltinType::I32 {
-            Ok(Self::I32(value as i32))
-        } else {
-            Ok(Self::Integer { value, ty })
-        }
+        Ok(Self::Integer { value, ty })
     }
 }
 
@@ -131,14 +124,13 @@ impl ScalarValue {
         }
         let input = match self {
             Self::Bool(v) => Number::Integer(i128::from(v)),
-            Self::I32(v) => Number::Integer(i128::from(v)),
             Self::Integer { value, .. } => Number::Integer(value),
             Self::F32(v) => Number::F32(v),
             Self::F64(v) => Number::F64(v),
             _ => return None,
         };
         Some(match numeric::cast(input, target.number_type()?) {
-            Number::Integer(v) => Self::integer(v, target).ok()?,
+            Number::Integer(v) => Self::integer(v, IntegerType::from_builtin(target)?).ok()?,
             Number::F32(v) => Self::F32(v),
             Number::F64(v) => Self::F64(v),
         })

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{declarations::DeclarationId, tests::test_analysis, typeck::scalar::ScalarValue};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::scalar::BuiltinType;
+use kagari_types::scalar::{BuiltinType, IntegerType};
 
 #[test]
 fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes() {
@@ -84,7 +84,7 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
             .typed
             .const_values
             .values()
-            .any(|value| value == &ScalarValue::I32(42))
+            .any(|value| value == &ScalarValue::integer(42, IntegerType::I32).unwrap())
     );
     assert!(
         analysis
@@ -93,6 +93,6 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
             .typed
             .const_values
             .values()
-            .any(|value| value == &ScalarValue::I32(21))
+            .any(|value| value == &ScalarValue::integer(21, IntegerType::I32).unwrap())
     );
 }

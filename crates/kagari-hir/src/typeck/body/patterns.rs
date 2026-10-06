@@ -97,8 +97,7 @@ impl<'a> BodyChecker<'a> {
                 let start = self.resolve_pattern_bound(start, span);
                 let end = self.resolve_pattern_bound(end, span);
                 if let (Some(start), Some(end)) = (start, end) {
-                    if !matches!(start, ScalarValue::I32(_)) || !matches!(end, ScalarValue::I32(_))
-                    {
+                    if start.ty() != integer || end.ty() != integer {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
                                 expected: "i32 bounds".into(),

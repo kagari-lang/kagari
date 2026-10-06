@@ -26,6 +26,7 @@ use kagari_types::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl,
         NativeDeclaration, Param, TraitDef, TypeDef, TypeDefKind, VariantDef,
     },
+    scalar::IntegerType,
     ty::{Constraint, GenericBound, GenericParam, Ty},
     visibility::Visibility,
 };
@@ -38,9 +39,15 @@ fn const_abi_value(value: &ScalarValue) -> String {
     match value {
         ScalarValue::Unit => "const-v1:unit".to_owned(),
         ScalarValue::Bool(value) => format!("const-v1:bool:{}", u8::from(*value)),
-        ScalarValue::I32(value) => format!("const-v1:i32:{value}"),
+        ScalarValue::Integer {
+            value,
+            ty: IntegerType::I32,
+        } => format!("const-v1:i32:{value}"),
         ScalarValue::Integer { value, ty } => {
-            format!("const-v2:{}:{value}", TypeId::Builtin(*ty).display_name())
+            format!(
+                "const-v2:{}:{value}",
+                TypeId::Builtin(ty.builtin_type()).display_name()
+            )
         }
         ScalarValue::F32(value) => format!("const-v1:f32:{:08x}", value.to_bits()),
         ScalarValue::F64(value) => format!("const-v2:f64:{:016x}", value.to_bits()),
