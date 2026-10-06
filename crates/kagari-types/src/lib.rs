@@ -9,6 +9,7 @@ pub mod host_interface;
 pub mod integer;
 pub mod language;
 pub mod numeric;
+pub mod payload;
 pub mod range;
 pub mod scalar;
 pub mod surface;

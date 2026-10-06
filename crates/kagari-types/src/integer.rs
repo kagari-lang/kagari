@@ -1,5 +1,5 @@
 //! Fixed-width integer operations shared by constant evaluation and execution.
-use crate::arithmetic::ArithmeticError;
+use crate::arithmetic::{self, ArithmeticError, IntegerBinaryOp};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +18,7 @@ pub enum IntegerOp {
 }
 
 /// Preserve the low bits and interpret the result in the destination domain.
+#[inline]
 pub fn wrap(value: i128, bits: u32, signed: bool) -> i128 {
     let modulus = 1i128 << bits;
     let value = value & (modulus - 1);
@@ -28,6 +29,7 @@ pub fn wrap(value: i128, bits: u32, signed: bool) -> i128 {
     }
 }
 
+#[inline]
 pub fn integer_operation(
     op: IntegerOp,
     lhs: i128,
@@ -47,25 +49,16 @@ pub fn integer_operation(
         | IntegerOp::CheckedMul
         | IntegerOp::CheckedDiv
         | IntegerOp::CheckedRem => {
-            let method = match op {
-                IntegerOp::CheckedAdd => IntegerMethod::CheckedAdd,
-                IntegerOp::CheckedSub => IntegerMethod::CheckedSub,
-                IntegerOp::CheckedMul => IntegerMethod::CheckedMul,
-                IntegerOp::CheckedDiv => IntegerMethod::CheckedDiv,
-                IntegerOp::CheckedRem => IntegerMethod::CheckedRem,
+            let op = match op {
+                IntegerOp::CheckedAdd => IntegerBinaryOp::Add,
+                IntegerOp::CheckedSub => IntegerBinaryOp::Sub,
+                IntegerOp::CheckedMul => IntegerBinaryOp::Mul,
+                IntegerOp::CheckedDiv => IntegerBinaryOp::Div,
+                IntegerOp::CheckedRem => IntegerBinaryOp::Rem,
                 _ => unreachable!(),
             };
-            let (value, overflow) = arithmetic_method(method, lhs, rhs, bits, signed);
-            return if overflow {
-                Err(match (op, rhs) {
-                    (IntegerOp::CheckedDiv, 0) => ArithmeticError::DivisionByZero,
-                    (IntegerOp::CheckedRem, 0) => ArithmeticError::RemainderByZero,
-                    _ => ArithmeticError::Overflow,
-                }
-                .message())
-            } else {
-                Ok(value)
-            };
+            return arithmetic::fixed_binary(op, lhs, rhs, bits, signed)
+                .map_err(ArithmeticError::message);
         }
         IntegerOp::BitAnd => lhs & rhs,
         IntegerOp::BitOr => lhs | rhs,
@@ -123,6 +116,7 @@ impl IntegerMethod {
     }
 }
 
+#[inline]
 pub fn bounds(bits: u32, signed: bool) -> (i128, i128) {
     if signed {
         (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)

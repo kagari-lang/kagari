@@ -435,7 +435,7 @@ no intermediate error may survive final acceptance.
   APIs keep admission validation. Gate: reentry/quarantine, traps, cancellation,
   forced GC, suspended frames, call-depth failure and pinned reload coverage pass;
   profile operand policy work separately from numeric dispatch.
-- [ ] **NE03: Scalar storage and complete prepared numeric dispatch.** Integrate
+- [x] **NE03: Scalar storage and complete prepared numeric dispatch.** Integrate
   scalar/managed frame layout, initialization, tracing and debugger materialization
   across every existing boundary. Prepare and execute all supported scalar operator
   and conversion families. Gate: no known concrete scalar operation falls back to
@@ -584,6 +584,74 @@ integration cost; preserve this regression in the final paired acceptance checks
 Lua parity is not achieved (nontrivial workload ratios 15.40-248.58). Sampling and
 counting run independently from timing; the arithmetic route retains 600,015
 logical instructions and no script allocations/collections. NE03 remains next.
+
+NE03 ledger: sealed preparation now derives disjoint scalar/managed bank locations
+from checked physical frame metadata. Scalar slots store complete u64/IEEE bits
+with explicit initialization, and GC traces only managed Values plus existing
+program/environment roots. Cold APIs materialize Values and admit incoming scalar
+representations/source domains. Frame growth reserves both banks transactionally;
+expired identities, foreign runtimes and all release paths retain their checks.
+Temporary colors cannot cross storage classes. Locals retain fixed debug slots.
+Prepared scalar operands use a separate opaque ScalarSlot type, proving bank class
+once and keeping successful scalar accessors inline while retaining safe bounds
+and initialization checks. Return materialization uses the operand's physical kind;
+shared result/environment validation remains at the normal return boundary.
+Native frames and argument/return adaptation remain general until NE04.
+
+Prepared scalar instructions select concrete payload kernels once, including all
+integer arithmetic/bit/shift domains, mixed-width counts, numeric comparisons,
+f32/f64 operations, negation and all supported casts. No known concrete scalar
+instruction calls Value arithmetic. Shared types arithmetic now uses native-width
+checked kernels at every width; constant evaluation and existing runtime numeric
+helpers consume the same arithmetic rules. Identity/managed comparisons and actual
+unresolved calls retain their boundaries. No executable artifact contains function
+addresses and no source analysis is needed to prepare decoded products.
+Prepared unsigned remainder-by-zero now uses the shared remainder diagnostic,
+correcting the old physical U64 helper's division wording; trap kind, origin and
+ordering remain unchanged. NE04 aligns the native boundary helper with that owner.
+
+Validation: 609 runtime/VM boundary tests pass, one existing manual benchmark is
+ignored and the four unchanged scalar source/source-free matrix tests passed in
+the preceding full run (including the mixed-width kernel update). Types/storage
+checks pass 179 unit tests (38 types plus 141 runtime). New regressions cover every
+integer operation/width pair and mixed-count domain, all casts and float edge bits,
+uninitialized payload rejection, transactional narrow admission and managed-only
+root scanning. Strict types/runtime/VM/benchmark all-target Clippy, formatting,
+structure (916 Rust files, zero violations/exceptions) and diff checks pass.
+The final typed-slot refinement additionally passes all 292 types/runtime/VM unit
+tests and a 23-test shared/interface return rerun. Existing integration results
+remain recorded above; final workspace/backend integration is NE05 work.
+
+The initial full VM run found three closure/capture-cell failures: admission
+mistook a managed cell's content semantic type for a direct scalar slot domain.
+The layout already classified the cell correctly; managed physical admission now
+preserves the independently checked capture-cell content protocol. An attempted
+BoxLocal scan was removed because canonical bytecode uses MakeCell and already
+retains the physical facts. Focused closure/shared-list reruns and the complete
+boundary rerun pass. The new benchmark generator's Rust-style declarations and
+unsupported SDK argument entry were corrected to Kagari var declarations and
+matched zero-argument wrappers. No carried build/test error remains.
+
+Slot footprint on this target: u64 payload 8 bytes, initialization flag 1 byte,
+shared Location 8 bytes and active Window metadata 96 bytes. The arithmetic frame
+uses nine scalar slots and no managed slots (81 payload/initialization bytes versus
+288 boxed-slot bytes previously); fixed frame/window headers, retained capacity
+and shared metadata are separate, not claimed as zero. Measurement commands and
+current timings are recorded in the performance report. NE04 owns typed transfers;
+Lua parity is still unachieved.
+
+NE03 checkpoint measurements: the final typed-slot route completes two fresh
+processes/308 original-suite batches and 528 numeric-matrix batches. Arithmetic is
+4.808 ms, branches 5.520 ms, calls 7.181 ms and Fibonacci 14.102 ms. Arrays/maps are
+14.288/13.601 ms; the NE02 integration regression does not remain in these sequential
+checkpoint observations, pending final interleaved acceptance. Integer matrix
+medians span 3.614-3.759 ms and f32/f64 3.207/3.173 ms, with no type fallback cliff
+in this bounded workload. Lua ratios remain 6.28-7.27 for the matrix and 6.96-212.52
+for nontrivial original workloads. Independent sampling/counting retains 600,015
+logical instructions and no allocations/collections; prepared scalar kernels
+replace boxed numeric helpers, while collection eligibility and dispatch remain
+visible costs. Raw paths and reproducible environment/commands are in the
+[performance report](performance-baseline.md#scalar-frame-banks-and-prepared-kernels-ne03-2026-10-06).
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
 

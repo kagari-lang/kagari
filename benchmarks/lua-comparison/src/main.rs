@@ -1,4 +1,5 @@
 //! Matched Lua/Kagari execution with setup separated and every checksum verified.
+mod numeric;
 mod profile;
 mod workloads;
 
@@ -22,6 +23,7 @@ struct Options {
     reverse: bool,
     interpreter_only: bool,
     profile: Option<String>,
+    numeric_matrix: bool,
 }
 
 impl Options {
@@ -33,6 +35,7 @@ impl Options {
             reverse: false,
             interpreter_only: false,
             profile: None,
+            numeric_matrix: false,
         };
         for argument in env::args().skip(1) {
             match argument.as_str() {
@@ -43,12 +46,13 @@ impl Options {
                 }
                 "--reverse" => options.reverse = true,
                 "--interpreter-only" => options.interpreter_only = true,
+                "--numeric-matrix" => options.numeric_matrix = true,
                 _ if argument.starts_with("--profile=") => {
                     options.profile = Some(argument["--profile=".len()..].to_owned());
                     options.setup_samples = 1;
                 }
                 _ => panic!(
-                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --profile=WORKLOAD"
+                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --profile=WORKLOAD"
                 ),
             }
         }
@@ -269,6 +273,10 @@ fn run(workload: &Workload, options: &Options) {
 fn main() {
     let options = Options::parse();
     println!("phase,workload,engine,size,batch,sample,ns,checksum");
+    if options.numeric_matrix {
+        numeric::run(&options);
+        return;
+    }
     if let Some(name) = &options.profile {
         let workload = WORKLOADS
             .iter()
@@ -301,6 +309,7 @@ mod tests {
             reverse: false,
             interpreter_only: false,
             profile: None,
+            numeric_matrix: false,
         };
         for size in [0, 1] {
             for workload in WORKLOADS {

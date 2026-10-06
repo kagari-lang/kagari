@@ -40,7 +40,7 @@ pub(super) fn count_lua(lua: &Lua, entry: &Function, expected: i32) {
 #[derive(Debug, Default)]
 struct InstructionCounts {
     counts: RefCell<InstructionCountMap>,
-    layouts: HashMap<String, (u16, usize, u16)>,
+    layouts: HashMap<String, (u16, usize, u16, usize, usize)>,
 }
 
 type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction<DefinitionId>>, (String, u64)>;
@@ -48,7 +48,7 @@ type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction<DefinitionId
 impl ExecutionObserver for InstructionCounts {
     fn observe(
         &mut self,
-        _: &Runtime,
+        runtime: &Runtime,
         event: ExecutionEvent,
         frames: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
@@ -61,12 +61,15 @@ impl ExecutionObserver for InstructionCounts {
                 .and_then(|function| function.instructions.get(frame.instruction_offset()))
         {
             let function = frame.function().expect("script instruction");
+            let (scalars, managed) = frame.storage_counts(runtime)?;
             self.layouts
                 .entry(format!("{}::{}", frame.loaded().name, function.name))
                 .or_insert((
                     function.register_count,
                     frame.physical_register_count(),
                     function.local_count,
+                    scalars,
+                    managed,
                 ));
             let mut counts = self.counts.borrow_mut();
             let (_, count) = counts.entry(discriminant(instruction)).or_insert_with(|| {
@@ -168,9 +171,11 @@ pub(super) fn run(
             .unwrap();
         let mut layouts = observer.layouts.iter().collect::<Vec<_>>();
         layouts.sort_by_key(|(name, _)| *name);
-        for (name, (logical, physical, locals)) in layouts {
+        for (name, (logical, physical, locals, scalars, managed)) in layouts {
             println!(
-                "FRAME_LAYOUT,{name},logical_registers={logical},physical_registers={physical},locals={locals}"
+                "FRAME_LAYOUT,{name},logical_registers={logical},physical_registers={physical},locals={locals},scalar_slots={scalars},managed_slots={managed},scalar_payload_bytes={},initialization_bytes={scalars},managed_value_bytes={}",
+                scalars * size_of::<u64>(),
+                managed * size_of::<Value>(),
             );
         }
     }

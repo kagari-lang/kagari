@@ -1,12 +1,10 @@
 //! Closed scalar operations reuse authority without admitting callbacks or values.
 use crate::{
-    error::RuntimeError,
-    frame::cursor::ExecutionCursor,
-    module::execution::{ExecutionInstruction, OperandSlot, ScalarConstant},
-    numeric,
+    error::{RuntimeError, RuntimeErrorKind},
+    frame::{cursor::ExecutionCursor, values::scalar},
+    module::execution::{ExecutionInstruction, ScalarSlot},
     value::Value,
 };
-use kagari_bytecode::instruction::BinaryOp;
 
 pub enum RegionExit {
     Safepoint,
@@ -50,79 +48,20 @@ impl ExecutionCursor<'_> {
                 .resources()
                 .quarantine("verified function fell through")
         })?;
-        let value = match instruction {
-            ExecutionInstruction::Constant { dst, value } => {
-                if !self.scalar_destination(dst)? {
-                    return Ok(CursorProgress::Boundary);
-                }
-                (dst, scalar_value(value))
-            }
-            ExecutionInstruction::Move { dst, src } => {
-                let Some(value) = self.scalar_operand(src)? else {
-                    return Ok(CursorProgress::Boundary);
-                };
-                if !self.scalar_destination(dst)? {
-                    return Ok(CursorProgress::Boundary);
-                }
-                (dst, value)
-            }
-            ExecutionInstruction::Unary { dst, op, operand } => {
-                let Some(value) = self.scalar_operand(operand)? else {
-                    return Ok(CursorProgress::Boundary);
-                };
-                // Check the destination before an operation can trap: dispatching
-                // a cold cleanup must not execute the arithmetic twice.
-                if !self.scalar_destination(dst)? {
-                    return Ok(CursorProgress::Boundary);
-                }
-                (dst, numeric::unary(op, value)?)
-            }
-            ExecutionInstruction::Binary { dst, op, lhs, rhs } => {
-                if matches!(op, BinaryOp::IdentityEq | BinaryOp::IdentityNotEq) {
-                    return Ok(CursorProgress::Boundary);
-                }
-                let (Some(lhs), Some(rhs)) = (self.scalar_operand(lhs)?, self.scalar_operand(rhs)?)
-                else {
-                    return Ok(CursorProgress::Boundary);
-                };
-                if !self.scalar_destination(dst)? {
-                    return Ok(CursorProgress::Boundary);
-                }
-                (dst, numeric::scalar_binary(op, lhs, rhs)?)
-            }
-            ExecutionInstruction::Convert {
+        let (dst, value) = match instruction {
+            ExecutionInstruction::Constant { dst, value } => (dst, value),
+            ExecutionInstruction::Move { dst, src } => (dst, self.payload(src)?),
+            ExecutionInstruction::Scalar {
                 dst,
-                src,
-                conversion,
-            } => {
-                let Some(value) = self.scalar_operand(src)? else {
-                    return Ok(CursorProgress::Boundary);
-                };
-                if !self.scalar_destination(dst)? {
-                    return Ok(CursorProgress::Boundary);
-                }
-                (dst, numeric::convert(conversion, value)?)
-            }
-            ExecutionInstruction::Numeric {
-                dst,
-                operation,
                 lhs,
                 rhs,
+                kernel,
             } => {
-                let Some(lhs) = self.scalar_operand(lhs)? else {
-                    return Ok(CursorProgress::Boundary);
-                };
-                let rhs = match rhs {
-                    Some(slot) => match self.scalar_operand(slot)? {
-                        Some(value) => Some(value),
-                        None => return Ok(CursorProgress::Boundary),
-                    },
-                    None => None,
-                };
-                if !self.scalar_destination(dst)? {
-                    return Ok(CursorProgress::Boundary);
-                }
-                (dst, numeric::fixed_integer(operation, lhs, rhs)?)
+                let lhs = self.payload(lhs)?;
+                let rhs = self.payload(rhs)?;
+                let value = kernel(lhs, rhs)
+                    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+                (dst, value)
             }
             ExecutionInstruction::Jump(target) => {
                 self.jump(target.index())?;
@@ -133,9 +72,9 @@ impl ExecutionCursor<'_> {
                 then_target,
                 else_target,
             } => {
-                let target = match self.scalar_operand(cond)? {
-                    Some(Value::Bool(true)) => then_target,
-                    Some(Value::Bool(false)) => else_target,
+                let target = match self.payload(cond)? {
+                    1 => then_target,
+                    0 => else_target,
                     _ => {
                         return Err(self
                             .runtime
@@ -146,62 +85,33 @@ impl ExecutionCursor<'_> {
                 self.jump(target.index())?;
                 return Ok(CursorProgress::Continue);
             }
-            ExecutionInstruction::Return(register) => {
-                let value = match register {
-                    Some(slot) => match self.scalar_operand(slot)? {
-                        Some(value) => value,
-                        None => return Ok(CursorProgress::Boundary),
-                    },
+            ExecutionInstruction::Return {
+                value,
+                representation,
+            } => {
+                let value = match value {
+                    Some(slot) if slot.managed() => return Ok(CursorProgress::Boundary),
+                    Some(slot) => scalar::decode(
+                        representation,
+                        self.payload(slot.scalar().expect("scalar return"))?,
+                    )
+                    .ok_or_else(|| self.invalid())?,
                     None => Value::Unit,
                 };
                 return Ok(CursorProgress::Return(value));
             }
             ExecutionInstruction::Boundary => return Ok(CursorProgress::Boundary),
         };
-        let (dst, value) = value;
-        // Every branch above constructs a plain scalar. The previous value is
-        // also plain, so replacement cannot invoke external code or change roots.
-        self.values[dst.index()] = value;
+        self.values
+            .write_payload(&self.ranges, dst, value)
+            .ok_or_else(|| self.invalid())?;
         Ok(CursorProgress::Continue)
     }
 
-    fn scalar_operand(&self, slot: OperandSlot) -> Result<Option<Value>, RuntimeError> {
-        let value = self
-            .values
-            .get(slot.index())
-            .ok_or_else(|| self.invalid())?;
-        Ok(plain_scalar(value).map(scalar_value))
-    }
-
-    fn scalar_destination(&self, slot: OperandSlot) -> Result<bool, RuntimeError> {
+    #[inline]
+    fn payload(&self, slot: ScalarSlot) -> Result<u64, RuntimeError> {
         self.values
-            .get(slot.index())
-            .map(|value| plain_scalar(value).is_some())
+            .payload(&self.ranges, slot)
             .ok_or_else(|| self.invalid())
-    }
-}
-
-fn plain_scalar(value: &Value) -> Option<ScalarConstant> {
-    Some(match *value {
-        Value::Unit => ScalarConstant::Unit,
-        Value::Bool(v) => ScalarConstant::Bool(v),
-        Value::I32(v) => ScalarConstant::I32(v),
-        Value::I64(v) => ScalarConstant::I64(v),
-        Value::U64(v) => ScalarConstant::U64(v),
-        Value::F32(v) => ScalarConstant::F32(v),
-        Value::F64(v) => ScalarConstant::F64(v),
-        _ => return None,
-    })
-}
-
-fn scalar_value(value: ScalarConstant) -> Value {
-    match value {
-        ScalarConstant::Unit => Value::Unit,
-        ScalarConstant::Bool(v) => Value::Bool(v),
-        ScalarConstant::I32(v) => Value::I32(v),
-        ScalarConstant::I64(v) => Value::I64(v),
-        ScalarConstant::U64(v) => Value::U64(v),
-        ScalarConstant::F32(v) => Value::F32(v),
-        ScalarConstant::F64(v) => Value::F64(v),
     }
 }

@@ -5,7 +5,7 @@ use crate::{
     execution_metadata::MetadataRoot,
     frame::{arguments::FrameArguments, types::TypeEnvironment, values::FrameSlots},
     gc::CollectionIteration,
-    module::{LoadedModule, execution::allocation::RegisterAllocation},
+    module::{LoadedModule, execution::layout::FrameLayout},
     resource::ResourceState,
     session::ExecutionSession,
     value::Value,
@@ -479,7 +479,7 @@ pub struct ExecutionFrame {
     executing: Option<usize>,
     slots: FrameSlots,
     register_count: usize,
-    registers: Option<Arc<RegisterAllocation>>,
+    registers: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
     interface_method: Option<RootedInterfaceMethod>,
     iterations: Vec<CollectionIteration>,
@@ -570,8 +570,8 @@ impl ExecutionFrame {
                     .clone();
                 (
                     register_count,
-                    registers.count + usize::from(metadata.local_count),
-                    registers.count,
+                    register_count + usize::from(metadata.local_count),
+                    register_count,
                     NativeEntryState::Script,
                     Some(registers),
                 )
@@ -642,6 +642,21 @@ impl ExecutionFrame {
         self.registers
             .as_ref()
             .map_or(0, |registers| registers.count)
+    }
+
+    /// Active scalar payload/initialization slots and managed Value slots,
+    /// including locals or native arguments. Shared prepared metadata is separate.
+    pub fn storage_counts(&self, runtime: &Runtime) -> Result<(usize, usize), RuntimeError> {
+        self.validate_runtime(runtime)?;
+        let storage = runtime.resources().frame_values.try_borrow().map_err(|_| {
+            runtime
+                .resources()
+                .quarantine("frame storage borrowed during inspection")
+        })?;
+        let ranges = storage
+            .ranges(self.slots)
+            .ok_or_else(|| runtime.resources().quarantine("expired frame storage"))?;
+        Ok((ranges.scalars.len(), ranges.managed.len()))
     }
 
     pub fn environment(&self) -> Option<TypeEnvironment> {

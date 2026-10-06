@@ -500,6 +500,76 @@ work to the region, collection eligibility, boxed numeric helpers and Value drop
 authority admission is no longer a per-instruction callee. Sampling is outside
 timing and is not an exact cycle-share measurement; inline attribution is limited.
 
+## Scalar frame banks and prepared kernels (NE03), 2026-10-06
+
+The same release/default-feature M1 Max protocol, interpreter-only, runs after all
+tests and Clippy finish. Two fresh processes validate 308 timed batches. Raw data:
+`target/lua-comparison/20261006T085814Z/results.json`. The warm build takes 17.533
+seconds and is excluded; source compilation/preparation/linking stay separate.
+As before, desktop background work is uncontrolled and these checkpoint timings
+are sequential observations. Final acceptance retains the saved original binary
+for an interleaved comparison.
+
+| Workload | NE03 VM (us) | Lua (us) | VM/Lua |
+| --- | ---: | ---: | ---: |
+| entry | 1.319 | 0.028 | 46.30 |
+| arithmetic | 4,808.000 | 379.646 | 12.66 |
+| branches | 5,519.979 | 793.083 | 6.96 |
+| calls | 7,181.062 | 220.750 | 32.53 |
+| fibonacci | 14,101.938 | 344.812 | 40.90 |
+| arrays | 14,287.834 | 67.229 | 212.52 |
+| maps | 13,600.729 | 66.125 | 205.68 |
+
+The arithmetic frame uses nine scalar slots and no managed slots: 72 payload bytes
+plus nine initialization bytes versus 288 boxed-slot bytes in NE01/NE02. Shared
+location records cost eight bytes each; an active Window header costs 96 bytes on
+this target. Fixed frame/arena headers, retained capacity, program/environment
+metadata and prepared instructions are additional costs, not included in the
+81-byte slot figure. Reproduce sizes and boundary regressions with
+`cargo test -p kagari-runtime --lib scalar_windows_preserve -- --nocapture`; the
+independent profiler reports actual bank counts. Prepared instructions remain
+24 bytes and public Value remains 32 bytes. Scalar GC root scanning is eliminated,
+while managed/capture-cell roots and suspended program/environment roots remain.
+
+The new `uv run python scripts/benchmark_lua.py --numeric-matrix` runs twelve
+20,000-iteration mixed arithmetic/conversion fixtures, with integer bit/shift
+steps. Values vary within every narrow checked domain; independent Rust loops
+check every warmed/timed result. Lua uses integer division and bit operators for
+integer cases and floating division for float cases. All float values are exactly
+representable, permitting matched f32/f64 checksums without adding Lua rounding
+emulation. This measures supported successful execution, not equal overflow/type
+semantics or equal instruction counts. Source/verification setup is excluded and
+logged separately. Two fresh processes produce 528 checked timed batches under
+`target/lua-comparison/20261006T085924Z-numeric/results.json`.
+
+| Domain | NE03 VM (us) | Lua (us) | VM/Lua |
+| --- | ---: | ---: | ---: |
+| i8 | 3,754.834 | 591.480 | 6.35 |
+| i16 | 3,758.709 | 591.583 | 6.35 |
+| i32 | 3,675.208 | 574.562 | 6.40 |
+| i64 | 3,621.938 | 572.875 | 6.32 |
+| isize | 3,622.562 | 573.020 | 6.32 |
+| u8 | 3,633.749 | 574.458 | 6.33 |
+| u16 | 3,634.563 | 574.333 | 6.33 |
+| u32 | 3,642.500 | 572.625 | 6.36 |
+| u64 | 3,613.666 | 575.542 | 6.28 |
+| usize | 3,615.876 | 573.771 | 6.30 |
+| f32 | 3,206.583 | 441.209 | 7.27 |
+| f64 | 3,172.875 | 441.375 | 7.19 |
+
+Numeric type changes show no fallback cliff in this bounded matrix; they do not
+prove equal costs across arbitrary source forms. Calls, native adapters and
+managed transfers remain NE04 work. Lua parity is not achieved.
+
+
+Independent `uv run python scripts/profile_lua_macos.py arithmetic` output is in
+`target/lua-comparison/20261006T085930Z-macos-profile`. Counting retains 600,015
+logical Kagari instructions versus 250,007 Lua instructions and no script allocations
+or collections. The sampled optimized route uses prepared types payload kernels,
+with no boxed numeric helper in the arithmetic path. Collection eligibility and
+region dispatch remain visible costs. This is sampled attribution, not exact
+cycle percentages; preparation and observer counting remain outside throughput.
+
 ## Matched Kagari/Lua baseline, 2026-10-03
 
 The [benchmark package and report](../benchmarks/lua-comparison/README.md) compare

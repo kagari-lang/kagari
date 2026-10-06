@@ -64,12 +64,14 @@ impl<'args> FrameArguments<'args> {
                 .quarantine("argument window borrowed during call entry")
         })?;
         for register in registers {
-            let value = storage.value(slots, register.index()).ok_or_else(|| {
-                runtime
-                    .resources()
-                    .quarantine("invalid call argument register")
-            })?;
-            if !check(value) {
+            let valid = storage
+                .with_value(slots, register.index(), &mut check)
+                .ok_or_else(|| {
+                    runtime
+                        .resources()
+                        .quarantine("invalid call argument register")
+                })?;
+            if !valid {
                 return Ok(false);
             }
         }

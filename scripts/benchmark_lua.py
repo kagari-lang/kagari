@@ -59,11 +59,15 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=2, help="Sequential fresh processes; default: 2")
     parser.add_argument("--interpreter-only", action="store_true",
                         help="Skip native backend preparation and execution")
+    parser.add_argument("--numeric-matrix", action="store_true",
+                        help="Measure bounded numeric/bit/cast loops in every numeric domain")
     args = parser.parse_args()
+    if args.numeric_matrix:
+        args.interpreter_only = True
     if args.runs < 1:
         parser.error("--runs must be positive")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    output = ROOT / "target/lua-comparison" / (stamp + ("-check" if args.check else ""))
+    output = ROOT / "target/lua-comparison" / (stamp + ("-numeric" if args.numeric_matrix else "") + ("-check" if args.check else ""))
     output.mkdir(parents=True, exist_ok=True)
     metadata = {"timestamp_utc": stamp, "revision": command("git", "rev-parse", "HEAD"),
                 "git_status": command("git", "status", "--short"),
@@ -74,7 +78,9 @@ def main() -> None:
                 "cache": "Rust build reused when available; fresh process/state per run; warmed execution measured separately from setup",
                 "samples_per_process": 1 if args.check else 11,
                 "warmups_per_route": 0 if args.check else 3,
-                "setup_samples_per_workload": 1 if args.check else 3,
+                "setup_samples_per_workload": 1 if args.check or args.numeric_matrix else 3,
+                "workloads": "numeric matrix" if args.numeric_matrix else "original seven",
+                "setup_scope": "one numeric module per process" if args.numeric_matrix else "per workload",
                 "runs": args.runs, "check": args.check,
                 "interpreter_only": args.interpreter_only,
                 "environment": {key: os.environ[key] for key in (
@@ -103,6 +109,8 @@ def main() -> None:
             argv.append("--check")
         if args.interpreter_only:
             argv.append("--interpreter-only")
+        if args.numeric_matrix:
+            argv.append("--numeric-matrix")
         if run % 2:
             argv.append("--reverse")
         start = time.perf_counter()
@@ -122,7 +130,9 @@ def main() -> None:
     print("\nExecution median per complete workload (microseconds):")
     results = {(row["workload"], row["engine"]): row["median_ns"] / 1_000
                for row in summary if row["phase"] == "execute"}
-    for name in ("entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps"):
+    names = sorted({name for name, engine in results if engine == "kagari_vm"}) if args.numeric_matrix else (
+        "entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
+    for name in names:
         vm, lua = results[name, "kagari_vm"], results[name, "lua54"]
         jit = results.get((name, "kagari_jit"))
         print(f"{name}: Kagari VM={vm:.3f}; Lua={lua:.3f}; VM/Lua={vm/lua:.2f}; "

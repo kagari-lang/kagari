@@ -15,6 +15,7 @@ pub enum NumberType {
     F64,
 }
 
+#[inline]
 pub fn cast(value: Number, target: NumberType) -> Number {
     match target {
         NumberType::Integer { bits, signed } => {

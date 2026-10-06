@@ -597,8 +597,10 @@ See [runtime](spec/runtime.md), [host interop](spec/host-interop.md) and
 
 Persistent root values live in a heap-owned generational table. Host/debug handles
 carry Arc leases and checked root identities; value access requires the owning heap.
-Execution values instead occupy reusable contiguous runtime-owned frame windows.
-GC traces these windows and their program/environment edges, including suspended
+Execution values instead occupy reusable contiguous runtime-owned frame windows
+in separate scalar and managed banks. Scalar slots hold complete 64-bit payloads
+and explicit initialization flags; managed slots retain ordinary Values and full
+handle identities. GC traces the managed bank and program/environment edges, including suspended
 callers, independently of host leases. Session frames use indexed storage; transient
 interpreter cursors borrow the checked frame, session and operand window once,
 without a session/root-table lookup for each operand. Cursors are released before
@@ -611,6 +613,22 @@ Prepared operands directly name physical slots. Cold instructions, native views 
 frame inspection translate logical indices; named locals retain fixed debug slots.
 If the preparation work/state budget is exhausted, that function keeps distinct
 register slots. The budget is shared across the complete verified program.
+Immutable FrameLayout locations map canonical registers/locals to bank offsets,
+physical representations and direct scalar admission domains. Reused slots stay
+within one bank. A managed capture cell's semantic type describes its content;
+the slot retains the managed physical representation and cell read/write validation.
+Cold host/native/debug access materializes scalar Values on demand and validates
+incoming representations/domains. Unavailable scalar inspection produces Unit;
+executing an uninitialized operand quarantines. Frame entry reserves both banks
+before copying arguments; release clears managed roots and initialization state.
+
+Scalar operations prepare concrete function pointers to shared `kagari-types`
+payload kernels after sealing. All integer widths, arithmetic/bit/shift families,
+numeric comparisons, f32/f64 operations and supported casts use raw payloads;
+mixed-width shift counts keep both checked domains. Source-width overflow and
+IEEE bits remain intact. These function addresses are runtime preparation data,
+never serialized artifact operands. Native public argument/result adapters remain
+Value interfaces; typed call transfers are the following integration phase.
 Scalar operands and numeric contracts are inline; identity-bearing types, strings,
 call arguments and other variable-length metadata remain in the canonical immutable
 instruction records. Their logical PC is the index, so normalization and hot reload

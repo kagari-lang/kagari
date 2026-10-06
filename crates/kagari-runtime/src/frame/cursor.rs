@@ -2,8 +2,11 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionFrame, ExecutionStack},
-    module::execution::{ExecutionInstruction, OperandSlot},
+    frame::{
+        ExecutionFrame, ExecutionStack,
+        values::{ExecutionValues, WindowRanges},
+    },
+    module::execution::ExecutionInstruction,
     session::SessionState,
     value::Value,
 };
@@ -20,7 +23,8 @@ pub mod kernel;
 /// Slot access preserves bounds and publication checks without host root leases.
 pub struct ExecutionCursor<'a> {
     frame: RefMut<'a, ExecutionFrame>,
-    values: RefMut<'a, [Value]>,
+    values: RefMut<'a, ExecutionValues>,
+    ranges: WindowRanges,
     runtime: &'a Runtime,
     session: Ref<'a, SessionState>,
 }
@@ -39,15 +43,15 @@ impl ExecutionStack<'_> {
                     .resources()
                     .quarantine("execution slots borrowed across instruction")
             })?;
-        let values =
-            RefMut::filter_map(values, |values| values.get_mut(frame.slots)).map_err(|_| {
-                runtime
-                    .resources()
-                    .quarantine("invalid execution frame window")
-            })?;
+        let ranges = values.ranges(frame.slots).ok_or_else(|| {
+            runtime
+                .resources()
+                .quarantine("invalid execution frame window")
+        })?;
         Ok(ExecutionCursor {
             frame,
             values,
+            ranges,
             runtime,
             session: self.session.state(),
         })
@@ -67,7 +71,7 @@ impl ExecutionCursor<'_> {
                 && self.runtime.modules.has_abandoned_programs()?))
     }
 
-    pub fn next_instruction(&mut self) -> Option<ExecutionInstruction> {
+    fn next_instruction(&mut self) -> Option<ExecutionInstruction> {
         let CallableTarget::Script(function) = self.frame.target else {
             return None;
         };
@@ -92,86 +96,48 @@ impl ExecutionCursor<'_> {
             .quarantine("invalid execution operand slot")
     }
 
-    fn register_index(&self, register: Register) -> Result<usize, RuntimeError> {
-        if register.index() < self.frame.register_count {
-            self.frame
-                .registers
-                .as_ref()
-                .and_then(|registers| registers.index(register.index()))
-                .ok_or_else(|| self.invalid())
-        } else {
-            Err(self.invalid())
-        }
-    }
-
-    fn local_index(&self, local: LocalSlot) -> Result<usize, RuntimeError> {
-        self.frame
-            .registers
-            .as_ref()
-            .map_or(0, |registers| registers.count)
-            .checked_add(local.index())
-            .ok_or_else(|| self.invalid())
-    }
-
-    fn read(&self, index: usize) -> Result<Value, RuntimeError> {
+    fn read(&self, logical: usize) -> Result<Value, RuntimeError> {
         self.runtime
-            .gc()
             .resources()
             .ensure_cursor_allowed(&self.session)?;
         self.values
-            .get(index)
-            .cloned()
+            .with_value(self.frame.slots, logical, Value::clone)
             .ok_or_else(|| self.invalid())
     }
 
-    fn write(&mut self, index: usize, value: Value) -> Result<(), RuntimeError> {
+    fn write(&mut self, logical: usize, value: Value) -> Result<(), RuntimeError> {
         self.runtime.gc().ensure_no_native_borrow()?;
         self.runtime
-            .gc()
             .resources()
             .ensure_cursor_allowed(&self.session)?;
         if !self.runtime.gc().validate_value(&value) {
             return Err(self.invalid());
         }
-        if index >= self.values.len() {
-            return Err(self.invalid());
-        }
-        self.values[index] = value;
-        Ok(())
-    }
-
-    /// Prepared operands already name the bounded physical window; canonical
-    /// registers are translated only at host/debug and cold instruction boundaries.
-    pub fn read_operand(&self, slot: OperandSlot) -> Result<Value, RuntimeError> {
-        self.read(slot.index())
-    }
-
-    pub fn write_operand(&mut self, slot: OperandSlot, value: Value) -> Result<(), RuntimeError> {
-        self.write(slot.index(), value)
+        self.values
+            .set(self.frame.slots, logical, value)
+            .ok_or_else(|| self.invalid())
     }
 
     pub fn read_register(&self, register: Register) -> Result<Value, RuntimeError> {
-        self.read(self.register_index(register)?)
+        if register.index() >= self.frame.register_count {
+            return Err(self.invalid());
+        }
+        self.read(register.index())
     }
 
     pub fn write_register(&mut self, register: Register, value: Value) -> Result<(), RuntimeError> {
-        self.write(self.register_index(register)?, value)
+        if register.index() >= self.frame.register_count {
+            return Err(self.invalid());
+        }
+        self.write(register.index(), value)
     }
 
     pub fn read_local(&self, local: LocalSlot) -> Result<Value, RuntimeError> {
-        self.read(self.local_index(local)?)
+        self.read(self.frame.register_count + local.index())
     }
 
     pub fn write_local(&mut self, local: LocalSlot, value: Value) -> Result<(), RuntimeError> {
-        self.write(self.local_index(local)?, value)
-    }
-
-    pub fn jump_to(&mut self, target: usize) -> Result<(), RuntimeError> {
-        self.runtime
-            .gc()
-            .resources()
-            .ensure_cursor_allowed(&self.session)?;
-        self.jump(target)
+        self.write(self.frame.register_count + local.index(), value)
     }
 
     fn jump(&mut self, target: usize) -> Result<(), RuntimeError> {
