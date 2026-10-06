@@ -12,7 +12,7 @@ semantic ownership and explicit analysis providers. LR01 moved concrete standard
 registrations and algorithms to their own crate. LR02 connects complete generated
 modules, cached navigation and syntax-based role recognition to Engine registration.
 LR03 removes the unused trait product and independent handwritten declarations.
-The [single execution plan](../implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-design-agreed)
+The [single execution plan](../implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-complete)
 owns sequencing and acceptance.
 
 ## Ownership and installation
