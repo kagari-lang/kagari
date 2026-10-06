@@ -1,7 +1,10 @@
-# Source analysis review
+# Repository review
 
-Reviewed on 2026-10-06 against `c2f87c89`. These are open findings and proposed
-follow-ups, not an active implementation plan. Performance impact is unmeasured.
+Keep ongoing repository review findings in this document rather than creating
+dated review files. Entries record observed behavior and possible follow-ups;
+they do not activate implementation work.
+
+SA1-SA3 were inspected against `c2f87c89`. Performance impact is unmeasured.
 
 ## SA1 Inline modules are parsed again
 

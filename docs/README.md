@@ -25,8 +25,7 @@ parallel migration documents.
 - [Performance measurements](performance-baseline.md),
   [architecture review/open findings](architecture-review-2026-10-03.md) and
   [Kagari/Lua benchmarks](../benchmarks/lua-comparison/README.md).
-- [Source analysis review](source-analysis-review-2026-10-06.md): inline module
-  parsing, import resolution costs and convergence checks.
+- [Review findings](review.md): the shared document for ongoing repository reviews.
 - [Runnable examples](../examples/README.md).
 
 ## Queued designs

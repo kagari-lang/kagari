@@ -2635,9 +2635,10 @@ No new restoration checklist for retired standard-library APIs is active.
 
 ## Outstanding review and performance questions
 
-[The source analysis review](source-analysis-review-2026-10-06.md) records inline
-module AST reuse, import-resolution scheduling and iteration-exhaustion findings.
-Follow-up belongs to HIR analysis/imports; no implementation track is activated.
+The [review document](review.md) records inline module AST reuse, import-resolution
+scheduling and iteration-exhaustion findings. Append future review findings there.
+Follow-up for these entries belongs to HIR analysis/imports; no implementation
+track is activated.
 
 [The architecture review](architecture-review-2026-10-03.md#outstanding-findings)
 retains R1/R2/R5/R7/R8 for current-code confirmation: raw-kind safety, prepared-JIT
