@@ -2,7 +2,7 @@ use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{
     hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},
-    resolver::{collect::resolve_names, resolved::ResolvedName},
+    resolver::{collect::resolve_names, resolved::ResolvedName, table::NameResolution},
     tests::common,
 };
 
@@ -175,11 +175,10 @@ fn main() -> i32 { 1 }
     );
     let resolved = result.facts();
 
-    assert!(
-        resolved
-            .items
-            .lookup("gameplay")
-            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Module(_))))
+    assert_eq!(
+        resolved.items.lookup("gameplay"),
+        Some(NameResolution::Unresolved),
+        "a missing module keeps its blocking name without inventing a namespace",
     );
     assert!(
         resolved

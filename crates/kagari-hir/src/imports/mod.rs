@@ -15,7 +15,7 @@ use kagari_source::{
 };
 use kagari_types::{collection::CollectionAccess, visibility::Visibility};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
 };
 
@@ -218,6 +218,7 @@ impl ModuleNode {
 #[derive(Debug, Clone, Default)]
 pub struct ModuleGraph {
     nodes: BTreeMap<ModuleIdentity, ModuleNode>,
+    source_facts: HashMap<SourceUnit, Arc<ModuleImportFacts>>,
     pub catalog: Arc<catalog::NamespaceCatalog>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]

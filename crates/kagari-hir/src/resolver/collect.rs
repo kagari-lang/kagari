@@ -2,7 +2,9 @@ use crate::{
     AnalysisResult,
     hir::{ids::BodySelection, item::function::FunctionKind},
     host::HostDeclarations,
-    imports::{ModuleGraph, ModuleImportFacts, catalog::NamespaceCatalog},
+    imports::{
+        BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
+    },
     lower::LoweredModule,
     resolver::{
         resolve::BodyResolver,
@@ -12,7 +14,7 @@ use crate::{
 use smallvec::SmallVec;
 use std::{collections::HashSet, sync::Arc};
 use {
-    kagari_common::cancellation::CancellationToken,
+    kagari_common::{cancellation::CancellationToken, span::Span},
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
@@ -20,11 +22,7 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
     let hosts = HostDeclarations::empty();
     let graph = ModuleGraph::build([lowered], &hosts, &Default::default())
         .expect("uncancelled name resolution");
-    let imports = graph
-        .node(lowered.source.module_identity())
-        .unwrap()
-        .imports
-        .clone();
+    let imports = graph.imports_for(&SourceUnit::of(lowered)).unwrap().clone();
     let declarations = collect_declarations(
         lowered,
         hosts,
@@ -59,6 +57,31 @@ pub(crate) fn collect_declarations(
         }
         if function.kind == FunctionKind::User && function.name.is_empty() {
             diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
+        }
+    }
+    // Declaration conflicts belong to declaration diagnostics, not graph import failure.
+    for (name, entry) in &names.entries {
+        if cancel.check().is_err() {
+            break;
+        }
+        if entry.strong.len() > 1
+            && !entry
+                .strong
+                .iter()
+                .any(|candidate| matches!(candidate.origin, BindingOrigin::NamedImport(_)))
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
+                    name: name.as_str().into(),
+                })
+                .with_span(
+                    entry
+                        .strong
+                        .last()
+                        .and_then(|candidate| candidate.location)
+                        .map_or(Span::default(), |span| span.range),
+                ),
+            );
         }
     }
     diagnostics.extend(imports.diagnostics.iter().cloned());

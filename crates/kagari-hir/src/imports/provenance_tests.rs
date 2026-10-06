@@ -1,11 +1,16 @@
 use crate::{
+    host::HostDeclarations,
     imports::{
-        BindingOrigin, DirectiveResolution, ImportKind, NamespaceId, ResolvedTarget,
+        BindingOrigin, DirectiveResolution, ImportKind, LocalName, ModuleGraph, ModuleOrderError,
+        NamespaceId, ResolvedTarget, SourceUnit,
+        catalog::{LookupContext, LookupResult, NamespaceResult},
         tests::{analyze, insert},
     },
+    lower::lower_module,
     resolver::table::NameResolution,
 };
-use kagari_source::source_database::SourceDatabase;
+use kagari_source::{source::SourceFile, source_database::SourceDatabase};
+use std::sync::Arc;
 
 #[test]
 fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
@@ -153,4 +158,97 @@ fn unused_leaf_imports_keep_facade_and_implementation_dependencies() {
         );
     }
     assert!(snapshot.check_program(root, &Default::default()).is_ok());
+}
+
+#[test]
+fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
+    let left = lower_module(&SourceFile::new(
+        "same",
+        "fn left() -> i32 { 1 } use missing::one;",
+    ));
+    let right = lower_module(&SourceFile::new(
+        "same",
+        "fn right() -> i32 { 2 } use missing::two;",
+    ));
+    let hosts = HostDeclarations::empty();
+    let graph = ModuleGraph::build([&left, &right], &hosts, &Default::default()).unwrap();
+    for (lowered, own, other) in [(&left, "left", "right"), (&right, "right", "left")] {
+        let unit = SourceUnit::of(lowered);
+        let facts = graph.imports_for(&unit).unwrap();
+        assert_eq!(facts.directives[0].id.unit, unit);
+        assert!(facts.scope.lookup(own).is_some());
+        assert!(facts.scope.lookup(other).is_none());
+        let table = &graph.catalog.namespaces[&NamespaceId::Module(unit)];
+        assert!(Arc::ptr_eq(&facts.scope, &table.names));
+        assert!(facts.diagnostics.iter().any(|d| matches!(
+            d.kind,
+            kagari_source::diagnostic::DiagnosticKind::DuplicateDeclaration { .. }
+        )));
+    }
+    assert!(matches!(
+        graph.reachable_order(left.source.module_identity(), &Default::default()),
+        Err(ModuleOrderError::InvalidImports(_))
+    ));
+    let ctx = LookupContext {
+        importer: left.source.module_identity(),
+        hosts: &hosts,
+    };
+    let path = format!("{}::left", left.source.module_identity());
+    assert!(matches!(
+        graph
+            .catalog
+            .absolute(&ctx, &path, &Default::default())
+            .unwrap(),
+        LookupResult::Ambiguous(_)
+    ));
+}
+
+#[test]
+fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter_to_a_winner() {
+    let source = SourceFile::new(
+        "same",
+        "pub struct Data {} pub fn value() -> i32 { 1 } fn value() -> i32 { 2 }",
+    );
+    let first = lower_module(&source);
+    let second = lower_module(&source);
+    let hosts = HostDeclarations::empty();
+    let old = ModuleGraph::build([&first], &hosts, &Default::default()).unwrap();
+    let new = ModuleGraph::build([&second], &hosts, &Default::default()).unwrap();
+    let ctx = LookupContext {
+        importer: &kagari_common::identity::ModuleIdentity::single_file("other"),
+        hosts: &hosts,
+    };
+    let ns = NamespaceId::Module(SourceUnit::of(&first));
+    let LookupResult::Found(hit) = old
+        .catalog
+        .lookup_member(&ctx, &ns, "Data", &Default::default())
+        .unwrap()
+    else {
+        panic!("public type")
+    };
+    assert_eq!(
+        new.catalog
+            .namespace_of(&ctx, &hit.target, &Default::default())
+            .unwrap(),
+        NamespaceResult::StaleSource
+    );
+    assert_eq!(
+        new.catalog
+            .lookup_member(&ctx, &ns, "Data", &Default::default())
+            .unwrap(),
+        LookupResult::StaleSource
+    );
+    assert!(matches!(
+        old.catalog
+            .lookup_member(&ctx, &ns, "value", &Default::default())
+            .unwrap(),
+        LookupResult::Ambiguous(_)
+    ));
+    let facts = old.imports_for(&SourceUnit::of(&first)).unwrap();
+    assert!(
+        facts
+            .scope
+            .entries
+            .contains_key(&LocalName::new("value").unwrap())
+    );
 }

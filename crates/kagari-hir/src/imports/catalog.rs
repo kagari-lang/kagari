@@ -134,6 +134,9 @@ impl NamespaceCatalog {
             }
             return Ok(LookupResult::Missing);
         };
+        if strong && candidates.len() > 1 {
+            return Ok(LookupResult::Ambiguous(candidates.to_vec()));
+        }
         let admitted = candidates
             .iter()
             .filter(|c| c.visibility.allows(&c.owner, ctx.importer))

@@ -1,18 +1,18 @@
 # Import and namespace resolution (SA4)
 
-Status: ready for implementation; IR01-IR03 have not started.
-The [roadmap](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-planned)
+Implementation status and validation are recorded only in the roadmap ledger.
+The [roadmap](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-complete)
 owns activation, phase order, checkboxes and the progress ledger. This document
 owns the implementation contract for [SA4](review.md#sa4-import-records-also-represent-namespace-lookup-state).
 
 ## Starting point
 
-`ResolvedImport` currently represents real imports, module declarations, implicit
-package/prelude bindings and auxiliary namespace entries. `ModuleImports` stores
+At the migration starting point, `ResolvedImport` represented real imports,
+module declarations, implicit package/prelude bindings and auxiliary namespace entries. `ModuleImports` stored
 these in one vector; `ResolvedName::SourceItem { import, item }` and
-`resolve_member(import_index, path)` use its positions to identify namespaces.
-Entering a child module therefore requires another synthetic import with an empty
-alias and `internal_namespace`, although the child is already in the module catalog.
+`resolve_member(import_index, path)` used its positions to identify namespaces.
+Entering a child module therefore required another synthetic import with an empty
+alias and `internal_namespace`, although the child was already in the module catalog.
 
 The migration separates local name introduction from namespace traversal and
 declaration identity. Importing a module as `m` introduces only `m`; resolving
@@ -20,9 +20,9 @@ declaration identity. Importing a module as `m` introduces only `m`; resolving
 alias of that module must reach the same declaration while retaining its own
 navigation and direct dependency provenance.
 
-| Starting implementation | Responsibility |
+| Implementation owners | Responsibility |
 | --- | --- |
-| [imports/mod.rs](../crates/kagari-hir/src/imports/mod.rs), [catalog.rs](../crates/kagari-hir/src/imports/catalog.rs), [bindings.rs](../crates/kagari-hir/src/imports/bindings.rs) | Module graph, mixed records, exports and member lookup. |
+| [imports/mod.rs](../crates/kagari-hir/src/imports/mod.rs), [catalog.rs](../crates/kagari-hir/src/imports/catalog.rs), [builder.rs](../crates/kagari-hir/src/imports/builder.rs) | Directive/target models, module graph preparation, exports and member lookup. |
 | [resolver/resolved.rs](../crates/kagari-hir/src/resolver/resolved.rs), [table.rs](../crates/kagari-hir/src/resolver/table.rs), [resolve.rs](../crates/kagari-hir/src/resolver/resolve.rs) | Resolved identities, scope names and body path resolution. |
 | [imports/functions.rs](../crates/kagari-hir/src/imports/functions.rs), [types.rs](../crates/kagari-hir/src/imports/types.rs), [declarations.rs](../crates/kagari-hir/src/declarations.rs) | Imported signatures/types and declaration consumers. |
 | [analysis/mod.rs](../crates/kagari-hir/src/analysis/mod.rs), [declaration_queries.rs](../crates/kagari-hir/src/analysis/declaration_queries.rs) | Snapshot/cache integration and source queries. |
@@ -320,7 +320,7 @@ calls, constants, types and enum members use target identities, not import-vecto
 indices. Unresolved imports remain queryable diagnostics. No second active
 namespace resolver or compatibility facade remains.
 
-Primary owners: the HIR files above, `crates/kagari-hir/src/imports/members.rs`
+Primary owners: the HIR files above, `crates/kagari-hir/src/imports/catalog.rs`
 and affected lowering under `crates/kagari-compiler/src/source/`.
 
 ## IR02: Separate directives, bindings and provenance

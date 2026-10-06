@@ -351,15 +351,17 @@ fn grouped_standard_globs_execute() {
 #[test]
 fn nested_inline_modules_resolve_qualified_members() {
     let engine = KagariEngine::default();
-    let source = "mod outer { pub mod other { pub fn value() -> i32 { 42 } } pub mod inner { use super::other::value; pub fn call() -> i32 { value() } } } fn main() -> i32 { outer::inner::call() }";
+    let source = "pub mod outer { pub mod other { pub fn value() -> i32 { 14 } } pub mod inner { use super::other::value; pub fn call() -> i32 { value() } } } mod facade { pub use super::outer as api; pub use super::outer::other::value as answer; } use self::facade::{api as m, answer as direct}; fn main() -> i32 { m::other::value() + direct() + m::inner::call() }";
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("nested-inline.kgr", source),
             Default::default(),
         )
         .unwrap();
+    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
+    drop(engine);
     let loaded = runtime
         .load_program(
             &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())

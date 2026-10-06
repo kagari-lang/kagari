@@ -154,7 +154,7 @@ fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
         .source_target_at(root, text.find("pkg::types").unwrap())
         .unwrap();
     let ctx = crate::imports::catalog::LookupContext {
-        importer: &first.file(root).unwrap().source().module_identity(),
+        importer: first.file(root).unwrap().source().module_identity(),
         hosts: &HostDeclarations::empty(),
     };
     assert!(!matches!(

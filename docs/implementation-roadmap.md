@@ -28,20 +28,20 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
-### Import and namespace resolution (IR01-IR03, planned)
+### Import and namespace resolution (IR01-IR03, complete)
 
 [SA4](review.md#sa4-import-records-also-represent-namespace-lookup-state) separates
 import directives, local bindings and namespace lookup state.
 [The import-resolution plan](import-resolution-plan.md) owns its detailed contract
 and acceptance matrix. This roadmap owns phase order and the progress ledger.
-IR01 and IR02 are complete; IR03 is next. SA1, SA2 and SA3
+IR01-IR03 are complete. SA1, SA2 and SA3
 remain independent findings, including the current iteration-limit concern.
 
 - [x] **IR01:** Publish shared namespace lookup and qualified declaration targets;
   migrate name/signature/compiler consumers and remove internal namespace imports.
 - [x] **IR02:** Separate import directives, named scope bindings and provenance;
   preserve diagnostics, re-exports, navigation and direct dependency edges.
-- [ ] **IR03:** Verify snapshot invalidation, tooling and source/artifact/native
+- [x] **IR03:** Verify snapshot invalidation, tooling and source/artifact/native
   consumers; complete final checks and update implemented architecture.
 
 Ledger:
@@ -77,6 +77,72 @@ Ledger:
   `source_programs` (10), the structure checker (no violations), and diff checks.
   Initial focused failures exposed whitespace in syntax ranges and foreign origin
   indexing; both were corrected and the affected suites passed. No carried errors.
+
+- IR03 identity review preserves per-source-unit import facts when logical module
+  identities collide, validates complete source units before local call lowering,
+  and keeps strong collisions ambiguous before visibility filtering. Same-revision
+  re-lowering tests reject stale arenas; duplicate-module tests retain independent
+  scopes and reject executable reachability. These refine implementation of the
+  existing SA4 identity contract without changing SA1-SA3 scope or solver policy.
+
+- IR03 first workspace Clippy attempt found five migration lint failures in
+  HIR analysis, declaration mapping and a stale-target test (discarded enumerate,
+  unit-variant pattern, two Copy clones and a redundant borrow). IR03 owns their
+  correction; all five are resolved and strict workspace Clippy passes. Cleanup
+  attempts briefly failed `cargo test -p kagari-embed --test syntax_examples
+  nested_inline_modules_resolve_qualified_members` with E0507 (a non-Copy
+  declaration key) and E0425 (a removed enumerate index). Explicit per-owner
+  mapping and direct directive access fixed both; the focused test now passes.
+
+- IR03 first `cargo test --workspace` failed the embed language-contract route:
+  `ambiguous-module-name` expected `KG_RESOLVE_DUPLICATE_DECLARATION` but received
+  `Graph(InvalidImports)`. Pure declaration conflicts had been incorrectly placed
+  in import facts. IR03 restores declaration-stage diagnostic ownership while
+  retaining graph rejection for import conflicts and duplicate logical modules;
+  the original conformance assertion remains unchanged. The focused
+  `cargo test -p kagari-embed --lib runtime::language_contract::language_contract_routes_preserve_values_diagnostics_and_effects`
+  now passes, including in the final workspace run. Strict Clippy, format,
+  structure and all artifact feature checks also pass.
+
+- IR03 second workspace attempt passed language-contract routes but failed
+  `source_modules::imports::duplicate_inline_and_external_module_identity_is_rejected`:
+  a colliding child identity became a missing-module candidate, hiding the
+  duplicate-declaration diagnostic. Module headers now retain every colliding
+  source-unit candidate and its dependency edge, so lookup remains ambiguous and
+  graph rejection reports the real identity collision. The focused test and all
+  30 `source_modules` tests pass in the final workspace run; the original assertion
+  is preserved.
+
+- IR03 full `cargo test -p kagari-hir` exposed two remaining old-model test
+  expectations: a missing module header was expected to resolve to a local
+  `ModuleId`, and a module alias was expected to be a source declaration item.
+  Tests now assert a retained unresolved blocking name and a valid source module
+  namespace respectively, preserving missing-name diagnostics, owner identity,
+  constructor calls and checked type arguments. Both focused tests pass, as do all
+  425 HIR unit tests and its language-contract integration tests in the final
+  workspace run.
+
+- IR03 final acceptance passed on 2026-10-07. Focused import tests (39), analysis
+  tests (238), compiler `source_programs` (10), embed `source_snapshots` (13),
+  `syntax_examples` (9, including 45 standalone source/artifact examples),
+  `cranelift_preparation` (3 real native/fallback/reload tests) and CLI JIT (5) pass.
+  The nested inline-module artifact test now covers grouped facade aliases, direct
+  leaf calls, encoding/decoding and execution after Engine drop.
+- Final integration passed: `cargo test --workspace` (including doc tests),
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, `uv run --locked scripts/check_structure.py`
+  (920 Rust files, zero violations), and `git diff --check`.
+- All `artifact_features` configurations pass with `--no-default-features`:
+  no extra features (9 tests), `--features source` (10), and `--features native`
+  (11). The native-only run executes
+  `real_cranelift_compiles_portable_artifact_without_source`; source-enabled
+  fixture emission still matches the checked-in artifact. No artifact regeneration
+  or format/ABI bump was needed.
+- Architecture and review now document the implemented boundary; local links in
+  all four changed documents pass. All intermediate failures above are resolved;
+  no SA4 build/test failures or structural exceptions remain. SA1-SA3 stay
+  unactivated, with fixed-point scheduling and round bounds unchanged. Import
+  resolution performance remains unmeasured.
 
 Phase commits use `Import-Phase: IR01` through `Import-Phase: IR03`.
 
@@ -204,7 +270,8 @@ Lua parity and the shared-bound source-analysis capability remain open above.
 
 The [review document](review.md) records inline module AST reuse, import-resolution
 scheduling, iteration exhaustion and mixed import/namespace records. Append future
-review findings there. SA4 follows the IR01-IR03 track above; IR01 and IR02 are complete. SA1-SA3 remain unactivated HIR analysis/import follow-ups.
+review findings there. SA4 is resolved by the completed IR01-IR03 track above.
+SA1-SA3 remain unactivated HIR analysis/import follow-ups.
 
 [The architecture review](architecture-review-2026-10-03.md#outstanding-findings)
 retains R1/R2/R5/R7/R8 for current-code confirmation: raw-kind safety, prepared-JIT

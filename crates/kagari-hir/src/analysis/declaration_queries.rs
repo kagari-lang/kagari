@@ -4,7 +4,7 @@ use crate::{
     analysis::{AnalysisDatabase, error::AnalysisError, ownership},
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
-    imports::ModuleGraph,
+    imports::{ModuleGraph, SourceUnit},
     lower,
     native::api as native_api,
     resolver::resolved::DeclarationNames,
@@ -245,9 +245,8 @@ impl AnalysisDatabase {
         for (id, (parsed, lowered)) in lowered_files {
             cancel.check()?;
             let imports = graph
-                .node(lowered.source.module_identity())
+                .imports_for(&SourceUnit::of(&lowered))
                 .expect("declared module is in graph")
-                .imports
                 .clone();
             let old = previous
                 .and_then(|snapshot| snapshot.file(id))

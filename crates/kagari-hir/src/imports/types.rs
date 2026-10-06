@@ -48,8 +48,6 @@ pub struct ImportedTypes<I: DefinitionReference = DefinitionPath> {
     variants: HashMap<SourceDeclRef, Declaration<I>>,
 }
 
-impl ImportedTypes {}
-
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
     surfaces: RefCell<Option<HashMap<DefinitionPath, ImportedType>>>,

@@ -79,6 +79,49 @@ producers currently install the bundled foundation explicitly; LR moves its
 concrete authoring owner into stdlib. Older snapshots retain their declarations
 when the current database replaces its registration inputs.
 
+## Source namespaces and import ownership
+
+HIR source analysis publishes one immutable `NamespaceCatalog` owned by
+`ModuleGraph`. Each module's `ModuleImportFacts.scope` shares the catalog's exact
+`Arc<NameTable>`; declaration and body resolution use that table. The catalog
+owns unfiltered namespace candidates and never points back to the graph, import
+facts, declarations or lowerings. Lookup supplies the importer, host declarations
+and cancellation token, then checks visibility at each path component.
+
+`SourceUnit` identifies the logical module, file, revision and HIR arena.
+`SourceDeclRef` pairs that unit with a declaration item; imports and module headers
+are not declaration items. `NamespaceId` distinguishes source modules, associated
+member containers, host modules and installed package prefixes. Aliases and public
+re-exports share canonical targets. Lowering to a local HIR ID requires the complete
+current source unit to match; retained targets cannot index a newer arena. Duplicate
+logical modules remain ambiguous while each source unit retains its own facts.
+
+A real import leaf produces one `ImportDirective` with its named/glob kind,
+optional explicit alias, leaf/root source ranges, resolution state and direct
+dependency edges. Scope entries always have a local name and retain candidates
+separately by strength: declarations and explicit imports, then globs, then
+package/prelude bindings. Strong collisions stay errors; equal glob targets keep
+all origins. An unresolved strong name blocks weaker candidates. Import conflicts
+belong to graph diagnostics; pure declaration conflicts remain declaration-stage
+diagnostics. Entering
+`m::nested::value` traverses namespaces without creating child scope bindings or
+synthetic import records. Installed APIs supply ordinary namespace/package inputs
+and registered dependency metadata without fabricated imports.
+
+Lookup returns the canonical target and selected binding origins independently.
+Import, expression and type path prefixes retain physical source sites for tooling;
+executable lowering consumes qualified checked declarations and graph dependencies,
+not syntax provenance. Source-free artifact loading and native backends do not
+consume the HIR catalog. Signature projections follow declarations reachable from
+the local scope and use independently checked callee signatures. Cache reuse checks
+reachable namespace surfaces and the relevant body/signature inputs; local arena
+reuse still goes through the existing explicit remappers. Older snapshots retain
+their immutable catalogs and continue answering old queries.
+
+The fixed-point rescan schedule and iteration bound remain unchanged. SA1 inline
+AST reuse, SA2 scheduling and SA3 exhaustion handling remain follow-ups in
+[the repository review](review.md). No import-resolution performance claim is made.
+
 ## Compilation Pipeline
 
 ```text

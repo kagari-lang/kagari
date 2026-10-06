@@ -28,7 +28,7 @@ use kagari_source::{
 };
 use kagari_types::visibility::Visibility;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
 };
 
@@ -59,7 +59,7 @@ impl ModuleGraph {
         }
         add_installed_prefixes(&mut base, &sources, cancel)?;
         let mut catalog = base.clone();
-        let mut resolved = BTreeMap::new();
+        let mut resolved = HashMap::new();
         // SA2/SA3 scheduling and round policy are intentionally unchanged.
         for _ in 0..=base.modules.len() * 2 + 1 {
             let mut next = base.clone();
@@ -72,9 +72,7 @@ impl ModuleGraph {
                     .get_mut(&ns)
                     .expect("module namespace")
                     .names = facts.scope.clone();
-                resolved
-                    .entry(module.source.module_identity().clone())
-                    .or_insert(facts);
+                resolved.insert(SourceUnit::of(module), facts);
             }
             let stable = next == catalog;
             catalog = next;
@@ -83,9 +81,11 @@ impl ModuleGraph {
             }
         }
         let mut nodes = BTreeMap::new();
-        for (identity, mut facts) in resolved {
+        let mut source_facts = HashMap::new();
+        for (unit, mut facts) in resolved {
             cancel.check()?;
-            let units = &catalog.modules[&identity];
+            let identity = &unit.module;
+            let units = &catalog.modules[identity];
             if units.len() > 1 {
                 facts.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
@@ -94,19 +94,27 @@ impl ModuleGraph {
                     .with_span(Span::default()),
                 );
             }
-            nodes.insert(
-                identity,
-                ModuleNode {
-                    file: units[0].file,
-                    revision: units[0].revision,
-                    imports: Arc::new(facts),
-                },
-            );
+            let facts = Arc::new(facts);
+            if unit == units[0] {
+                nodes.insert(
+                    identity.clone(),
+                    ModuleNode {
+                        file: unit.file,
+                        revision: unit.revision,
+                        imports: facts.clone(),
+                    },
+                );
+            }
+            source_facts.insert(unit, facts);
         }
         Ok(Self {
             nodes,
+            source_facts,
             catalog: Arc::new(catalog),
         })
+    }
+    pub(crate) fn imports_for(&self, unit: &SourceUnit) -> Option<&Arc<ModuleImportFacts>> {
+        self.source_facts.get(unit)
     }
     pub fn node(&self, module: &ModuleIdentity) -> Option<&ModuleNode> {
         self.nodes.get(module)
@@ -209,6 +217,7 @@ fn add_declarations(
         }
     }
     for item in &module.module.consts {
+        cancel.check()?;
         if item.owner.is_none() {
             add_source(
                 &mut names,
@@ -221,6 +230,7 @@ fn add_declarations(
         }
     }
     for item in &module.module.structs {
+        cancel.check()?;
         add_source(
             &mut names,
             &unit,
@@ -231,6 +241,7 @@ fn add_declarations(
         );
     }
     for item in &module.module.enums {
+        cancel.check()?;
         add_source(
             &mut names,
             &unit,
@@ -241,6 +252,7 @@ fn add_declarations(
         );
     }
     for item in &module.module.opaque_types {
+        cancel.check()?;
         add_source(
             &mut names,
             &unit,
@@ -251,6 +263,7 @@ fn add_declarations(
         );
     }
     for item in &module.module.traits {
+        cancel.check()?;
         add_source(
             &mut names,
             &unit,
@@ -264,27 +277,36 @@ fn add_declarations(
         cancel.check()?;
         let mut identity = unit.module.clone();
         identity.path.push(item.name.clone());
-        let target = catalog.modules.get(&identity).and_then(|units| {
-            if let [unit] = units.as_slice() {
-                Some(ResolvedTarget::Namespace(NamespaceId::Module(unit.clone())))
-            } else {
-                None
-            }
-        });
+        let targets = catalog.modules.get(&identity).map_or_else(
+            || vec![None],
+            |units| {
+                units
+                    .iter()
+                    .map(|child| {
+                        Some(ResolvedTarget::Namespace(NamespaceId::Module(
+                            child.clone(),
+                        )))
+                    })
+                    .collect()
+            },
+        );
         if let Some(name) = LocalName::new(&item.name) {
-            names.add(
-                name,
-                candidate(
-                    &unit,
-                    target,
-                    BindingOrigin::ModuleDeclaration {
-                        unit: unit.clone(),
-                        module: item.id,
-                    },
-                    item.visibility,
-                    Some(location(module, module.source_map.module_span(item.id))),
-                ),
-            );
+            for target in targets {
+                cancel.check()?;
+                names.add(
+                    name.clone(),
+                    candidate(
+                        &unit,
+                        target,
+                        BindingOrigin::ModuleDeclaration {
+                            unit: unit.clone(),
+                            module: item.id,
+                        },
+                        item.visibility,
+                        Some(location(module, module.source_map.module_span(item.id))),
+                    ),
+                );
+            }
         }
     }
     for item in &module.module.impls {
@@ -304,6 +326,7 @@ fn add_declarations(
     }
     let mut associated = BTreeMap::<String, (SourceItem, Visibility, NameTable)>::new();
     for item in &module.module.structs {
+        cancel.check()?;
         associated.insert(
             item.name.clone(),
             (
@@ -314,6 +337,7 @@ fn add_declarations(
         );
     }
     for item in &module.module.opaque_types {
+        cancel.check()?;
         associated.insert(
             item.name.clone(),
             (
@@ -324,6 +348,7 @@ fn add_declarations(
         );
     }
     for item in &module.module.enums {
+        cancel.check()?;
         let mut table = NameTable::default();
         for variant in &item.variants {
             add_source(
@@ -650,30 +675,29 @@ fn resolve_imports(
                     LookupResult::Ambiguous(_)
                 ))
         {
-            let imported = entry
-                .strong
-                .iter()
-                .any(|c| matches!(c.origin, BindingOrigin::NamedImport(_)))
-                || !entry.globs.is_empty();
-            let kind = if imported {
-                DiagnosticKind::DuplicateImport {
-                    name: name.as_str().into(),
-                }
+            let imported = if entry.strong.is_empty() {
+                !entry.globs.is_empty()
             } else {
-                DiagnosticKind::DuplicateDeclaration {
-                    name: name.as_str().into(),
-                }
+                entry
+                    .strong
+                    .iter()
+                    .any(|c| matches!(c.origin, BindingOrigin::NamedImport(_)))
             };
-            result.diagnostics.push(
-                Diagnostic::error(kind).with_span(
-                    entry
-                        .strong
-                        .last()
-                        .or(entry.globs.last())
-                        .and_then(|c| c.location)
-                        .map_or(Span::default(), |s| s.range),
-                ),
-            );
+            if imported {
+                result.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateImport {
+                        name: name.as_str().into(),
+                    })
+                    .with_span(
+                        entry
+                            .strong
+                            .last()
+                            .or(entry.globs.last())
+                            .and_then(|c| c.location)
+                            .map_or(Span::default(), |s| s.range),
+                    ),
+                );
+            }
         }
         if entry.strong.len() > 1 {
             for c in &entry.strong {

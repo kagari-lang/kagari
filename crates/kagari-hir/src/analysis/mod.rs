@@ -196,24 +196,18 @@ impl FileAnalysis {
                     .next()
             })
             .or_else(|| {
-                facts
-                    .names
-                    .imports
-                    .directives
-                    .iter()
-                    .enumerate()
-                    .find_map(|(_index, import)| {
-                        (import.span.range.start <= offset && offset < import.span.range.end)
-                            .then(|| {
-                                facts.imported_functions.get(
-                                    import
-                                        .resolution
-                                        .target()?
-                                        .resolved(facts.names.items.unit.as_ref()),
-                                )
-                            })
-                            .flatten()
-                    })
+                facts.names.imports.directives.iter().find_map(|import| {
+                    (import.span.range.start <= offset && offset < import.span.range.end)
+                        .then(|| {
+                            facts.imported_functions.get(
+                                import
+                                    .resolution
+                                    .target()?
+                                    .resolved(facts.names.items.unit.as_ref()),
+                            )
+                        })
+                        .flatten()
+                })
             })
     }
 
@@ -257,29 +251,19 @@ impl FileAnalysis {
             .min_by_key(|(len, _)| *len)
             .and_then(|(_, host)| facts.names.hosts.function(host))
             .or_else(|| {
-                facts
-                    .names
-                    .imports
-                    .directives
-                    .iter()
-                    .enumerate()
-                    .find_map(|(_index, import)| {
-                        if !(import.span.range.start <= offset && offset < import.span.range.end) {
-                            return None;
-                        }
-                        let ResolvedName::HostFunction(host) = facts
-                            .names
-                            .imports
-                            .directives
-                            .get(_index)?
-                            .resolution
-                            .target()?
-                            .resolved(facts.names.items.unit.as_ref())
-                        else {
-                            return None;
-                        };
-                        facts.names.hosts.function(host)
-                    })
+                facts.names.imports.directives.iter().find_map(|import| {
+                    if !(import.span.range.start <= offset && offset < import.span.range.end) {
+                        return None;
+                    }
+                    let ResolvedName::HostFunction(host) = import
+                        .resolution
+                        .target()?
+                        .resolved(facts.names.items.unit.as_ref())
+                    else {
+                        return None;
+                    };
+                    facts.names.hosts.function(host)
+                })
             })
     }
 
@@ -1132,9 +1116,7 @@ impl AnalysisSnapshot {
                             ImportKind::Named { .. } => {
                                 BindingOrigin::NamedImport(directive.id.clone())
                             }
-                            ImportKind::Glob { .. } => {
-                                BindingOrigin::GlobImport(directive.id.clone())
-                            }
+                            ImportKind::Glob => BindingOrigin::GlobImport(directive.id.clone()),
                         }],
                     })
                 })

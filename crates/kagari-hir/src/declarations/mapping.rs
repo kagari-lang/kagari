@@ -118,13 +118,13 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Declarations<I> {
                 self.impl_identities.len(),
                 self.impl_identities
                     .iter()
-                    .map(|(key, value)| Ok((key.clone(), mapper.reference(value)?))),
+                    .map(|(key, value)| Ok((*key, mapper.reference(value)?))),
             )?,
             native_types: map_hash_entries(
                 self.native_types.len(),
                 self.native_types
                     .iter()
-                    .map(|(key, value)| Ok((key.clone(), (value).map_identities(mapper)?))),
+                    .map(|(key, value)| Ok((*key, (value).map_identities(mapper)?))),
             )?,
         })
     }

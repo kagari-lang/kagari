@@ -21,7 +21,7 @@ navigation tests. Keep declaration, signature and body checking separate.
 
 ## SA2 Import resolution rescans every module
 
-[ModuleGraph::build](../crates/kagari-hir/src/imports/mod.rs) resolves all modules
+[ModuleGraph::build](../crates/kagari-hir/src/imports/builder.rs) resolves all modules
 against the previous catalog, rebuilds the catalog and compares it after every
 round. Chained public globs need information propagation, but unrelated and stable
 modules also repeat this work.
@@ -38,8 +38,8 @@ before choosing a broader design or claiming a speedup.
 ## SA3 Iteration exhaustion is not distinguished from convergence
 
 The same loop permits at most `2N + 2` rounds for `N` modules and exits early when
-[same_members](../crates/kagari-hir/src/imports/catalog.rs) finds unchanged members
-and re-export targets. Exhausting the limit proceeds to graph construction without
+[catalog equality](../crates/kagari-hir/src/imports/builder.rs) finds unchanged
+candidates and re-export targets. Exhausting the limit proceeds to graph construction without
 an explicit non-convergence check; the code does not establish why this bound is
 sufficient. No failing input has been reproduced.
 
@@ -49,29 +49,24 @@ alias/glob chains, valid cycles, unresolved cycles and cancellation.
 
 ## SA4 Import records also represent namespace lookup state
 
-Inspected against `b27ea8a3`.
-Follow-up: [IR01-IR03 execution plan](import-resolution-plan.md); implementation
-has not started. Phase status and the ledger belong to the roadmap.
-[ResolvedImport](../crates/kagari-hir/src/imports/mod.rs) combines named bindings,
-glob roots, module declarations, implicit package/prelude bindings and internal
-namespace entries. Auxiliary entries require empty aliases and flags to exclude
-them from ordinary name collection, exports and dependency collection.
-[resolve_member](../crates/kagari-hir/src/imports/bindings.rs) and
-`ResolvedName::SourceItem` use an import-vector index as the namespace identity,
-so entering a child module requires another auxiliary import entry. This is a
-responsibility-boundary finding; no functional failure or speedup is established.
+Resolved by the [IR01-IR03 execution plan](import-resolution-plan.md).
+Validation and phase commits are recorded in the
+[roadmap ledger](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-complete).
 
-- Give the shared analysis module catalog a member lookup interface keyed by
-  module/namespace identity. Resolve nested paths directly through that interface,
-  with importer visibility and canonical re-export targets.
-- Separate import directives from scope bindings. Directives retain source paths,
-  spans, visibility and direct dependency edges; bindings always have a local name,
-  a target and explicit provenance (explicit, glob, module or implicit).
-- Record resolved source declarations using snapshot-qualified identities rather
-  than import-vector positions. Adapt imported signature/type consumers together;
-  retain navigation provenance separately. Remove internal namespace entries only
-  after these consumers no longer require them.
+The previous `ResolvedImport` model combined named bindings, glob roots, module
+headers, package/prelude bindings and empty-alias namespace entries. Import-vector
+positions served as declaration and namespace identities.
 
-First replace the lookup/data boundary, then address SA2 scheduling separately.
-Cover deep paths, grouped imports, aliases/re-exports, visibility, glob precedence
-and ambiguity, legal cycles, unused-import reachability and old/new snapshots.
+The implementation now separates real directives and their source provenance from
+named, tiered candidates and snapshot-qualified targets. A shared
+[namespace catalog](../crates/kagari-hir/src/imports/catalog.rs) resolves nested
+members with importer visibility and explicit lookup states. Qualified source
+units include arena identity; aliases/re-exports share canonical declarations.
+Imported signature consumers, compiler handoff, navigation, dependencies and
+snapshot reuse use the new boundary. Deep aliases, grouped paths, strong/glob
+precedence, unused imports, stale arenas, retained snapshots and source-free/native
+execution are covered by behavioral acceptance. See
+[implemented ownership](architecture.md#source-namespaces-and-import-ownership).
+
+SA1-SA3 remain separate, unactivated tasks. The solver scheduling and iteration
+bound are unchanged; no performance improvement has been measured.

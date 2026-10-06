@@ -3,8 +3,8 @@ use crate::{
     analysis::ownership::recover_invalid_identity,
     hir::ids::BodySelection,
     imports::{
-        ModuleGraph, ModuleImportFacts, catalog::NamespaceCatalog, functions::ImportedFunctions,
-        types::ImportedTypes,
+        ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
+        functions::ImportedFunctions, types::ImportedTypes,
     },
     language::items as language_items,
     resolver::{
@@ -362,9 +362,8 @@ fn declare_analysis(
             .expect("uncancelled standalone declarations");
         (
             graph
-                .node(lowered.source.module_identity())
+                .imports_for(&SourceUnit::of(&lowered))
                 .expect("module node")
-                .imports
                 .clone(),
             graph.catalog,
         )

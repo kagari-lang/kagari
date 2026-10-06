@@ -36,8 +36,7 @@ impl<'a> BodyChecker<'a> {
             .and_then(|name| self.imported_functions.get(name))
             .or_else(|| self.associated_function(callee))
         {
-            let local = imported.id.unit.file == self.lowered.source.id()
-                && imported.id.unit.revision == self.lowered.source.revision();
+            let local = imported.id.unit.matches(self.lowered);
             self.type_table.insert_call(
                 call_expr,
                 if local {

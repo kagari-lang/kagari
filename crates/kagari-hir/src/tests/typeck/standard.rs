@@ -1,7 +1,12 @@
 use super::*;
 use crate::{
-    language::semantics::ProtocolSemantics, native::NativeBinding, tests::test_analysis,
-    typeck::table::CallTarget, types::NominalType,
+    imports::{NamespaceId, SourceItem},
+    language::semantics::ProtocolSemantics,
+    native::NativeBinding,
+    resolver::resolved::ResolvedName,
+    tests::test_analysis,
+    typeck::table::CallTarget,
+    types::NominalType,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib::{catalog as foundation_catalog, catalog, identity as library};
@@ -306,17 +311,17 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
     );
     for (name, function) in [("foundation", false), ("make_list", true)] {
         let binding = analyzed.names.items.lookup(name).unwrap().target().unwrap();
-        let crate::resolver::resolved::ResolvedName::Source(target) = binding else {
-            panic!("source-owned declaration");
+        let (unit, is_function) = match &binding {
+            ResolvedName::Source(target) => {
+                assert!(matches!(target.item, SourceItem::Function(_)));
+                (&target.unit, true)
+            }
+            ResolvedName::Namespace(NamespaceId::Module(unit)) => (unit, false),
+            other => panic!("source namespace or constructor: {other:?}"),
         };
-        assert_eq!(
-            target.unit.module,
-            kagari_stdlib::namespaces::type_owner("Vec")
-        );
-        assert_eq!(
-            matches!(target.item, crate::imports::SourceItem::Function(_)),
-            function
-        );
+        assert_eq!(unit.module, kagari_stdlib::namespaces::type_owner("Vec"));
+        assert!(analyzed.names.catalog.valid(unit));
+        assert_eq!(is_function, function);
     }
     for function in &lowered.module.functions {
         let tail = lowered
