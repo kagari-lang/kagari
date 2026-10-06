@@ -61,13 +61,22 @@ def main() -> None:
                         help="Skip native backend preparation and execution")
     parser.add_argument("--numeric-matrix", action="store_true",
                         help="Measure bounded numeric/bit/cast loops in every numeric domain")
+    parser.add_argument("--source-forms", action="store_true",
+                        help="Measure concrete/dynamic recurrence forms and bounded byte state")
+    parser.add_argument("--baseline-executable", type=Path,
+                        help="Interleave the unchanged original suite with a saved release binary")
     args = parser.parse_args()
-    if args.numeric_matrix:
+    if args.numeric_matrix or args.source_forms or args.baseline_executable:
         args.interpreter_only = True
+    if args.numeric_matrix and args.source_forms:
+        parser.error("select one expanded matrix")
+    if args.baseline_executable and (args.numeric_matrix or args.source_forms):
+        parser.error("the saved baseline is paired only with the unchanged original suite")
     if args.runs < 1:
         parser.error("--runs must be positive")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    output = ROOT / "target/lua-comparison" / (stamp + ("-numeric" if args.numeric_matrix else "") + ("-check" if args.check else ""))
+    suffix = "-paired" if args.baseline_executable else "-forms" if args.source_forms else "-numeric" if args.numeric_matrix else ""
+    output = ROOT / "target/lua-comparison" / (stamp + suffix + ("-check" if args.check else ""))
     output.mkdir(parents=True, exist_ok=True)
     metadata = {"timestamp_utc": stamp, "revision": command("git", "rev-parse", "HEAD"),
                 "git_status": command("git", "status", "--short"),
@@ -78,9 +87,9 @@ def main() -> None:
                 "cache": "Rust build reused when available; fresh process/state per run; warmed execution measured separately from setup",
                 "samples_per_process": 1 if args.check else 11,
                 "warmups_per_route": 0 if args.check else 3,
-                "setup_samples_per_workload": 1 if args.check or args.numeric_matrix else 3,
-                "workloads": "numeric matrix" if args.numeric_matrix else "original seven",
-                "setup_scope": "one numeric module per process" if args.numeric_matrix else "per workload",
+                "setup_samples_per_workload": 1 if args.check or args.numeric_matrix or args.source_forms else 3,
+                "workloads": "source forms and byte state" if args.source_forms else "numeric matrix" if args.numeric_matrix else "original seven",
+                "setup_scope": "one matrix module per process" if args.numeric_matrix or args.source_forms else "per workload",
                 "runs": args.runs, "check": args.check,
                 "interpreter_only": args.interpreter_only,
                 "environment": {key: os.environ[key] for key in (
@@ -102,16 +111,25 @@ def main() -> None:
     metadata["build_wall_seconds"] = time.perf_counter() - start
     executable = ROOT / "target/release" / ("kagari-lua-benchmark.exe" if os.name == "nt" else "kagari-lua-benchmark")
     metadata["binary_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
+    if args.baseline_executable:
+        metadata["baseline_binary_sha256"] = hashlib.sha256(args.baseline_executable.read_bytes()).hexdigest()
+        metadata["process_order"] = "baseline,candidate,candidate,baseline (alternating by pair)"
     rows = []
-    for run in range(args.runs):
-        argv = [str(executable)]
+    routes = []
+    for pair in range(args.runs):
+        variants = ["baseline", "candidate"] if pair % 2 == 0 else ["candidate", "baseline"]
+        routes.extend((pair, variant) for variant in (variants if args.baseline_executable else ["candidate"]))
+    for run, (pair, variant) in enumerate(routes):
+        argv = [str(args.baseline_executable if variant == "baseline" else executable)]
         if args.check:
             argv.append("--check")
         if args.interpreter_only:
             argv.append("--interpreter-only")
         if args.numeric_matrix:
             argv.append("--numeric-matrix")
-        if run % 2:
+        if args.source_forms:
+            argv.append("--source-forms")
+        if pair % 2:
             argv.append("--reverse")
         start = time.perf_counter()
         with (output / f"run-{run}.csv").open("w", encoding="utf-8", newline="") as stdout, \
@@ -122,15 +140,18 @@ def main() -> None:
             for row in csv.DictReader(raw):
                 row.update({key: int(row[key]) for key in ("size", "batch", "sample", "ns", "checksum")})
                 row["run"] = run
+                row["variant"] = variant
                 rows.append(row)
-        print(f"Run {run + 1}/{args.runs}: all checksums pass", flush=True)
-    summary = summarize(rows)
+        print(f"Run {run + 1}/{len(routes)} ({variant}): all checksums pass", flush=True)
+    summary = []
+    for variant in sorted({row["variant"] for row in rows}):
+        summary.extend(dict(row, variant=variant) for row in summarize([row for row in rows if row["variant"] == variant]))
     report = {"metadata": metadata, "summary": summary, "raw": rows}
     (output / "results.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print("\nExecution median per complete workload (microseconds):")
     results = {(row["workload"], row["engine"]): row["median_ns"] / 1_000
-               for row in summary if row["phase"] == "execute"}
-    names = sorted({name for name, engine in results if engine == "kagari_vm"}) if args.numeric_matrix else (
+               for row in summary if row["phase"] == "execute" and row["variant"] == "candidate"}
+    names = sorted({name for name, engine in results if engine == "kagari_vm"}) if args.numeric_matrix or args.source_forms else (
         "entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
     for name in names:
         vm, lua = results[name, "kagari_vm"], results[name, "lua54"]

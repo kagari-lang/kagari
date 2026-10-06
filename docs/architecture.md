@@ -638,7 +638,7 @@ numeric comparisons, f32/f64 operations and supported casts use raw payloads;
 mixed-width shift counts keep both checked domains. Source-width overflow and
 IEEE bits remain intact. These function addresses are runtime preparation data,
 never serialized artifact operands. Native public argument/result adapters remain
-Value interfaces; typed call transfers are the following integration phase.
+Value interfaces; concrete script transfers remain raw through the caller bank.
 Scalar operands and numeric contracts are inline; identity-bearing types, strings,
 call arguments and other variable-length metadata remain in the canonical immutable
 instruction records. Their logical PC is the index, so normalization and hot reload
@@ -649,7 +649,9 @@ sealed operations and reuses entry authority without admitting caller callbacks
 or external Values. Managed operands/replacements and identity comparisons leave
 the region before normal ownership/drop and heap semantics run. The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks
-cancellation and collection/observer eligibility at each original program point;
+cancellation, observer requests and abandoned program leases at each original
+program point. Collector threshold eligibility is invariant within the closed
+region and is recomputed on entry after every allocating or reentrant boundary;
 the driver has already checked the first PC before acquiring it. Full safepoints
 and error observation run after releasing the cursor. Values retain full scalar
 precision and complete handle identities; large immutable host descriptors are
@@ -658,7 +660,11 @@ shared out of line rather than inflating every scalar execution slot.
 The SDK's default artifact path applies the bounded MIR pass pipeline before both
 bytecode and portable native input emission. Copy forwarding requires equal complete
 semantic contracts and immutable temporary definitions. It retains local stores,
-heap/module/cell reads, checked traps and side effects. Scalar constants are shared
+heap/module/cell reads, checked traps and side effects. Local snapshot facts may
+cross CFG edges only when every processed predecessor agrees on the same immutable
+definition; unprocessed backedges and calls kill forwarding. Named local stores
+remain for debugging; fresh verification rebuilds roots, liveness and provenance.
+Scalar constants are shared
 and moved to the dominating entry block; entry operations retain their order.
 Modified MIR is reverified to rebuild control flow, roots and source/debug facts.
 Explicit diagnostic lowering can disable these passes. Ordinary script calls copy

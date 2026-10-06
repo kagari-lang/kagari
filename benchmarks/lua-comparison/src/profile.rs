@@ -16,7 +16,7 @@ use kagari_embed::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
-    frame::ExecutionFrame,
+    frame::{ExecutionFrame, transfer::ReturnValue},
     module::{LoadedModule, execution::ExecutionInstruction},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
@@ -114,10 +114,11 @@ pub(super) fn run(
     }
     let before = runtime.runtime().gc().stats();
     println!(
-        "PROFILE_LAYOUT,value_bytes={},instruction_bytes={},execution_bytes={}",
+        "PROFILE_LAYOUT,value_bytes={},instruction_bytes={},execution_bytes={},return_packet_bytes={}",
         size_of::<Value>(),
         size_of::<BytecodeInstruction<DefinitionId>>(),
-        size_of::<ExecutionInstruction>()
+        size_of::<ExecutionInstruction>(),
+        size_of::<ReturnValue>()
     );
     println!("PROFILE_READY,{name}");
     io::stdout().flush().unwrap();
@@ -142,6 +143,16 @@ pub(super) fn run(
     io::stdout().flush().unwrap();
     // Counting is deliberately outside the sampling window; observer callbacks
     // change dispatch cost and must never be mixed into the throughput baseline.
+    count(runtime, module, context, "main", expected);
+}
+
+pub(super) fn count(
+    runtime: &KagariRuntime,
+    module: &LoadedModule,
+    context: &ExecutionContext,
+    entry: &str,
+    expected: i32,
+) {
     runtime
         .runtime()
         .set_execution_observer(InstructionCounts::default())
@@ -152,7 +163,12 @@ pub(super) fn run(
             .begin_execution(module, Default::default())
             .unwrap();
         runtime.runtime().attach_execution_observer().unwrap();
-        execute(runtime, module, context, expected);
+        let report = runtime.execute(module, entry, &[], context).unwrap();
+        assert_eq!(
+            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            Value::I32(expected)
+        );
+        drop(report);
         drop(session);
     }
     let mut counts: Vec<_> = runtime

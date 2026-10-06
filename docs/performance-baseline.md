@@ -7,6 +7,163 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Typed numeric execution result (NE05), 2026-10-06
+
+NE01-NE05 implementation is complete; **Lua parity acceptance is not met**.
+The candidate is the NE05 diff over `08afe47b`, following NE01 `631e4806`, NE02
+`d0e80d68` and NE03 `1bb8a33d`. The original production executable remains SV01
+`ba170cc7`; it was copied before changes and its SHA-256 is recorded in both reports.
+No benchmark source from the original seven workloads changed. Canonical source
+semantics, checked domains, roots, generation checks and cancellation remain active.
+
+Reproduce after preserving the original release executable:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/lua-comparison/20261006T073128Z/baseline-executable
+uv run python scripts/benchmark_lua.py --numeric-matrix
+uv run python scripts/benchmark_lua.py --source-forms
+```
+
+Raw metadata, source/binary hashes, all samples and preparation timings are in
+`target/lua-comparison/20261006T100030Z-paired/`,
+`target/lua-comparison/20261006T100218Z-numeric/` and
+`target/lua-comparison/20261006T100224Z-forms/`. Environment: Apple M1 Max,
+10 logical CPUs, 32 GiB, macOS 26.6.2, Rust/Cargo 1.98.1, aarch64/LLVM 22.1.8,
+workspace release opt-level=3/default target/default Cargo parallelism, warm build
+cache, SDK source/native features, native preparation/execution disabled, PUC Lua
+5.4.8 via mlua 0.11.6/vendored. All workspace tests, standalone feature consumers
+and CLI checks finished before timing. No measuring agent build/test/profile was
+concurrent. Desktop scheduling, core placement and frequency remain uncontrolled.
+
+The original suite uses four fresh sequential processes in baseline, candidate,
+candidate, baseline order. Each variant has two processes, three warmups per route
+and eleven samples per process, with rotating engine order and reversed second
+pair. All **616 checked timed batches** pass. Numeric and source-form matrices use
+two fresh processes each and pass **528/396 checked timed batches**. Build times
+2.232/0.085/0.074 seconds are excluded, as are source compilation, verification,
+physical preparation, runtime construction and linking. Public host entry/return
+and default GC are included. Sampling, observer counting and allocation accounting
+are separate from these unprofiled timings.
+
+Times are microseconds per complete workload (entry per call):
+
+| Workload | Paired original VM | NE05 VM | Candidate Lua | Original/NE05 | NE05/Lua |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| entry | 1.352 | 1.365 | 0.029 | 0.99x | 47.12 |
+| arithmetic | 20,866.270 | 3,446.146 | 385.479 | 6.05x | 8.94 |
+| branches | 22,812.667 | 3,995.209 | 823.125 | 5.71x | 4.85 |
+| calls | 12,333.188 | 6,430.917 | 228.520 | 1.92x | 28.14 |
+| fibonacci | 18,441.166 | 12,931.021 | 350.541 | 1.43x | 36.89 |
+| arrays | 14,907.104 | 14,522.625 | 68.500 | 1.03x | 212.01 |
+| maps | 14,867.250 | 13,708.125 | 66.646 | 1.08x | 205.69 |
+
+Arithmetic and branches improve 6.05x/5.71x against fresh paired originals;
+call/Fibonacci improvement is 1.92x/1.43x. Collections show no comparable architectural
+speedup: arrays remain 14.52 ms and maps 13.71 ms, with map sample ranges overlapping
+the original. Do not attribute their small differences exclusively to this track.
+All nontrivial ratios remain above 1.0; none is near parity. Candidate arithmetic
+samples span 3.420-3.482 ms versus Lua 0.382-0.422 ms. The gap is much larger than
+observed variation, so no near-parity uncertainty claim is needed.
+
+Across the paired original suite, source-to-artifact medians are 603.538/599.215 ms,
+artifact verification/preparation 261.401/259.213 ms and program linking
+2.292/2.260 ms (original/candidate, pooled across workloads and setups). These include
+foundation setup and are not attributed to a tiny function's kernel selection alone.
+No preparation speedup is claimed. The first expanded-form process records source
+compilation 923.954 ms, artifact preparation 255.836 ms and link 2.681 ms. Numeric
+source/preparation are 1018.549/263.445 ms; its link is outside execution but not
+separately instrumented.
+
+The 20,000-iteration numeric matrix covers all ten integer domains, f32 and f64,
+checked arithmetic, casts, comparisons/loop control and mixed u32 shift counts.
+Integer medians span 2.734-2.828 ms with VM/Lua ratios 4.74-4.83; f32/f64 are
+2.561/2.522 ms, ratios 5.69/5.60. This fixture has no type fallback cliff. Its float
+values stay exactly representable, and integer values stay inside every narrow
+source domain; Lua ratios describe that intersection, not arbitrary f32 rounding
+or checked-overflow equivalence. Full edge-domain semantics have separate tests.
+
+Source forms use 5,000 iterations of the same changing bounded recurrence, with
+independent Rust checksums and nearest equivalent Lua bodies:
+
+| Form | VM us | Lua us | VM/Lua |
+| --- | ---: | ---: | ---: |
+| direct | 455.875 | 75.125 | 6.07 |
+| helper | 3,200.896 | 141.625 | 22.60 |
+| concrete_generic | 3,170.709 | 101.709 | 31.17 |
+| native | 1,862.458 | 139.688 | 13.33 |
+| interface | 9,976.792 | 133.292 | 74.85 |
+| shared_generic | 20,607.396 | 107.520 | 191.66 |
+| capture_cell | 9,653.541 | 137.042 | 70.44 |
+| field | 6,870.042 | 90.062 | 76.28 |
+| byte_state | 6,559.584 | 109.354 | 59.98 |
+
+Direct, helper and concrete generic bodies consume the same prepared numeric
+kernels, but helper/generic calls still cost roughly seven times the direct Kagari
+loop. These are **real remaining source-form performance differences**, not a
+claim that unifying kernels equalizes total execution. Interface/shared/closure
+and field paths remain substantially more expensive. Rust native vs Lua function
+calls and generic erasure have distinct boundary implementations; those ratios
+are observations, not an equivalent native-ABI parity test. Shared generic uses
+an identity default body with arithmetic outside it. A generic Add default body
+currently fails source lowering with `MissingBinding("checked callable requirement")`;
+that frontend gap is recorded in the roadmap and was not hidden by weakening checks.
+
+The byte state machine uses casts for u8 wrapping, XOR/shifts and 256 bounded
+memory slots; it checks checksum 621716 against Rust and Lua. 6.560 ms per 5,000
+steps is about 0.762 million steps/second, versus Lua's 45.7 million. This is a
+synthetic storage/dispatch workload, not a NES instruction/frame benchmark or a
+claim of emulator realtime suitability.
+
+Independent counts (`target/ne05-count-*.log`) retain original logical origins.
+Arithmetic falls from **600,015 to 550,015** instructions (50,000 redundant local
+loads removed), versus Lua 250,007. It still has fourteen logical/six physical
+temporaries and three fixed named locals: nine scalar slots, no managed slots,
+72 payload plus nine initialization bytes. Shared Location metadata is eight bytes
+per logical location and active Window metadata remains 96 bytes. Frame headers,
+retained capacity and program metadata are separate. Value/canonical/prepared/return
+packet sizes are 32/136/24/32 bytes. No fake smaller handle or lossy float storage
+is used. The isolated ten-second arithmetic count/sampling window performs zero
+script heap allocations/collections.
+
+Form counts are 75,015 direct, 105,012 helper, 95,015 concrete generic, 65,012
+native, 110,014 interface, 95,017 shared generic, 115,015 capture-cell, 90,016 field
+and 160,021 byte-state instructions. The helper and concrete Add callee remain in
+the counted route; their calls were not optimized away. The shared generic body
+has two managed slots and one scalar slot. Direct/helper/concrete/native calls
+allocate zero script objects and collect zero times per accounting run; interface,
+shared generic and field each allocate one script object, closure/cell two and
+byte storage one. Shared generic collects fourteen times, byte state once. Its
+metadata/GC cost is visible rather than mislabeled scalar arithmetic. Live-object
+deltas can include collection of earlier warmup objects and are not allocation counts.
+
+The O1 counting allocator test
+`cargo test -p kagari-vm --test native_allocations -- --nocapture` proves 1,000 warmed
+repeated/reordered scalar frame entries, execution and caller return writes have
+zero Rust allocations/reallocations/deallocations. Existing 100,000 scalar native
+calls and bulk sequence boundaries keep zero allocation assertions. These exclude
+public host entry/root-lease setup and do not establish zero-allocation dynamic
+interface dispatch; the existing interface allocation regressions remain intact.
+
+Final sampling uses `uv run python scripts/profile_lua_macos.py arithmetic calls
+arrays maps`, with raw output under
+`target/lua-comparison/20261006T100405Z-macos-profile/`. Arithmetic samples concentrate
+in the closed region, with cancellation and raw kernels visible and boxed numeric
+helpers absent. This does not separate every inlined bank/dispatch check. Calls
+retain substantial stack/session authority and frame-entry/return overhead. Arrays
+show module retention/hashing and native conversion/type validation; maps retain
+allocation/free and type/layout comparison costs. Per original workload, arrays
+allocate one script object/collect twice, maps 2,001 objects/collect five times.
+Their counts fall to 72,030/63,030, versus Lua 42,012/24,012. These samples support
+separate ownership/call and native-result/collection follow-ups; they do not justify
+changing GC semantics or weakening admission to chase a timing.
+
+Final acceptance: workspace tests pass 1,911 tests (one existing manual benchmark
+ignored), strict workspace/all-target Clippy, formatting, structure (918 Rust files,
+zero violations/exceptions), standalone artifact/source/native/source+native graphs
+and consumers, CLI jit tests and diff checks pass. The bounded implementation is
+complete. Lua performance acceptance and the documented shared-bound frontend gap
+remain open; another architecture track requires explicit activation.
+
 ## Typed numeric execution baseline (NE01), 2026-10-06
 
 Before numeric execution changes, run

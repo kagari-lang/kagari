@@ -6,8 +6,9 @@ checkpoint is complete. The bounded IP01-IP04 implementation is complete, with o
 commit per phase.
 Lua parity acceptance remains unmet; measured follow-up is recorded below. Other
 queued proposals still require separate activation.
-NE01-NE05 typed numeric execution is active after explicit user authorization.
-Its phase checklist and ledger below own the current execution work.
+The authorized NE01-NE05 typed numeric implementation is complete, with one
+commit per phase. Its measured Lua parity gate remains open; results and remaining
+boundary/source-form costs are recorded below.
 Implemented behavior belongs in [architecture](architecture.md) and
 [specifications](README.md#language-and-execution-specifications); completed phase
 checklists, intermediate errors and execution logs remain in Git history.
@@ -236,7 +237,7 @@ inputs on interpreter/Lua and supported native routes. Structure, formatting,
 focused strict Clippy, Python syntax and report consistency checks are recorded at
 this checkpoint. No production crate changes or carried build errors are introduced.
 
-## Typed numeric execution (NE01-NE05, active, 2026-10-06)
+## Typed numeric execution (NE01-NE05, implemented; parity open, 2026-10-06)
 
 Authorized scope: implement the next interpreter architecture so changing arithmetic
 operations, numeric types or ordinary source expression forms does not send known
@@ -449,7 +450,7 @@ no intermediate error may survive final acceptance.
   callee arithmetic uses the same kernel across source forms; repeated/reordered
   arguments and warm scalar frame transfers introduce no Rust allocations. Report
   actual dynamic/managed-result costs separately.
-- [ ] **NE05: Dataflow, representative workloads and final acceptance.** Coalesce
+- [x] **NE05: Dataflow, representative workloads and final acceptance.** Coalesce
   locals/temporaries with checked origin/location mappings and remove redundant
   scalar moves at the general lowering/allocation boundary. Repeat the paired Lua
   suite and expanded numeric/source-form matrix; add a deterministic byte-oriented
@@ -666,7 +667,7 @@ existing checks. Native arithmetic/source-width operations and casts now use the
 same payload kernels, including the corrected unsigned remainder diagnostic.
 Integer methods with Option/tuple results retain their normal carriers and roots.
 
-Validation: 613 runtime/VM tests pass (one existing manual benchmark ignored),
+Validation: 602 runtime/VM tests pass (one existing manual benchmark ignored),
 including all numeric/source-free, closure, shared/interface, native callback,
 forced-GC, cancellation and reload cases. The focused allocation rerun passes:
 1,000 warmed repeated/reordered-argument scalar calls including execution and
@@ -675,6 +676,64 @@ The previous scalar native and contiguous bulk allocation assertions still pass.
 Strict runtime/VM all-target Clippy, formatting, structure (917 Rust files, zero
 violations/exceptions) and diff checks pass. No carried error. Expanded source-form
 throughput and final paired measurements belong to NE05; Lua parity remains open.
+
+NE05 implementation checkpoint (2026-10-06): local/temporary coalescing operates on
+immutable MIR snapshots and extends through CFG meets when every processed
+predecessor proves the same definition. Calls and unprocessed backedges kill facts.
+Named local stores remain separate debugger locations; physically aliasing mutable
+named variables to old snapshots would invalidate debugger/host inspection.
+Fresh MIR sealing and prepared allocation rebuild the checked origin/location maps.
+Closed scalar regions cache only collector-threshold eligibility, which cannot
+change without leaving the region. Cancellation, observation and abandoned Arc
+program leases retain logical-PC checks. No collector algorithm or polling cadence
+changes.
+
+The expanded source-form fixture checks direct expressions, retained helper calls,
+concrete Add instantiation, interface dispatch, a shared generic identity return,
+capture cells, mutable fields, checked scalar native calls and a bounded u8 memory
+state machine against independent Rust checksums. Lua routes match the arithmetic,
+loop counts and checksums; generic erasure, host calls and managed representations
+have different implementations and their ratios are boundary-cost observations.
+A proposed shared generic Add default method fails the existing compiler with
+MissingBinding("checked callable requirement"); the fixture uses a supported shared
+identity body and leaves the arithmetic concrete outside it. This source-analysis
+capability remains a recorded follow-up, not a weakened executable check or an
+implicit frontend migration in the interpreter track.
+
+Final acceptance: cargo test --workspace passes 1,911 tests with one existing
+manual benchmark ignored. Strict workspace/all-target Clippy, formatting, structure
+(918 Rust files, zero violations/exceptions) and diff checks pass. All thirteen
+production boundaries and ABI/contract build boundaries pass. Standalone artifact,
+source, native and source+native consumers and all five CLI jit tests pass. No
+carried build/test failure remains. Intermediate fixture fixes remove an ambiguous
+SourceFile::new .into() and import installed core::ops::Add explicitly; all final
+expanded workload checksums pass.
+
+Four interleaved fresh original/candidate processes pass 616 checked timed batches;
+numeric/source-form matrices pass another 528/396. Against the paired original,
+arithmetic improves 6.05x (20.866 to 3.446 ms), branches 5.71x (22.813 to 3.995 ms),
+calls 1.92x and Fibonacci 1.43x. Arrays/maps remain 14.523/13.708 ms. Arithmetic now
+executes 550,015 logical instructions, down from 600,015, with unchanged nine
+scalar slots/zero managed slots and zero script allocations/collections. The return
+packet remains 32 bytes. Warm repeated/reordered scalar calls plus caller returns
+retain zero Rust allocations.
+
+All twelve numeric domains use the prepared kernels; this finite integer matrix
+spans 2.734-2.828 ms and f32/f64 2.561/2.522 ms without a type fallback cliff.
+Source-form boundaries remain expensive: helper/concrete generic loops are about
+seven times the direct Kagari recurrence, dynamic shared generic is 20.607 ms and
+byte state 6.560 ms for 5,000 steps. The latter is synthetic, not a NES emulator
+acceptance test. Original-suite nontrivial VM/Lua ratios remain 4.85-212.01;
+**Lua parity acceptance is not met**. Do not extend the authorized scope silently.
+The finite implementation gates are complete; the product performance gate and
+shared-bound frontend capability above remain explicit follow-ups.
+
+Commands, environment, revision/binary/source hashes, preparation scope, sample
+ranges, memory/allocation counts and independent sampling are documented in
+performance-baseline.md. Raw paired/numeric/forms data are under target/lua-comparison/
+20261006T100030Z-paired, 20261006T100218Z-numeric and 20261006T100224Z-forms;
+final macOS samples are 20261006T100405Z-macos-profile. Temporary logs remain
+under target/ne05-*.log; durable conclusions above survive cache cleanup.
 
 ## Crate responsibility migration (CR01-CR02, design agreed)
 

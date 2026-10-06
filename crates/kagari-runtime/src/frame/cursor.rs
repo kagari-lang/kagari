@@ -62,11 +62,11 @@ impl ExecutionCursor<'_> {
     /// Publish the next logical PC before deciding whether a full boundary is
     /// needed. Cancellation is completed outside this borrow so its trace can
     /// inspect the stack. Observers and collections always run without a cursor.
-    fn prepare_instruction(&mut self) -> Result<bool, RuntimeError> {
+    fn prepare_instruction(&mut self, collection_due: bool) -> Result<bool, RuntimeError> {
         self.frame.prepare_instruction();
         Ok(self.session.options.cancellation.check().is_err()
             || self.session.observer_attached.get()
-            || self.runtime.gc().collection_due()
+            || collection_due
             || (self.runtime.gc().automatic_collection_enabled()
                 && self.runtime.modules.has_abandoned_programs()?))
     }

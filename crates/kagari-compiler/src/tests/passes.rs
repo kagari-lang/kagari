@@ -334,3 +334,35 @@ fn local_forwarding_keeps_stores_and_moves_loop_constants_to_entry() {
             ))
     );
 }
+
+#[test]
+fn cfg_local_snapshots_merge_only_when_every_predecessor_agrees() {
+    for source in [
+        "fn main(flag: bool, value: i32) -> i32 { var copy = value; if flag { copy + 1; } else { copy + 2; } copy + 3 }",
+        "fn main(flag: bool, value: i32) -> i32 { var copy = value; if flag { copy = value + 1; } else { copy = value + 2; } copy + 3 }",
+        "fn main(n: i32) -> i32 { var copy = 0; while copy < n { copy += 1; } copy }",
+        "fn touch() {} fn main(flag: bool, value: i32) -> i32 { var copy = value; if flag { touch(); } copy + 3 }",
+    ] {
+        let original = checked(source);
+        let result = optimized(original.clone());
+        let stores = |module: &VerifiedMirModule| {
+            module
+                .functions
+                .iter()
+                .flat_map(|function| &function.blocks)
+                .flat_map(|block| &block.instructions)
+                .filter(|instruction| matches!(instruction, Instruction::StoreLocal { .. }))
+                .count()
+        };
+        assert_eq!(
+            stores(&result.module),
+            stores(&original),
+            "named debug stores remain: {source}"
+        );
+    }
+    let result = optimized(checked(
+        "fn main(flag: bool, value: i32) -> i32 { var copy = value; if flag { copy + 1; } else { copy + 2; } copy + 3 }",
+    ));
+    let function = &result.module.functions[0];
+    assert!(!function.blocks.iter().flat_map(|block| &block.instructions).any(|instruction| matches!(instruction, Instruction::LoadLocal { local, .. } if local.index() == 2)), "a common snapshot dominates both arms and their merge");
+}

@@ -79,10 +79,47 @@ fn simplify_function(
         .emission_order()
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
+    let mut predecessors = vec![Vec::new(); function.blocks.len()];
+    for (index, block) in function.blocks.iter().enumerate() {
+        if let Some(terminator) = &block.terminator {
+            for successor in terminator.successors() {
+                work.charge(1)?;
+                predecessors[successor.index()].push(index);
+            }
+        }
+    }
+    let mut outgoing: Vec<Option<Vec<Option<MirValue>>>> = vec![None; function.blocks.len()];
     for index in order {
-        let block = &mut function.blocks[index];
         work.charge(function.locals.len())?;
+        // Meet immutable snapshots, never mutable referents. Every incoming edge
+        // must already prove the same definition. Loop backedges or unprocessed
+        // predecessors decline forwarding; a call below kills the facts.
         let mut locals = vec![None; function.locals.len()];
+        if index != function.entry.index()
+            && !predecessors[index].is_empty()
+            && predecessors[index]
+                .iter()
+                .all(|&predecessor| outgoing[predecessor].is_some())
+        {
+            for (local, fact) in locals.iter_mut().enumerate() {
+                let candidate = outgoing[predecessors[index][0]]
+                    .as_ref()
+                    .expect("processed predecessor")[local];
+                for &predecessor in &predecessors[index] {
+                    work.charge(1)?;
+                    if outgoing[predecessor]
+                        .as_ref()
+                        .expect("processed predecessor")[local]
+                        != candidate
+                    {
+                        *fact = None;
+                        break;
+                    }
+                    *fact = candidate;
+                }
+            }
+        }
+        let block = &mut function.blocks[index];
         let mut retained = Vec::with_capacity(block.instructions.len());
         let mut spans = Vec::with_capacity(block.instructions.len());
         let mut scopes = Vec::with_capacity(block.instructions.len());
@@ -150,6 +187,7 @@ fn simplify_function(
         block.instructions = retained;
         block.instruction_spans = spans;
         block.instruction_scopes = scopes;
+        outgoing[index] = Some(locals);
     }
     // A later block may reuse an earlier constant before that definition's old
     // location. All constants now dominate every block; resolve transitive aliases.

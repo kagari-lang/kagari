@@ -1,4 +1,5 @@
 //! Matched Lua/Kagari execution with setup separated and every checksum verified.
+mod forms;
 mod numeric;
 mod profile;
 mod workloads;
@@ -24,6 +25,7 @@ struct Options {
     interpreter_only: bool,
     profile: Option<String>,
     numeric_matrix: bool,
+    source_forms: bool,
 }
 
 impl Options {
@@ -36,6 +38,7 @@ impl Options {
             interpreter_only: false,
             profile: None,
             numeric_matrix: false,
+            source_forms: false,
         };
         for argument in env::args().skip(1) {
             match argument.as_str() {
@@ -47,6 +50,7 @@ impl Options {
                 "--reverse" => options.reverse = true,
                 "--interpreter-only" => options.interpreter_only = true,
                 "--numeric-matrix" => options.numeric_matrix = true,
+                "--source-forms" => options.source_forms = true,
                 _ if argument.starts_with("--profile=") => {
                     options.profile = Some(argument["--profile=".len()..].to_owned());
                     options.setup_samples = 1;
@@ -273,6 +277,10 @@ fn run(workload: &Workload, options: &Options) {
 fn main() {
     let options = Options::parse();
     println!("phase,workload,engine,size,batch,sample,ns,checksum");
+    if options.source_forms {
+        forms::run(&options);
+        return;
+    }
     if options.numeric_matrix {
         numeric::run(&options);
         return;
@@ -310,6 +318,7 @@ mod tests {
             interpreter_only: false,
             profile: None,
             numeric_matrix: false,
+            source_forms: false,
         };
         for size in [0, 1] {
             for workload in WORKLOADS {

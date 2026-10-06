@@ -27,9 +27,14 @@ impl ExecutionCursor<'_> {
             .resources()
             .ensure_cursor_allowed(&self.session)?;
         self.runtime.gc().ensure_no_native_borrow()?;
+        // A closed region cannot allocate/drop managed values, mutate executable
+        // metadata or change collector policy. Recompute after every boundary.
+        // Abandoned program leases can expire on another thread and remain
+        // checked at each logical PC, as do cancellation and observer requests.
+        let collection_due = self.runtime.gc().collection_due();
         let mut first = true;
         loop {
-            if !first && self.prepare_instruction()? {
+            if !first && self.prepare_instruction(collection_due)? {
                 return Ok(RegionExit::Safepoint);
             }
             first = false;
