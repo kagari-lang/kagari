@@ -44,6 +44,18 @@ Apply these concrete rules:
 - Explain representation: what is stored, units/ranges, ownership or borrowing,
   and links to related structures. Distinguish logical child structure from Rust
   fields. State whether an accessor selects direct children or searches descendants.
+- Every concrete AST wrapper must include a `text` tree diagram beside a source
+  example, including simple and helper nodes. Show actual node/token kinds in
+  source order and annotate the children selected by accessors. A prose-only
+  description of child shape is insufficient. Abstract enums link to their variants'
+  concrete diagrams instead of inventing an extra CST node.
+- Diagrams must distinguish nodes from tokens and label omitted trivia/collapsed
+  descendants. Explain filtered, zero-based positions: `nth(1)` after filtering
+  means the second matching child, not the second CST element. Map `child`, `next`,
+  `nth`, `skip` and `last` to the illustrated selections. Mark optional/repeated
+  parts in a schema with a legend; concrete examples show only children present.
+  Show separate diagrams for forms whose nesting or accessor interpretation differs,
+  and a recovery example where missing children make positional access surprising.
 - Describe `None`, empty iterators, ordering, filtering and relevant defaults.
   Distinguish legally omitted syntax from missing parts caused by error recovery.
   Do not promise that malformed trees retain all positional child roles.
@@ -103,15 +115,45 @@ so they attach to the generated type:
 ast_node!(
     /// A binary operator expression, such as `total + 1`.
     ///
-    /// Its direct children contain the left expression, operator token and right
-    /// expression, with trivia retained. [`Self::lhs`] and [`Self::rhs`] select
-    /// the first and second expression children; [`Self::operator`] reads the token.
-    /// Missing operands can occur in recovered syntax.
+    /// # Tree shape
+    ///
+    /// For `total + 1` (trivia omitted; path descendants collapsed):
+    ///
+    /// ```text
+    /// BinaryExpr
+    /// +-- PathExpr "total" [node, Expr #0] -> lhs()
+    /// +-- Plus "+"         [token]         -> operator()
+    /// `-- Literal          [node, Expr #1] -> rhs()
+    ///     `-- Number "1"   [token]
+    /// ```
+    ///
+    /// [`Self::lhs`] uses `next()` and [`Self::rhs`] uses `nth(1)` after filtering
+    /// direct child nodes to expressions. [`Self::operator`] searches direct
+    /// tokens. The nested `Number` token is not a direct child of `BinaryExpr`.
+    /// A missing second expression in recovered syntax makes `rhs()` return `None`.
     BinaryExpr, BinaryExpr
 );
 ```
 
-Add small `text` tree sketches to complex nodes where the prose is insufficient.
+For `sum(1, 2)`, the `CallExpr` documentation should expose why `skip(1)` reads
+arguments (trivia omitted; expression descendants collapsed):
+
+```text
+CallExpr
++-- PathExpr "sum" [node, Expr #0] -> callee(): next()
++-- LParen "("     [token]
++-- Literal "1"    [node, Expr #1] -> args() item #0
++-- Comma ","      [token]
++-- Literal "2"    [node, Expr #2] -> args() item #1
+`-- RParen ")"     [token]
+```
+
+The expression sequence is `[PathExpr, Literal, Literal]`; punctuation does not
+occupy an expression index. `support::child::<T>` similarly selects the first
+matching direct node, not necessarily the first node overall. Put these shared
+traversal rules in `ast/support.rs` and the AST module documentation, with local
+accessor links to the relevant node diagram.
+
 In the shared AST explanation, explicitly show that `BinaryExpr` stores only
 `syntax: SyntaxNode`; `lhs`/`rhs` are views, not stored fields. Include one complete
 and one incomplete source example to demonstrate diagnostics plus partial access.
@@ -122,7 +164,7 @@ and one incomplete source example to demonstrate diagnostics plus partial access
 | --- | --- |
 | SD01 | Crate/module orientation and shared CST/AST storage model; macro attribute forwarding; verify a generated node's documentation renders on its type. |
 | SD02 | Complete `SyntaxKind`, `TokenKind`, token fields and Rowan vocabulary. Every symbol is readable at its declaration; contextual and synthetic kinds are explained. |
-| SD03 | Complete all five AST category files plus trait/support APIs. Every wrapper has a source example and logical shape; every accessor states meaningful selection/absence behavior. |
+| SD03 | Complete all five AST category files plus trait/support APIs. Every wrapper has a source example and annotated node/token tree; every accessor maps to its selection and states absence behavior. Include structurally different forms and relevant recovery cases. |
 | SD04 | Complete lexer, parse APIs, limits, parser state and grammar orientation. Readers can follow source-to-tree construction and recovery from the documented entrypoints. |
 | SD05 | Audit the coverage table, build the crate's docs, run the small set of documentation examples, inspect representative rendered pages and reconcile the architecture links. |
 
@@ -141,6 +183,9 @@ cargo test -p kagari-syntax --doc
 The missing-docs lint checks public coverage, not private-state explanations or
 documentation quality. Manually audit the table and inspect generated `SyntaxKind`,
 `BinaryExpr`, `PathExpr`, `Parse` and `Parser` pages, including links and code blocks.
+Check diagrams against grammar handlers and accessors: direct-child boundaries,
+source order, filtered indices and omitted/repeated parts must agree. A reader
+must be able to explain each positional accessor from its diagram and contract.
 Run formatting on changed Rust files and the repository structure checker for the
 macro checkpoint. Use content/local-link checks and `git diff --check` at checkpoints.
 No workspace tests, full crate unit suite or feature matrix is required locally;

@@ -37,7 +37,7 @@ documentation implementation has not started.
 
 - [ ] SD01: Document orientation/storage and forward AST macro documentation.
 - [ ] SD02: Document kinds, tokens and Rowan vocabulary.
-- [ ] SD03: Document all AST categories and accessors.
+- [ ] SD03: Document all AST categories with annotated trees and accessor mappings.
 - [ ] SD04: Document lexer/parser APIs, internal state and grammar flow.
 - [ ] SD05: Audit coverage and run focused documentation validation.
 
