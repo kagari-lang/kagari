@@ -445,6 +445,11 @@ per-space import outcomes, host/tooling/cache consumers and focused acceptance.
 The design excludes macros; implementation is not activated. Stabilize this
 semantic model before changing SA2/SA3 solver scheduling and convergence handling.
 
+[SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references)
+records compact module handles backed by shared portable identities as a separate,
+unactivated follow-up. Evaluate reuse of the existing identity context and measure
+path-copy/key costs before claiming a performance improvement.
+
 [The architecture review](architecture-review-2026-10-03.md#outstanding-findings)
 retains R1/R2/R5/R7/R8 for current-code confirmation: raw-kind safety, prepared-JIT
 policy, trait-search cancellation/bounds, repeated whole-program specialization

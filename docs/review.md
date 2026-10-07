@@ -221,3 +221,30 @@ claim is justified by this review. Rust references for the boundaries:
 [binding keys](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/struct.BindingKey.html),
 [per-name state](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/imports/struct.NameResolution.html),
 [import resolution and derived module children](https://doc.rust-lang.org/stable/nightly-rustc/src/rustc_resolve/imports.rs.html).
+
+## SA9 Module paths are copied into internal graph keys and references
+
+[ModuleIdentity](../crates/kagari-common/src/identity.rs) is a portable package/path
+value containing owned strings. It is also embedded in `SourceUnit`, binding owners,
+namespace keys and dependency sets. Cloning these identities copies strings; hashing
+and ordering examine path content. The fixed-point builder clones catalog keys on
+each round. This establishes representation overhead, not a measured bottleneck.
+
+Separate portable module identity from a compact, context-owned module handle.
+Intern each identity once; use handles for catalog keys, owners and dependencies,
+and borrow the portable identity for diagnostics, registration and artifact boundaries.
+The existing [definition table](../crates/kagari-common/src/identity/table.rs) already
+interns module roots and shares their paths; investigate extending/reusing that
+owner before introducing a second interner. Do not reuse HIR `ModuleId`: it addresses
+a local module declaration, not a module in the analysis universe.
+
+The design must define handle ownership and retained-snapshot validity, remap across
+independent contexts, retain source revision/arena checks, and preserve deterministic
+artifact ordering independently of allocation order. Parent/package/visibility checks
+need table queries in place of editing copied path vectors. `Arc<ModuleIdentity>`
+alone reduces clone costs but still compares/hashes content with ordinary traits.
+
+Keep this a separate follow-up from SA8 and SA2/SA3. Measure graph build allocations
+and time before/after on the same module workload, separating compilation time;
+reuse identity/snapshot and import tests for focused validation. Code migration is
+not activated by this review.
