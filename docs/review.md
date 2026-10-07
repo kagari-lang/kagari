@@ -264,3 +264,17 @@ Keep this a separate follow-up from SA8 and SA2/SA3. Measure graph build allocat
 and time before/after on the same module workload, separating compilation time;
 reuse identity/snapshot and import tests for focused validation. Code migration is
 not activated by this review.
+
+## SA10 Generated trait declarations hide native default bodies
+
+The [renderer](../crates/kagari-hir/src/native/render.rs) emits bodyless trait
+methods and separate private native helper declarations. The
+[importer](../crates/kagari-hir/src/native/api.rs) restores `has_default` from
+registration metadata, so source alone looks like a mandatory method even when
+concrete implementations may omit it. This is a source/semantic presentation gap;
+no incorrect dispatch has been established.
+
+The [modification plan](native-default-bodies-plan.md) generates real trait
+forwarding bodies, checks them and requires checked-call evidence for source
+compilation. Keep private helper signatures and source-free registration contracts;
+do not merely print a decorative body or delete entries still consumed by linking.

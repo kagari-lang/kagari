@@ -28,6 +28,15 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Explicit native default bodies
+
+The [execution plan](native-default-bodies-plan.md) makes registered trait defaults
+visible as checked forwarding bodies in generated declarations. Private native
+helpers remain typed call targets; source compilation consumes checked calls and
+source-free linking retains validated symbolic registration recipes.
+Status: planned; ND01-ND04 have not started. The plan owns the implementation
+checklist and focused acceptance; no implementation is activated by this entry.
+
 ### HIR documentation completion
 
 The [execution plan](hir-documentation-plan.md) covers `kagari-hir` storage and ID
