@@ -33,6 +33,7 @@ parallel migration documents.
 These documents do not imply implemented APIs or active execution. The roadmap
 owns activation, dependencies and phase order.
 
+- [Syntax documentation completion](syntax-documentation-plan.md).
 - [Contract/common and declaration ownership cleanup](architecture.md#contract-and-common-responsibility-cleanup).
 - [Nominal enum registration and protocol-based propagation](enum-propagation-plan.md).
 - [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md).

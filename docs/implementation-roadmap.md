@@ -28,6 +28,19 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Syntax documentation completion
+
+The [execution plan](syntax-documentation-plan.md) covers the entire `kagari-syntax`
+crate using Rustdoc/standard-library conventions: visible token spellings, concrete
+AST shapes, accessor contracts, parser state and examples. Planning is complete;
+documentation implementation has not started.
+
+- [ ] SD01: Document orientation/storage and forward AST macro documentation.
+- [ ] SD02: Document kinds, tokens and Rowan vocabulary.
+- [ ] SD03: Document all AST categories and accessors.
+- [ ] SD04: Document lexer/parser APIs, internal state and grammar flow.
+- [ ] SD05: Audit coverage and run focused documentation validation.
+
 ### Definition spacing enforcement
 
 - [x] Require a blank line between adjacent Rust functions/methods, before the
