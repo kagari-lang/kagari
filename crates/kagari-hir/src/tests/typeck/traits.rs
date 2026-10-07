@@ -64,7 +64,10 @@ fn forward<T: Carrier, U: Carrier>(value: T) {{ take::<T, {projection}>(value); 
 #[test]
 fn trait_name_is_not_a_self_parameter_in_where_bounds() {
     let lowered = common::lower_ok("trait Sequence { fn size(self) -> usize where Sequence: Eq; }");
-    let names = resolve_names(&lowered).into_checked().expect("trait names");
+    let names = resolve_names(&lowered)
+        .unwrap()
+        .into_checked()
+        .expect("trait names");
     let typed = check_module(&lowered, &names, None);
     assert!(typed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidBoundTarget { name } if name == "Sequence")));
 }
@@ -139,6 +142,7 @@ where T: Missing
 "#,
     );
     let names = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     let diagnostics = check_module(&lowered, &names, None)
@@ -177,7 +181,7 @@ fn rejects_interface_method_with_another_self_parameter() {
     let lowered = common::lower_ok(
         "trait Pair { fn same(self, other: Self) -> bool; } fn use_pair(value: Pair) {}",
     );
-    let names = resolve_names(&lowered).into_checked().unwrap();
+    let names = resolve_names(&lowered).unwrap().into_checked().unwrap();
     let diagnostics = check_module(&lowered, &names, None)
         .into_checked()
         .expect_err("a second Self argument cannot be called through an interface value");
@@ -252,7 +256,7 @@ fn trait_method_generic_binders_match_by_position() {
     let valid = common::lower_ok(
         "trait Convert { fn take<T>(self, value: T) -> T; } struct Holder {} impl Convert for Holder { fn take<U>(self, value: U) -> U { value } }",
     );
-    let names = resolve_names(&valid).into_checked().unwrap();
+    let names = resolve_names(&valid).unwrap().into_checked().unwrap();
     check_module(&valid, &names, None)
         .into_checked()
         .expect("equivalent method binders should match");
@@ -260,7 +264,7 @@ fn trait_method_generic_binders_match_by_position() {
     let invalid = common::lower_ok(
         "trait Convert { fn take<T>(self, value: T) -> T; } struct Holder {} impl Convert for Holder { fn take<U, V>(self, value: U) -> U { value } }",
     );
-    let names = resolve_names(&invalid).into_checked().unwrap();
+    let names = resolve_names(&invalid).unwrap().into_checked().unwrap();
     let diagnostics = check_module(&invalid, &names, None)
         .into_checked()
         .expect_err("different method binder arity should fail");
@@ -276,7 +280,7 @@ fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
     let valid = common::lower_ok(
         "trait Marker<T> {} trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } struct Holder {} impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } }",
     );
-    let names = resolve_names(&valid).into_checked().unwrap();
+    let names = resolve_names(&valid).unwrap().into_checked().unwrap();
     check_module(&valid, &names, None)
         .into_checked()
         .expect("equivalent applied method bounds should match");
@@ -284,7 +288,7 @@ fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
     let invalid = common::lower_ok(
         "trait Marker<T> {} trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } struct Holder {} impl Consumer<i32> for Holder { fn take<V: Marker<bool>>(self, value: V) -> V { value } }",
     );
-    let names = resolve_names(&invalid).into_checked().unwrap();
+    let names = resolve_names(&invalid).unwrap().into_checked().unwrap();
     let diagnostics = check_module(&invalid, &names, None)
         .into_checked()
         .expect_err("different private method bounds should fail");
@@ -299,7 +303,7 @@ fn applied_trait_interface_type_keeps_trait_and_method_binders_distinct() {
     let valid = common::lower_ok(
         "trait Echo<T> { fn get(self) -> T; } fn use_interface(value: Echo<i32>) {}",
     );
-    let names = resolve_names(&valid).into_checked().unwrap();
+    let names = resolve_names(&valid).unwrap().into_checked().unwrap();
     check_module(&valid, &names, None)
         .into_checked()
         .expect("an applied trait interface has concrete inherited arguments");
@@ -307,7 +311,7 @@ fn applied_trait_interface_type_keeps_trait_and_method_binders_distinct() {
     let generic = common::lower_ok(
         "trait Echo<T> { fn get<U>(self, value: U) -> T; } fn use_interface(value: Echo<i32>) -> i32 { value.get(\"key\") }",
     );
-    let names = resolve_names(&generic).into_checked().unwrap();
+    let names = resolve_names(&generic).unwrap().into_checked().unwrap();
     check_module(&generic, &names, None)
         .into_checked()
         .expect("T remains i32 while method U is inferred as String");

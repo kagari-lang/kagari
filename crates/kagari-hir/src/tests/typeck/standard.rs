@@ -549,6 +549,7 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 "#,
     );
     let names = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     check_module(&lowered, &names, None)
@@ -557,6 +558,7 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 
     let lowered = common::lower_ok("fn bad(value: u32) -> u32 { -value }");
     let names = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     let diagnostics = check_module(&lowered, &names, None)
@@ -576,6 +578,7 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 fn checks_print_builtin_signature() {
     let lowered = common::lower_ok(r#"fn main() { print("hello"); }"#);
     let names = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     check_module(&lowered, &names, None)
@@ -584,6 +587,7 @@ fn checks_print_builtin_signature() {
 
     let lowered = common::lower_ok("fn main() { print(1); }");
     let names = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     let diagnostics = check_module(&lowered, &names, None)

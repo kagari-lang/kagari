@@ -23,7 +23,7 @@ fn standard_item_spellings_require_installed_declarations() {
         "demo::native::choose",
     ] {
         let lowered = common::lower_ok(&format!("fn main() {{ {name}; }}"));
-        let resolved = resolve_names(&lowered);
+        let resolved = resolve_names(&lowered).unwrap();
         let function = &lowered.module.functions[0];
         let statement = lowered.module.block(function.body.unwrap()).statements[0];
         let StmtKind::Expr(expression) = lowered.module.stmt(statement).kind else {
@@ -47,6 +47,7 @@ fn foo() {}
     );
 
     let diagnostics = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect_err("resolver should reject duplicates");
 
@@ -67,6 +68,7 @@ fn foo() {}
 fn resolves_params_and_locals_in_function_body() {
     let lowered = common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value; next }");
     let resolved = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
@@ -96,6 +98,7 @@ fn resolves_params_and_locals_in_function_body() {
 fn resolves_named_match_pattern_bindings_inside_arm() {
     let lowered = common::lower_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
     let resolved = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
@@ -130,6 +133,7 @@ fn main() -> i32 { VERSION }
 "#,
     );
     let resolved = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
     let function = lowered
@@ -170,7 +174,7 @@ impl Display for Player {
 fn main() -> i32 { 1 }
 "#,
     );
-    let result = resolve_names(&lowered);
+    let result = resolve_names(&lowered).unwrap();
     assert!(
         result
             .diagnostics()

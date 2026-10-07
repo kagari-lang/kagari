@@ -3,7 +3,7 @@ use crate::{
     hir::ids::ImplId,
     imports::{
         BindingCandidate, BindingOrigin, LocalName, NameEntry, SourceUnit,
-        bindings::PerNamespace,
+        bindings::{LookupOutcome, PerNamespace},
         catalog::{LookupHit, LookupResult},
     },
     resolver::resolved::ResolvedName,
@@ -57,6 +57,8 @@ pub struct NameTable {
     pub(crate) entries: BTreeMap<LocalName, PerNamespace<NameEntry>>,
     /// Local implementation handles retained for surface/cache comparison.
     impls: Vec<ImplId>,
+    /// Unsettled glob membership; draft-only barriers to weaker selection.
+    pub(crate) pending_globs: Vec<BindingCandidate>,
 }
 
 impl NameTable {
@@ -105,16 +107,44 @@ impl NameTable {
         if candidates.is_empty() {
             return LookupResult::Missing;
         }
+        if strong
+            && candidates.len() > 1
+            && candidates
+                .iter()
+                .any(|candidate| candidate.resolution == LookupOutcome::Pending)
+        {
+            return LookupResult::Unresolved;
+        }
         if strong && candidates.len() > 1 {
             return LookupResult::Ambiguous(candidates.to_vec());
         }
-        let Some(target) = &candidates[0].target else {
-            return LookupResult::Unresolved;
-        };
-        if candidates.iter().any(|c| c.target.as_ref() != Some(target)) {
+        for candidate in candidates {
+            match candidate.resolution {
+                LookupOutcome::Pending => return LookupResult::Unresolved,
+                LookupOutcome::Ambiguous => return LookupResult::Ambiguous(candidates.to_vec()),
+                LookupOutcome::Inaccessible => {
+                    return LookupResult::Inaccessible(candidates.to_vec());
+                }
+                LookupOutcome::NotNamespace => return LookupResult::NotNamespace,
+                LookupOutcome::StaleSource => return LookupResult::StaleSource,
+                LookupOutcome::Absent => return LookupResult::Missing,
+                LookupOutcome::Resolved(_) => {}
+            }
+        }
+        let target = candidates[0].resolution.target().expect("resolved tier");
+        if candidates
+            .iter()
+            .any(|c| c.resolution.target() != Some(target))
+        {
             return LookupResult::Ambiguous(candidates.to_vec());
         }
         LookupResult::Found(LookupHit {
+            support: candidates
+                .iter()
+                .min_by_key(|candidate| candidate.support.len())
+                .expect("nonempty tier")
+                .support
+                .clone(),
             namespace: target.namespace(),
             target: target.clone(),
             via: candidates.iter().map(|c| c.origin.clone()).collect(),

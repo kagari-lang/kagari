@@ -1,7 +1,8 @@
 //! Explicit adoption and authoring projections of cached analysis records.
 use crate::{
-    AnalysisPolicy, AnalysisResult, AnalyzedModule, aggregates::AggregateCatalog, analyze_parsed,
-    declare_analysis, host::HostDeclarations, lower::lower_module_controlled,
+    AnalysisPolicy, AnalysisResult, AnalyzedModule, aggregates::AggregateCatalog,
+    analysis::error::AnalysisError, analyze_parsed, declare_analysis, host::HostDeclarations,
+    lower::lower_module_controlled,
 };
 use kagari_syntax::parser::parse_with_limits;
 use std::sync::Arc;
@@ -62,7 +63,9 @@ pub(super) fn locate<I: DefinitionReference, T: DefinitionRecord<I>>(
 }
 
 /// Produces recoverable analysis with diagnostics for an over-limit source module identity.
-pub(crate) fn recover_invalid_identity(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
+pub(crate) fn recover_invalid_identity(
+    source: &SourceFile,
+) -> Result<AnalysisResult<AnalyzedModule>, AnalysisError> {
     let cancel = CancellationToken::default();
     let parsed =
         parse_with_limits(source, Default::default(), &cancel).expect("uncancelled recovery parse");
@@ -79,7 +82,7 @@ pub(crate) fn recover_invalid_identity(source: &SourceFile) -> AnalysisResult<An
         Default::default(),
         &definitions,
         &cancel,
-    );
+    )?;
     let prepared = declared.check_signatures(Default::default(), None, &cancel);
     let mut aggregates = AggregateCatalog::default();
     aggregates
@@ -90,7 +93,7 @@ pub(crate) fn recover_invalid_identity(source: &SourceFile) -> AnalysisResult<An
             &cancel,
         )
         .expect("uncancelled recovery signatures");
-    analyze_parsed(
+    Ok(analyze_parsed(
         prepared,
         &parsed,
         AnalysisPolicy {
@@ -101,5 +104,5 @@ pub(crate) fn recover_invalid_identity(source: &SourceFile) -> AnalysisResult<An
         aggregates,
         None,
         &cancel,
-    )
+    ))
 }

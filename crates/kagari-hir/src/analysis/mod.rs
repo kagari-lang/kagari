@@ -2,8 +2,6 @@
 
 mod namespace_queries;
 
-#[cfg(test)]
-use crate::hir::ids::StructId;
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
@@ -28,6 +26,8 @@ use crate::{
     },
     types::TypeId,
 };
+#[cfg(test)]
+use crate::{hir::ids::StructId, imports::solver::SolverLimits};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -768,8 +768,8 @@ fn member_receiver_type_in<I: DefinitionReference>(
 /// ```
 ///
 /// The last two entrypoints check or reuse bodies before returning; snapshot position
-/// queries are reads of prepared facts. Analysis errors describe cancellation or invalid
-/// inputs/identity metadata; ordinary source errors are retained as diagnostics.
+/// queries are reads of prepared facts. Analysis errors describe cancellation, import
+/// solver failure or invalid inputs/identity metadata; ordinary source errors are retained as diagnostics.
 ///
 /// Caches retain immutable `Arc` results. A matching revision alone is insufficient:
 /// imports, reachable namespaces, registered hosts and semantic dependencies also
@@ -777,6 +777,8 @@ fn member_receiver_type_in<I: DefinitionReference>(
 /// published snapshots with older revisions. Earlier returned snapshots remain valid.
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    #[cfg(test)]
+    pub(crate) import_solver_limits: Option<SolverLimits>,
     /// Database identity context used to scope portable declaration paths.
     definitions: DefinitionContext,
     const_limits: ConstLimits,
@@ -805,6 +807,8 @@ pub struct AnalysisDatabase {
 impl Default for AnalysisDatabase {
     fn default() -> Self {
         Self {
+            #[cfg(test)]
+            import_solver_limits: None,
             definitions: DefinitionContext::new().expect("analysis definition context exhausted"),
             parse_limits: Default::default(),
             const_limits: Default::default(),
@@ -898,7 +902,7 @@ impl AnalysisDatabase {
     /// # Errors
     ///
     /// Returns [`AnalysisError`] on cancellation, invalid installed declarations or
-    /// identity mapping failure. A cancelled preparation is not published as a new
+    /// identity mapping or import solver failure. Failed preparation is not published as a new
     /// complete analysis snapshot.
     pub fn snapshot(
         &mut self,

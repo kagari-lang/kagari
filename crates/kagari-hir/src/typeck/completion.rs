@@ -470,7 +470,7 @@ mod tests {
         ] {
             let mut lowered =
                 crate::lower::lower_module(&SourceFile::new("deep-completion.kgr", source));
-            let names = resolve_names(&lowered).facts;
+            let names = resolve_names(&lowered).unwrap().facts;
             let module = &mut lowered.module;
             let mut expr = module
                 .block(module.functions[0].body.unwrap())
@@ -547,7 +547,7 @@ mod tests {
             "stopped-completion.kgr",
             "fn main() { if true { return; } else { return; } }",
         ));
-        let names = resolve_names(&lowered).facts;
+        let names = resolve_names(&lowered).unwrap().facts;
         let expr = lowered
             .module
             .block(lowered.module.functions[0].body.unwrap())
@@ -582,7 +582,7 @@ mod tests {
             "shared-completion.kgr",
             "fn main() { 7 }",
         ));
-        let names = resolve_names(&lowered).facts;
+        let names = resolve_names(&lowered).unwrap().facts;
         let module = &mut lowered.module;
         let mut expr = module
             .block(module.functions[0].body.unwrap())
@@ -655,7 +655,7 @@ mod tests {
             "cancel.kgr",
             "fn empty() {} fn value() { 7 }",
         ));
-        let names = resolve_names(&lowered).facts;
+        let names = resolve_names(&lowered).unwrap().facts;
         let token = CancellationToken::default();
         token.cancel();
         for function in &lowered.module.functions {
@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn cancellation_during_a_sequence_stops_before_the_next_operand() {
         let lowered = crate::lower::lower_module(&SourceFile::new("cancel.kgr", "fn main() { 7 }"));
-        let names = resolve_names(&lowered).facts;
+        let names = resolve_names(&lowered).unwrap().facts;
         let expr = lowered
             .module
             .block(lowered.module.functions[0].body.unwrap())

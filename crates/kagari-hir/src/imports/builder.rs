@@ -5,8 +5,9 @@ use crate::{
     imports::{
         BindingCandidate, BindingOrigin, LocalName, ModuleGraph, ModuleImportFacts, ModuleNode,
         ModuleOrderError, NamespaceId, ResolvedTarget, SourceDeclRef, SourceItem, SourceUnit,
+        bindings::LookupOutcome,
         catalog::{NamespaceCatalog, NamespaceTable},
-        resolve::resolve_imports,
+        solver::{ImportSolveError, SolvedImports, SolverLimits, solve},
     },
     lower::LoweredModule,
     resolver::table::NameTable,
@@ -29,23 +30,24 @@ use std::{
 impl ModuleGraph {
     /// Builds the source input set's declarations, import fixed point and immutable catalog.
     ///
-    /// Seeds declarations/package prefixes, then resolves every source against the
-    /// previous pass's catalog into fresh tables. The inclusive range
-    /// `0..=base.modules.len() * 2 + 1` permits at most `2N + 2` passes, where `N` is
-    /// the number of distinct logical module identities, not the import edge count.
-    /// Equality of the complete catalog ends the loop early. At the bound the current
-    /// implementation publishes the last pass; it has no separate exhaustion result.
-    /// SA2/SA3 in the repository review own scheduling/exhaustion follow-ups.
-    ///
-    /// For `api` re-exporting `math::*` and `app` importing `api::sum`, `api` can gain
-    /// `sum` in one pass and `app` see that new binding only in the next. A pass scans
-    /// all supplied modules, including installed inputs. Cancellation aborts the build.
+    /// Seeds declarations once, then solves observed namespace dependencies.
+    /// No draft is returned on cancellation, exhaustion or non-convergence.
     pub(crate) fn build<'a>(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
         hosts: &HostDeclarations,
         cancel: &CancellationToken,
-    ) -> Result<Self, Cancelled> {
-        let sources = sources.into_iter().collect::<Vec<_>>();
+    ) -> Result<Self, ImportSolveError> {
+        Self::build_with_limits(sources, hosts, cancel, None)
+    }
+
+    pub(crate) fn build_with_limits<'a>(
+        sources: impl IntoIterator<Item = &'a LoweredModule>,
+        hosts: &HostDeclarations,
+        cancel: &CancellationToken,
+        limits: Option<SolverLimits>,
+    ) -> Result<Self, ImportSolveError> {
+        let mut sources = sources.into_iter().collect::<Vec<_>>();
+        sources.sort_by_key(|module| (module.source.module_identity().clone(), module.source.id()));
         let mut base = NamespaceCatalog::default();
         for module in &sources {
             cancel.check()?;
@@ -65,28 +67,11 @@ impl ModuleGraph {
             add_declarations(&mut base, module, cancel)?;
         }
         add_installed_prefixes(&mut base, &sources, cancel)?;
-        let mut catalog = base.clone();
-        let mut resolved = HashMap::new();
-        // SA2/SA3 scheduling and round policy are intentionally unchanged.
-        for _ in 0..=base.modules.len() * 2 + 1 {
-            let mut next = base.clone();
-            resolved.clear();
-            for module in &sources {
-                cancel.check()?;
-                let facts = resolve_imports(module, &base, &catalog, &sources, hosts, cancel)?;
-                let ns = NamespaceId::Module(SourceUnit::of(module));
-                next.namespaces
-                    .get_mut(&ns)
-                    .expect("module namespace")
-                    .names = facts.scope.clone();
-                resolved.insert(SourceUnit::of(module), facts);
-            }
-            let stable = next == catalog;
-            catalog = next;
-            if stable {
-                break;
-            }
-        }
+        let SolvedImports {
+            catalog,
+            facts: resolved,
+            work: _work,
+        } = solve(&sources, base, hosts, cancel, limits)?;
         let mut nodes = BTreeMap::new();
         let mut source_facts = HashMap::new();
         for (unit, mut facts) in resolved {
@@ -118,6 +103,8 @@ impl ModuleGraph {
             nodes,
             source_facts,
             catalog: Arc::new(catalog),
+            #[cfg(test)]
+            work: _work,
         })
     }
 
@@ -188,7 +175,8 @@ pub(super) fn candidate(
     location: Option<FileSpan>,
 ) -> BindingCandidate {
     BindingCandidate {
-        target,
+        resolution: target.map_or(LookupOutcome::Absent, LookupOutcome::Resolved),
+        support: Default::default(),
         origin,
         owner: unit.module.clone(),
         visibility,

@@ -155,10 +155,22 @@ retains that category; a dual import has two `source_targets_at` results and no
 arbitrary `source_target_at` winner. See
 [import records](../../crates/kagari-hir/src/imports/mod.rs) for the concrete fields.
 
-The builder currently scans all supplied lowered modules each pass. With `N`
-distinct logical module identities its inclusive loop allows at most `2N + 2`
-passes, stopping early when facts/catalog contents stabilize. It publishes the
-last pass if the bound is exhausted; this is not a dependency work queue.
+The [solver](../../crates/kagari-hir/src/imports/solver.rs) seeds declarations once
+and replaces one module's contributions at a time. Namespace observations include
+missing/pending lookups and glob membership; reverse watchers schedule affected
+modules independently of linking dependencies. Draft named slots reserve their
+category and pending glob membership blocks premature weak-tier selection.
+
+At quiescence it closes the union of pending dependencies, releases justified
+reservations and resumes propagation. Finite acyclic derivations prevent aliases
+from proving themselves through cyclic forwarding; equal-target origins remain
+available for navigation. Publication requires a drained queue and no pending
+candidate or directive. Exact bounded state history detects repetition; a separate
+input-sized work bound reports exhaustion. These are distinct from cancellation
+and ordinary unresolved source diagnostics. No failed draft enters analysis caches;
+old snapshots retain their immutable catalog. The
+[execution plan](../name-resolution-plan.md#implementation-refinements) details
+closure, proof ownership and work accounting.
 
 At the call site, lexical resolution checks local bindings before module names:
 

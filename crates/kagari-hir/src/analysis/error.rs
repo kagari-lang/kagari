@@ -1,5 +1,6 @@
 //! Failures of query preparation and conversion, separate from script diagnostics.
 
+use crate::imports::solver::ImportSolveError;
 use kagari_common::{cancellation::Cancelled, identity::mapping::DefinitionMappingError};
 use kagari_types::declaration::module::DeclarationError;
 
@@ -9,6 +10,9 @@ pub enum AnalysisError {
     /// Cooperative cancellation interrupted preparation or identity mapping.
     #[error("analysis cancelled")]
     Cancelled,
+    /// Import fixed-point preparation failed without publishing partial facts.
+    #[error("{0}")]
+    Imports(ImportSolveError),
     /// Scoped/portable definition metadata could not be mapped consistently.
     #[error("invalid analysis identity metadata: {0}")]
     Identity(DefinitionMappingError),
@@ -28,6 +32,15 @@ impl From<DefinitionMappingError> for AnalysisError {
         match error {
             DefinitionMappingError::Cancelled => Self::Cancelled,
             error => Self::Identity(error),
+        }
+    }
+}
+
+impl From<ImportSolveError> for AnalysisError {
+    fn from(error: ImportSolveError) -> Self {
+        match error {
+            ImportSolveError::Cancelled => Self::Cancelled,
+            error => Self::Imports(error),
         }
     }
 }

@@ -105,7 +105,7 @@ fn implicit_receiver_shares_declaration_type_without_losing_method_ownership() {
             && id.owner() == HirOwner::Body(BodyOwner::Function(missing.id))
     }));
     // Synthetic/missing source ranges do not decide ownership.
-    let names = resolve_names(&lowered);
+    let names = resolve_names(&lowered).unwrap();
     assert!(!names.facts().scopes().is_empty());
 }
 
@@ -121,7 +121,7 @@ fn resolver_rejects_cross_body_edges_even_inside_the_same_arena() {
     assert_ne!(first.owner(), second.owner());
     let other_expr = lowered.module.block(second).tail_expr.unwrap();
     lowered.module.body.blocks[first.index()].1.tail_expr = Some(other_expr);
-    assert!(std::panic::catch_unwind(|| resolve_names(&lowered)).is_err());
+    assert!(std::panic::catch_unwind(|| resolve_names(&lowered).unwrap()).is_err());
 }
 
 #[test]

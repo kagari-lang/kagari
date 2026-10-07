@@ -75,6 +75,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
                 &context,
                 &cancel,
             )
+            .unwrap()
         })
         .collect::<Vec<_>>();
     let types = TypeCatalog::new(declared.iter());
@@ -196,7 +197,8 @@ fn copied_module_identity_does_not_authorize_application_roles() {
         Arc::default(),
         &DefinitionContext::new().unwrap(),
         &Default::default(),
-    );
+    )
+    .unwrap();
     assert!(declared.names.diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLanguageRole { reason, .. } if reason.contains("only installed"))));
 }
 

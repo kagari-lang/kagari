@@ -157,7 +157,7 @@ impl AnalysisDatabase {
     /// # Errors
     ///
     /// Returns [`AnalysisError`] for cancellation, invalid native declaration inputs or
-    /// invalid identity metadata.
+    /// invalid identity metadata or an import solver failure.
     pub fn declarations(
         &mut self,
         source: SourceSnapshot,
@@ -275,10 +275,15 @@ impl AnalysisDatabase {
             }
             lowered_files.insert(file.id(), (parsed, lowered));
         }
-        let graph = Arc::new(ModuleGraph::build(
+        #[cfg(test)]
+        let limits = self.import_solver_limits;
+        #[cfg(not(test))]
+        let limits = None;
+        let graph = Arc::new(ModuleGraph::build_with_limits(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
             &self.hosts,
             cancel,
+            limits,
         )?);
         let mut files = BTreeMap::new();
         for (id, (parsed, lowered)) in lowered_files {
@@ -309,7 +314,7 @@ impl AnalysisDatabase {
                     graph.catalog.clone(),
                     &self.definitions,
                     cancel,
-                );
+                )?;
                 let mut diagnostics = declared.names.diagnostics.clone();
                 diagnostics.extend(parsed.diagnostics().iter().cloned());
                 let metadata = ownership::scope(&declared, &self.definitions, cancel)?;

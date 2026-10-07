@@ -1,6 +1,6 @@
 # Type/value namespaces and import solving (SA8, SA2, SA3)
 
-Status: active; NR01-NR03 checkpoints are complete locally and NR04 is in progress. The
+Status: active; NR01-NR04 checkpoints are complete locally and NR05 is in progress. The
 [roadmap](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-active) owns
 activation, phase checkboxes, validation evidence and carried failures. This file
 owns the implementation contracts and NR01-NR05 phase boundaries. The user has authorized execution of NR01 through NR05 in order.
@@ -310,6 +310,42 @@ its existing traits/types/variants set; SA8 does not add new registration kinds.
 The old HIR `ExportItem::Variant` branch had no producer: registered variant exports
 already render ordinary named use leaves. Removing that branch preserves seeding
 through those leaves and canonical variant identities.
+
+NR04: namespace observations form the explicit dependency graph, with a reverse
+watcher set separate from linking dependencies. At a drained queue the union of
+all pending directive/category owners is closed: every observation outside it is
+stable in this immutable input universe. Close this union at once rather than
+materializing individual SCCs. Closing permits pending lookups to become absent;
+resolved seeds remain eligible, and changed selections resume watcher propagation.
+This avoids repeated whole-input rounds while preserving closure requirements.
+
+Draft candidates now retain the complete `LookupOutcome`, not `Option<Target>`:
+ambiguity and access failures must never be reinterpreted as pending or absence.
+Pending glob membership is a draft barrier to weak tiers. Strong conflicts settle
+both directives and their candidate records only after participating reservations
+settle; a pending category may still prove absent and release its slot. Publication checks both layers for
+remaining pending state.
+
+A candidate additionally retains one finite acyclic derivation (a set of real
+`(DirectiveId, NameNamespace)` keys). A lookup for a directive excludes derivations already containing
+that directive/category; equal-target origins remain separate and complete.
+The category is essential: Value resolution may legitimately traverse an already
+resolved Type alias introduced by the same use leaf. This is needed
+because closing mutually blocking named slots can expose globs, then manufacture
+a self-supporting strong target whose winner depends on schedule. Prefix and glob
+container/member derivations compose, and the shortest available equal-target
+proof is retained. Proof state is solver evidence, not a new canonical identity or
+cache-equivalence requirement. A genuine fixed point succeeds; oscillation returns
+non-convergence rather than an arbitrary target. Unseeded absence remains ordinary
+source diagnostics. Existing seeded-cycle coverage also checks reversed input order.
+
+The safety bound counts module evaluations and produced binding contributions;
+its default derives from modules, use leaves and seeded spellings. An eight-entry
+history compares exact facts, observations, queue and closed keys, without trusting
+hash equality. Cancellation, exhaustion and non-convergence propagate through HIR
+and the SDK; failures retain bounded physical import sites and never publish a
+successful graph or declaration cache entry. This refines implementation mechanics,
+without changing import syntax, precedence, access or the SA1/SA9 exclusions.
 
 ## Ordered execution phases
 

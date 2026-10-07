@@ -1,6 +1,6 @@
 use super::*;
-use crate::host::HostDeclarations;
 use crate::{analysis::AnalysisSnapshot, tests::test_analysis};
+use crate::{host::HostDeclarations, lower::lower_module};
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::PackageId;
 use kagari_source::diagnostic::DiagnosticKind;
@@ -379,6 +379,54 @@ fn cycles_are_reachable_without_invalidating_dependents() {
             kagari_types::scalar::BuiltinType::I32
         ))
     );
+
+    let mut seeded = SourceDatabase::default();
+    insert(
+        &mut seeded,
+        "a",
+        "pub fn value() -> i32 { 42 } pub use pkg::b::*;",
+    );
+    insert(&mut seeded, "b", "pub use pkg::a::*;");
+    let caller = insert(
+        &mut seeded,
+        "caller",
+        "use pkg::b::value; fn main() -> i32 { value() }",
+    );
+    insert(&mut seeded, "dual_a", "pub use pkg::dual_b::Root as N;");
+    insert(
+        &mut seeded,
+        "dual_b",
+        "pub use pkg::a as Root; pub use pkg::dual_a::N::value as Root;",
+    );
+    let dual_caller = insert(
+        &mut seeded,
+        "dual_caller",
+        "use pkg::dual_a::N; fn main() -> i32 { N() + N::value() }",
+    );
+    let solved = analyze(&seeded);
+    solved.check_program(caller, &Default::default()).unwrap();
+    assert!(
+        solved
+            .check_program(dual_caller, &Default::default())
+            .is_ok(),
+        "{:?}",
+        solved.file(dual_caller).unwrap().result().diagnostics()
+    );
+    let input = seeded.snapshot();
+    let lowered = input
+        .files()
+        .map(|file| lower_module(file))
+        .collect::<Vec<_>>();
+    let forward =
+        ModuleGraph::build(&lowered, &HostDeclarations::empty(), &Default::default()).unwrap();
+    let reverse = ModuleGraph::build(
+        lowered.iter().rev(),
+        &HostDeclarations::empty(),
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(forward.catalog, reverse.catalog);
+    assert_eq!(forward.source_facts, reverse.source_facts);
 }
 
 #[test]

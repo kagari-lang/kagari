@@ -32,7 +32,7 @@ use crate::{
     hir::ids::BodySelection,
     imports::{
         ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
-        functions::ImportedFunctions, types::ImportedTypes,
+        functions::ImportedFunctions, solver::ImportSolveError, types::ImportedTypes,
     },
     language::items as language_items,
     resolver::{
@@ -452,10 +452,9 @@ fn declare_analysis(
     catalog: Arc<NamespaceCatalog>,
     definitions: &DefinitionContext,
     cancel: &CancellationToken,
-) -> DeclaredAnalysis {
+) -> Result<DeclaredAnalysis, ImportSolveError> {
     let (imports, catalog) = if imports.scope.unit.is_none() {
-        let graph = ModuleGraph::build([lowered.as_ref()], &hosts, cancel)
-            .expect("uncancelled standalone declarations");
+        let graph = ModuleGraph::build([lowered.as_ref()], &hosts, cancel)?;
         (
             graph
                 .imports_for(&SourceUnit::of(&lowered))
@@ -479,11 +478,11 @@ fn declare_analysis(
         Declarations::collect_named(&lowered.source, &lowered, &names.facts, definitions, cancel);
     declarations.language_items =
         language_items::collect(&lowered, &declarations, &mut names.diagnostics);
-    DeclaredAnalysis {
+    Ok(DeclaredAnalysis {
         lowered,
         names,
         declarations,
-    }
+    })
 }
 
 fn analyze_prepared(
@@ -566,7 +565,7 @@ pub fn analyze_source(
     providers: Vec<Arc<ModuleDecl>>,
 ) -> Result<AnalysisResult<AnalyzedModule>, AnalysisError> {
     if !source.module_identity().within_path_limit() {
-        return Ok(recover_invalid_identity(source));
+        return recover_invalid_identity(source);
     }
     let mut database = AnalysisDatabase::default();
     database.set_native_modules(providers);

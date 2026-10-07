@@ -2,8 +2,8 @@
 use crate::{
     host::HostDeclarations,
     imports::{
-        BindingCandidate, BindingOrigin, NamespaceId, ResolvedTarget, SourceDeclRef, SourceUnit,
-        cache::same_name_tables,
+        BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
+        SourceUnit, bindings::LookupOutcome, cache::same_name_tables, solver::Observation,
     },
     resolver::{resolved::ResolvedName, table::NameTable},
 };
@@ -13,6 +13,7 @@ use kagari_common::{
 };
 use kagari_types::declaration::names::NameNamespace;
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     iter,
     sync::Arc,
@@ -56,6 +57,7 @@ pub struct NamespaceCatalog {
 /// A canonical target plus the selected binding origins along its lookup path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LookupHit {
+    pub(crate) support: HashSet<(DirectiveId, NameNamespace)>,
     /// Category selected at this source site.
     pub namespace: NameNamespace,
     /// Destination identity, independent of the import spelling.
@@ -111,6 +113,27 @@ pub struct LookupContext<'a> {
     pub importer: &'a ModuleIdentity,
     /// Installed host namespace/type/function declarations.
     pub hosts: &'a HostDeclarations,
+    pub(crate) avoid: Option<(DirectiveId, NameNamespace)>,
+    pub(crate) observations: Option<&'a RefCell<HashSet<Observation>>>,
+}
+
+impl<'a> LookupContext<'a> {
+    pub fn new(importer: &'a ModuleIdentity, hosts: &'a HostDeclarations) -> Self {
+        Self {
+            importer,
+            hosts,
+            observations: None,
+            avoid: None,
+        }
+    }
+
+    pub(crate) fn observe(&self, namespace: &NamespaceId) {
+        if let Some(observations) = self.observations {
+            observations
+                .borrow_mut()
+                .insert(Observation::Namespace(namespace.clone()));
+        }
+    }
 }
 
 impl NamespaceCatalog {
@@ -137,6 +160,11 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
+        if let Some(observations) = ctx.observations {
+            observations
+                .borrow_mut()
+                .insert(Observation::Namespace(ns.clone()));
+        }
         if let NamespaceId::Host(id) = ns {
             return Ok(ctx
                 .hosts
@@ -144,6 +172,7 @@ impl NamespaceCatalog {
                 .and_then(host_target)
                 .map_or(LookupResult::Missing, |target| {
                     LookupResult::Found(LookupHit {
+                        support: HashSet::new(),
                         namespace,
                         target,
                         via: vec![],
@@ -163,7 +192,17 @@ impl NamespaceCatalog {
         let Some(table) = self.namespaces.get(ns) else {
             return Ok(LookupResult::NotNamespace);
         };
-        let Some((candidates, strong)) = table.names.candidates(name, namespace) else {
+        let selected = table.names.candidates(name, namespace);
+        if selected.is_none_or(|(_, strong)| !strong)
+            && table
+                .names
+                .pending_globs
+                .iter()
+                .any(|candidate| candidate.visibility.allows(&candidate.owner, ctx.importer))
+        {
+            return Ok(LookupResult::Unresolved);
+        }
+        let Some((candidates, strong)) = selected else {
             if let NamespaceId::InstalledPrefix(identity) = ns {
                 let aliases = iter::once(identity.package.0.as_str()).chain(
                     self.package_aliases
@@ -186,6 +225,7 @@ impl NamespaceCatalog {
                             .and_then(host_target)
                         {
                             return Ok(LookupResult::Found(LookupHit {
+                                support: HashSet::new(),
                                 namespace,
                                 target,
                                 via: vec![],
@@ -196,6 +236,14 @@ impl NamespaceCatalog {
             }
             return Ok(LookupResult::Missing);
         };
+        if strong
+            && candidates.len() > 1
+            && candidates
+                .iter()
+                .any(|candidate| candidate.resolution == LookupOutcome::Pending)
+        {
+            return Ok(LookupResult::Unresolved);
+        }
         if strong && candidates.len() > 1 {
             return Ok(LookupResult::Ambiguous(candidates.to_vec()));
         }
@@ -207,7 +255,19 @@ impl NamespaceCatalog {
         if admitted.is_empty() {
             return Ok(LookupResult::Inaccessible(candidates.to_vec()));
         }
-        Ok(NameTable::select(&admitted, strong))
+        let acyclic = admitted
+            .iter()
+            .filter(|candidate| {
+                ctx.avoid
+                    .as_ref()
+                    .is_none_or(|key| !candidate.support.contains(key))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if acyclic.is_empty() {
+            return Ok(LookupResult::Unresolved);
+        }
+        Ok(NameTable::select(&acyclic, strong))
     }
 
     /// Obtains a target's member-container identity, checking qualified source units.
@@ -285,6 +345,7 @@ impl NamespaceCatalog {
                 let mut via = previous.via;
                 via.append(&mut hit.via);
                 hit.via = via;
+                hit.support.extend(previous.support);
             }
         }
         Ok(root)
@@ -298,6 +359,9 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
+        if let Some(observations) = ctx.observations {
+            observations.borrow_mut().insert(Observation::InputUniverse);
+        }
         let segments = path.split("::").collect::<Vec<_>>();
         let Some(package) = segments.first() else {
             return Ok(LookupResult::Missing);
@@ -327,6 +391,7 @@ impl NamespaceCatalog {
                     return Ok(LookupResult::Inaccessible(vec![]));
                 }
                 let root = LookupResult::Found(LookupHit {
+                    support: HashSet::new(),
                     namespace: NameNamespace::Type,
                     target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
                     via: vec![],
@@ -360,6 +425,7 @@ impl NamespaceCatalog {
             .and_then(host_target)
         {
             return Ok(LookupResult::Found(LookupHit {
+                support: HashSet::new(),
                 namespace,
                 target,
                 via: vec![],
@@ -373,6 +439,7 @@ impl NamespaceCatalog {
             return self.resolve_path(
                 ctx,
                 LookupResult::Found(LookupHit {
+                    support: HashSet::new(),
                     namespace: NameNamespace::Type,
                     target: ResolvedTarget::Namespace(prefix),
                     via: vec![],
@@ -428,6 +495,8 @@ impl NamespaceCatalog {
         let ctx = LookupContext {
             importer: &unit.module,
             hosts,
+            observations: None,
+            avoid: None,
         };
         let mut pending = names
             .entries
@@ -485,6 +554,8 @@ impl NamespaceCatalog {
         let ctx = LookupContext {
             importer: &unit.module,
             hosts,
+            observations: None,
+            avoid: None,
         };
         let (root, suffix) = name.split_once("::").unwrap_or((name, ""));
         let result = names.hit(
@@ -561,6 +632,8 @@ impl NamespaceCatalog {
         let ctx = LookupContext {
             importer: &unit.module,
             hosts,
+            observations: None,
+            avoid: None,
         };
         let mut pending = names
             .entries

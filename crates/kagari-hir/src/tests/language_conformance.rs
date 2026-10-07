@@ -32,6 +32,7 @@ fn main() -> i32 {
 "#,
     );
     let names = resolve_names(&lowered)
+        .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
@@ -94,6 +95,7 @@ fn main() -> i32 {
     for case in cases {
         let lowered = common::lower_ok(case.source);
         let names = resolve_names(&lowered)
+            .unwrap()
             .into_checked()
             .expect("resolver should succeed");
         let diagnostics = check_module(&lowered, &names, None)

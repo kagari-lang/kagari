@@ -830,7 +830,8 @@ mod tests {
             Default::default(),
             &DefinitionContext::new().unwrap(),
             &Default::default(),
-        );
+        )
+        .unwrap();
         let declaration = declared
             .declarations
             .definition(ResolvedName::Trait(declared.lowered.module.traits[0].id))

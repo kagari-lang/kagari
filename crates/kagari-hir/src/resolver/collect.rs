@@ -6,6 +6,7 @@ use crate::{
     host::HostDeclarations,
     imports::{
         BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
+        solver::ImportSolveError,
     },
     lower::LoweredModule,
     resolver::{
@@ -25,10 +26,11 @@ use {
 /// This convenience entrypoint builds a single-module import graph and retains
 /// declaration/import diagnostics. It neither installs foundation modules nor
 /// performs type checking; use analysis snapshots for a complete source input set.
-pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
+pub fn resolve_names(
+    lowered: &LoweredModule,
+) -> Result<AnalysisResult<ResolvedNames>, ImportSolveError> {
     let hosts = HostDeclarations::empty();
-    let graph = ModuleGraph::build([lowered], &hosts, &Default::default())
-        .expect("uncancelled name resolution");
+    let graph = ModuleGraph::build([lowered], &hosts, &Default::default())?;
     let imports = graph.imports_for(&SourceUnit::of(lowered)).unwrap().clone();
     let declarations = collect_declarations(
         lowered,
@@ -37,7 +39,7 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
         graph.catalog.clone(),
         &Default::default(),
     );
-    AnalysisResult {
+    Ok(AnalysisResult {
         facts: resolve_bodies(
             lowered,
             &declarations.facts,
@@ -45,7 +47,7 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
             &Default::default(),
         ),
         diagnostics: declarations.diagnostics,
-    }
+    })
 }
 
 /// Shares the graph's exact scope table and adds declaration conflicts without traversing bodies.

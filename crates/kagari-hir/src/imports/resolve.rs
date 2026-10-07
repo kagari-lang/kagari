@@ -8,6 +8,7 @@ use crate::{
         bindings::{LookupOutcome, PerNamespace},
         builder::{candidate, location},
         catalog::{LookupContext, LookupHit, LookupResult, NamespaceCatalog, NamespaceResult},
+        solver::Observation,
     },
     lower::LoweredModule,
     resolver::table::NameTable,
@@ -19,7 +20,12 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
-use std::{collections::BTreeSet, slice, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeSet, HashSet},
+    slice,
+    sync::Arc,
+};
 
 struct ImportContext<'a> {
     lookup: LookupContext<'a>,
@@ -28,18 +34,35 @@ struct ImportContext<'a> {
     cancel: &'a CancellationToken,
 }
 
+pub(super) struct ResolutionInputs<'a> {
+    pub base: &'a NamespaceCatalog,
+    pub catalog: &'a NamespaceCatalog,
+    pub sources: &'a [&'a LoweredModule],
+    pub hosts: &'a HostDeclarations,
+    pub cancel: &'a CancellationToken,
+    pub closed: &'a HashSet<(DirectiveId, NameNamespace)>,
+    pub observations: &'a RefCell<HashSet<Observation>>,
+}
+
 pub(super) fn resolve_imports(
     module: &LoweredModule,
-    base: &NamespaceCatalog,
-    catalog: &NamespaceCatalog,
-    sources: &[&LoweredModule],
-    hosts: &HostDeclarations,
-    cancel: &CancellationToken,
+    inputs: &ResolutionInputs<'_>,
 ) -> Result<ModuleImportFacts, Cancelled> {
+    let ResolutionInputs {
+        base,
+        catalog,
+        sources,
+        hosts,
+        cancel,
+        closed,
+        observations,
+    } = inputs;
     let unit = SourceUnit::of(module);
     let ctx = LookupContext {
         importer: &unit.module,
         hosts,
+        observations: Some(observations),
+        avoid: None,
     };
     let context = ImportContext {
         lookup: ctx,
@@ -47,11 +70,10 @@ pub(super) fn resolve_imports(
         unit: &unit,
         cancel,
     };
-    let ctx = &context.lookup;
     let mut names = (*base.namespaces[&NamespaceId::Module(unit.clone())].names).clone();
     let mut result = ModuleImportFacts::default();
     let mut dependencies = BTreeSet::from_iter(module.native_dependencies.iter().cloned());
-    for source in sources {
+    for source in *sources {
         result
             .array_interfaces
             .extend(source.native_array_interfaces.clone());
@@ -95,6 +117,19 @@ pub(super) fn resolve_imports(
                 &NameNamespace::ALL
             };
         for &namespace in categories {
+            let lookup_context = LookupContext {
+                importer: &unit.module,
+                hosts,
+                observations: Some(observations),
+                avoid: Some((id.clone(), namespace)),
+            };
+            let directive_context = ImportContext {
+                lookup: lookup_context,
+                catalog,
+                unit: &unit,
+                cancel,
+            };
+            let ctx = &directive_context.lookup;
             let mut lookup = catalog.absolute(ctx, &path, namespace, cancel)?;
             if matches!(import.kind, ImportLeaf::Glob)
                 && matches!(lookup, LookupResult::Missing)
@@ -105,6 +140,7 @@ pub(super) fn resolve_imports(
             {
                 lookup = LookupResult::NotNamespace;
             }
+            let mut support = HashSet::new();
             let outcome = match lookup {
                 LookupResult::Found(hit)
                     if matches!(import.kind, ImportLeaf::Glob)
@@ -115,19 +151,29 @@ pub(super) fn resolve_imports(
                             &unit.module,
                         ) =>
                 {
+                    support = hit.support.clone();
+                    support.insert((id.clone(), namespace));
                     add_dependencies(&hit, &mut directive.direct_dependencies);
-                    if matches!(import.kind, ImportLeaf::Glob) {
-                        expand_glob(
-                            &context,
+                    if matches!(import.kind, ImportLeaf::Glob)
+                        && expand_glob(
+                            &directive_context,
                             &directive,
                             &hit,
                             &mut names,
                             &mut result.diagnostics,
-                        )?;
+                            closed.contains(&(id.clone(), namespace)),
+                        )?
+                    {
+                        LookupOutcome::Pending
+                    } else {
+                        LookupOutcome::Resolved(hit.target)
                     }
-                    LookupOutcome::Resolved(hit.target)
                 }
-                LookupResult::Missing | LookupResult::Unresolved => LookupOutcome::Absent,
+                LookupResult::Missing => LookupOutcome::Absent,
+                LookupResult::Unresolved if closed.contains(&(id.clone(), namespace)) => {
+                    LookupOutcome::Absent
+                }
+                LookupResult::Unresolved => LookupOutcome::Pending,
                 LookupResult::Ambiguous(_) => LookupOutcome::Ambiguous,
                 LookupResult::Found(_) | LookupResult::Inaccessible(_) => {
                     LookupOutcome::Inaccessible
@@ -138,17 +184,27 @@ pub(super) fn resolve_imports(
             if let Some(name) = import.local_name().and_then(LocalName::new)
                 && outcome != LookupOutcome::Absent
             {
-                names.add(
-                    namespace,
-                    name,
-                    candidate(
-                        &unit,
-                        outcome.target().cloned(),
-                        BindingOrigin::NamedImport(id.clone()),
-                        import.visibility,
-                        Some(directive.span),
-                    ),
+                let mut binding = candidate(
+                    &unit,
+                    None,
+                    BindingOrigin::NamedImport(id.clone()),
+                    import.visibility,
+                    Some(directive.span),
                 );
+                binding.resolution = outcome.clone();
+                binding.support = support;
+                names.add(namespace, name, binding);
+            }
+            if matches!(import.kind, ImportLeaf::Glob) && outcome == LookupOutcome::Pending {
+                let mut binding = candidate(
+                    &unit,
+                    None,
+                    BindingOrigin::GlobImport(id.clone()),
+                    import.visibility,
+                    Some(directive.span),
+                );
+                binding.resolution = LookupOutcome::Pending;
+                names.pending_globs.push(binding);
             }
             match &mut directive.resolution {
                 DirectiveResolution::Named(outcomes) => outcomes[namespace] = outcome,
@@ -201,9 +257,22 @@ pub(super) fn resolve_imports(
             } else {
                 &[NameNamespace::Type]
             } {
+                let ctx = LookupContext {
+                    importer: &unit.module,
+                    hosts,
+                    observations: Some(observations),
+                    avoid: Some((
+                        id.clone(),
+                        if matches!(directive.kind, ImportKind::Glob) {
+                            NameNamespace::Type
+                        } else {
+                            namespace
+                        },
+                    )),
+                };
                 if let Some(mut hit) = catalog
                     .absolute(
-                        ctx,
+                        &ctx,
                         &normalize_import_path(prefix, &unit.module),
                         namespace,
                         cancel,
@@ -225,7 +294,7 @@ pub(super) fn resolve_imports(
         dependencies.extend(directive.direct_dependencies.iter().cloned());
         result.directives.push(directive);
     }
-    diagnose_bindings(&names, &mut result, &mut dependencies);
+    diagnose_bindings(&mut names, &mut result, &mut dependencies);
     add_implicit(
         module,
         sources,
@@ -245,7 +314,8 @@ fn expand_glob(
     hit: &LookupHit,
     names: &mut NameTable,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Result<(), Cancelled> {
+    closed: bool,
+) -> Result<bool, Cancelled> {
     let ImportContext {
         lookup: ctx,
         catalog,
@@ -253,6 +323,9 @@ fn expand_glob(
         cancel,
     } = context;
     let ns = catalog.namespace_of(ctx, &hit.target, cancel)?;
+    if let NamespaceResult::Found(namespace) = &ns {
+        ctx.observe(namespace);
+    }
     let members = match &ns {
         NamespaceResult::Found(NamespaceId::Host(id)) => ctx
             .hosts
@@ -280,44 +353,78 @@ fn expand_glob(
                 })
                 .with_span(directive.span.range),
             );
-            return Ok(());
+            return Ok(false);
         }
     };
     let NamespaceResult::Found(ns) = ns else {
         unreachable!()
     };
+    let mut pending = !closed
+        && catalog
+            .namespaces
+            .get(&ns)
+            .is_some_and(|table| !table.names.pending_globs.is_empty());
     for name in members {
         for namespace in NameNamespace::ALL {
-            if let Some(member) = catalog
-                .lookup_member(ctx, &ns, &name, namespace, cancel)?
-                .hit()
-                && reexport_allowed(catalog, &member.target, directive.visibility, &unit.module)
-            {
+            let lookup = catalog.lookup_member(ctx, &ns, &name, namespace, cancel)?;
+            if matches!(lookup, LookupResult::Unresolved) {
+                pending |= !closed;
+            }
+            if matches!(lookup, LookupResult::Ambiguous(_)) {
+                let mut binding = candidate(
+                    unit,
+                    None,
+                    BindingOrigin::GlobImport(directive.id.clone()),
+                    directive.visibility,
+                    Some(directive.span),
+                );
+                binding.resolution = LookupOutcome::Ambiguous;
                 names.add(
                     namespace,
                     LocalName::new(&name).expect("member name"),
-                    candidate(
-                        unit,
-                        Some(member.target),
-                        BindingOrigin::GlobImport(directive.id.clone()),
-                        directive.visibility,
-                        Some(directive.span),
-                    ),
+                    binding,
+                );
+            }
+            if let Some(member) = lookup.hit()
+                && reexport_allowed(catalog, &member.target, directive.visibility, &unit.module)
+            {
+                let mut binding = candidate(
+                    unit,
+                    Some(member.target),
+                    BindingOrigin::GlobImport(directive.id.clone()),
+                    directive.visibility,
+                    Some(directive.span),
+                );
+                binding.support = member.support;
+                binding.support.extend(hit.support.iter().cloned());
+                binding
+                    .support
+                    .insert((directive.id.clone(), NameNamespace::Type));
+                names.add(
+                    namespace,
+                    LocalName::new(&name).expect("member name"),
+                    binding,
                 );
             }
         }
     }
-    Ok(())
+    Ok(pending)
 }
 
 fn diagnose_bindings(
-    names: &NameTable,
+    names: &mut NameTable,
     result: &mut ModuleImportFacts,
     dependencies: &mut BTreeSet<ModuleIdentity>,
 ) {
-    for (name, slots) in &names.entries {
-        for (namespace, entry) in slots.iter() {
-            let conflict = entry.strong.len() > 1
+    for (name, slots) in &mut names.entries {
+        for namespace in NameNamespace::ALL {
+            let entry = &mut slots[namespace];
+            let strong_conflict = entry.strong.len() > 1
+                && entry
+                    .strong
+                    .iter()
+                    .all(|candidate| candidate.resolution != LookupOutcome::Pending);
+            let conflict = strong_conflict
                 || (entry.strong.is_empty()
                     && matches!(
                         NameTable::select(&entry.globs, false),
@@ -346,17 +453,18 @@ fn diagnose_bindings(
                     ),
                 );
             }
-            for candidate in &entry.strong {
-                if entry.strong.len() > 1
+            for candidate in &mut entry.strong {
+                if strong_conflict
                     && let BindingOrigin::NamedImport(id) = &candidate.origin
                     && let DirectiveResolution::Named(outcomes) =
                         &mut result.directives[id.slot as usize].resolution
                 {
                     outcomes[namespace] = LookupOutcome::Ambiguous;
+                    candidate.resolution = LookupOutcome::Ambiguous;
                 }
                 if matches!(candidate.origin, BindingOrigin::ModuleDeclaration { .. }) {
                     if let Some(ResolvedTarget::Namespace(NamespaceId::Module(child))) =
-                        &candidate.target
+                        candidate.resolution.target()
                     {
                         dependencies.insert(child.module.clone());
                     } else {
@@ -433,23 +541,22 @@ fn add_implicit(
             .collect::<Vec<_>>();
         if let [prelude] = preludes.as_slice() {
             let ns = NamespaceId::Module(SourceUnit::of(prelude));
+            ctx.observe(&ns);
             for name in catalog.namespaces[&ns].names.entries.keys() {
                 for namespace in NameNamespace::ALL {
                     if let Some(hit) = catalog
                         .lookup_member(ctx, &ns, name.as_str(), namespace, cancel)?
                         .hit()
                     {
-                        names.add(
-                            namespace,
-                            name.clone(),
-                            candidate(
-                                unit,
-                                Some(hit.target),
-                                BindingOrigin::Prelude(ns.clone()),
-                                Visibility::Private,
-                                None,
-                            ),
+                        let mut binding = candidate(
+                            unit,
+                            Some(hit.target),
+                            BindingOrigin::Prelude(ns.clone()),
+                            Visibility::Private,
+                            None,
                         );
+                        binding.support = hit.support;
+                        names.add(namespace, name.clone(), binding);
                     }
                 }
             }
@@ -528,7 +635,7 @@ fn reexport_allowed(
         .flat_map(|t| t.names.entries.values())
         .flat_map(|slots| slots.iter().flat_map(|(_, entry)| &entry.strong))
         .filter(|c| {
-            c.target.as_ref() == Some(target)
+            c.resolution.target() == Some(target)
                 && matches!(
                     c.origin,
                     BindingOrigin::Declaration(_) | BindingOrigin::ModuleDeclaration { .. }

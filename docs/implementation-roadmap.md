@@ -31,7 +31,7 @@ carried build/test failures; their completion does not establish performance gai
 ### Name resolution (SA8, SA2, SA3, active)
 
 The [execution plan](name-resolution-plan.md) owns the two-space lookup/import
-contract and subsequent dependency-driven solver migration. Status: NR01-NR03 complete locally; NR04 active.
+contract and subsequent dependency-driven solver migration. Status: NR01-NR04 complete locally; NR05 active.
 Execute NR01-NR05 in order, with `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
 implementation commits. SA1 inline AST reuse and SA9 compact module handles remain
 outside this track.
@@ -40,7 +40,7 @@ outside this track.
   alias storage and lookup APIs, including portable registration consumers.
 - [x] NR02: Migrate semantic/tooling/cache consumers and derive HIR public members.
 - [x] NR03: Complete focused SA8 local acceptance before changing solver scheduling.
-- [ ] NR04: Introduce dependency-driven import work and explicit convergence,
+- [x] NR04: Introduce dependency-driven import work and explicit convergence,
   unresolved-cycle, exhaustion and cancellation outcomes.
 - [ ] NR05: Complete integration/measurements and resolve local failures; record
   GitHub CI acceptance independently.
@@ -135,6 +135,71 @@ No local failure is carried. Generated artifacts were rebuilt/round-tripped by t
 focused SDK fixture; no tracked artifact layout or version refresh was required.
 NR04 still owns whole-graph rounds, pending reservations and exhaustion handling.
 Full workspace/backend CI acceptance remains pending; no remote push was made.
+
+NR04 baseline (NR03 algorithm plus work counters): Apple M1 Max, 32 GiB,
+macOS 26.6.2 arm64, rustc 1.98.1 / Cargo 1.98.1; workspace test/dev profile
+(opt-level 1), default features/parallelism and `target/`. Run
+`cargo test -p kagari-hir solver_workload_measurements --lib -- --ignored --nocapture`.
+Each graph has a 48-module active shape; unrelated adds 96 stable modules.
+Candidate work counts produced binding contributions per module evaluation.
+The bounded measurement fixture lives in `imports/solver_tests.rs` (ignored by
+normal test runs). Source preparation and solving exclude Rust compilation.
+
+| Shape | Prepare µs | Solve µs | Visits | Changed scopes | Candidate work |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Named chain | 1603 | 43792 | 2304 | 47 | 1223 |
+| Glob chain | 303 | 18565 | 2304 | 47 | 1223 |
+| Diamond | 396 | 2110 | 144 | 92 | 240 |
+| Seeded cycle | 237 | 16891 | 2352 | 48 | 1273 |
+| Unrelated + chain | 633 | 47845 | 6912 | 47 | 5831 |
+| Removed seed, new revision | 245 | 526 | 48 | 0 | 0 |
+
+The first measurement link failed with missing Rust object symbols; package-only
+`cargo clean -p kagari-hir` followed by the same bounded build/run succeeded.
+Rebuild time was 29.03 s, recorded separately. Dependencies remained cached;
+source/graph inputs are recreated per shape. The editor's rust-analyzer background
+checks caused build-lock contention, so these single-run timings are descriptive,
+not a controlled speed claim. Durable work counts are the primary comparison.
+
+NR04 checkpoint: whole-graph rounds are replaced by stable per-module work and
+reverse namespace watchers, including unsuccessful lookups and glob membership.
+Pending categories/globs reserve draft slots. Closed pending groups and finite
+acyclic derivations prevent temporary weak fallbacks from creating self-supporting
+aliases. Candidate failures preserve ambiguity/access outcomes. An exact bounded
+history and explicit work limits distinguish non-convergence/exhaustion from
+cancellation and ordinary unresolved imports. HIR preparation, standalone name
+resolution and SDK callers propagate failure without publishing/cache-installing
+drafts; errors include bounded physical import sites. The plan documents why
+closing the entire quiescent pending group satisfies the closure contract.
+
+Focused validation (same Cargo environment as NR03):
+
+- HIR `cycles` filter: 2 passed, including seeded glob circulation, reversed source
+  input order, cross-category alias dependencies, unresolved alias cycles and
+  retained stale-target rejection.
+- Exact HIR filters `failed_solves_preserve_published_snapshots_and_allow_recovery`,
+  `diamond_has_deterministic_reachable_order`,
+  `equal_glob_targets_keep_origins_and_absent_categories_release_fallback`,
+  `duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup`,
+  `duplicate_type_imports_invalidate_all_alias_targets`, and
+  `transitive_alias_rename_invalidates_unchanged_caller`: all passed. The single
+  new normal test owns the distinct failed-solve/publication/recovery boundary;
+  existing language fixtures own the other cases.
+- SDK `public_source_glob_reexports_members_through_artifacts`: passed after error
+  boundary migration, compiling HIR/compiler/SDK and executing direct/encoded
+  products. Selected Cranelift execution reported `InterpreterFallback`.
+- `cargo clippy -p kagari-hir --lib --tests -- -D warnings`, structure (928 files,
+  zero findings), formatting and diff checks passed. Manual review found no new
+  re-export/visibility facade or structural exception.
+
+During focused test preparation an iterator function needed an explicit `Arc`
+coercion closure, and import grouping briefly omitted `ImportSolveError`; both
+compile errors were fixed before the successful cycle run. Final review added
+category-qualified derivation keys and delayed conflicts involving pending slots:
+otherwise a valid Value import through its same-leaf Type alias could be rejected.
+The existing cycle fixture now covers that boundary and passes. No local failure
+is carried. NR05 owns the final same-workload comparison and CI-status review;
+full CI remains pending and no push was made.
 
 ### Explicit native default bodies
 

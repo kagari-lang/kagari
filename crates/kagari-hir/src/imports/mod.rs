@@ -18,7 +18,7 @@ use kagari_types::{
     collection::CollectionAccess, declaration::names::NameNamespace, visibility::Visibility,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -36,6 +36,9 @@ mod provenance_tests;
 mod resolve;
 #[cfg(test)]
 mod signature_tests;
+pub mod solver;
+#[cfg(test)]
+mod solver_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -326,8 +329,10 @@ pub enum BindingOrigin {
 /// One possible binding, retaining visibility and provenance even before a target is resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingCandidate {
-    /// Canonical destination, or `None` for a reserved unresolved strong name.
-    pub target: Option<ResolvedTarget>,
+    /// Canonical destination or an explicit pending/failed binding outcome.
+    pub resolution: LookupOutcome,
+    /// One acyclic derivation of directive/category keys; origins retain all equal targets.
+    pub(crate) support: HashSet<(DirectiveId, NameNamespace)>,
     /// Declaration/import/implicit input that introduced the binding.
     pub origin: BindingOrigin,
     /// Module whose access boundary applies to this binding.
@@ -415,6 +420,8 @@ pub struct ModuleGraph {
     source_facts: HashMap<SourceUnit, Arc<ModuleImportFacts>>,
     /// Shared canonical namespace tables used by all lookup consumers.
     pub catalog: Arc<catalog::NamespaceCatalog>,
+    #[cfg(test)]
+    pub(crate) work: solver::SolverWork,
 }
 
 /// Failure to collect an admissible reachable module set.

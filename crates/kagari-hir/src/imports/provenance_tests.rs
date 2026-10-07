@@ -193,6 +193,8 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
     let ctx = LookupContext {
         importer: left.source.module_identity(),
         hosts: &hosts,
+        observations: None,
+        avoid: None,
     };
     let path = format!("{}::left", left.source.module_identity());
     assert!(matches!(
@@ -218,6 +220,8 @@ fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter
     let ctx = LookupContext {
         importer: &kagari_common::identity::ModuleIdentity::single_file("other"),
         hosts: &hosts,
+        observations: None,
+        avoid: None,
     };
     let ns = NamespaceId::Module(SourceUnit::of(&first));
     let LookupResult::Found(hit) = old

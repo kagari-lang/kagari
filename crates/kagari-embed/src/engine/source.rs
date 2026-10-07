@@ -50,6 +50,9 @@ fn analysis_error(error: AnalysisError) -> EmbeddingError {
         AnalysisError::Identity(error) => EmbeddingError::Source {
             message: format!("invalid analysis definition metadata: {error}"),
         },
+        AnalysisError::Imports(error) => EmbeddingError::Source {
+            message: error.to_string(),
+        },
         AnalysisError::NativeApi(error) => EmbeddingError::Source {
             message: error.to_string(),
         },

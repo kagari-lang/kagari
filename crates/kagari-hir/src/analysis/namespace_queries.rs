@@ -95,6 +95,7 @@ impl AnalysisSnapshot {
             .resolution
             .targets()
             .map(|target| LookupHit {
+                support: Default::default(),
                 namespace: target.namespace(),
                 target: target.clone(),
                 via: vec![match directive.kind {
