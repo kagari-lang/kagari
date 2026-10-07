@@ -43,6 +43,8 @@ remain independent findings, including the current iteration-limit concern.
   preserve diagnostics, re-exports, navigation and direct dependency edges.
 - [x] **IR03:** Verify snapshot invalidation, tooling and source/artifact/native
   consumers; complete final checks and update implemented architecture.
+- [x] **SA5 follow-up:** Invalidate signature, file and function-body reuse on
+  transitive namespace binding changes; retain local arena remapping and old snapshots.
 
 Ledger:
 
@@ -145,6 +147,44 @@ Ledger:
   resolution performance remains unmeasured.
 
 Phase commits use `Import-Phase: IR01` through `Import-Phase: IR03`.
+
+SA5 follow-up ledger:
+
+- The user activated the [SA5 finding](review.md#sa5-incremental-reuse-misses-transitive-namespace-changes-p1).
+  Three incremental-versus-fresh reproductions failed before the fix: alias rename,
+  function alias retargeting after a trivia edit, and nominal alias retargeting in
+  signature queries. Reachable namespace comparison now gates all affected reuse
+  paths, rebasing only the current module's source unit for existing arena remappers.
+  Regression coverage also exercises single-function reuse and local nominal
+  namespaces. All five regression tests pass; SA1-SA3 remain outside this fix.
+- The first structure check found 1207 effective LOC in `analysis/mod.rs`.
+  Complete-file cache predicates now belong to `analysis/cache.rs`; the structure
+  check passes without exceptions. The first HIR run exposed local enum member
+  IDs retaining their arenas in namespace comparisons; local variant comparison
+  now validates each arena and compares owner/slot before the existing remappers.
+- Strict workspace Clippy on Rust 1.99.0 rejected two existing runtime
+  `AtomicU64::fetch_update` calls as deprecated. Both use the renamed `try_update`
+  API with unchanged ordering and checked increment behavior. No warnings were
+  suppressed. Strict workspace Clippy and runtime tests now pass.
+- The workspace run reached `registration_sources` and failed four existing
+  Windows path assertions: canonical cache names retained `\\?\` and did not
+  match the normalized analyzed names. The SDK publication boundary now normalizes
+  canonical drive paths using the source database's naming rules. The unchanged
+  six-test registration suite now passes without weakening assertions.
+- Final checks pass: HIR (430 unit + 8 integration tests), structure (922 Rust
+  files, zero violations/exceptions), formatting, strict workspace Clippy and
+  `git diff --check`. All carried HIR, Clippy and Windows failures are resolved.
+- Workspace tests completed in segments after the initial Windows failure:
+  retain the successful unchanged prefix, rerun `registration_sources`, run the
+  remaining 13 SDK integration targets (`result_option` through `typed_calls`),
+  run `cargo test --workspace` excluding the nine completed packages (`kagari-abi`,
+  `kagari-bytecode`, `kagari-cli`, `kagari-codegen`, `kagari-codegen-cranelift`,
+  `kagari-common`, `kagari-compiler`, `kagari-contract`, `kagari-embed`), and run
+  `cargo test --doc` for the eight excluded libraries. No failing suite is carried.
+- The plan's `artifact_features` matrix passes with `--no-default-features`
+  (9 tests), `--features source` (10) and `--features native` (11).
+  `cargo test -p kagari-cli --features jit` passes (5); source snapshots, syntax
+  examples, native preparation and source-free consumers also pass.
 
 ### Interpreter performance follow-up
 

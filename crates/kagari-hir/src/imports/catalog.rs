@@ -3,6 +3,7 @@ use crate::{
     host::HostDeclarations,
     imports::{
         BindingCandidate, BindingOrigin, NamespaceId, ResolvedTarget, SourceDeclRef, SourceUnit,
+        cache::same_name_tables,
     },
     resolver::{resolved::ResolvedName, table::NameTable},
 };
@@ -394,6 +395,37 @@ impl NamespaceCatalog {
         hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
+        self.same_namespace_inputs(other, names, None, hosts, cancel)
+    }
+
+    /// Reuse checked facts across a local lowering only after comparing all
+    /// reachable member bindings. The existing remappers handle local arena IDs;
+    /// foreign namespace identities and targets must still match exactly.
+    pub(crate) fn same_reuse_namespaces(
+        &self,
+        other: &Self,
+        names: &NameTable,
+        other_names: &NameTable,
+        hosts: &HostDeclarations,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        let (Some(unit), Some(other_unit)) = (&names.unit, &other_names.unit) else {
+            return Ok(false);
+        };
+        if unit.module != other_unit.module || unit.file != other_unit.file {
+            return Ok(false);
+        }
+        self.same_namespace_inputs(other, names, Some(other_unit), hosts, cancel)
+    }
+
+    fn same_namespace_inputs(
+        &self,
+        other: &Self,
+        names: &NameTable,
+        rebased_unit: Option<&SourceUnit>,
+        hosts: &HostDeclarations,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
         let Some(unit) = names.unit.as_ref() else {
             return Ok(false);
         };
@@ -415,8 +447,29 @@ impl NamespaceCatalog {
             if !seen.insert(ns.clone()) {
                 continue;
             }
+            let other_ns = match (&ns, rebased_unit) {
+                (NamespaceId::Module(source), Some(new)) if source == unit => {
+                    NamespaceId::Module(new.clone())
+                }
+                (NamespaceId::Associated(source), Some(new)) if &source.unit == unit => {
+                    NamespaceId::Associated(SourceDeclRef {
+                        unit: new.clone(),
+                        item: source.item,
+                    })
+                }
+                _ => ns.clone(),
+            };
             let table = self.namespaces.get(&ns);
-            if table != other.namespaces.get(&ns) {
+            let other_table = other.namespaces.get(&other_ns);
+            let matches = match (table, other_table, rebased_unit) {
+                (Some(a), Some(b), Some(new)) => {
+                    a.owner == b.owner
+                        && a.glob_allowed == b.glob_allowed
+                        && same_name_tables(&a.names, &b.names, Some(unit), Some(new), false)
+                }
+                _ => table == other_table,
+            };
+            if !matches {
                 return Ok(false);
             }
             if let Some(table) = table {

@@ -70,3 +70,51 @@ execution are covered by behavioral acceptance. See
 
 SA1-SA3 remain separate, unactivated tasks. The solver scheduling and iteration
 bound are unchanged; no performance improvement has been measured.
+
+## SA5 Incremental reuse misses transitive namespace changes (P1)
+
+Resolved; validation is recorded in the [SA5 follow-up ledger](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-complete).
+
+Reproduced against `c3294fad`. Signature reuse in
+[check_signatures](../crates/kagari-hir/src/lib.rs), full-file/body reuse in
+[snapshot](../crates/kagari-hir/src/analysis/mod.rs) and function-body reuse in
+[body](../crates/kagari-hir/src/analysis/body_queries.rs) previously compared local
+import facts and canonical imported contracts without comparing reachable namespace
+bindings. Declaration reuse already performed that comparison, but later reuse
+could still retain stale signatures, name resolution or checked body facts.
+
+Setup: `library` declares the items; `exports` publicly aliases them; unchanged
+`facade` contains `pub use pkg::exports::*;`; `root` imports
+`use pkg::facade as m;`. Change only the aliases in `exports`:
+
+- Rename `value as old` to `value as new`: incremental analysis still accepts
+  `m::old()` and retains its navigation target; fresh analysis reports `UnknownName`.
+- Swap `number as selected, flag as spare` to `flag as selected, number as spare`,
+  where returns are `i32` and `bool`. Add a comment to `root` to exercise body
+  remapping: incremental analysis reuses the body of
+  `fn main() -> i32 { m::selected() }` and misses the return-type error.
+- Swap `A as Selected, B as Spare` to `B as Selected, A as Spare`: incremental
+  signature analysis still types `fn accept(x: m::Selected) {}` as `A`; fresh
+  analysis returns `B`.
+
+All affected reuse paths now compare reachable namespace bindings. Retaining a
+complete file requires exact tables; reusing checked facts permits only the current
+module's arena rebasing through the existing remappers, including validated local
+variant owner/slot identities. Foreign namespace targets retain complete identities.
+[Five regression tests](../crates/kagari-hir/src/imports/cache_tests.rs) cover the
+three reproductions, single-function reuse, old snapshots, unrelated file sharing
+and local nominal namespace remapping. All five tests pass, as do the HIR suite,
+workspace tests completed in segments and the source-free/native feature matrix.
+
+## SA6 Generated cache names differed from analyzed paths on Windows
+
+Resolved at the SDK's [cache publication boundary](../crates/kagari-embed/src/engine/declarations.rs).
+Windows canonicalization produced `\\?\F:\...`, which was published verbatim while
+the source database normalized separators and drive spelling. The analyzed name
+lost the usable drive prefix and differed from the published declaration source.
+Four existing `registration_sources` tests failed their absolute-path assertion.
+
+Publication now converts canonical drive paths to ordinary paths and applies the
+same source-name normalization as analysis. The unchanged six-test suite passes,
+including actual file reads, matching source views, content validation and retained
+snapshot navigation. This bounded integration correction preserves all assertions.

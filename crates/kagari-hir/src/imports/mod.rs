@@ -23,6 +23,8 @@ use std::{
 mod aggregate_tests;
 mod builder;
 mod cache;
+#[cfg(test)]
+mod cache_tests;
 pub mod catalog;
 pub mod functions;
 #[cfg(test)]

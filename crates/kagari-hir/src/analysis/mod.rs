@@ -70,6 +70,7 @@ pub mod method_queries;
 mod standard_query_tests;
 
 pub mod body_queries;
+mod cache;
 
 pub mod declaration_queries;
 pub(crate) mod ownership;
@@ -870,45 +871,18 @@ impl AnalysisDatabase {
                 .get(&id)
                 .map(|old| old.to_unverified(cancel))
                 .transpose()?;
-            let signature_queries::BodyEnvironment {
-                imported_functions,
-                aggregates,
-            } = environments.remove(&id).expect("prepared body environment");
-            let imports = prepared.names.facts.imports.clone();
+            let environment = environments.remove(&id).expect("prepared body environment");
             let analysis = match self.files.get(&id) {
                 Some(previous)
-                    if previous.source.revision() == file.revision()
-                        && previous
-                            .result
-                            .records()
-                            .facts()
-                            .lowered
-                            .module
-                            .body
-                            .arena()
-                            == prepared.lowered.module.body.arena()
-                        && previous.result.records().facts().names.hosts.revision()
-                            == self.hosts.revision()
-                        && previous.result.records().facts().names.imports == imports
-                        && previous_authoring
+                    if previous.can_retain(
+                        &prepared,
+                        previous_authoring
                             .as_ref()
                             .expect("previous authoring facts")
-                            .facts()
-                            .imported_functions
-                            == imported_functions
-                        && previous_authoring
-                            .as_ref()
-                            .expect("previous authoring facts")
-                            .facts()
-                            .aggregates
-                            == aggregates
-                        && previous_authoring
-                            .as_ref()
-                            .expect("previous authoring facts")
-                            .facts()
-                            .declarations
-                            .imported_types
-                            == prepared.declarations.imported_types =>
+                            .facts(),
+                        &environment,
+                        cancel,
+                    ) =>
                 {
                     previous.clone()
                 }
@@ -918,35 +892,15 @@ impl AnalysisDatabase {
                         .files
                         .get(&id)
                         .filter(|old| {
-                            old.result.records().facts().names.hosts.revision()
-                                == self.hosts.revision()
-                                && old
-                                    .result
-                                    .records()
-                                    .facts()
-                                    .names
-                                    .imports
-                                    .same_bindings(&imports)
-                                && previous_authoring
+                            old.can_reuse_body(
+                                &prepared,
+                                previous_authoring
                                     .as_ref()
                                     .expect("previous authoring facts")
-                                    .facts()
-                                    .imported_functions
-                                    == imported_functions
-                                && previous_authoring
-                                    .as_ref()
-                                    .expect("previous authoring facts")
-                                    .facts()
-                                    .aggregates
-                                    .same_contracts(&aggregates)
-                                && previous_authoring
-                                    .as_ref()
-                                    .expect("previous authoring facts")
-                                    .facts()
-                                    .declarations
-                                    .imported_types
-                                    == prepared.declarations.imported_types
-                                && old.source.module_identity() == file.module_identity()
+                                    .facts(),
+                                &environment,
+                                cancel,
+                            )
                         })
                         .map(|old| BodyReuse {
                             previous_diagnostics: old.result.records().diagnostics(),
@@ -967,8 +921,8 @@ impl AnalysisDatabase {
                             const_limits: self.const_limits,
                             max_semantic_diagnostics: self.max_semantic_diagnostics,
                         },
-                        imported_functions,
-                        aggregates,
+                        environment.imported_functions,
+                        environment.aggregates,
                         reuse.as_ref(),
                         cancel,
                     );

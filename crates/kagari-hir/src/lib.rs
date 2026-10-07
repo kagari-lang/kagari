@@ -315,6 +315,18 @@ impl DeclaredAnalysis {
                     .facts
                     .imports
                     .same_signature_bindings(&self.names.facts.imports)
+                && old
+                    .names
+                    .facts
+                    .catalog
+                    .same_reuse_namespaces(
+                        &self.names.facts.catalog,
+                        &old.names.facts.items,
+                        &self.names.facts.items,
+                        &self.names.facts.hosts,
+                        cancel,
+                    )
+                    .unwrap_or(false)
                 && old.declarations.imported_types == self.declarations.imported_types)
             {
                 return None;

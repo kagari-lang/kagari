@@ -219,6 +219,17 @@ impl AnalysisDatabase {
                             .facts
                             .imports
                             .same_bindings(&prepared.names.facts.imports)
+                        && old
+                            .names
+                            .catalog
+                            .same_reuse_namespaces(
+                                &prepared.names.facts.catalog,
+                                &old.names.items,
+                                &prepared.names.facts.items,
+                                &prepared.names.facts.hosts,
+                                cancel,
+                            )
+                            .unwrap_or(false)
                         && old.file.prepared.declarations.imported_types
                             == file.prepared.declarations.imported_types
                         && previous_environment
