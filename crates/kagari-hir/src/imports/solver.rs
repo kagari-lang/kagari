@@ -224,7 +224,7 @@ pub(super) fn solve(
                 if history.contains(&state) {
                     return Err(ImportSolveError::NonConvergent {
                         work,
-                        imports: failure_sites(sources, 0..sources.len()),
+                        imports: failure_sites(sources, queue.iter().copied().chain([index])),
                     });
                 }
                 if history.len() == 8 {
@@ -234,7 +234,7 @@ pub(super) fn solve(
             }
         }
         cancel.check()?;
-        let mut pending = false;
+        let mut pending_owners = BTreeSet::new();
         for (index, module) in facts.iter().enumerate() {
             for directive in &module.directives {
                 cancel.check()?;
@@ -244,7 +244,7 @@ pub(super) fn solve(
                 };
                 for (namespace, outcome) in outcomes {
                     if *outcome == LookupOutcome::Pending {
-                        pending = true;
+                        pending_owners.insert(index);
                         if closed.insert((directive.id.clone(), namespace)) {
                             queue.insert(index);
                         }
@@ -252,9 +252,9 @@ pub(super) fn solve(
                 }
             }
         }
-        if !pending {
+        if pending_owners.is_empty() {
             // Directive settlement must agree with the actual published tiers.
-            if facts.iter().any(|module| {
+            if let Some((index, _)) = facts.iter().enumerate().find(|(_, module)| {
                 !module.scope.pending_globs.is_empty()
                     || module
                         .scope
@@ -272,7 +272,7 @@ pub(super) fn solve(
             }) {
                 return Err(ImportSolveError::NonConvergent {
                     work,
-                    imports: failure_sites(sources, 0..sources.len()),
+                    imports: failure_sites(sources, [index]),
                 });
             }
             break;
@@ -280,7 +280,7 @@ pub(super) fn solve(
         if queue.is_empty() {
             return Err(ImportSolveError::NonConvergent {
                 work,
-                imports: failure_sites(sources, 0..sources.len()),
+                imports: failure_sites(sources, pending_owners),
             });
         }
     }

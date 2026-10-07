@@ -28,11 +28,11 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
-### Name resolution (SA8, SA2, SA3, active)
+### Name resolution (SA8, SA2, SA3, CI pending)
 
 The [execution plan](name-resolution-plan.md) owns the two-space lookup/import
-contract and subsequent dependency-driven solver migration. Status: NR01-NR04 complete locally; NR05 active.
-Execute NR01-NR05 in order, with `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
+contract and subsequent dependency-driven solver migration. Status: NR01-NR05 implemented and locally accepted; full CI acceptance pending.
+The completed phases carry `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
 implementation commits. SA1 inline AST reuse and SA9 compact module handles remain
 outside this track.
 
@@ -42,7 +42,7 @@ outside this track.
 - [x] NR03: Complete focused SA8 local acceptance before changing solver scheduling.
 - [x] NR04: Introduce dependency-driven import work and explicit convergence,
   unresolved-cycle, exhaustion and cancellation outcomes.
-- [ ] NR05: Complete integration/measurements and resolve local failures; record
+- [x] NR05: Complete integration/measurements and resolve local failures; record
   GitHub CI acceptance independently.
 
 Only NR01 may carry documented mechanical consumer build failures to NR02. The
@@ -200,6 +200,59 @@ otherwise a valid Value import through its same-leaf Type alias could be rejecte
 The existing cycle fixture now covers that boundary and passes. No local failure
 is carried. NR05 owns the final same-workload comparison and CI-status review;
 full CI remains pending and no push was made.
+
+NR05 local acceptance: no carried build/test failures. The final audit confirms
+removal of single-space lookup/export storage and whole-graph round publication;
+all callers propagate solver failure. Diagnostic site samples now come from the
+active/repeating or unsettled modules rather than unrelated inputs. No added
+compatibility surface, version bump, structural exception or scope expansion.
+SA1 and SA9 remain unactivated. Checkpoints: NR01 `67e00240`, NR02 `be76015f`,
+NR03 `ca672860`, NR04 `9739a7d7`; the final commit carries `Resolution-Phase: NR05`.
+
+Final measurements use the same six inputs, machine/toolchain/profile/features,
+default parallelism and `target/` as the baseline above. Command:
+`cargo test -p kagari-hir solver_workload_measurements --lib -- --ignored --nocapture`.
+Rust test compilation took 11.36 s, separately from graph work; dependencies were
+cached. Logs: `target/nr05-worklist.log`. The fixture also checks successful input
+shapes remain diagnostic-free and seed removal remains diagnosed.
+
+| Shape | Prepare µs | Solve µs | Visits before → after | Changed scopes | Candidate work before → after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Named chain | 1708 | 5455 | 2304 → 86 | 47 | 1223 → 124 |
+| Glob chain | 486 | 2731 | 2304 → 86 | 47 | 1223 → 48 |
+| Diamond | 765 | 3114 | 144 → 82 | 81 | 240 → 129 |
+| Seeded cycle | 416 | 3749 | 2352 → 188 | 95 | 1273 → 54 |
+| Unrelated + chain | 1114 | 4998 | 6912 → 182 | 47 | 5831 → 220 |
+| Removed seed, new revision | 397 | 1822 | 48 → 86 | 47 | 0 → 76 |
+
+The required work reduction is established: 96 added unrelated modules add exactly
+96 visits, rather than participating in every propagation round. Timings are single
+samples with possible editor activity, not controlled universal speed claims.
+Diamond solving increased from 2,110 to 3,114 µs despite fewer evaluations; each
+new visit additionally maintains observations/acyclic proof sets and completion
+state. Seed removal increased from 526 to 1,822 µs: explicit initial reservations
+must drain through the chain, producing 38 extra visits before absence is proved.
+These bounded overheads preserve the required pending/closure contract. Further
+identity/collection optimization is not activated; future performance work should
+measure representative project inputs before changing those boundaries.
+
+Final focused checks passed (Cargo environment as above): the measurement helper,
+`failed_solves_preserve_published_snapshots_and_allow_recovery`, and SDK
+`public_source_glob_reexports_members_through_artifacts`. The SDK build took 21.96 s
+and the test 3.09 s; direct/encoded execution returns 42, and selected Cranelift
+preparation again reported `InterpreterFallback`. Strict HIR library/test Clippy,
+structure (928 Rust files, zero findings), formatting, local documentation links
+and `git diff --check` passed. Earlier successful NR03/NR04 contract evidence is
+retained above, not replaced by the measurement fixture.
+
+CI status: **pending, no final-commit CI run exists because this work was not
+pushed**. Reviewed `.github/workflows/ci.yml`: structure/self-test, formatting,
+strict workspace/all-target Clippy, workspace tests, SDK feature consumers and CLI
+JIT are configured there. Its workspace tests own the complete backend/artifact
+matrices; none was run locally or simulated with split package commands. Local
+NR05 is complete; full architecture acceptance requires those CI jobs on the
+final implementation. This remaining acceptance item does not activate SA1/SA9
+or authorize a remote push.
 
 ### Explicit native default bodies
 
@@ -653,19 +706,11 @@ Lua parity and the shared-bound source-analysis capability remain open above.
 
 ## Outstanding review and performance questions
 
-The [review document](review.md) records inline module AST reuse, import-resolution
-scheduling, iteration exhaustion and mixed import/namespace records. Append future
-review findings there. SA4 is resolved by the completed IR01-IR03 track above.
-SA1 remains a separate unactivated HIR analysis follow-up. SA2/SA3 are planned
-after SA8 in the [NR01-NR05 track](name-resolution-plan.md); implementation is
-not yet activated.
-
-[SA8](review.md#sa8-separate-typevalue-lookup-and-unify-export-information) records
-the proposed type/value namespace split and unified export derivation, including
-per-space import outcomes, host/tooling/cache consumers and focused acceptance.
-The [execution plan](name-resolution-plan.md) formalizes this design, excluding
-macros. Its NR03 local gate stabilizes the semantic model before NR04 changes
-SA2/SA3 solver scheduling and convergence handling.
+The [review document](review.md) owns findings and follow-up boundaries. SA4 is
+resolved by IR01-IR03; SA8 and SA2/SA3 are implemented and locally accepted by
+[NR01-NR05](name-resolution-plan.md), with full CI acceptance pending. SA1 inline
+AST reuse remains a separate unactivated HIR analysis follow-up. The completed
+namespace/solver migration does not activate macros or other excluded work.
 
 [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references)
 records compact module handles backed by shared portable identities as a separate,

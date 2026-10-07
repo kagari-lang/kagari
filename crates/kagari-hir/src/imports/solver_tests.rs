@@ -156,7 +156,16 @@ fn solver_workload_measurements() {
         let solve_start = Instant::now();
         let graph =
             ModuleGraph::build(&lowered, &HostDeclarations::empty(), &Default::default()).unwrap();
-        if shape != "removal" {
+        let solve = solve_start.elapsed();
+        if shape == "removal" {
+            assert_eq!(
+                graph
+                    .modules()
+                    .filter(|(_, node)| !node.imports.diagnostics.is_empty())
+                    .count(),
+                count - 1
+            );
+        } else {
             assert!(
                 graph
                     .modules()
@@ -168,7 +177,7 @@ fn solver_workload_measurements() {
             "{shape}: modules={} prepare_us={} solve_us={} visits={} changed={} candidates={}",
             lowered.len(),
             prepare.as_micros(),
-            solve_start.elapsed().as_micros(),
+            solve.as_micros(),
             graph.work.module_visits,
             graph.work.changed_entries,
             graph.work.candidate_work

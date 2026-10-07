@@ -1,7 +1,7 @@
 # Type/value namespaces and import solving (SA8, SA2, SA3)
 
-Status: active; NR01-NR04 checkpoints are complete locally and NR05 is in progress. The
-[roadmap](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-active) owns
+Status: NR01-NR05 implemented and locally accepted; full GitHub CI acceptance is pending. The
+[roadmap](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-ci-pending) owns
 activation, phase checkboxes, validation evidence and carried failures. This file
 owns the implementation contracts and NR01-NR05 phase boundaries. The user has authorized execution of NR01 through NR05 in order.
 
@@ -34,15 +34,15 @@ only affected disposable fixtures at the SA8 integration checkpoint.
 
 ## Starting point and implementation owners
 
-The current `NameTable` keys candidates by spelling alone. Host resolution tries
-functions before types. A directive has one outcome, while HIR `Import` stores
-`alias`, `alias_explicit` and `glob`. Lowering duplicates public declarations and
-imports in `Module.exports`; the builder also consumes its variant entries.
-`ModuleGraph::build` rebuilds every module for at most `2N + 2` rounds and publishes
-the last catalog even when equality has not established convergence.
+At activation, `NameTable` keyed candidates by spelling alone. Host resolution tried
+functions before types. A directive had one outcome, while HIR `Import` stored
+`alias`, `alias_explicit` and `glob`. Lowering duplicated public declarations and
+imports in `Module.exports`; the builder also consumed its variant entries.
+`ModuleGraph::build` rebuilt every module for at most `2N + 2` rounds and published
+the last catalog even when equality had not established convergence.
 
-A concrete additional consumer matters: portable `ModuleDecl.exports` is a
-`BTreeMap<String, I>`. It cannot represent a type and value exported under the same
+A concrete additional consumer mattered: portable `ModuleDecl.exports` was a
+`BTreeMap<String, I>`. It could not represent a type and value exported under the same
 alias. SA8 must migrate that key and its real consumers, not just HIR lookup. This
 is the bounded registration/schema consequence of the agreed two-space contract.
 Do not delete portable registration exports when removing redundant HIR exports.

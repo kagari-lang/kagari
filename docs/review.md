@@ -4,7 +4,8 @@ Keep ongoing repository review findings in this document rather than creating
 dated review files. Entries record observed behavior and possible follow-ups;
 they do not activate implementation work.
 
-SA1-SA3 were inspected against `c2f87c89`. Performance impact is unmeasured.
+SA1-SA3 were originally inspected against `c2f87c89`. SA2/SA3 and SA8 are now
+implemented and locally accepted; their full CI acceptance remains pending.
 
 ## SA1 Inline modules are parsed again
 
@@ -21,37 +22,40 @@ navigation tests. Keep declaration, signature and body checking separate.
 
 ## SA2 Import resolution rescans every module
 
-Planned with SA3 in NR04 of the [name-resolution plan](name-resolution-plan.md),
-after SA8's local semantic acceptance. Implementation is not yet activated.
+Implemented in NR04 and locally accepted in NR05 under the
+[name-resolution plan](name-resolution-plan.md). Full CI acceptance is pending.
 
-[ModuleGraph::build](../crates/kagari-hir/src/imports/builder.rs) resolves all modules
-against the previous catalog, rebuilds the catalog and compares it after every
-round. Chained public globs need information propagation, but unrelated and stable
-modules also repeat this work.
+The old builder rescanned all modules after each propagation step. The
+[solver](../crates/kagari-hir/src/imports/solver.rs) now seeds declarations once,
+replaces affected module contributions and schedules reverse namespace observers.
+Observations include absent/pending names, namespace prefixes and glob membership;
+watchers remain distinct from linking dependencies. New revisions rebuild from
+current inputs, preserving removal, retargeting, access and ambiguity changes.
 
-Consider a module work queue with deduplicated entries, reverse dependencies and
-updates to only the affected catalog entries. Track unresolved lookups too, so
-newly available names trigger retries. Preserve target, visibility and ambiguity
-changes, including removals across source revisions. Where dependencies are known,
-topological ordering can handle acyclic chains; strongly connected components
-(SCCs) can restrict iteration to cyclic groups. Name-level propagation and query
-caching are further options, not prerequisites. Measure chains, fan-out and cycles
-before choosing a broader design or claiming a speedup.
+On the bounded 48-module named chain, module visits fell from 2,304 to 86. Adding
+96 unrelated modules now adds 96 visits (182 total), compared with 6,912 total
+visits previously. Diamond and removed-seed workloads show small timing regressions;
+closure/proof overhead and measurement limits are documented in the
+[measurement ledger](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-ci-pending).
+This demonstrates reduced unrelated rescan work, not universal speedup.
 
 ## SA3 Iteration exhaustion is not distinguished from convergence
 
-The [name-resolution plan](name-resolution-plan.md#completion-cycles-and-bounded-failure)
-defines explicit completion/failure contracts for NR04. This finding remains open.
+Implemented in NR04; focused failure/publication acceptance passes. Full CI remains
+pending. The old `2N + 2` loop could publish its last draft without convergence.
 
-The same loop permits at most `2N + 2` rounds for `N` modules and exits early when
-[catalog equality](../crates/kagari-hir/src/imports/builder.rs) finds unchanged
-candidates and re-export targets. Exhausting the limit proceeds to graph construction without
-an explicit non-convergence check; the code does not establish why this bound is
-sufficient. No failing input has been reproduced.
+The solver now distinguishes cancellation, work exhaustion and non-convergence.
+Queue exhaustion triggers pending-dependency closure; successful publication also
+requires settled directives and binding tiers. Category-qualified acyclic proofs
+prevent a named/glob cycle from manufacturing an order-dependent target. An exact,
+eight-state history detects repetition and a separate input-sized work bound
+limits remaining work. No mathematical completeness claim is made for that bound.
 
-Establish the bound or use a termination argument for the chosen solver, and
-handle exhaustion explicitly rather than treating it as convergence. Cover long
-alias/glob chains, valid cycles, unresolved cycles and cancellation.
+The core failure fixture forces both work limits, exercises a non-convergent
+cycle and cancellation, checks old cache/snapshot retention and then successful
+recovery. Existing cycle tests cover seeded circulation, unseeded unresolved
+aliases, cross-category dependencies and source input order. Failures propagate
+through HIR and SDK preparation; no partial graph is admitted to checked execution.
 
 ## SA4 Import records also represent namespace lookup state
 
@@ -74,8 +78,8 @@ precedence, unused imports, stale arenas, retained snapshots and source-free/nat
 execution are covered by behavioral acceptance. See
 [implemented ownership](architecture.md#source-namespaces-and-import-ownership).
 
-SA1-SA3 remain separate, unactivated tasks. The solver scheduling and iteration
-bound are unchanged; no performance improvement has been measured.
+SA1 remains separate and unactivated. SA2/SA3 were subsequently implemented by
+NR04; their bounded measurements and CI status are recorded above.
 
 ## SA5 Incremental reuse misses transitive namespace changes (P1)
 
@@ -147,98 +151,37 @@ that specifically require fresh snapshots or independent mutable runtimes.
 
 ## SA8 Separate type/value lookup and unify export information
 
-Design direction agreed in review: support type and value namespaces only; no
-macro namespace or macro implementation. The [NR01-NR05 execution plan](name-resolution-plan.md)
-now owns the implementation contract; code changes are not yet activated. Planning
-also confirmed that portable `ModuleDecl.exports` needs category-aware keys for
-dual-category aliases. Its authored registration records remain distinct from
-the redundant HIR export storage being removed.
+Implemented by NR01-NR03 and locally accepted with the NR04 solver integration;
+full CI acceptance remains pending. The [execution plan](name-resolution-plan.md)
+and [roadmap ledger](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-ci-pending)
+retain contracts, measurements and phase validation.
 
-[NameTable](../crates/kagari-hir/src/resolver/table.rs) currently keys all candidates
-by `LocalName`. Declaration conflicts, imported-name selection and prelude masking
-therefore share one bucket across kinds. [ImportDirective](../crates/kagari-hir/src/imports/mod.rs)
-also has one resolution, although a named import may introduce both a type and a
-value under the proposed rules. [Host lookup](../crates/kagari-hir/src/host.rs)
-chooses functions before types. HIR `module.exports` records explicit public
-declarations/imports but omits glob expansion; resolved bindings already own
-visibility. These are separate issues from the solver's SA2/SA3 scheduling debt.
+Name tables, directive outcomes, host queries and semantic lookup now select Type
+or Value explicitly, with independent conflicts and `strong > glob > implicit`
+precedence. Prefixes select Type; terminal use sites select their syntactic category.
+One ordinary use leaf can introduce both bindings. Dual imports expose both tooling
+targets, and a single-target query does not choose an arbitrary winner. Cache
+comparison/remapping preserves both categories and qualified declaration ownership.
 
-Recommended contract:
+HIR `Module.exports`, `Export` and `ExportItem` were removed. Resolved bindings
+provide public namespace members, including glob re-exports. Portable authored
+`ModuleDecl.exports` uses category-aware `ExportName` keys; generated native aliases
+retain their declared category and independent native ABI symbol validation.
 
-- Type space contains structs, enums, traits, opaque/alias types and module/package
-  aliases. Generic type parameters and `Self` participate in type lookup within
-  their own scopes. Value space contains functions, constants, locals, parameters
-  and the existing unit/payload enum constructors. Keep canonical declaration IDs;
-  classify bindings, not the declarations' identity format.
-- Permit cross-space names; reject conflicting definitions/imports within each
-  space. Apply `strong > glob > implicit` separately in each space. Values must
-  not hide prelude types. Update the current broad shadowing language in the specs.
-- Resolve path prefixes through the type/module space, then select the terminal
-  space from the use site. `T { ... }` and struct patterns select a type; calls
-  and enum constructor patterns select values. Associated types/constants/methods
-  use the appropriate terminal category while retaining type-checker ownership of
-  trait/inherent dispatch. Field and method access on values remains separate.
-- A named `use m::Name as Local` introduces every applicable type/value binding
-  under `Local`; keep one source directive and per-space outcomes. Distinguish
-  pending, absent, resolved, inaccessible and ambiguous outcomes. Absence in one
-  space is valid if another succeeds; conflicts/access failures remain explicit.
-  Pending explicit imports must prevent premature glob/prelude selection in the
-  affected space; proven absence releases that reservation. Globs enumerate both
-  spaces, preserving per-binding visibility, precedence, provenance and dependencies.
-
-Suggested storage (pseudocode; retain the existing candidate representation):
-
-```rust
-enum NameNamespace { Type, Value }
-struct PerNamespace<T> { types: T, values: T }
-// NameEntry retains strong/globs/implicit candidate lists.
-type NameEntries = BTreeMap<LocalName, PerNamespace<NameEntry>>;
-// Named outcomes are per-space; glob resolution identifies its target namespace.
-enum ImportResolution {
-    Named(PerNamespace<LookupResult>),
-    Glob(NamespaceLookupResult),
-}
-```
-
-Require explicit categories on semantic `lookup`, `lookup_member` and path APIs;
-provide a deliberate two-space operation for imports and tooling. Do not retain
-an unqualified first-match fallback. `NamespaceId` continues to identify a module
-or associated-member container; it is not the new type/value category. Replace
-HIR `alias + alias_explicit + glob` with explicit named/glob syntax, deriving the
-default local name from the final path segment. Remove redundant HIR `Export`
-storage after migrating its actual consumers (including variant handling); derive
-public-member views from resolved bindings for both named and glob re-exports.
-
-Design sequence, formalized by NR01-NR03 in the execution plan:
-
-1. Specify category membership, constructor/pattern rules, same-space conflicts,
-   import outcomes and prelude shadowing in the module/syntax specs.
-2. Migrate declaration collection, name tables, catalog lookup, import resolution
-   and host lookup/registration validation. Audit canonical identity consumers;
-   preserve identity, visibility and source-free boundaries. Distinguish source
-   names from native linkage symbols; do not relax ABI symbol uniqueness.
-3. Migrate type/body/pattern/associated-member queries, imported contracts and
-   export consumers. Update navigation/completion/reference provenance and cache
-   comparison/remapping together; include category and both import outcomes.
-4. Use a small focused contract matrix: cross-space coexistence versus same-space
-   conflicts; aliases/globs/re-exports of both spaces; constructors and patterns;
-   host/prelude lookup; incremental add/remove of one category versus fresh analysis,
-   retaining old snapshots. Reuse existing tests; full suites belong to GitHub CI.
-
-Keep SA2/SA3 as a later checkpoint: a dependency work queue and explicit convergence
-handling should follow stable lookup semantics. No hash-map replacement or speedup
-claim is justified by this review. Rust references for the boundaries:
-[binding keys](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/struct.BindingKey.html),
-[per-name state](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/imports/struct.NameResolution.html),
-[import resolution and derived module children](https://doc.rust-lang.org/stable/nightly-rustc/src/rustc_resolve/imports.rs.html).
+Existing language/import/native/query/cache fixtures were consolidated around
+these contracts. Focused SDK validation covers direct and encoded source-free
+execution; the selected Cranelift preparation used `InterpreterFallback`. One
+new normal test covers solver failure/publication as a distinct core boundary.
+Macros, new constructors, SA1 and SA9 remain outside this implementation.
 
 ## SA9 Module paths are copied into internal graph keys and references
 
 [ModuleIdentity](../crates/kagari-common/src/identity.rs) is a portable package/path
 value containing owned strings. It is also embedded in `SourceUnit`, binding owners,
 namespace keys and dependency sets. Cloning these identities copies strings; hashing
-and ordering examine path content. The fixed-point builder clones catalog keys on
-each round. This establishes representation overhead, not a measured bottleneck.
+and ordering examine path content. NR04 removed whole-catalog rounds, but retained
+portable keys in namespace watchers and derivation sets. This establishes remaining
+representation overhead, not a measured bottleneck.
 
 Separate portable module identity from a compact, context-owned module handle.
 Intern each identity once; use handles for catalog keys, owners and dependencies,
