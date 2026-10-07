@@ -303,7 +303,11 @@ calls and ControlFlow variant operations, without a Result-specific origin opcod
 ## Tooling
 
 Generated `.kgr` is a read-only projection for navigation, completion, signatures
-and documentation. It is not an independently installable library or a second
+and documentation. Generic binders use `T` for one parameter and `T1, T2, ...`
+for multiple parameters. Method-local binders use `M` / `M1, M2, ...` when an
+enclosing generic binder already uses `T`, avoiding shadowing. Declarations,
+bounds and bodies share this spelling; semantic binder positions remain zero-based.
+The generated view is not an independently installable library or a second
 signature authority. The compiler parses/lowers this view through ordinary
 declaration machinery and checks non-trivia correspondence with registration
 before attaching native storage, bindings and default provenance. Registered

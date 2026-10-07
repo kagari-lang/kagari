@@ -60,9 +60,9 @@ fn native_enum_authoring_uses_nominal_types_without_storage_or_frontend() {
     );
     assert_eq!(declaration.types[0].variants[0].payload.len(), 2);
     let text = declaration_source(&declaration, &[]).unwrap().text;
-    assert!(text.contains("pub enum Event<T0>"), "{text}");
-    assert!(text.contains("Data(T0, i32)"), "{text}");
-    assert!(text.contains("Nested(Event<T0>)"), "{text}");
+    assert!(text.contains("pub enum Event<T>"), "{text}");
+    assert!(text.contains("Data(T, i32)"), "{text}");
+    assert!(text.contains("Nested(Event<T>)"), "{text}");
     assert!(text.contains("pub enum Empty {"), "{text}");
     module.install(&mut Runtime::default()).unwrap();
 }
@@ -142,8 +142,8 @@ fn changed_enum_payload_view_cannot_attach_to_the_registered_declaration() {
         .map(|module| declaration_source(module, &providers).unwrap())
         .collect::<Vec<_>>();
     let view = views.last_mut().unwrap();
-    assert!(view.text.contains("Data(T0, i32)"));
-    view.text = view.text.replace("Data(T0, i32)", "Data(T0, i64)");
+    assert!(view.text.contains("Data(T, i32)"));
+    view.text = view.text.replace("Data(T, i32)", "Data(T, i64)");
     let mut database = AnalysisDatabase::default();
     database.set_native_sources(providers, views).unwrap();
     let sources = SourceDatabase::default();

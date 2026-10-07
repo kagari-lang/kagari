@@ -154,7 +154,7 @@ fn incorrect_language_member_types_are_rejected() {
 fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
     for (from, to, role) in [
         ("pub trait Hash", "trait Hash", "hash"),
-        ("pub trait Add<T0>", "pub trait Add<T0, Extra>", "add"),
+        ("pub trait Add<T>", "pub trait Add<T, Extra>", "add"),
         ("pub trait Eq: PartialEq", "pub trait Eq", "eq"),
         (
             "fn hash(self) -> i64;",
@@ -165,8 +165,8 @@ fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
         ("pub trait Try:", "trait Try:", "try"),
         ("type Residual;", "type Residual; type Extra;", "try"),
         (
-            "pub trait FromResidual<T0>",
-            "pub trait FromResidual<T0, Extra>",
+            "pub trait FromResidual<T>",
+            "pub trait FromResidual<T, Extra>",
             "from_residual",
         ),
     ] {

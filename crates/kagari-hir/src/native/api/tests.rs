@@ -20,7 +20,7 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
         ),
         ("{\n        default_read::<Self>(self)\n    }", ";"),
         ("core::hash::Hash", "core::cmp::Eq"),
-        ("value0: T0", "value0: i32"),
+        ("value0: T", "value0: i32"),
     ] {
         let mut source = original.clone();
         assert!(source.text.contains(from), "{from}: {}", source.text);

@@ -91,9 +91,9 @@ fn portable_language_catalog_has_complete_contracts() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(generated.contains("type Iter: Iterator<Item ="));
-    assert!(generated.contains("trait FromIterator<T0>"));
-    assert!(generated.contains("fn from_iter<M0>(source: M0)"));
-    assert!(generated.contains("fn sorted_by_key<M0>"));
+    assert!(generated.contains("trait FromIterator<T>"));
+    assert!(generated.contains("fn from_iter<M>(source: M)"));
+    assert!(generated.contains("fn sorted_by_key<M>"));
     assert!(generated.contains("fn retain("));
 }
 

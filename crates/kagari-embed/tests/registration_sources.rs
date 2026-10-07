@@ -201,13 +201,18 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         .find(|source| source.text.contains("pub trait List<"))
         .unwrap();
     let forwarding =
-        "__default_List_sorted::<Self, T0, <Self as core::iter::Iterable<Item = T0>>::Iter>(self)";
+        "__default_List_sorted::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)";
     assert!(
         collections.text.contains(forwarding),
         "{}",
         collections.text
     );
     assert!(collections.text.contains("\nfn __default_List_sorted<"));
+    assert!(
+        collections
+            .text
+            .contains("\nfn __default_List_sorted<T1, T2, T3>")
+    );
     assert_eq!(
         fs::read_to_string(physical_path(&collections.uri)).unwrap(),
         collections.text

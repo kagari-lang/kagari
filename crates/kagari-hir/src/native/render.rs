@@ -73,13 +73,14 @@ pub fn declaration_source(
     module: &ModuleDecl,
     providers: &[Arc<ModuleDecl>],
 ) -> Result<DeclarationSource, DeclarationError> {
-    DeclarationView { module, providers }.render()
+    DeclarationView::new(module, providers).render()
 }
 
 /// Borrowed authoritative module plus provider context used to resolve rendered identities.
 struct DeclarationView<'a> {
     module: &'a ModuleDecl,
     providers: &'a [Arc<ModuleDecl>],
+    parameter_counts: BTreeMap<DefinitionPath, usize>,
 }
 
 impl Deref for DeclarationView<'_> {
@@ -89,7 +90,71 @@ impl Deref for DeclarationView<'_> {
     }
 }
 
-impl DeclarationView<'_> {
+impl<'a> DeclarationView<'a> {
+    fn new(module: &'a ModuleDecl, providers: &'a [Arc<ModuleDecl>]) -> Self {
+        let mut parameter_counts = BTreeMap::<DefinitionPath, usize>::new();
+        let parameters = module
+            .types
+            .iter()
+            .flat_map(|item| &item.generic_params)
+            .chain(module.traits.iter().flat_map(|item| &item.generic_params))
+            .chain(
+                module
+                    .implementations
+                    .iter()
+                    .flat_map(|item| &item.generic_params),
+            )
+            .chain(
+                module
+                    .functions
+                    .iter()
+                    .flat_map(|item| &item.generic_params),
+            )
+            .chain(
+                module
+                    .traits
+                    .iter()
+                    .flat_map(|item| &item.methods)
+                    .flat_map(|method| &method.generic_params),
+            )
+            .chain(
+                module
+                    .implementations
+                    .iter()
+                    .flat_map(|item| &item.methods)
+                    .flat_map(|method| &method.generic_params),
+            );
+        for parameter in parameters {
+            let count = parameter_counts.entry(parameter.owner.clone()).or_default();
+            *count = (*count).max(parameter.position.saturating_add(1));
+        }
+        Self {
+            module,
+            providers,
+            parameter_counts,
+        }
+    }
+
+    /// Display names use one-based numbering, omitted for a single parameter.
+    /// Method binders use M only when an enclosing generic binder already uses T.
+    fn parameter_spelling(&self, owner: &DefinitionPath, position: usize) -> String {
+        let mut parent = owner.clone();
+        let method = parent
+            .path
+            .pop()
+            .is_some_and(|part| part.kind == DefinitionKind::Method);
+        let prefix = if method && self.parameter_counts.contains_key(&parent) {
+            "M"
+        } else {
+            "T"
+        };
+        if self.parameter_counts.get(owner) == Some(&1) {
+            prefix.into()
+        } else {
+            format!("{prefix}{}", position.saturating_add(1))
+        }
+    }
+
     fn render(&self) -> Result<DeclarationSource, DeclarationError> {
         let mut output = Renderer {
             module: self,
@@ -329,7 +394,7 @@ impl DeclarationView<'_> {
                 }
             }
             .into(),
-            Ty::Parameter { owner, position } => parameter_spelling(owner, *position),
+            Ty::Parameter { owner, position } => self.parameter_spelling(owner, *position),
             Ty::SelfType(_) => "Self".into(),
             Ty::Array(item, CollectionAccess::ReadOnly) => format!("[{}]", self.spell(item)?),
             Ty::Array(item, CollectionAccess::Mutable) => {
@@ -515,7 +580,13 @@ impl Renderer<'_> {
             if index != 0 {
                 self.text.push_str(", ");
             }
-            spans.push(self.name(&parameter_spelling(&parameter.owner, parameter.position)));
+            spans.push(
+                self.name(
+                    &self
+                        .module
+                        .parameter_spelling(&parameter.owner, parameter.position),
+                ),
+            );
         }
         self.text.push('>');
         spans
@@ -686,18 +757,4 @@ impl Renderer<'_> {
         }
         Ok(spans)
     }
-}
-
-/// Separate lexical names for method binders and their enclosing declaration.
-pub fn parameter_spelling(owner: &DefinitionPath, position: usize) -> String {
-    let prefix = if owner
-        .path
-        .last()
-        .is_some_and(|part| part.kind == DefinitionKind::Method)
-    {
-        "M"
-    } else {
-        "T"
-    };
-    format!("{prefix}{position}")
 }

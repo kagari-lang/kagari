@@ -15,17 +15,17 @@ and preserve the existing native execution contract. Example target output
 (other members and the helper's existing bounds are omitted):
 
 ```text
-pub trait List<T0>: core::ops::Index<usize, Output = T0>
-    + core::iter::Iterable<Item = T0> {
-    fn sorted(self) -> List<T0> where T0: core::cmp::Ord {
-        __default_List_sorted::<Self, T0, <Self as core::iter::Iterable>::Iter>(self)
+pub trait List<T>: core::ops::Index<usize, Output = T>
+    + core::iter::Iterable<Item = T> {
+    fn sorted(self) -> List<T> where T: core::cmp::Ord {
+        __default_List_sorted::<Self, T, <Self as core::iter::Iterable>::Iter>(self)
     }
 }
 
 // Private native entry declaration; the algorithm remains registered Rust code.
-fn __default_List_sorted<T0, T1, T2>(receiver: T0) -> List<T1>
-    where T0: core::iter::Iterable<Item = T1, Iter = T2> + List<T1>,
-          T1: core::cmp::Ord, T2: core::iter::Iterator<Item = T1>;
+fn __default_List_sorted<T1, T2, T3>(receiver: T1) -> List<T2>
+    where T1: core::iter::Iterable<Item = T2, Iter = T3> + List<T2>,
+          T2: core::cmp::Ord, T3: core::iter::Iterator<Item = T2>;
 ```
 
 The helper remains necessary as a typed native call target in this design. This
@@ -183,3 +183,10 @@ Implementation checkpoint:
   also pass.
   GitHub CI has not been run here; full suites, source-free feature builds and
   backend matrices remain CI-owned acceptance. No performance claim is made.
+
+Generated-name follow-up: single binders display as `T`, multiple binders as
+`T1, T2, ...`; method-local binders use `M` / `M1, M2, ...` when needed to avoid
+shadowing outer generics. All declaration/type/body references share the owning
+binder's spelling; internal zero-based positions and executable identities do not
+change. Native-view, portable-catalog and SDK generated-file/navigation checks pass; updated text
+fixtures cover language roles, enum payloads and method-local generic names.
