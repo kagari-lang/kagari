@@ -7,6 +7,7 @@ use kagari_common::{
         mapping::{DefinitionMapper, DefinitionRecord},
     },
 };
+use kagari_types::declaration::names::{ExportName, NameNamespace};
 use kagari_types::{
     declaration::{FnDecl, module::ModuleDecl},
     ty::{GenericBound, Ty},
@@ -168,15 +169,16 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         );
         for item in &owner.traits {
             facade.exports.insert(
-                item.name.clone(),
+                ExportName::new(NameNamespace::Type, item.name.clone()),
                 owner.definition(DefinitionKind::Trait, &item.name),
             );
         }
         for ty in &owner.types {
             let kind = ty.kind.definition_kind();
-            facade
-                .exports
-                .insert(ty.name.clone(), owner.definition(kind, &ty.name));
+            facade.exports.insert(
+                ExportName::new(NameNamespace::Type, ty.name.clone()),
+                owner.definition(kind, &ty.name),
+            );
         }
     }
     let foundation_owners: Vec<_> = modules
@@ -204,7 +206,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         "Fn",
     ] {
         prelude.exports.insert(
-            name.into(),
+            ExportName::new(NameNamespace::Type, name),
             ModuleDecl::new(namespaces::trait_owner(name)).definition(DefinitionKind::Trait, name),
         );
     }
@@ -215,7 +217,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         ("Result", DefinitionKind::Enum),
     ] {
         prelude.exports.insert(
-            name.into(),
+            ExportName::new(NameNamespace::Type, name),
             ModuleDecl::new(namespaces::type_owner(name)).definition(kind, name),
         );
     }
@@ -232,7 +234,9 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
             name: variant.into(),
             occurrence: 0,
         });
-        prelude.exports.insert(variant.into(), id);
+        prelude
+            .exports
+            .insert(ExportName::new(NameNamespace::Value, variant), id);
     }
     for module in modules.values_mut() {
         // Changing owned paths changes canonical constraint ordering too.

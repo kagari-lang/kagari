@@ -16,7 +16,7 @@ use crate::{
                 TraitBound, TraitDef, TraitMethod, TraitRef,
             },
             function::{Function, FunctionKind, Param},
-            module::{Import, ModuleDecl},
+            module::{Import, ImportLeaf, ModuleDecl},
             storage::{ConstItem, ConstOwner, Export, ExportItem},
         },
         ty::{TypeData, TypeKind},
@@ -258,12 +258,16 @@ impl Lowerer {
             .insert_import_path(self.module.imports.len(), path.sites);
         self.module.imports.push(Import {
             visibility,
-            alias,
-            alias_explicit,
+            kind: if glob {
+                ImportLeaf::Glob
+            } else {
+                ImportLeaf::Named {
+                    alias: alias_explicit.then_some(alias),
+                }
+            },
             path: path.text,
             span: token_span(tree),
             root_span,
-            glob,
         });
     }
 

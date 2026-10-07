@@ -6,6 +6,36 @@ The source database binds each registered source to a package and module identit
 
 Imports bind names and create dependency edges for linking. `use path::item`, aliases, grouped imports, and globs resolve against source, standard-library, and declared host namespaces. `self`, `super`, and `crate` are path roots. A public re-export forwards the resolved target. Local declarations and explicit imports take precedence over globs; conflicting glob names are diagnosed. Import resolution never runs code or initializes an instance.
 
+Names occupy independent **Type** and **Value** spaces. Types, traits, type parameters,
+`Self`, modules and package aliases belong to Type. Functions, constants, locals,
+parameters and existing enum constructors belong to Value. Type annotations,
+trait bounds, struct literals and struct patterns select Type; expressions, calls
+and enum patterns select Value. A struct does not introduce a positional constructor.
+Every nonterminal component of `a::b` selects Type and must denote a namespace;
+a Value named `a` does not hide a module named `a`.
+
+A named `use` leaf imports both available categories under its alias. Missing one
+category is valid when the other resolves; missing both is an unresolved import.
+An inaccessible or ambiguous category is an error even when the other succeeds.
+Precedence (declarations/explicit imports, globs, implicit prelude/package names)
+and conflicts apply independently in each category. Duplicate strong bindings in
+one category are errors even when their targets match. Equal-target glob bindings
+coalesce while retaining their provenance. A value named `Option` does not shadow
+the prelude type `Option`. Public members derive from the resolved binding table,
+including valid re-exports and globs.
+
+```kagari
+mod api {
+    pub struct Token { pub val value: i32 }
+    pub fn Token() -> i32 { 40 }
+}
+use self::api::Token as Item;
+fn main() -> i32 {
+    val instance: Item = Item { value: 2 };
+    Item() + instance.value
+}
+```
+
 The graph contains every module reachable from the selected root, including unused imports. Its order is stable but carries no initialization meaning. Cyclic module references are legal; recursive calls remain subject to runtime call-depth limits and cancellation. The checked program resolves calls and types using declaration identities, then links to slots within one program version. Errors in any reachable module prevent code generation, while analysis remains queryable for tools.
 
 `const` is an immutable compile-time value evaluated within the restricted const-safe language. A module instance has no initialization state or cached result. Loading verifies and links the complete program before publishing a handle. A call names a function entry explicitly; the CLI invokes `main`. A missing or ambiguous entry fails before executing script instructions.

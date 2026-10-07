@@ -6,13 +6,10 @@ use crate::{
     },
     host::HostDeclarations,
     imports::{
-        BindingCandidate, BindingOrigin, DirectiveId, DirectiveResolution, ImportDirective,
-        ImportKind, LocalName, ModuleGraph, ModuleImportFacts, ModuleNode, ModuleOrderError,
-        NamespaceId, ResolvedTarget, SourceDeclRef, SourceItem, SourceUnit,
-        catalog::{
-            LookupContext, LookupHit, LookupResult, NamespaceCatalog, NamespaceResult,
-            NamespaceTable,
-        },
+        BindingCandidate, BindingOrigin, LocalName, ModuleGraph, ModuleImportFacts, ModuleNode,
+        ModuleOrderError, NamespaceId, ResolvedTarget, SourceDeclRef, SourceItem, SourceUnit,
+        catalog::{NamespaceCatalog, NamespaceTable},
+        resolve::resolve_imports,
     },
     lower::LoweredModule,
     resolver::table::NameTable,
@@ -26,7 +23,7 @@ use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::FileSpan,
 };
-use kagari_types::visibility::Visibility;
+use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
@@ -178,7 +175,7 @@ impl ModuleGraph {
     }
 }
 
-fn location(module: &LoweredModule, span: Span) -> FileSpan {
+pub(super) fn location(module: &LoweredModule, span: Span) -> FileSpan {
     module.source.span(span).unwrap_or(FileSpan {
         file: module.source.origin_id(),
         revision: module.source.revision(),
@@ -186,7 +183,7 @@ fn location(module: &LoweredModule, span: Span) -> FileSpan {
     })
 }
 
-fn candidate(
+pub(super) fn candidate(
     unit: &SourceUnit,
     target: Option<ResolvedTarget>,
     origin: BindingOrigin,
@@ -216,6 +213,7 @@ fn add_source(
             item,
         };
         names.add(
+            item.namespace(),
             name,
             candidate(
                 unit,
@@ -326,6 +324,7 @@ fn add_declarations(
             for target in targets {
                 cancel.check()?;
                 names.add(
+                    NameNamespace::Type,
                     name.clone(),
                     candidate(
                         &unit,
@@ -445,7 +444,11 @@ fn add_declarations(
             },
         );
     }
-    for entry in names.entries.values_mut() {
+    for entry in names
+        .entries
+        .values_mut()
+        .flat_map(|slots| slots.values_mut())
+    {
         entry
             .strong
             .sort_by_key(|candidate| candidate.location.map_or(0, |span| span.range.start));
@@ -499,6 +502,7 @@ fn add_installed_prefixes(
             let name = LocalName::new(&unit.module.path[len]).expect("installed module component");
             if !names.entries.contains_key(&name) {
                 names.add(
+                    NameNamespace::Type,
                     name,
                     candidate(
                         &unit,
@@ -512,422 +516,4 @@ fn add_installed_prefixes(
         }
     }
     Ok(())
-}
-
-/// Rebuilds a module's scope from declarations and one previous-pass catalog.
-///
-/// Reserve named imports first, including unresolved strong candidates. Resolve
-/// real directives, update their reserved names, then enumerate eligible glob
-/// members through importer-relative lookup. Preserve direct dependency/path sites
-/// and candidate provenance; diagnose conflicts before immutable publication.
-fn resolve_imports(
-    module: &LoweredModule,
-    base: &NamespaceCatalog,
-    catalog: &NamespaceCatalog,
-    sources: &[&LoweredModule],
-    hosts: &HostDeclarations,
-    cancel: &CancellationToken,
-) -> Result<ModuleImportFacts, Cancelled> {
-    let unit = SourceUnit::of(module);
-    let ctx = LookupContext {
-        importer: &unit.module,
-        hosts,
-    };
-    let mut names = (*base.namespaces[&NamespaceId::Module(unit.clone())].names).clone();
-    let mut result = ModuleImportFacts::default();
-    let mut dependencies = BTreeSet::from_iter(module.native_dependencies.iter().cloned());
-    for m in sources {
-        result
-            .array_interfaces
-            .extend(m.native_array_interfaces.clone());
-    }
-    // Reserve every explicit name before resolution, so a failed strong import
-    // cannot expose a weaker glob, prelude or package candidate.
-    for (slot, import) in module.module.imports.iter().enumerate() {
-        cancel.check()?;
-        let id = DirectiveId {
-            unit: unit.clone(),
-            slot: u32::try_from(slot).expect("import capacity"),
-        };
-        if !import.glob
-            && let Some(name) = LocalName::new(&import.alias)
-        {
-            names.add(
-                name,
-                candidate(
-                    &unit,
-                    None,
-                    BindingOrigin::NamedImport(id.clone()),
-                    import.visibility,
-                    Some(location(module, import.span)),
-                ),
-            );
-        }
-        result.directives.push(ImportDirective {
-            id,
-            path: import.path.clone(),
-            kind: if import.glob {
-                ImportKind::Glob
-            } else {
-                ImportKind::Named {
-                    alias: import
-                        .alias_explicit
-                        .then(|| LocalName::new(&import.alias))
-                        .flatten(),
-                }
-            },
-            span: location(module, import.span),
-            root_span: location(module, import.root_span),
-            visibility: import.visibility,
-            resolution: DirectiveResolution::Pending,
-            direct_dependencies: BTreeSet::new(),
-        });
-    }
-    for directive in &mut result.directives {
-        cancel.check()?;
-        let path = normalize_import_path(&directive.path, &unit.module);
-        catalog.path_dependencies(&path, &mut directive.direct_dependencies);
-        for (prefix, span) in module.source_map.import_path(directive.id.slot as usize) {
-            cancel.check()?;
-            let path = normalize_import_path(prefix, &unit.module);
-            if let Some(mut hit) = catalog.absolute(&ctx, &path, cancel)?.hit() {
-                hit.via.insert(
-                    0,
-                    if matches!(directive.kind, ImportKind::Glob) {
-                        BindingOrigin::GlobImport(directive.id.clone())
-                    } else {
-                        BindingOrigin::NamedImport(directive.id.clone())
-                    },
-                );
-                result.path_hits.push((location(module, *span), hit));
-            }
-        }
-        let lookup = catalog.absolute(&ctx, &path, cancel)?;
-        match lookup {
-            LookupResult::Found(hit)
-                if matches!(directive.kind, ImportKind::Glob)
-                    || reexport_allowed(
-                        catalog,
-                        &hit.target,
-                        directive.visibility,
-                        &unit.module,
-                    ) =>
-            {
-                add_dependencies(&hit, &mut directive.direct_dependencies);
-                directive.resolution = DirectiveResolution::Resolved(hit.target.clone());
-                match &directive.kind {
-                    ImportKind::Named { .. } => {
-                        let Some(name) = LocalName::new(
-                            &module.module.imports[directive.id.slot as usize].alias,
-                        ) else {
-                            continue;
-                        };
-                        let entry = names.entries.get_mut(&name).expect("reserved import");
-                        for c in &mut entry.strong {
-                            if c.origin == BindingOrigin::NamedImport(directive.id.clone()) {
-                                c.target = Some(hit.target.clone());
-                            }
-                        }
-                    }
-                    ImportKind::Glob => {
-                        let ns = catalog.namespace_of(&ctx, &hit.target, cancel)?;
-                        let members = match ns {
-                            NamespaceResult::Found(NamespaceId::Host(id)) => hosts
-                                .members_of_module(id)
-                                .into_iter()
-                                .map(|(name, _)| name)
-                                .collect::<Vec<_>>(),
-                            NamespaceResult::Found(ref ns)
-                                if catalog.namespaces.get(ns).is_some_and(|t| t.glob_allowed) =>
-                            {
-                                catalog.namespaces[ns]
-                                    .names
-                                    .entries
-                                    .keys()
-                                    .map(|n| n.as_str().to_owned())
-                                    .collect()
-                            }
-                            _ => {
-                                result.diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::InvalidGlobTarget {
-                                        path: directive.path.clone(),
-                                    })
-                                    .with_span(directive.span.range),
-                                );
-                                vec![]
-                            }
-                        };
-                        if let NamespaceResult::Found(ns) = ns {
-                            for name in members {
-                                cancel.check()?;
-                                if let Some(member) =
-                                    catalog.lookup_member(&ctx, &ns, &name, cancel)?.hit()
-                                    && reexport_allowed(
-                                        catalog,
-                                        &member.target,
-                                        directive.visibility,
-                                        &unit.module,
-                                    )
-                                {
-                                    names.add(
-                                        LocalName::new(&name).expect("member name"),
-                                        candidate(
-                                            &unit,
-                                            Some(member.target),
-                                            BindingOrigin::GlobImport(directive.id.clone()),
-                                            directive.visibility,
-                                            Some(directive.span),
-                                        ),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            other => {
-                let kind = match other {
-                    LookupResult::Ambiguous(_) => {
-                        directive.resolution = DirectiveResolution::Ambiguous;
-                        DiagnosticKind::AmbiguousImport { path }
-                    }
-                    LookupResult::Found(_) | LookupResult::Inaccessible(_) => {
-                        directive.resolution = DirectiveResolution::Unresolved;
-                        DiagnosticKind::ImportNotPublic { path }
-                    }
-                    _ => {
-                        directive.resolution = DirectiveResolution::Unresolved;
-                        DiagnosticKind::UnknownName { name: path }
-                    }
-                };
-                result
-                    .diagnostics
-                    .push(Diagnostic::error(kind).with_span(directive.span.range));
-            }
-        }
-        dependencies.extend(directive.direct_dependencies.iter().cloned());
-    }
-    for (name, entry) in &names.entries {
-        if entry.strong.len() > 1
-            || (entry.strong.is_empty()
-                && matches!(
-                    NameTable::select(&entry.globs, false),
-                    LookupResult::Ambiguous(_)
-                ))
-        {
-            let imported = if entry.strong.is_empty() {
-                !entry.globs.is_empty()
-            } else {
-                entry
-                    .strong
-                    .iter()
-                    .any(|c| matches!(c.origin, BindingOrigin::NamedImport(_)))
-            };
-            if imported {
-                result.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::DuplicateImport {
-                        name: name.as_str().into(),
-                    })
-                    .with_span(
-                        entry
-                            .strong
-                            .last()
-                            .or(entry.globs.last())
-                            .and_then(|c| c.location)
-                            .map_or(Span::default(), |s| s.range),
-                    ),
-                );
-            }
-        }
-        if entry.strong.len() > 1 {
-            for c in &entry.strong {
-                if let BindingOrigin::NamedImport(id) = &c.origin {
-                    result.directives[id.slot as usize].resolution = DirectiveResolution::Ambiguous;
-                }
-            }
-        }
-        for c in &entry.strong {
-            if matches!(c.origin, BindingOrigin::ModuleDeclaration { .. }) {
-                if let Some(ResolvedTarget::Namespace(NamespaceId::Module(child))) = &c.target {
-                    dependencies.insert(child.module.clone());
-                } else {
-                    result.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::UnknownName {
-                            name: name.as_str().into(),
-                        })
-                        .with_span(c.location.map_or(Span::default(), |s| s.range)),
-                    );
-                }
-            }
-        }
-    }
-    {
-        for m in sources.iter().filter(|m| m.registered_native_api) {
-            let installed = SourceUnit::of(m);
-            if !module.registered_native_api {
-                dependencies.insert(installed.module.clone());
-            }
-            let alias = m
-                .native_package_alias
-                .as_deref()
-                .unwrap_or(&installed.module.package.0);
-            if let Some(name) = LocalName::new(alias) {
-                let ns = NamespaceId::InstalledPrefix(ModuleIdentity {
-                    package: installed.module.package.clone(),
-                    path: vec![],
-                });
-                let c = candidate(
-                    &unit,
-                    Some(ResolvedTarget::Namespace(ns)),
-                    BindingOrigin::Package(installed.module.package.clone()),
-                    Visibility::Private,
-                    None,
-                );
-                let entry = names.entries.entry(name.clone()).or_default();
-                if !entry.implicit.contains(&c) {
-                    names.add(name, c);
-                }
-            }
-        }
-    }
-    if !module.registered_native_api {
-        let preludes = sources
-            .iter()
-            .filter(|m| m.native_prelude)
-            .collect::<Vec<_>>();
-        if let [prelude] = preludes.as_slice() {
-            let ns = NamespaceId::Module(SourceUnit::of(prelude));
-            for name in catalog.namespaces[&ns].names.entries.keys() {
-                cancel.check()?;
-                if let Some(hit) = catalog
-                    .lookup_member(&ctx, &ns, name.as_str(), cancel)?
-                    .hit()
-                {
-                    names.add(
-                        name.clone(),
-                        candidate(
-                            &unit,
-                            Some(hit.target),
-                            BindingOrigin::Prelude(ns.clone()),
-                            Visibility::Private,
-                            None,
-                        ),
-                    );
-                }
-            }
-        } else if preludes.len() > 1 {
-            result.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
-                    name: "installed prelude".into(),
-                })
-                .with_span(Span::default()),
-            );
-        }
-    }
-    result.path_hits.retain(|(_, hit)| !hit.via.iter().any(|origin| matches!(origin, BindingOrigin::NamedImport(id) if id.unit == unit && result.directives.get(id.slot as usize).is_some_and(|directive| matches!(directive.resolution, DirectiveResolution::Ambiguous)))));
-    result.dependencies = dependencies.into_iter().collect();
-    result.scope = Arc::new(names);
-    Ok(result)
-}
-
-fn add_dependencies(hit: &LookupHit, dependencies: &mut BTreeSet<ModuleIdentity>) {
-    for origin in &hit.via {
-        match origin {
-            BindingOrigin::Declaration(source) => {
-                dependencies.insert(source.unit.module.clone());
-            }
-            BindingOrigin::ModuleDeclaration { unit, .. }
-            | BindingOrigin::NamedImport(DirectiveId { unit, .. })
-            | BindingOrigin::GlobImport(DirectiveId { unit, .. }) => {
-                dependencies.insert(unit.module.clone());
-            }
-            _ => {}
-        }
-    }
-    match &hit.target {
-        ResolvedTarget::Source(source)
-        | ResolvedTarget::Namespace(NamespaceId::Associated(source)) => {
-            dependencies.insert(source.unit.module.clone());
-        }
-        ResolvedTarget::Namespace(NamespaceId::Module(unit)) => {
-            dependencies.insert(unit.module.clone());
-        }
-        _ => {}
-    }
-}
-
-fn visibility_covers(
-    source: Visibility,
-    owner: &ModuleIdentity,
-    exported: Visibility,
-    exporter: &ModuleIdentity,
-) -> bool {
-    if source == Visibility::Public {
-        return true;
-    }
-    if exported == Visibility::Public || owner.package != exporter.package {
-        return false;
-    }
-    let source_scope = if source == Visibility::Private {
-        owner.path.len()
-    } else {
-        owner.path.len().saturating_sub(1)
-    };
-    let export_scope = if exported == Visibility::Private {
-        exporter.path.len()
-    } else {
-        exporter.path.len().saturating_sub(1)
-    };
-    exporter.path[..export_scope].starts_with(&owner.path[..source_scope])
-}
-
-fn reexport_allowed(
-    catalog: &NamespaceCatalog,
-    target: &ResolvedTarget,
-    visibility: Visibility,
-    exporter: &ModuleIdentity,
-) -> bool {
-    let candidates = catalog
-        .namespaces
-        .values()
-        .flat_map(|t| t.names.entries.values())
-        .flat_map(|e| &e.strong)
-        .filter(|c| {
-            c.target.as_ref() == Some(target)
-                && matches!(
-                    c.origin,
-                    BindingOrigin::Declaration(_) | BindingOrigin::ModuleDeclaration { .. }
-                )
-        })
-        .collect::<Vec<_>>();
-    candidates.is_empty()
-        || candidates
-            .iter()
-            .any(|c| visibility_covers(c.visibility, &c.owner, visibility, exporter))
-}
-
-fn normalize_import_path(path: &str, current: &ModuleIdentity) -> String {
-    let mut segments = path.split("::").peekable();
-    let mut base = current.path.clone();
-    match segments.peek().copied() {
-        Some("self") => {
-            segments.next();
-        }
-        Some("crate") => {
-            segments.next();
-            base.truncate(1);
-        }
-        Some("super") => {
-            while segments.peek() == Some(&"super") {
-                segments.next();
-                if base.len() <= 1 {
-                    return path.into();
-                }
-                base.pop();
-            }
-        }
-        _ => return path.into(),
-    }
-    base.extend(segments.map(str::to_owned));
-    format!("{}::{}", current.package.0, base.join("::"))
 }

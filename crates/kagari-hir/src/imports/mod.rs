@@ -5,6 +5,7 @@ use crate::{
         VariantId,
     },
     host::{HostFunctionId, HostModuleId, HostTypeId},
+    imports::bindings::{LookupOutcome, PerNamespace},
     lower::LoweredModule,
     resolver::{resolved::ResolvedName, table::NameTable},
 };
@@ -13,7 +14,9 @@ use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, FileSpan, Revision},
 };
-use kagari_types::{collection::CollectionAccess, visibility::Visibility};
+use kagari_types::{
+    collection::CollectionAccess, declaration::names::NameNamespace, visibility::Visibility,
+};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
@@ -21,6 +24,7 @@ use std::{
 
 #[cfg(test)]
 mod aggregate_tests;
+pub mod bindings;
 mod builder;
 mod cache;
 #[cfg(test)]
@@ -29,6 +33,7 @@ pub mod catalog;
 pub mod functions;
 #[cfg(test)]
 mod provenance_tests;
+mod resolve;
 #[cfg(test)]
 mod signature_tests;
 #[cfg(test)]
@@ -92,6 +97,15 @@ pub enum SourceItem {
 }
 
 impl SourceItem {
+    pub(crate) fn namespace(self) -> NameNamespace {
+        match self {
+            Self::Function(_) | Self::Const(_) | Self::Variant(_) => NameNamespace::Value,
+            Self::Struct(_) | Self::Enum(_) | Self::OpaqueType(_) | Self::Trait(_) => {
+                NameNamespace::Type
+            }
+        }
+    }
+
     /// Converts eligible declaration kinds to local names; variants retain qualified source references.
     pub(crate) fn local(self) -> Option<ResolvedName> {
         Some(match self {
@@ -225,27 +239,31 @@ pub enum ImportKind {
     Glob,
 }
 
-/// Resolution state of a real use leaf; pending is builder-only state.
+/// One syntax leaf resolves both categories, or one namespace for a glob.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirectiveResolution {
-    /// Reserved before this builder pass attempts resolution.
-    Pending,
-    /// A unique canonical target was found; other directive diagnostics can still exist.
-    Resolved(ResolvedTarget),
-    /// No admissible target could be selected in this pass.
-    Unresolved,
-    /// Conflicting targets prevented selection.
-    Ambiguous,
+    Named(PerNamespace<LookupOutcome>),
+    Glob(LookupOutcome),
 }
 
 impl DirectiveResolution {
-    /// Borrows the canonical destination only for the resolved state.
+    /// All canonical targets, including both results of a dual-category import.
+    pub fn targets(&self) -> impl Iterator<Item = &ResolvedTarget> {
+        let outcomes = match self {
+            Self::Named(outcomes) => [Some(&outcomes.types), Some(&outcomes.values)],
+            Self::Glob(outcome) => [Some(outcome), None],
+        };
+        outcomes
+            .into_iter()
+            .flatten()
+            .filter_map(LookupOutcome::target)
+    }
+
+    /// A single-result query cannot choose between two different definitions.
     pub fn target(&self) -> Option<&ResolvedTarget> {
-        if let Self::Resolved(target) = self {
-            Some(target)
-        } else {
-            None
-        }
+        let mut targets = self.targets();
+        let first = targets.next()?;
+        targets.next().is_none().then_some(first)
     }
 }
 
@@ -316,7 +334,7 @@ pub struct BindingCandidate {
 /// Selection uses nonempty `strong`, then `globs`, then `implicit`. An unresolved
 /// strong import still hides weaker bindings. Multiple strong entries conflict even
 /// if they target the same declaration; equal glob targets retain all their origins.
-/// These tiers are not separate type/value namespaces.
+/// Each Type/Value slot owns an independent set of these tiers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NameEntry {
     /// Declarations, module headers and explicit named imports.

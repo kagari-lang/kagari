@@ -8,6 +8,7 @@ use crate::{
     typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
+use kagari_types::declaration::names::NameNamespace;
 
 use callable::{HostCallable, HostSignature};
 use kagari_common::{
@@ -617,14 +618,18 @@ impl HostDeclarations {
         {
             if let Some(member) = name.strip_prefix(&prefix)
                 && !member.contains("::")
-                && let Some(resolved) = self
-                    .resolve_name(name)
-                    .or_else(|| self.module(name).map(ResolvedName::HostModule))
             {
-                members.insert(member.to_owned(), resolved);
+                for namespace in NameNamespace::ALL {
+                    if let Some(resolved) = self.resolve_name(name, namespace) {
+                        members.insert((member.to_owned(), namespace), resolved);
+                    }
+                }
             }
         }
-        members.into_iter().collect()
+        members
+            .into_iter()
+            .map(|((name, _), target)| (name, target))
+            .collect()
     }
 
     /// Borrows a function declaration only if revision and index belong to this input.
@@ -650,19 +655,31 @@ impl HostDeclarations {
         self.origins.get(id)
     }
 
-    pub(crate) fn resolve_name_in(&self, module: HostModuleId, path: &str) -> Option<ResolvedName> {
+    pub(crate) fn resolve_name_in(
+        &self,
+        module: HostModuleId,
+        path: &str,
+        namespace: NameNamespace,
+    ) -> Option<ResolvedName> {
         if module.revision != self.revision {
             return None;
         }
         let path = format!("{}::{path}", self.modules.get(module.index)?);
-        self.resolve_name(&path)
-            .or_else(|| self.module(&path).map(ResolvedName::HostModule))
+        self.resolve_name(&path, namespace)
     }
 
-    pub(crate) fn resolve_name(&self, path: &str) -> Option<ResolvedName> {
-        self.resolve(path)
-            .map(ResolvedName::HostFunction)
-            .or_else(|| self.resolve_type(path).map(ResolvedName::HostType))
+    pub(crate) fn resolve_name(
+        &self,
+        path: &str,
+        namespace: NameNamespace,
+    ) -> Option<ResolvedName> {
+        match namespace {
+            NameNamespace::Value => self.resolve(path).map(ResolvedName::HostFunction),
+            NameNamespace::Type => self
+                .resolve_type(path)
+                .map(ResolvedName::HostType)
+                .or_else(|| self.module(path).map(ResolvedName::HostModule)),
+        }
     }
 
     /// Returns the identity of this immutable host input, used for analysis cache invalidation.

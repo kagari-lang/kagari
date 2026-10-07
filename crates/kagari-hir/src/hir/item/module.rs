@@ -31,30 +31,35 @@ pub struct ModuleDecl {
 /// ```text
 /// use hir::expr::{Condition, ExprKind as Kind};
 /// Module.imports
-/// +-- slot 0: path="hir::expr::Condition", alias="Condition", alias_explicit=false
-/// `-- slot 1: path="hir::expr::ExprKind",  alias="Kind",      alias_explicit=true
+/// +-- slot 0: path="hir::expr::Condition", kind=Named { alias: None }
+/// `-- slot 1: path="hir::expr::ExprKind", kind=Named { alias: Some("Kind") }
 /// ```
 ///
-/// The lowered `alias` always contains a spelling; import analysis distinguishes
-/// an explicit alias from the default terminal name using `alias_explicit`.
-/// For a glob, this spelling is not a new scope binding. The resolved directive,
-/// scope candidates and namespace catalog are separate [`crate::imports`] records.
+/// Syntax remains one leaf even when resolution produces both type and value bindings.
 #[derive(Debug, Clone)]
 pub struct Import {
-    /// Whether the source supplied `as name`, rather than using a derived name.
-    pub alias_explicit: bool,
-    /// Byte range of the root use tree shared by its flattened leaves.
+    pub kind: ImportLeaf,
     pub root_span: Span,
-    /// Use visibility, including public re-export intent.
     pub visibility: Visibility,
-    /// Explicit or derived terminal spelling; not a binding name for globs.
-    pub alias: String,
-    /// Joined `::` path accumulated from enclosing use-tree prefixes.
     pub path: String,
-    /// Byte range of this leaf, with outer trivia trimmed.
     pub span: Span,
-    /// Whether this leaf ends in `*` and imports the target namespace's eligible names.
-    pub glob: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum ImportLeaf {
+    Named { alias: Option<String> },
+    Glob,
+}
+
+impl Import {
+    pub fn local_name(&self) -> Option<&str> {
+        match &self.kind {
+            ImportLeaf::Named { alias } => {
+                alias.as_deref().or_else(|| self.path.rsplit("::").next())
+            }
+            ImportLeaf::Glob => None,
+        }
+    }
 }
 
 /// Ordered `Vec<ModuleDecl>` storage for the owning declaration records.

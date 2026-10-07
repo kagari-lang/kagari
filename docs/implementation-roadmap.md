@@ -28,16 +28,15 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
-### Name resolution (SA8, SA2, SA3, planned)
+### Name resolution (SA8, SA2, SA3, active)
 
 The [execution plan](name-resolution-plan.md) owns the two-space lookup/import
-contract and subsequent dependency-driven solver migration. Status: planned;
-writing the plan has not activated implementation. Execute NR01-NR05 in order
-when assigned, with `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
+contract and subsequent dependency-driven solver migration. Status: NR01 complete; NR02 active.
+Execute NR01-NR05 in order, with `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
 implementation commits. SA1 inline AST reuse and SA9 compact module handles remain
 outside this track.
 
-- [ ] NR01: Specify type/value namespaces; replace binding, directive and exported
+- [x] NR01: Specify type/value namespaces; replace binding, directive and exported
   alias storage and lookup APIs, including portable registration consumers.
 - [ ] NR02: Migrate semantic/tooling/cache consumers and derive HIR public members.
 - [ ] NR03: Complete focused SA8 local acceptance before changing solver scheduling.
@@ -51,13 +50,27 @@ NR03 local gate must pass before NR04. Full workspace/feature/backend checks sta
 in GitHub CI; unrun CI remains pending. Reuse core contract fixtures, adding cases
 only for genuinely distinct missing semantics or boundaries.
 
-Planning review found that portable `ModuleDecl.exports` also uses a single
-spelling key. Supporting two-category aliases requires a bounded schema/consumer
-migration alongside HIR; deleting HIR `Module.exports` does not delete authored
-registration exports. The plan makes that ownership distinction explicit.
-Planning validation: local file/anchor links and diff whitespace checks pass.
-No production code, specifications or tests were changed/executed by this planning
-checkpoint; implementation and CI acceptance remain pending.
+NR01 checkpoint: replaced the sole binding model with per-category entries,
+named/glob syntax, per-category directive outcomes and explicit lookup parameters.
+Portable aliases now use `ExportName`; registration validates category agreement
+and independent duplicate rules. Split per-module import contribution rebuilding
+from graph orchestration; whole-round scheduling remains until NR04. No internal
+compatibility adapters or version bump were added.
+
+Validation: `DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo check -p
+kagari-types -p kagari-stdlib` passed. `cargo check -p kagari-hir` exposed mechanical
+consumer migration errors. The focused runtime registration command
+`cargo test -p kagari-runtime
+installed_reexports_require_declared_and_installed_canonical_targets --lib`
+is blocked by its HIR development dependency (20 compiler errors); no test ran.
+Representative errors: E0061 missing `NameNamespace` in target/declaration/body/
+pattern/constraint queries; E0599 old `DirectiveResolution::Resolved` in cache
+comparison; E0609 old single-space fields in cache/declaration collection. NR02
+owns all these errors and test caller migration. Logs: `target/nr01-hir.log`,
+`target/nr01-registration.log`. Structure check passed (925 files, zero findings),
+formatting and diff checks passed. Manual review retained existing visibility,
+qualified identities and module boundaries; no structural exception was added.
+Full CI acceptance remains pending.
 
 ### Explicit native default bodies
 

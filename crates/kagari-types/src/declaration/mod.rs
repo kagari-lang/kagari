@@ -3,6 +3,7 @@ pub mod applications;
 pub mod conversion;
 mod mapping;
 pub mod module;
+pub mod names;
 pub mod native;
 pub mod ownership;
 pub mod requirement;

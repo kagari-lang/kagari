@@ -3,10 +3,12 @@ use crate::{
     hir::ids::ImplId,
     imports::{
         BindingCandidate, BindingOrigin, LocalName, NameEntry, SourceUnit,
+        bindings::PerNamespace,
         catalog::{LookupHit, LookupResult},
     },
     resolver::resolved::ResolvedName,
 };
+use kagari_types::declaration::names::NameNamespace;
 use std::collections::BTreeMap;
 
 /// Compact module-binding outcome used by the body resolver.
@@ -34,7 +36,7 @@ impl NameResolution {
 /// One module/namespace's tiered bindings, keyed by unqualified local name.
 ///
 /// ```text
-/// entries: BTreeMap<LocalName, NameEntry>
+/// entries: BTreeMap<LocalName, PerNamespace<NameEntry>>
 /// "sum" -> strong: [Declaration(SourceDeclRef { unit: this, item: Function(f) })]
 /// "add" -> strong: [NamedImport(d) -> SourceDeclRef { unit: math, item: Function(g) }]
 /// "x"   -> globs:  [GlobImport(d1) -> target, GlobImport(d2) -> target]
@@ -52,7 +54,7 @@ pub struct NameTable {
     /// Source owner for localizing targets; absent for synthetic namespace tables.
     pub(crate) unit: Option<SourceUnit>,
     /// Ordered local spellings and all tiered binding candidates.
-    pub(crate) entries: BTreeMap<LocalName, NameEntry>,
+    pub(crate) entries: BTreeMap<LocalName, PerNamespace<NameEntry>>,
     /// Local implementation handles retained for surface/cache comparison.
     impls: Vec<ImplId>,
 }
@@ -66,8 +68,13 @@ impl NameTable {
     }
 
     /// Appends a candidate to its origin-defined tier without choosing a winner.
-    pub(crate) fn add(&mut self, name: LocalName, candidate: BindingCandidate) {
-        let entry = self.entries.entry(name).or_default();
+    pub(crate) fn add(
+        &mut self,
+        namespace: NameNamespace,
+        name: LocalName,
+        candidate: BindingCandidate,
+    ) {
+        let entry = &mut self.entries.entry(name).or_default()[namespace];
         match candidate.origin {
             BindingOrigin::GlobImport(_) => entry.globs.push(candidate),
             BindingOrigin::Package(_) | BindingOrigin::Prelude(_) => entry.implicit.push(candidate),
@@ -76,14 +83,20 @@ impl NameTable {
     }
 
     /// Returns the first nonempty precedence tier and whether it is strong.
-    pub(crate) fn candidates(&self, name: &str) -> Option<(&[BindingCandidate], bool)> {
-        let entry = self.entries.get(&LocalName::new(name)?)?;
+    pub(crate) fn candidates(
+        &self,
+        name: &str,
+        namespace: NameNamespace,
+    ) -> Option<(&[BindingCandidate], bool)> {
+        let entry = &self.entries.get(&LocalName::new(name)?)?[namespace];
         if !entry.strong.is_empty() {
             Some((&entry.strong, true))
         } else if !entry.globs.is_empty() {
             Some((&entry.globs, false))
-        } else {
+        } else if !entry.implicit.is_empty() {
             Some((&entry.implicit, false))
+        } else {
+            None
         }
     }
 
@@ -107,8 +120,8 @@ impl NameTable {
         })
     }
 
-    pub(crate) fn hit(&self, name: &str) -> LookupResult {
-        self.candidates(name)
+    pub(crate) fn hit(&self, name: &str, namespace: NameNamespace) -> LookupResult {
+        self.candidates(name, namespace)
             .map_or(LookupResult::Missing, |(c, strong)| Self::select(c, strong))
     }
 
@@ -117,8 +130,8 @@ impl NameTable {
     /// Returns `None` when the spelling is absent/invalid, distinct from
     /// `Some(Unresolved)` when a binding exists without a target. This does not walk
     /// `::` suffixes or filter visibility for a foreign importer.
-    pub fn lookup(&self, name: &str) -> Option<NameResolution> {
-        self.candidates(name)
+    pub fn lookup(&self, name: &str, namespace: NameNamespace) -> Option<NameResolution> {
+        self.candidates(name, namespace)
             .map(|(c, strong)| match Self::select(c, strong) {
                 LookupResult::Found(hit) => {
                     NameResolution::Unique(hit.target.resolved(self.unit.as_ref()))

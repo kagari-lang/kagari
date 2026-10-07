@@ -327,8 +327,11 @@ Notes:
   precedence. The implicit prelude comes from the installed declaration package.
   The explicit `std::prelude` inventory is defined in [builtins](builtins.md#namespaces-and-prelude).
   Standard modules, native functions, traits and enum variants follow ordinary
-  resolution, visibility and shadowing. A local binding or explicit import takes
-  precedence over an implicit prelude name; ambiguous explicit imports remain errors.
+  resolution, visibility and shadowing in independent Type and Value spaces. A local
+  binding or explicit import takes precedence over an implicit name in its own
+  space; ambiguous explicit imports remain errors. Named imports bind both available
+  categories. Path prefixes select Type; terminals use their syntactic category.
+  See [modules](modules.md) for the category table and conflict rules.
   Declaration parsing and installed native attributes do not grant user source
   code engine binding authority; see [standard declarations](standard-declarations.md).
 - An inline body creates a child module under the declaring module identity.
@@ -414,7 +417,8 @@ Rules:
 ### Types
 
 Type applications resolve their base name using the same bindings as named type
-annotations. A generic parameter, explicit declaration, or import shadows an
+annotations in the Type space. A generic parameter, explicit Type declaration, or
+Type import shadows an
 unqualified standard type constructor (`Map`, `Set`, `Option`, or `Result`). An
 ambiguous or unresolved explicit binding does not fall back to a standard type.
 Explicit empty argument lists are invalid and are preserved during recovery;

@@ -1,11 +1,9 @@
 # Type/value namespaces and import solving (SA8, SA2, SA3)
 
-Status: planned; implementation has not been activated. The
-[roadmap](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-planned) owns
+Status: active; NR01 storage checkpoint is complete and NR02 is in progress. The
+[roadmap](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-active) owns
 activation, phase checkboxes, validation evidence and carried failures. This file
-owns the implementation contracts and NR01-NR05 phase boundaries. Writing this
-plan does not authorize code migration. A later assignment to execute the whole
-plan covers NR01 through NR05 in order.
+owns the implementation contracts and NR01-NR05 phase boundaries. The user has authorized execution of NR01 through NR05 in order.
 
 ## Outcome and scope
 

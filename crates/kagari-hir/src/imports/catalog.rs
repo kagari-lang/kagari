@@ -11,6 +11,7 @@ use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{ModuleIdentity, PackageId},
 };
+use kagari_types::declaration::names::NameNamespace;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     iter,
@@ -130,13 +131,14 @@ impl NamespaceCatalog {
         ctx: &LookupContext<'_>,
         ns: &NamespaceId,
         name: &str,
+        namespace: NameNamespace,
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
         if let NamespaceId::Host(id) = ns {
             return Ok(ctx
                 .hosts
-                .resolve_name_in(*id, name)
+                .resolve_name_in(*id, name, namespace)
                 .and_then(host_target)
                 .map_or(LookupResult::Missing, |target| {
                     LookupResult::Found(LookupHit {
@@ -158,7 +160,7 @@ impl NamespaceCatalog {
         let Some(table) = self.namespaces.get(ns) else {
             return Ok(LookupResult::NotNamespace);
         };
-        let Some((candidates, strong)) = table.names.candidates(name) else {
+        let Some((candidates, strong)) = table.names.candidates(name, namespace) else {
             if let NamespaceId::InstalledPrefix(identity) = ns {
                 let aliases = iter::once(identity.package.0.as_str()).chain(
                     self.package_aliases
@@ -177,8 +179,7 @@ impl NamespaceCatalog {
                             .join("::");
                         if let Some(target) = ctx
                             .hosts
-                            .resolve_name(&path)
-                            .or_else(|| ctx.hosts.module(&path).map(ResolvedName::HostModule))
+                            .resolve_name(&path, namespace)
                             .and_then(host_target)
                         {
                             return Ok(LookupResult::Found(LookupHit {
@@ -256,9 +257,16 @@ impl NamespaceCatalog {
         ctx: &LookupContext<'_>,
         mut root: LookupResult,
         suffix: &str,
+        namespace: NameNamespace,
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
-        for component in suffix.split("::").filter(|c| !c.is_empty()) {
+        let mut components = suffix.split("::").filter(|c| !c.is_empty()).peekable();
+        while let Some(component) = components.next() {
+            let category = if components.peek().is_some() {
+                NameNamespace::Type
+            } else {
+                namespace
+            };
             cancel.check()?;
             let LookupResult::Found(previous) = root else {
                 return Ok(root);
@@ -268,7 +276,7 @@ impl NamespaceCatalog {
                 NamespaceResult::NotNamespace => return Ok(LookupResult::NotNamespace),
                 NamespaceResult::StaleSource => return Ok(LookupResult::StaleSource),
             };
-            root = self.lookup_member(ctx, &ns, component, cancel)?;
+            root = self.lookup_member(ctx, &ns, component, category, cancel)?;
             if let LookupResult::Found(hit) = &mut root {
                 let mut via = previous.via;
                 via.append(&mut hit.via);
@@ -282,6 +290,7 @@ impl NamespaceCatalog {
         &self,
         ctx: &LookupContext<'_>,
         path: &str,
+        namespace: NameNamespace,
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
@@ -304,6 +313,9 @@ impl NamespaceCatalog {
                 path: segments[1..=end].iter().map(|s| (*s).into()).collect(),
             };
             if let Some(units) = self.modules.get(&identity) {
+                if end + 1 == segments.len() && namespace == NameNamespace::Value {
+                    return Ok(LookupResult::Missing);
+                }
                 if units.len() != 1 {
                     return Ok(LookupResult::Ambiguous(vec![]));
                 }
@@ -314,20 +326,22 @@ impl NamespaceCatalog {
                     target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
                     via: vec![],
                 });
-                let result =
-                    self.resolve_path(ctx, root, &segments[end + 1..].join("::"), cancel)?;
+                let result = self.resolve_path(
+                    ctx,
+                    root,
+                    &segments[end + 1..].join("::"),
+                    namespace,
+                    cancel,
+                )?;
                 let terminal = ModuleIdentity {
                     package: package.clone(),
                     path: segments[1..].iter().map(|s| (*s).to_owned()).collect(),
                 };
-                let physical_collision = self.modules.get(&terminal).is_some_and(|units| {
+                let physical_collision = namespace == NameNamespace::Type && self.modules.get(&terminal).is_some_and(|units| {
                     matches!(&result, LookupResult::Found(hit) if !matches!(&hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if units.as_slice() == [unit.clone()]))
                 });
                 return Ok(
-                    if physical_collision
-                        || ctx.hosts.resolve_name(path).is_some()
-                        || ctx.hosts.module(path).is_some()
-                    {
+                    if physical_collision || ctx.hosts.resolve_name(path, namespace).is_some() {
                         LookupResult::Ambiguous(vec![])
                     } else {
                         result
@@ -337,8 +351,7 @@ impl NamespaceCatalog {
         }
         if let Some(target) = ctx
             .hosts
-            .resolve_name(path)
-            .or_else(|| ctx.hosts.module(path).map(ResolvedName::HostModule))
+            .resolve_name(path, namespace)
             .and_then(host_target)
         {
             return Ok(LookupResult::Found(LookupHit {
@@ -358,6 +371,7 @@ impl NamespaceCatalog {
                     via: vec![],
                 }),
                 &segments[1..].join("::"),
+                namespace,
                 cancel,
             );
         }
@@ -377,7 +391,13 @@ impl NamespaceCatalog {
             if let Some(units) = self.modules.get(&parent) {
                 for unit in units {
                     if matches!(
-                        self.lookup_member(ctx, &NamespaceId::Module(unit.clone()), &name, cancel)?,
+                        self.lookup_member(
+                            ctx,
+                            &NamespaceId::Module(unit.clone()),
+                            &name,
+                            NameNamespace::Type,
+                            cancel
+                        )?,
                         LookupResult::Inaccessible(_)
                     ) {
                         return Ok(false);
@@ -405,7 +425,14 @@ impl NamespaceCatalog {
         let mut pending = names
             .entries
             .keys()
-            .filter_map(|name| names.hit(name.as_str()).hit().map(|hit| hit.target))
+            .flat_map(|name| {
+                NameNamespace::ALL.into_iter().filter_map(move |namespace| {
+                    names
+                        .hit(name.as_str(), namespace)
+                        .hit()
+                        .map(|hit| hit.target)
+                })
+            })
             .collect::<Vec<_>>();
         let mut seen = HashSet::new();
         let mut sources = HashSet::new();
@@ -424,8 +451,13 @@ impl NamespaceCatalog {
             }
             if let Some(table) = self.namespaces.get(&ns) {
                 for name in table.names.entries.keys() {
-                    if let Some(hit) = self.lookup_member(&ctx, &ns, name.as_str(), cancel)?.hit() {
-                        pending.push(hit.target);
+                    for namespace in NameNamespace::ALL {
+                        if let Some(hit) = self
+                            .lookup_member(&ctx, &ns, name.as_str(), namespace, cancel)?
+                            .hit()
+                        {
+                            pending.push(hit.target);
+                        }
                     }
                 }
             }
@@ -439,6 +471,7 @@ impl NamespaceCatalog {
         names: &NameTable,
         hosts: &HostDeclarations,
         name: &str,
+        namespace: NameNamespace,
         cancel: &CancellationToken,
     ) -> Option<LookupHit> {
         let unit = names.unit.as_ref()?;
@@ -447,11 +480,19 @@ impl NamespaceCatalog {
             hosts,
         };
         let (root, suffix) = name.split_once("::").unwrap_or((name, ""));
-        let result = names.hit(root);
+        let result = names.hit(
+            root,
+            if suffix.is_empty() {
+                namespace
+            } else {
+                NameNamespace::Type
+            },
+        );
         let result = if matches!(result, LookupResult::Missing) {
-            self.absolute(&ctx, name, cancel).ok()?
+            self.absolute(&ctx, name, namespace, cancel).ok()?
         } else {
-            self.resolve_path(&ctx, result, suffix, cancel).ok()?
+            self.resolve_path(&ctx, result, suffix, namespace, cancel)
+                .ok()?
         };
         result.hit()
     }
@@ -517,7 +558,14 @@ impl NamespaceCatalog {
         let mut pending = names
             .entries
             .keys()
-            .filter_map(|name| names.hit(name.as_str()).hit().map(|hit| hit.target))
+            .flat_map(|name| {
+                NameNamespace::ALL.into_iter().filter_map(move |namespace| {
+                    names
+                        .hit(name.as_str(), namespace)
+                        .hit()
+                        .map(|hit| hit.target)
+                })
+            })
             .collect::<Vec<_>>();
         let mut seen = HashSet::new();
         while let Some(target) = pending.pop() {
@@ -555,8 +603,13 @@ impl NamespaceCatalog {
             }
             if let Some(table) = table {
                 for name in table.names.entries.keys() {
-                    if let Some(hit) = self.lookup_member(&ctx, &ns, name.as_str(), cancel)?.hit() {
-                        pending.push(hit.target);
+                    for namespace in NameNamespace::ALL {
+                        if let Some(hit) = self
+                            .lookup_member(&ctx, &ns, name.as_str(), namespace, cancel)?
+                            .hit()
+                        {
+                            pending.push(hit.target);
+                        }
                     }
                 }
             }

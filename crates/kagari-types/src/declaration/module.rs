@@ -3,6 +3,7 @@ use crate::{
     callable::CallableImplementation,
     declaration::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
+        names::{ExportName, NameNamespace},
         requirement::NativeCallableRequirement,
         verify::{
             Parameters, function_valid, native_bounds_valid, trait_valid, type_definition_valid,
@@ -66,7 +67,7 @@ pub struct ModuleDecl<I = DefinitionPath> {
     /// Enum owners whose variants are also explicitly exported at module scope.
     pub variant_exports: BTreeSet<String>,
     /// Public type/trait/variant aliases retain the identity of their owner.
-    pub exports: BTreeMap<String, I>,
+    pub exports: BTreeMap<ExportName, I>,
     pub traits: Vec<TraitDef<I>>,
     pub implementations: Vec<ImplDecl<I>>,
     pub functions: Vec<FnDecl<I>>,
@@ -391,7 +392,7 @@ impl ModuleDecl {
                 supported_type(payload)?;
             }
             if !identifier(&ty.name)
-                || !names.insert(&ty.name)
+                || !names.insert((NameNamespace::Type, &ty.name))
                 || !matches!(
                     ty.kind,
                     TypeDefKind::Enum | TypeDefKind::Native(_) | TypeDefKind::NativeStorage(_)
@@ -406,7 +407,7 @@ impl ModuleDecl {
         }
         for item in &self.traits {
             if !identifier(&item.name)
-                || !names.insert(&item.name)
+                || !names.insert((NameNamespace::Type, &item.name))
                 || !item.bounds.is_empty()
                 || item.associated_types.iter().any(|member| {
                     member
@@ -434,7 +435,8 @@ impl ModuleDecl {
             }
         }
         for function in &self.functions {
-            if !identifier(&function.name) || !names.insert(&function.name) {
+            if !identifier(&function.name) || !names.insert((NameNamespace::Value, &function.name))
+            {
                 return Err(fail());
             }
             if !(matches!(function.implementation, CallableImplementation::Native(_))
@@ -459,7 +461,7 @@ impl ModuleDecl {
                 return Err(fail());
             }
             for variant in &ty.variants {
-                if !names.insert(&variant.name) {
+                if !names.insert((NameNamespace::Value, &variant.name)) {
                     return Err(fail());
                 }
             }
@@ -468,8 +470,13 @@ impl ModuleDecl {
             return Err(fail());
         }
         for (name, target) in &self.exports {
-            if !identifier(name)
-                || !names.insert(name)
+            if !identifier(&name.name)
+                || !names.insert((name.namespace, &name.name))
+                || target
+                    .path
+                    .last()
+                    .and_then(|part| NameNamespace::of_definition(part.kind))
+                    != Some(name.namespace)
                 || !target.within_path_limit()
                 || target.module == self.identity
                 || !(1..=2).contains(&target.path.len())

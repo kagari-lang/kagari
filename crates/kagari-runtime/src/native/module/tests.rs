@@ -12,6 +12,7 @@ use crate::{
 };
 use kagari_common::identity::DefinitionPath;
 use kagari_stdlib::catalog as standard_catalog;
+use kagari_types::declaration::names::{ExportName, NameNamespace};
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
     assert_path_catalog_eq(&left.to_paths().unwrap(), &right.to_paths().unwrap());
@@ -293,11 +294,12 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
     )
     .unwrap();
     let mut declaration = ModuleDecl::new(namespaces::module("test", "exports"));
-    declaration
-        .exports
-        .insert("Hash".into(), language::identity(Protocol::Hash));
     declaration.exports.insert(
-        "Vec".into(),
+        ExportName::new(NameNamespace::Type, "Hash"),
+        language::identity(Protocol::Hash),
+    );
+    declaration.exports.insert(
+        ExportName::new(NameNamespace::Type, "Vec"),
         ModuleDecl::new(namespaces::type_owner("Vec"))
             .definition(DefinitionKind::AssociatedType, "Vec"),
     );
@@ -308,7 +310,18 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
         name: "Some".into(),
         occurrence: 0,
     });
-    declaration.exports.insert("Some".into(), some);
+    declaration
+        .exports
+        .insert(ExportName::new(NameNamespace::Value, "Some"), some.clone());
+    // One alias may denote a type and a value; category mismatches are invalid metadata.
+    declaration
+        .exports
+        .insert(ExportName::new(NameNamespace::Value, "Vec"), some.clone());
+    let mut wrong_category = declaration.clone();
+    wrong_category
+        .exports
+        .insert(ExportName::new(NameNamespace::Type, "Variant"), some);
+    assert!(NativeModule::checked(wrong_category, vec![], BTreeMap::new(), &providers).is_err());
     assert!(
         NativeModule::checked(
             declaration.clone(),
@@ -341,7 +354,14 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
         let mut forged = declaration.clone();
         forged
             .exports
-            .get_mut(name)
+            .get_mut(&ExportName::new(
+                if name == "Some" {
+                    NameNamespace::Value
+                } else {
+                    NameNamespace::Type
+                },
+                name,
+            ))
             .unwrap()
             .path
             .last_mut()

@@ -178,7 +178,7 @@ impl<'a> DeclarationView<'a> {
                 "pub use {}::{} as {};\n",
                 module_path(&target.module, self.providers),
                 path,
-                name
+                name.name
             ));
         }
         for ty in &self.types {

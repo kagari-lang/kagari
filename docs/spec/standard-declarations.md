@@ -26,6 +26,12 @@ roles select their semantic duties. Installation remains independent of syntax/H
 Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
 retain its definition identity. Native modules carry public alias targets, and
 installation verifies that the canonical declarations exist in their providers.
+Authored export aliases use `(NameNamespace, spelling)` keys, allowing Type and
+Value aliases with the same spelling. Validation checks category agreement with
+the canonical target and rejects duplicates within one category. The supported
+portable aliases remain traits, registered types and enum variants. Canonical
+definition identities and native symbol uniqueness are independent of spelling.
+Generated source views follow the same two-space lookup rules as authored source.
 The [namespace and prelude inventory](builtins.md#namespaces-and-prelude) defines
 public paths and default name visibility.
 
