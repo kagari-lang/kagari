@@ -1,3 +1,7 @@
+//! Select inherent/trait methods and associated constants, and check interface coercions.
+//! Uses visible aggregate contracts and receiver types, recording the chosen semantic
+//! operation separately from the original HIR member spelling.
+
 use crate::{
     aggregates::implementations::ImplementationSearchError,
     hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},

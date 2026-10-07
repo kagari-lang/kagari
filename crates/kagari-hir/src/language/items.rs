@@ -22,6 +22,7 @@ use kagari_types::{
 };
 use std::collections::{BTreeMap, btree_map::Entry};
 
+/// Collects validated `#[lang]` trait identities from the owning installed foundation module; reports duplicates, missing and invalid roles.
 pub(crate) fn collect(
     lowered: &LoweredModule,
     declarations: &Declarations,

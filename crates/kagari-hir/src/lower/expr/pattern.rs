@@ -1,3 +1,5 @@
+//! Pattern construction, shorthand binding expansion and qualified variant spelling.
+
 use crate::{
     hir::{
         ids::PatternId,
@@ -8,6 +10,7 @@ use crate::{
 use kagari_syntax::ast::expr::{Pattern, PatternBound as AstPatternBound};
 
 impl Lowerer {
+    /// Collapses grouping, allocates nested patterns/local IDs and preserves constructor/name sites for later resolution.
     pub(crate) fn lower_pattern(&mut self, pattern: &Pattern) -> PatternId {
         if pattern.is_grouped() {
             return pattern

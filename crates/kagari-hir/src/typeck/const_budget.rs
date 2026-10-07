@@ -1,3 +1,5 @@
+//! Per-file bounded constant validation/evaluation; unrelated to runtime instruction charging.
+
 use crate::DiagnosticBuffer;
 use {
     kagari_common::span::Span,
@@ -7,7 +9,9 @@ use {
 /// Per-file budget shared by const capability validation and scalar evaluation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConstLimits {
+    /// Maximum shared validation/evaluation steps per file; defaults to 100,000.
     pub max_steps: usize,
+    /// Maximum nested constant traversal depth; defaults to 64.
     pub max_depth: usize,
 }
 
@@ -20,6 +24,7 @@ impl Default for ConstLimits {
     }
 }
 
+/// Shared step/depth accounting that reports the first exhausted constant-analysis limit.
 pub(super) struct ConstBudget {
     limits: ConstLimits,
     steps: usize,
@@ -37,6 +42,7 @@ impl ConstBudget {
         }
     }
 
+    /// Charges one step/depth entry; returns false and diagnoses exhaustion without entering.
     pub fn enter(&mut self, span: Span, diagnostics: &mut DiagnosticBuffer) -> bool {
         if self.exhausted {
             return false;
@@ -61,6 +67,7 @@ impl ConstBudget {
         true
     }
 
+    /// Balances a successful entry; callers must not leave after a failed entry.
     pub fn leave(&mut self) {
         self.depth -= 1;
     }

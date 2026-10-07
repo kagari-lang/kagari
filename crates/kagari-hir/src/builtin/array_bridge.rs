@@ -5,6 +5,7 @@ use crate::{
 };
 use kagari_types::collection::CollectionAccess;
 
+/// Borrows the first argument of a registered array-interface type; unrelated/malformed types return `None`.
 pub fn list_item<'a>(ty: &'a TypeId, declarations: &Declarations) -> Option<&'a TypeId> {
     let TypeId::Trait(interface) = ty else {
         return None;
@@ -17,6 +18,7 @@ pub fn list_item<'a>(ty: &'a TypeId, declarations: &Declarations) -> Option<&'a 
         .flatten()
 }
 
+/// Checks whether a trait application names the installed writable array interface.
 pub fn writable_list(ty: &TypeId, declarations: &Declarations) -> bool {
     matches!(ty, TypeId::Trait(interface) if declarations.array_interfaces.get(&CollectionAccess::Mutable) == Some(&interface.declaration))
 }
@@ -32,6 +34,7 @@ pub(crate) fn element_context<'a>(
     }
 }
 
+/// Builds the installed readonly/writable array interface for an element type; returns `None` if missing.
 pub fn list_interface(
     item: TypeId,
     writable: bool,

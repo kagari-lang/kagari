@@ -1,3 +1,5 @@
+//! Decoded scalar facts using the shared numeric semantics, separate from source literal spelling.
+
 use crate::{
     hir::expr::literal::{Literal, LiteralKind},
     types::TypeId,
@@ -16,15 +18,27 @@ mod tests;
 /// A checked scalar fact shared by literals, const evaluation and code generation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScalarValue {
+    /// The unit value `()`.
     Unit,
+    /// A decoded boolean.
     Bool(bool),
-    Integer { value: i128, ty: IntegerType },
+    /// An integer payload and its selected semantic width/sign tag; use `integer` for checked construction.
+    Integer {
+        /// Mathematical integer payload stored as `i128`, including i32/u64 values.
+        value: i128,
+        /// Semantic integer type whose bounds must contain the payload.
+        ty: IntegerType,
+    },
+    /// A single-precision floating-point value.
     F32(f32),
+    /// A double-precision floating-point value.
     F64(f64),
+    /// Decoded string content without source delimiters.
     String(String),
 }
 
 impl ScalarValue {
+    /// Returns the intrinsic semantic type implied by the value tag.
     pub fn ty(&self) -> TypeId {
         TypeId::Builtin(match self {
             Self::Unit => BuiltinType::Unit,
@@ -105,6 +119,11 @@ impl ScalarValue {
         }
     }
 
+    /// Constructs an integer fact after checking the selected type's range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `value` lies outside `ty.bounds()`.
     pub fn integer(value: i128, ty: IntegerType) -> Result<Self, &'static str> {
         let (min, max) = ty.bounds();
         if !(min..=max).contains(&value) {
@@ -115,6 +134,7 @@ impl ScalarValue {
 }
 
 impl ScalarValue {
+    /// Applies the shared numeric conversion rules; returns `None` for unsupported source/target types.
     pub fn cast_numeric(self, target: BuiltinType) -> Option<Self> {
         let TypeId::Builtin(source) = self.ty() else {
             return None;

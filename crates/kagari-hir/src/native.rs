@@ -17,28 +17,42 @@ pub mod render;
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeBinding<I: DefinitionReference = DefinitionPath> {
+    /// Canonical identity of an installed native entry, not its machine address.
     Entry(I),
+    /// Revision-scoped callable in the immutable host declaration universe.
     Host(HostFunctionId),
     /// Symbolic registered template application; selection resolves an Entry.
     Default(NativeDefaultApplication<I>),
 }
 
+/// Installed representation descriptor used to apply native-backed source type declarations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeTypeKind<I: DefinitionReference = DefinitionPath> {
+    /// A nominal registered storage type with explicit layout and generic arity.
     Storage {
+        /// Canonical nominal type definition.
         declaration: I,
+        /// Required number of positional type arguments.
         arity: usize,
+        /// Registered storage representation descriptor, checked at installation boundaries.
         layout: NativeStorageLayout,
     },
+    /// Intrinsic String representation with no generic arguments.
     String,
+    /// Existing mutable array storage representation with one element type.
     Vec,
+    /// Existing map storage representation with key and value types.
     HashMap,
+    /// Existing set storage representation with one element type.
     HashSet,
+    /// Existing iterator representation with one element type.
     Iter,
+    /// Range representation; full ranges take no argument and other shapes take an element type.
     Range(RangeKind),
 }
 
 impl NativeTypeKind {
+    /// Returns the required positional type-argument count for this descriptor.
     pub fn arity(&self) -> usize {
         match self {
             Self::Storage { arity, .. } => *arity,
@@ -48,6 +62,7 @@ impl NativeTypeKind {
         }
     }
 
+    /// Builds the semantic representation with supplied arguments; returns `None` on arity mismatch.
     pub fn apply(&self, arguments: &[TypeId]) -> Option<TypeId> {
         if arguments.len() != self.arity() {
             return None;

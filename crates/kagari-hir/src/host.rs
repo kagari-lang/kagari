@@ -55,12 +55,14 @@ pub struct HostFunctionId {
     index: usize,
 }
 
+/// A module-prefix index qualified by one immutable host declaration revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostModuleId {
     revision: u64,
     index: usize,
 }
 
+/// A host type index qualified by one immutable declaration revision, not a runtime object handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostTypeId {
     revision: u64,
@@ -73,6 +75,24 @@ pub(crate) enum HostSourcePathStep {
     Index(TypeId),
 }
 
+/// Immutable offline host declarations, signature projections and lookup indexes.
+///
+/// [`Self::new`] validates the supplied interface/origins, allocates a revision and
+/// builds qualified path/member indexes. IDs contain that revision plus a slot;
+/// function/type access returns `None` for a foreign revision or invalid slot.
+///
+/// ```text
+/// HostInput { interface, optional origins } -> HostDeclarations::new
+/// +-- paths / methods -> HostFunctionId { revision, index }
+/// |   `-- function(id) -> interface.functions[index]
+/// +-- type_paths / type_identities -> HostTypeId -> interface.types[index]
+/// +-- signatures[index] -> semantic parameter/result types
+/// `-- modules[index] -> qualified namespace prefix
+/// ```
+///
+/// These records describe callable/type/access contracts without invoking callbacks
+/// or owning runtime Rust state. [`crate::host::callable::HostCallable`] presents
+/// their semantic signatures to the ordinary call checker.
 #[derive(Debug)]
 pub struct HostDeclarations {
     revision: u64,
@@ -91,6 +111,7 @@ impl HostDeclarations {
         &self.interface.types
     }
 
+    /// Projects a declared host trait implementation into an applied HIR nominal interface.
     pub fn trait_type(implementation: &HostTraitImplementationDeclaration) -> NominalType {
         NominalType {
             declaration: implementation.trait_id.clone(),
@@ -107,6 +128,7 @@ impl HostDeclarations {
         }
     }
 
+    /// Finds a matching installed trait application for a host receiver; non-host receivers return `None`.
     pub fn interface_implementation(
         &self,
         trait_type: &NominalType,
@@ -128,6 +150,7 @@ impl HostDeclarations {
         Self::trait_type(implementation).satisfies(trait_type)
     }
 
+    /// Checks installed trait applications for a host receiver, without invoking the implementation.
     pub fn implements(&self, trait_type: &NominalType, receiver: &TypeId) -> bool {
         let TypeId::Host(host_id) = receiver else {
             return false;
@@ -141,6 +164,7 @@ impl HostDeclarations {
             })
     }
 
+    /// Finds the host callable bound to a selected trait method/interface on a host receiver.
     pub fn trait_method_binding(
         &self,
         trait_method: &DefinitionPath,
@@ -411,6 +435,12 @@ impl HostDeclarations {
         Ok(diagnostics)
     }
 
+    /// Validates an offline interface and builds immutable revision-scoped lookup tables.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid interfaces/origins, conflicting declarations and namespace
+    /// collisions. Installation does not open origin URIs or execute host code.
     pub fn new(input: impl Into<HostInput>) -> Result<Arc<Self>, HostInterfaceError> {
         let HostInput {
             mut interface,
@@ -541,6 +571,7 @@ impl HostDeclarations {
         }))
     }
 
+    /// Returns a shared immutable empty declaration universe with a stable revision.
     pub fn empty() -> Arc<Self> {
         static EMPTY: OnceLock<Arc<HostDeclarations>> = OnceLock::new();
         EMPTY
@@ -548,14 +579,17 @@ impl HostDeclarations {
             .clone()
     }
 
+    /// Finds a free callable by its normalized `::` path; absent paths return `None`.
     pub fn resolve(&self, path: &str) -> Option<HostFunctionId> {
         self.paths.get(path).copied()
     }
 
+    /// Finds a host method by canonical owner identity and unqualified member name.
     pub fn method(&self, owner: &DefinitionPath, name: &str) -> Option<HostFunctionId> {
         self.methods.get(&(owner.clone(), name.to_owned())).copied()
     }
 
+    /// Finds a namespace prefix and returns an ID qualified by this revision.
     pub fn module(&self, path: &str) -> Option<HostModuleId> {
         self.modules
             .binary_search_by(|candidate| candidate.as_str().cmp(path))
@@ -593,12 +627,14 @@ impl HostDeclarations {
         members.into_iter().collect()
     }
 
+    /// Borrows a function declaration only if revision and index belong to this input.
     pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.functions.get(id.index))
             .flatten()
     }
 
+    /// Borrows a function's original contract and precomputed semantic signature; rejects foreign/invalid IDs.
     pub fn callable(&self, id: HostFunctionId) -> Option<HostCallable<'_>> {
         let declaration = self.function(id)?;
         Some(HostCallable {
@@ -609,6 +645,7 @@ impl HostDeclarations {
         })
     }
 
+    /// Borrows optional navigation metadata for a canonical host declaration.
     pub fn origin(&self, id: &DefinitionPath) -> Option<&HostDeclarationOrigin> {
         self.origins.get(id)
     }
@@ -628,6 +665,7 @@ impl HostDeclarations {
             .or_else(|| self.resolve_type(path).map(ResolvedName::HostType))
     }
 
+    /// Returns the identity of this immutable host input, used for analysis cache invalidation.
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -669,20 +707,24 @@ impl HostDeclarations {
         Ok((declaration.clone(), contract))
     }
 
+    /// Finds a host type by its normalized `::` path.
     pub fn resolve_type(&self, path: &str) -> Option<HostTypeId> {
         self.type_paths.get(path).copied()
     }
 
+    /// Finds a host type slot by canonical definition identity.
     pub fn nominal_type(&self, declaration: &DefinitionPath) -> Option<HostTypeId> {
         self.type_identities.get(declaration).copied()
     }
 
+    /// Borrows a type declaration only if revision and index belong to this input.
     pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.types.get(id.index))
             .flatten()
     }
 
+    /// Finds a field within the host owner derived from its canonical definition path.
     pub fn field(&self, id: &DefinitionPath) -> Option<&HostFieldDeclaration> {
         let mut owner = id.clone();
         owner.path.pop()?;

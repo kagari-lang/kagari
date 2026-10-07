@@ -13,13 +13,23 @@ use kagari_types::{
     language::{Protocol, adapter::adapter_contract},
 };
 
+/// A compiler-selected implicit language-protocol callable application.
 pub struct ImplicitProtocolApplication {
+    /// Recognized language protocol role.
     pub kind: Protocol,
+    /// Applied native callable requirement used by executable metadata.
     pub requirement: NativeCallableRequirement,
+    /// Selected source-independent parameter/result contract.
     pub signature: Signature,
 }
 
 impl AggregateCatalog {
+    /// Checks an implicit protocol requirement against the receiver/interface and supplies its applied signature.
+    ///
+    /// # Errors
+    ///
+    /// Returns cancellation or bounded implementation-search failure. `None` means no
+    /// supported implicit application was selected.
     pub fn implicit_protocol_application(
         &self,
         required: &NativeCallableRequirement,

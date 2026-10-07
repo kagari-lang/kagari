@@ -1,3 +1,7 @@
+//! Type assignment/read places and validate field, index and writeability requirements.
+//! PlaceId facts describe the checked destination independently of expression values;
+//! this stage checks access contracts without performing a mutation.
+
 use crate::{
     aggregates::FieldSignature,
     builtin::array_bridge,

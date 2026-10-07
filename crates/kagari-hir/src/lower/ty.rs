@@ -1,3 +1,5 @@
+//! Unresolved type construction and separate path/name/terminal navigation ranges.
+
 use kagari_syntax::ast::{misc::GenericArgList, ty::TypeRef};
 
 use smallvec::SmallVec;
@@ -11,6 +13,7 @@ use crate::{
 };
 
 impl Lowerer {
+    /// Lowers type applications/projections and source path sites, collapsing grouping and retaining missing-type placeholders.
     pub(crate) fn lower_type(&mut self, ty: &TypeRef) -> TypeRefId {
         if let Some(inner) = ty.grouped_type() {
             return self.lower_type(&inner);
@@ -123,6 +126,7 @@ impl Lowerer {
         id
     }
 
+    /// Collects associated-name/type pairs in source order, preserving missing values as type placeholders.
     pub(crate) fn lower_associated_bindings(
         &mut self,
         list: &GenericArgList,

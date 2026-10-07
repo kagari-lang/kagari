@@ -1,3 +1,5 @@
+//! Statement/block construction and recursive assignment-place lowering.
+
 use crate::{
     hir::{
         expr::ops::BinaryOp,
@@ -20,6 +22,7 @@ use kagari_syntax::{
 use smallvec::{SmallVec, smallvec};
 
 impl Lowerer {
+    /// Lowers statements in order and the optional tail separately, then allocates their block.
     pub(crate) fn lower_block(&mut self, block: &BlockExpr) -> BlockId {
         let cancel = self.cancel.clone();
         let statements = block
@@ -38,6 +41,7 @@ impl Lowerer {
         )
     }
 
+    /// Builds binding/control-flow records, using placeholders where required recovered syntax is absent.
     pub(crate) fn lower_stmt(&mut self, stmt: &Stmt) -> StmtId {
         let kind = match stmt {
             Stmt::BindingStmt(stmt) => StmtKind::Binding {
@@ -151,6 +155,7 @@ impl Lowerer {
         self.alloc_stmt(syntax_span(stmt), StmtData { kind })
     }
 
+    /// Retains field/index chains as places; general roots become expression-backed places for later validation.
     fn lower_place(&mut self, expr: &Expr) -> PlaceId {
         match expr {
             Expr::PathExpr(path) => self.alloc_place(

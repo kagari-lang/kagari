@@ -33,6 +33,19 @@ use std::{
 };
 
 impl ModuleGraph {
+    /// Builds the source input set's declarations, import fixed point and immutable catalog.
+    ///
+    /// Seeds declarations/package prefixes, then resolves every source against the
+    /// previous pass's catalog into fresh tables. The inclusive range
+    /// `0..=base.modules.len() * 2 + 1` permits at most `2N + 2` passes, where `N` is
+    /// the number of distinct logical module identities, not the import edge count.
+    /// Equality of the complete catalog ends the loop early. At the bound the current
+    /// implementation publishes the last pass; it has no separate exhaustion result.
+    /// SA2/SA3 in the repository review own scheduling/exhaustion follow-ups.
+    ///
+    /// For `api` re-exporting `math::*` and `app` importing `api::sum`, `api` can gain
+    /// `sum` in one pass and `app` see that new binding only in the next. A pass scans
+    /// all supplied modules, including installed inputs. Cancellation aborts the build.
     pub(crate) fn build<'a>(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
         hosts: &HostDeclarations,
@@ -114,18 +127,29 @@ impl ModuleGraph {
         })
     }
 
+    /// Returns facts for an exact source unit, retaining duplicate logical modules separately.
     pub(crate) fn imports_for(&self, unit: &SourceUnit) -> Option<&Arc<ModuleImportFacts>> {
         self.source_facts.get(unit)
     }
 
+    /// Finds the representative graph node for a logical identity, or `None` if absent.
     pub fn node(&self, module: &ModuleIdentity) -> Option<&ModuleNode> {
         self.nodes.get(module)
     }
 
+    /// Visits representative nodes in ordered logical-identity order.
     pub fn modules(&self) -> impl Iterator<Item = (&ModuleIdentity, &ModuleNode)> {
         self.nodes.iter()
     }
 
+    /// Collects the root and transitive dependencies in sorted identity order.
+    ///
+    /// This is not a dependency-before-user topological order; a visited set terminates
+    /// cycles. Every visited node must have no import diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns a missing-node, invalid-import or cancellation error.
     pub fn reachable_order(
         &self,
         root: &ModuleIdentity,
@@ -490,6 +514,12 @@ fn add_installed_prefixes(
     Ok(())
 }
 
+/// Rebuilds a module's scope from declarations and one previous-pass catalog.
+///
+/// Reserve named imports first, including unresolved strong candidates. Resolve
+/// real directives, update their reserved names, then enumerate eligible glob
+/// members through importer-relative lookup. Preserve direct dependency/path sites
+/// and candidate provenance; diagnose conflicts before immutable publication.
 fn resolve_imports(
     module: &LoweredModule,
     base: &NamespaceCatalog,

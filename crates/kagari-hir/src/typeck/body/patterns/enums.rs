@@ -1,3 +1,6 @@
+//! Check enum pattern ownership, generic arguments and payload bindings.
+//! Uses the resolved variant and expected enum type to assign child pattern types.
+
 use crate::{
     declarations::DeclarationId,
     hir::ids::PatternId,

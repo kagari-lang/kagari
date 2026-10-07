@@ -1,3 +1,5 @@
+//! Semantic type values, generic identity and substitution; source type IDs live in `hir::ids`.
+
 pub mod semantic;
 
 use crate::typeck::{GenericBounds, associated};
@@ -17,9 +19,17 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+/// Generic binder and owner-specific `Self` substitutions.
+///
+/// `parameters` maps `(owner, position)` binders to semantic types. `receivers`
+/// maps declaring owners to their `Self` replacement. Dereferencing exposes only
+/// the parameter map; receiver entries use explicit accessors. This is not a map
+/// from source names, so shadowed binders with the same spelling remain distinct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeSubstitution<I: DefinitionReference = DefinitionPath> {
+    /// Generic binder to instantiated semantic type.
     parameters: HashMap<GenericParameterType<I>, TypeId<I>>,
+    /// Declaring owner to its `Self` replacement.
     receivers: HashMap<I, TypeId<I>>,
 }
 
@@ -56,20 +66,29 @@ mod nominal_tests;
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
 pub struct GenericParameterType<I: DefinitionReference = DefinitionPath> {
+    /// Definition that declares the binder; part of equality and hashing.
     pub owner: I,
+    /// Zero-based binder position within its owner; part of equality and hashing.
     pub position: usize,
+    /// Diagnostic spelling only; renaming does not determine binder equality.
     pub name: String,
 }
 
+/// Member-level generic binders and their checked requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociatedTypeParameters<I: DefinitionReference = DefinitionPath> {
+    /// Associated family binders in declaration order.
     pub parameters: Vec<GenericParameterType<I>>,
+    /// Checked constraints on family inputs.
     pub bounds: GenericBounds<I>,
 }
 
+/// An associated type definition parameterized by member-level inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociatedTypeFamily<I: DefinitionReference = DefinitionPath> {
+    /// Family binders and bounds, separate from enclosing implementation binders.
     pub inputs: AssociatedTypeParameters<I>,
+    /// Output type before applying enclosing/member substitutions.
     pub value: TypeId<I>,
 }
 
@@ -90,48 +109,103 @@ impl<I: DefinitionReference> Hash for GenericParameterType<I> {
     }
 }
 
+/// An application of a declared nominal type or trait.
+///
+/// ```text
+/// Box<i32> -> NominalType { declaration: box_definition,
+///                          arguments: [Builtin(I32)], associated_types: {} }
+/// Trait<Output = i32> -> associated_types[output_definition] = Builtin(I32)
+/// ```
+///
+/// Definition identity, ordered arguments and associated constraints participate in
+/// equality. The generic identity parameter selects portable paths or scoped IDs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NominalType<I: DefinitionReference = DefinitionPath> {
+    /// Canonical nominal definition, not its local/imported spelling.
     pub declaration: I,
+    /// Positional arguments in declaring-binder order.
     pub arguments: Vec<TypeId<I>>,
+    /// Associated member definition to constrained output type.
     pub associated_types: BTreeMap<I, TypeId<I>>,
 }
 
 impl NominalType {}
 
+/// A semantic type value, despite the `Id` suffix; not an arena index.
+///
+/// [`crate::hir::ids::TypeRefId`] addresses source type syntax. This enum represents
+/// its meaning and is stored in [`crate::typeck::table::TypeTable`], signatures and
+/// constraints. Composite types own child type values through vectors/boxes.
+///
+/// ```text
+/// source "(i32, T)" -> TypeRefId -> Body.types -> TypeKind::Tuple([a, b])
+/// resolution       -> TypeId::Tuple([Builtin(I32), Generic { owner, position, ... }])
+/// ```
+///
+/// `Inference` is solver-local temporary state. `Unknown` and `Error` support
+/// incomplete/recovered analysis and never authorize executable lowering. Generic
+/// binders and projections can be valid in checked generic signatures even though
+/// they are not yet concrete monomorphized types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId<I: DefinitionReference = DefinitionPath> {
     /// A body-local constraint variable. Never valid in a checked signature or IR.
     Inference(u32),
+    /// An unresolved type requiring inference or a diagnostic.
     Unknown,
+    /// A failed type retained for recovery and suppression of dependent diagnostics.
     Error,
+    /// An intrinsic scalar/unit/never/String type tag.
     Builtin(BuiltinType),
+    /// An ordered tuple of semantic types.
     Tuple(Vec<TypeId<I>>),
+    /// A callable value type, separate from a named function declaration.
     Function {
+        /// Parameter types in call order.
         params: Vec<TypeId<I>>,
+        /// Semantic result type.
         result: Box<TypeId<I>>,
     },
+    /// Iterator representation carrying its element type.
     Iter(Box<TypeId<I>>),
+    /// Range element type and open/inclusive/exclusive shape.
     Range(Box<TypeId<I>>, RangeKind),
+    /// Array/storage element type and declared collection access.
     Array(Box<TypeId<I>>, CollectionAccess),
+    /// Map storage with key/value types and access policy.
     Map {
+        /// Semantic key type.
         key: Box<TypeId<I>>,
+        /// Semantic mapped-value type.
         value: Box<TypeId<I>>,
+        /// Mutable or readonly collection access; part of type identity.
         access: CollectionAccess,
     },
+    /// Set storage element type and collection access.
     Set(Box<TypeId<I>>, CollectionAccess),
+    /// A registered native-backed nominal object application.
     NativeObject(NominalType<I>),
+    /// A source nominal struct application.
     Struct(NominalType<I>),
+    /// A nominal enum application.
     Enum(NominalType<I>),
+    /// A trait/interface value type with applied arguments/constraints.
     Trait(NominalType<I>),
+    /// An installed host type definition identity.
     Host(I),
+    /// A generic binder identified by declaring owner and position.
     Generic(GenericParameterType<I>),
+    /// An applied associated type that may still depend on a receiver/trait implementation.
     Projection {
+        /// Arguments of the associated type family.
         arguments: Vec<TypeId<I>>,
+        /// Type whose implementation supplies the associated member.
         receiver: Box<TypeId<I>>,
+        /// Applied trait qualification, including associated constraints.
         interface: Box<NominalType<I>>,
+        /// Canonical associated member definition identity.
         member: I,
     },
+    /// Owner-qualified `Self` before receiver substitution.
     SelfType(I),
 }
 
@@ -156,6 +230,13 @@ impl TypeId {
         })
     }
 
+    /// Formats a diagnostic type spelling from portable definition paths.
+    ///
+    /// This is not a unique serialized identity or guaranteed round-trippable source.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a host/nominal/associated identity that requires a name has an empty path.
     pub fn display_name(&self) -> String {
         enum Part<'a> {
             Type(&'a TypeId),
@@ -364,16 +445,19 @@ mod mapping;
 mod shape;
 
 impl<I: DefinitionReference> TypeSubstitution<I> {
+    /// Records/replaces the `Self` type for a declaring owner.
     pub fn insert_receiver(&mut self, owner: I, receiver: TypeId<I>) {
         self.receivers.insert(owner, receiver);
     }
 
+    /// Borrows the owner's recorded `Self` replacement, if any.
     pub fn receiver(&self, owner: &I) -> Option<&TypeId<I>> {
         self.receivers.get(owner)
     }
 }
 
 impl<I: DefinitionReference> AssociatedTypeFamily<I> {
+    /// Applies outer and member substitutions; returns `None` on arity mismatch and does not itself validate bounds.
     pub fn apply(&self, outer: &TypeSubstitution<I>, arguments: &[TypeId<I>]) -> Option<TypeId<I>> {
         if arguments.len() != self.inputs.parameters.len() {
             return None;
@@ -391,6 +475,7 @@ impl<I: DefinitionReference> AssociatedTypeFamily<I> {
 }
 
 impl<I: DefinitionReference> NominalType<I> {
+    /// Checks equal declaration/arguments and all required associated constraints; permits extra known constraints.
     pub fn satisfies(&self, required: &Self) -> bool {
         self.declaration == required.declaration
             && self.arguments == required.arguments
@@ -400,6 +485,7 @@ impl<I: DefinitionReference> NominalType<I> {
                 .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
     }
 
+    /// Substitutes generic/Self occurrences in arguments and associated outputs.
     pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> Self {
         Self {
             declaration: self.declaration.clone(),
@@ -430,6 +516,7 @@ impl<I: DefinitionReference> NominalType<I> {
 }
 
 impl<I: DefinitionReference> TypeId<I> {
+    /// Returns whether this is the intrinsic diverging `never` type.
     pub fn is_never(&self) -> bool {
         matches!(self, Self::Builtin(BuiltinType::Never))
     }
@@ -458,6 +545,7 @@ impl<I: DefinitionReference> TypeId<I> {
         })
     }
 
+    /// Checks mutable-to-readonly outer collection weakening without conflicting element/key/value types.
     pub fn can_weaken_to(&self, target: &Self) -> bool {
         self.collection_access() == Some(Mutable)
             && target.collection_access() == Some(ReadOnly)
@@ -466,6 +554,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 .is_some_and(|view| !view.conflicts_with(target))
     }
 
+    /// Reports whether this type tree contains an associated-type projection.
     pub fn contains_projection(&self) -> bool {
         self.contains_type(|ty| matches!(ty, Self::Projection { .. }))
     }
@@ -511,6 +600,7 @@ impl<I: DefinitionReference> TypeId<I> {
         false
     }
 
+    /// Checks represented value components for host types; callable parameter/result types are not stored host values.
     pub fn contains_host_value(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -536,6 +626,7 @@ impl<I: DefinitionReference> TypeId<I> {
         false
     }
 
+    /// Reports whether this type contains an owner-qualified `Self` occurrence.
     pub fn contains_self_type(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -793,6 +884,7 @@ impl<I: DefinitionReference> TypeId<I> {
         result
     }
 
+    /// Checks that no unresolved state, generic binder, `Self` or projection remains in the type tree.
     pub fn is_concrete(&self) -> bool {
         self.is_resolved_in(&[])
     }
@@ -844,6 +936,7 @@ impl<I: DefinitionReference> TypeId<I> {
         true
     }
 
+    /// Replaces `Self` occurrences belonging to the specified owner, leaving other owners unchanged.
     pub fn with_self(&self, owner: &I, replacement: &TypeId<I>) -> TypeId<I> {
         self.substitute_once(|ty| match ty {
             Self::SelfType(id) if id == owner => Some(replacement),
@@ -851,6 +944,7 @@ impl<I: DefinitionReference> TypeId<I> {
         })
     }
 
+    /// Returns whether this is one of the intrinsic signed/unsigned integer types.
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
@@ -869,6 +963,7 @@ impl<I: DefinitionReference> TypeId<I> {
         )
     }
 
+    /// Checks the built-in equality shape rules; this is not general trait-implementation lookup.
     pub fn supports_equality(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -1046,6 +1141,7 @@ impl<I: DefinitionReference> TypeId<I> {
         }
     }
 
+    /// Compares known structure/access while treating inference, unknown and error nodes as recovery-compatible.
     pub fn conflicts_with(&self, other: &Self) -> bool {
         let mut pending = vec![(self, other)];
         while let Some((left, right)) = pending.pop() {
@@ -1128,10 +1224,12 @@ impl<I: DefinitionReference> TypeId<I> {
         false
     }
 
+    /// Recognizes an intrinsic type spelling; nominal/imported names require declaration lookup.
     pub fn from_name(name: &str) -> Option<Self> {
         standard_surface::builtin_type(name).map(Self::Builtin)
     }
 
+    /// Classifies representation conservatively; unresolved states return false and generic/aggregate shapes true.
     pub fn is_heap_backed(&self) -> bool {
         match self {
             Self::Inference(_) | Self::Unknown | Self::Error => false,

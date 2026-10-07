@@ -1,3 +1,7 @@
+//! Validate implementation methods and interface uses against declared trait contracts.
+//! Checks receiver/signature compatibility and permitted interface type surfaces before
+//! body analysis relies on aggregate implementation records.
+
 use crate::{
     declarations::Declarations,
     hir::{ids::FunctionId, ty::TypeKind},

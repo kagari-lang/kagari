@@ -1,3 +1,5 @@
+//! Bounded trait matching, inherited constraints, defaults and associated-type normalization.
+
 use crate::{
     aggregates::{
         AggregateCatalog,
@@ -30,12 +32,16 @@ use std::{
     sync::Arc,
 };
 
+/// Cancellation or resource exhaustion during bounded trait implementation search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImplementationSearchError {
+    /// Cooperative cancellation interrupted search.
     Cancelled,
+    /// Candidate/depth or inheritance expansion budget was exhausted.
     LimitExceeded,
 }
 
+/// Per-search candidate/depth accounting, caller assumptions and guarded intrinsic-default exploration.
 struct SearchBudget<'a> {
     checks_left: usize,
     depth: usize,
@@ -58,15 +64,22 @@ impl SearchBudget<'_> {
     }
 }
 
+/// A generic implementation pattern and the members selected when it applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplementationSignature<I: DefinitionReference = DefinitionPath> {
     /// Derived from the retained installation object, never a source identity.
     pub(crate) engine_owned: bool,
+    /// Associated member definition to parameterized output implementation.
     pub associated_type_families: BTreeMap<I, AssociatedTypeFamily<I>>,
+    /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
+    /// Implemented trait application, possibly containing implementation binders.
     pub trait_type: NominalType<I>,
+    /// Receiver type pattern to match against the requested concrete/generic type.
     pub for_type: TypeId<I>,
+    /// Generic binders in declaration order, identified by owner and position.
     pub generic_params: Vec<GenericParameterType<I>>,
+    /// Checked generic constraints used during application/implementation selection.
     pub bounds: GenericBounds<I>,
     /// Trait method identity to implementation method identity.
     pub methods: BTreeMap<I, I>,
@@ -197,6 +210,7 @@ impl AggregateCatalog {
         None
     }
 
+    /// Checks a standard protocol with 4,096 candidate checks and depth 64; an exhausted search returns false.
     pub fn standard_protocol_holds(
         &self,
         protocol: Protocol,
@@ -359,6 +373,7 @@ impl AggregateCatalog {
         result
     }
 
+    /// Normalizes associated projections using available checked implementation/family facts.
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
@@ -436,6 +451,7 @@ impl AggregateCatalog {
         })
     }
 
+    /// Visits recorded implementation contracts in definition-key order.
     pub fn implementations(&self) -> impl Iterator<Item = &ImplementationSignature> {
         self.implementations.values().map(AsRef::as_ref)
     }
@@ -526,6 +542,7 @@ impl AggregateCatalog {
         Ok(())
     }
 
+    /// Finds a matching method identity and implementation arguments, including applicable defaults.
     pub fn implementation_method(
         &self,
         method: &DefinitionPath,
@@ -594,6 +611,7 @@ impl AggregateCatalog {
         .then_some((implementation, method))
     }
 
+    /// Collects selected implementation/default method identities for a recorded implementation.
     pub fn implementation_methods(
         &self,
         implementation: &ImplementationSignature,
@@ -622,6 +640,7 @@ impl AggregateCatalog {
             .collect()
     }
 
+    /// Counts matching implementations using maximal size/depth bounds and default cancellation; search failure maps to zero.
     pub fn implementation_count(&self, trait_type: &NominalType, receiver: &TypeId) -> usize {
         self.implementation_count_bounded(
             trait_type,
@@ -633,6 +652,13 @@ impl AggregateCatalog {
         .unwrap_or(0)
     }
 
+    /// Selects a concrete implementation identity and applied arguments under explicit search limits.
+    ///
+    /// Returns `None` when no unique admissible concrete implementation is selected.
+    ///
+    /// # Errors
+    ///
+    /// Returns cancellation or candidate/depth exhaustion.
     pub fn concrete_interface_implementation(
         &self,
         trait_type: &NominalType,
@@ -676,6 +702,11 @@ impl AggregateCatalog {
         Ok(selected)
     }
 
+    /// Counts matching implementations under caller-provided candidate/depth limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns cancellation or exhausted search limits instead of treating them as no match.
     pub fn implementation_count_bounded(
         &self,
         trait_type: &NominalType,
@@ -992,6 +1023,7 @@ mod search_tests {
 mod mapping;
 
 impl<I: DefinitionReference> AggregateCatalog<I> {
+    /// Borrows one recorded implementation by canonical identity.
     pub fn implementation_signature(&self, id: &I) -> Option<&ImplementationSignature<I>> {
         self.implementations.get(id).map(AsRef::as_ref)
     }

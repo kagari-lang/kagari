@@ -1,3 +1,6 @@
+//! Validate constant initializer dependencies with visiting/done states.
+//! Reports invalid references and cycles before constant evaluation consumes the graph.
+
 use crate::{
     builtin::surface,
     hir::{

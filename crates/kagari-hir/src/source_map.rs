@@ -1,3 +1,5 @@
+//! Allocation-aligned byte ranges and specialized navigation sites for lowered HIR.
+
 use crate::hir::{
     ids::{
         BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId,
@@ -9,11 +11,41 @@ use crate::hir::{
 use kagari_common::span::Span;
 use std::{collections::HashMap, mem};
 
+/// Source byte ranges and ID allocation state for one [`crate::lower::LoweredModule`].
+///
+/// This owns ranges, not source text. Interpret them against `LoweredModule.source`.
+/// The lowerer appends spans and payload rows together; their indices must agree.
+/// `set_owner` switches the owner attached to subsequently allocated local IDs.
+///
+/// ```text
+/// Lowerer::alloc_expr(span, data)
+/// +-- SourceMap::push_expr -> ExprId { arena, owner, index: expr_spans.len() }
+/// |   +-- expr_spans[index] = span
+/// |   `-- expr_owners[index] = owner
+/// `-- Module.body.exprs[index] = (owner, data)
+///
+/// SourceMap::expr_span(id) -> arena/owner checks -> expr_spans[id.index()]
+/// LoweredModule.source.text()[span.start..span.end] -> corresponding source text
+/// ```
+///
+/// All spans use half-open byte offsets, not character or line indices. Synthetic
+/// nodes may have a default empty span. Full node ranges can include syntax trivia. Sparse maps record specialized navigation
+/// sites such as a terminal member name or path segment; absence does not imply a
+/// missing expression. Inline module analysis preserves physical source offsets.
+///
+/// # Panics
+///
+/// Dense range accessors panic for an invalid index; local-node accessors also check
+/// arena and owner. Required field/variant map lookups panic for an absent key.
+/// Plain declaration IDs do not carry an arena: callers must keep the matching map.
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
+    /// Arena identity shared with the matching HIR node storage.
     arena: HirArenaId,
+    /// Current allocation owner; restored when nested declaration lowering returns.
     owner: HirOwner,
     generic_param_spans: Vec<Span>,
+    /// Sparse declaration-name sites, separate from full declaration ranges.
     item_name_spans: HashMap<Item, Span>,
     field_spans: HashMap<FieldId, Span>,
     variant_spans: HashMap<VariantId, Span>,
@@ -33,10 +65,15 @@ pub struct SourceMap {
     block_spans: Vec<Span>,
     block_owners: Vec<HirOwner>,
     expr_spans: Vec<Span>,
+    /// Reference/member-name sites used by navigation and diagnostics.
     expr_reference_spans: HashMap<ExprId, Span>,
+    /// Ordered joined-path prefixes and their physical segment sites, keyed by expression.
     expr_paths: HashMap<ExprId, Vec<(String, Span)>>,
+    /// Joined-path prefix sites keyed by the flattened import leaf slot.
     import_paths: HashMap<usize, Vec<(String, Span)>>,
+    /// Explicit constructor/type-owner sites, independent of the expression's body owner.
     expr_owner_spans: HashMap<ExprId, Span>,
+    /// Constructor field-name sites in field order, retaining absent synthetic sites.
     struct_field_spans: HashMap<ExprId, Vec<Option<Span>>>,
     expr_owners: Vec<HirOwner>,
     place_spans: Vec<Span>,
@@ -49,7 +86,9 @@ pub struct SourceMap {
     pattern_owners: Vec<HirOwner>,
     type_spans: Vec<Span>,
     type_name_spans: HashMap<TypeRefId, Span>,
+    /// Joined type-path prefixes and their physical segment sites.
     type_paths: HashMap<TypeRefId, Vec<(String, Span)>>,
+    /// Terminal type/member sites, separate from the full type path.
     type_terminal_spans: HashMap<TypeRefId, Span>,
     type_owners: Vec<HirOwner>,
 }
@@ -85,6 +124,7 @@ impl SourceMap {
         id
     }
 
+    /// Returns the opaque type declaration byte range; see the [ID validity requirements](Self#panics).
     pub fn opaque_type_span(&self, id: OpaqueTypeId) -> Span {
         self.opaque_type_spans[id.index()]
     }
@@ -93,10 +133,12 @@ impl SourceMap {
         self.variant_spans.insert(id, span);
     }
 
+    /// Returns the enum variant byte range; see the [ID validity requirements](Self#panics).
     pub fn variant_span(&self, id: VariantId) -> Span {
         self.variant_spans[&id]
     }
 
+    /// Installs the owner for future local IDs and returns the previous owner for restoration.
     pub(crate) fn set_owner(&mut self, owner: HirOwner) -> HirOwner {
         mem::replace(&mut self.owner, owner)
     }
@@ -141,6 +183,7 @@ impl SourceMap {
         LocalId::new(self.arena, self.local_owners[index], index)
     }
 
+    /// Returns the arena shared with the matching HIR node storage.
     pub fn arena(&self) -> HirArenaId {
         self.arena
     }
@@ -151,6 +194,7 @@ impl SourceMap {
         id
     }
 
+    /// Returns the generic parameter byte range; see the [ID validity requirements](Self#panics).
     pub fn generic_param_span(&self, id: GenericParamId) -> Span {
         self.generic_param_spans[id.index()]
     }
@@ -163,6 +207,7 @@ impl SourceMap {
         self.type_terminal_spans.insert(id, span);
     }
 
+    /// Returns the terminal associated-type member range, if recorded.
     pub fn type_terminal_span(&self, id: TypeRefId) -> Option<Span> {
         self.type_terminal_spans.get(&id).copied()
     }
@@ -171,6 +216,7 @@ impl SourceMap {
         self.pattern_reference_spans.insert(id, span);
     }
 
+    /// Returns a referenced pattern path/name range, if recorded.
     pub fn pattern_reference_span(&self, id: PatternId) -> Option<Span> {
         self.pattern_reference_spans.get(&id).copied()
     }
@@ -179,6 +225,7 @@ impl SourceMap {
         self.type_name_spans.insert(id, span);
     }
 
+    /// Returns the type-name range, if lowering recorded a named type site.
     pub fn type_name_span(&self, id: TypeRefId) -> Option<Span> {
         self.type_name_spans.get(&id).copied()
     }
@@ -187,10 +234,12 @@ impl SourceMap {
         self.field_spans.insert(id, span);
     }
 
+    /// Returns the struct field byte range; see the [ID validity requirements](Self#panics).
     pub fn field_span(&self, id: FieldId) -> Span {
         self.field_spans[&id]
     }
 
+    /// Returns the full declaration range selected by its local item handle.
     pub fn item_span(&self, item: Item) -> Span {
         match item {
             Item::OpaqueType(id) => self.opaque_type_span(id),
@@ -300,10 +349,12 @@ impl SourceMap {
         self.item_name_spans.insert(item, span);
     }
 
+    /// Returns a recorded declaration-name range; absent for nameless/recovered items.
     pub fn item_name_span(&self, item: Item) -> Option<Span> {
         self.item_name_spans.get(&item).copied()
     }
 
+    /// Returns the name range when recorded, otherwise the full declaration range.
     pub fn item_declaration_span(&self, item: Item) -> Span {
         self.item_name_span(item)
             .unwrap_or_else(|| self.item_span(item))
@@ -313,6 +364,7 @@ impl SourceMap {
         self.expr_reference_spans.insert(id, span);
     }
 
+    /// Returns the expression reference/member range, if recorded.
     pub fn expr_reference_span(&self, id: ExprId) -> Option<Span> {
         self.expr_reference_spans.get(&id).copied()
     }
@@ -321,6 +373,7 @@ impl SourceMap {
         self.expr_owner_spans.insert(id, span);
     }
 
+    /// Returns the explicit type/constructor-owner range, if recorded.
     pub fn expr_owner_span(&self, id: ExprId) -> Option<Span> {
         self.expr_owner_spans.get(&id).copied()
     }
@@ -329,6 +382,7 @@ impl SourceMap {
         self.struct_field_spans.insert(id, spans);
     }
 
+    /// Returns constructor field-name sites in field order; individual synthetic sites may be absent.
     pub fn struct_field_spans(&self, id: ExprId) -> Option<&[Option<Span>]> {
         self.struct_field_spans.get(&id).map(Vec::as_slice)
     }
@@ -344,6 +398,7 @@ impl SourceMap {
         self.place_member_spans.insert(id, span);
     }
 
+    /// Returns the assigned member-name range, if recorded.
     pub fn place_member_span(&self, id: PlaceId) -> Option<Span> {
         self.place_member_spans.get(&id).copied()
     }
@@ -369,30 +424,37 @@ impl SourceMap {
         id
     }
 
+    /// Returns the function byte range; see the [ID validity requirements](Self#panics).
     pub fn function_span(&self, id: FunctionId) -> Span {
         self.function_spans[id.index()]
     }
 
+    /// Returns the child module header byte range; see the [ID validity requirements](Self#panics).
     pub fn module_span(&self, id: ModuleId) -> Span {
         self.module_spans[id.index()]
     }
 
+    /// Returns the trait byte range; see the [ID validity requirements](Self#panics).
     pub fn trait_span(&self, id: TraitId) -> Span {
         self.trait_spans[id.index()]
     }
 
+    /// Returns the trait method byte range; see the [ID validity requirements](Self#panics).
     pub fn trait_method_span(&self, id: TraitMethodId) -> Span {
         self.trait_method_spans[id.index()]
     }
 
+    /// Returns the implementation block byte range; see the [ID validity requirements](Self#panics).
     pub fn impl_span(&self, id: ImplId) -> Span {
         self.impl_spans[id.index()]
     }
 
+    /// Returns the constant byte range; see the [ID validity requirements](Self#panics).
     pub fn const_span(&self, id: ConstId) -> Span {
         self.const_spans[id.index()]
     }
 
+    /// Returns the parameter byte range; see the [ID validity requirements](Self#panics).
     pub fn param_span(&self, id: ParamId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(
@@ -403,6 +465,7 @@ impl SourceMap {
         self.param_spans[id.index()]
     }
 
+    /// Returns the local binding byte range; see the [ID validity requirements](Self#panics).
     pub fn local_span(&self, id: LocalId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(
@@ -413,14 +476,17 @@ impl SourceMap {
         self.local_spans[id.index()]
     }
 
+    /// Returns the struct declaration byte range; see the [ID validity requirements](Self#panics).
     pub fn struct_span(&self, id: StructId) -> Span {
         self.struct_spans[id.index()]
     }
 
+    /// Returns the enum declaration byte range; see the [ID validity requirements](Self#panics).
     pub fn enum_span(&self, id: EnumId) -> Span {
         self.enum_spans[id.index()]
     }
 
+    /// Returns the block byte range; see the [ID validity requirements](Self#panics).
     pub fn block_span(&self, id: BlockId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(
@@ -431,6 +497,7 @@ impl SourceMap {
         self.block_spans[id.index()]
     }
 
+    /// Returns the expression byte range; see the [ID validity requirements](Self#panics).
     pub fn expr_span(&self, id: ExprId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(
@@ -441,6 +508,7 @@ impl SourceMap {
         self.expr_spans[id.index()]
     }
 
+    /// Returns the assignment place byte range; see the [ID validity requirements](Self#panics).
     pub fn place_span(&self, id: PlaceId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(
@@ -451,6 +519,7 @@ impl SourceMap {
         self.place_spans[id.index()]
     }
 
+    /// Returns the statement byte range; see the [ID validity requirements](Self#panics).
     pub fn stmt_span(&self, id: StmtId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(
@@ -461,6 +530,7 @@ impl SourceMap {
         self.stmt_spans[id.index()]
     }
 
+    /// Returns the pattern byte range; see the [ID validity requirements](Self#panics).
     pub fn pattern_span(&self, id: PatternId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(
@@ -471,6 +541,7 @@ impl SourceMap {
         self.pattern_spans[id.index()]
     }
 
+    /// Returns the type syntax byte range; see the [ID validity requirements](Self#panics).
     pub fn type_span(&self, id: TypeRefId) -> Span {
         assert_eq!(id.arena(), self.arena, "foreign HIR source range");
         assert_eq!(

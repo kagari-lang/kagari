@@ -1,3 +1,7 @@
+//! Select Iterable/Iterator protocol facts for a checked iteration expression.
+//! The recorded ResolvedIteration carries the item type and selected interfaces
+//! needed by lowering without re-resolving the source loop.
+
 use crate::{
     hir::ids::ExprId,
     typeck::{BodyTypeEnv, body::BodyChecker, table::ResolvedIteration},

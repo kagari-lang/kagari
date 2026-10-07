@@ -22,24 +22,37 @@ use {
     kagari_source::identity::FileId,
 };
 
+/// A foreign nominal declaration surface prepared before function signature checking.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedType<I: DefinitionReference = DefinitionPath> {
+    /// Installed storage/type descriptor when this is a registered native-backed type.
     pub native_type: Option<NativeTypeKind<I>>,
+    /// Associated family name to number of member-level generic parameters.
     pub associated_arities: BTreeMap<String, usize>,
+    /// Canonical source declaration address.
     pub id: SourceDeclRef,
+    /// Definition and source-site metadata at the original declaration.
     pub declaration: Declaration<I>,
+    /// Semantic nominal/type surface with its generic arguments.
     pub ty: TypeId<I>,
+    /// Trait method names and semantic identities.
     pub trait_methods: Vec<ImportedTraitMethod<I>>,
+    /// Names of declared associated types.
     pub associated_types: Vec<String>,
+    /// Prepared parent trait applications.
     pub supertraits: Vec<NominalType<I>>,
 }
 
+/// A method-name/definition pair on an imported trait surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedTraitMethod<I: DefinitionReference = DefinitionPath> {
+    /// Member spelling within the trait.
     pub name: String,
+    /// Canonical semantic identity of the method.
     pub declaration: I,
 }
 
+/// Canonical type/variant projections shared across importer aliases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedTypes<I: DefinitionReference = DefinitionPath> {
     // Canonical declarations share one surface across local import spellings.
@@ -48,6 +61,7 @@ pub struct ImportedTypes<I: DefinitionReference = DefinitionPath> {
     variants: HashMap<SourceDeclRef, Declaration<I>>,
 }
 
+/// Borrowed declaration-stage modules and a lazily prepared shared nominal surface cache.
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
     surfaces: RefCell<Option<HashMap<DefinitionPath, ImportedType>>>,
@@ -64,6 +78,7 @@ impl<'a> TypeCatalog<'a> {
         }
     }
 
+    /// Projects reachable type/variant declarations and required parent trait surfaces for an importer.
     pub(crate) fn bindings(
         &self,
         names: &DeclarationNames,
@@ -309,6 +324,7 @@ impl<I: DefinitionReference> ImportedTypes<I> {
         }
     }
 
+    /// Looks up a qualified source type name; other resolver target kinds return `None`.
     pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType<I>> {
         match name {
             ResolvedName::Source(source) => self.resolutions.get(&source),
@@ -316,10 +332,12 @@ impl<I: DefinitionReference> ImportedTypes<I> {
         }
     }
 
+    /// Finds an imported type by its exact source declaration address.
     pub fn target(&self, id: SourceDeclRef) -> Option<&ImportedType<I>> {
         self.resolutions.values().find(|ty| ty.id == id)
     }
 
+    /// Finds a projected nominal surface by semantic definition identity.
     pub fn by_declaration(&self, id: &I) -> Option<&ImportedType<I>> {
         self.resolutions
             .values()

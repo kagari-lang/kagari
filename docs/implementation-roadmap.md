@@ -34,16 +34,20 @@ The [execution plan](hir-documentation-plan.md) covers `kagari-hir` storage and 
 relationships, lowering, imports/resolution, semantic facts, registered inputs,
 query caches and the checked compiler boundary. Documentation follows two concrete
 source examples with annotated storage/lookup diagrams and Rustdoc contracts.
-Status: planned; documentation implementation has not started. Behavior and API
-redesign are outside scope; validation is limited to focused documentation checks.
+HD01-HD07 are complete. The [reading guide](architecture/hir.md) connects both
+examples to the owning code. All 125 production modules have orientations; strict
+Rustdoc, three runnable examples, rendered-page review, changed-file formatting,
+structure (921 files, zero findings), local links and diff checks pass. HIR behavior
+is unchanged; the sole code change forwards ID macro documentation attributes.
+Full suites remain with CI; no CI run was observed for this local checkpoint.
 
-- [ ] HD01: Document orientation, storage, IDs and source-map ownership.
-- [ ] HD02: Document HIR node families and AST-to-HIR lowering.
-- [ ] HD03: Document imports, namespaces and lexical resolution.
-- [ ] HD04: Document declarations, semantic types and type-checking facts.
-- [ ] HD05: Document host/native inputs, language roles and builtin bridges.
-- [ ] HD06: Document queries, caches, snapshots and checked-program handoff.
-- [ ] HD07: Audit coverage and perform focused documentation validation.
+- [x] HD01: Document orientation, storage, IDs and source-map ownership.
+- [x] HD02: Document HIR node families and AST-to-HIR lowering.
+- [x] HD03: Document imports, namespaces and lexical resolution.
+- [x] HD04: Document declarations, semantic types and type-checking facts.
+- [x] HD05: Document host/native inputs, language roles and builtin bridges.
+- [x] HD06: Document queries, caches, snapshots and checked-program handoff.
+- [x] HD07: Audit coverage and perform focused documentation validation.
 
 ### Syntax documentation completion
 

@@ -42,15 +42,26 @@ use {
 #[cfg(test)]
 mod tests;
 
+/// Immutable analysis of one selected function and its constant prerequisites.
+///
+/// Retains the signature snapshot and file lowering that own all referenced HIR IDs.
+/// `names`, `declarations` and `typed` contain the selected analysis facts; they do not
+/// imply every function in the file was checked. Scoped definition IDs resolve through
+/// [`Self::definitions`], while position type queries return portable identities.
 #[derive(Debug)]
 pub struct FunctionAnalysis {
+    /// Returns the selected declaration's identity in this result's definition table.
     owner: DefinitionId,
+    /// Borrows the identity table owning scoped IDs in this result.
     definitions: DefinitionTable,
+    /// Returns the function index to look up in [`Self::lowered`].
     function: FunctionId,
     signatures: SignatureSnapshot,
     file: Arc<FileSignatures>,
     environment: BodyEnvironment<DefinitionId>,
+    /// Borrows resolved lexical names for the selected body analysis.
     names: ResolvedNames,
+    /// Borrows declaration sites including bindings collected for the selected body.
     declarations: Declarations<DefinitionId>,
     typed: AnalysisResult<TypedModule<DefinitionId>>,
 }
@@ -64,6 +75,7 @@ impl FunctionAnalysis {
         })
     }
 
+    /// Returns a portable checked type at a byte offset inside the selected function.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         let ty = self
             .contains(offset)
@@ -72,6 +84,7 @@ impl FunctionAnalysis {
         ownership::paths(&ty, &self.definitions, &CancellationToken::default()).ok()
     }
 
+    /// Returns a portable member receiver type inside the selected function.
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
         let ty = self
             .contains(offset)
@@ -80,14 +93,17 @@ impl FunctionAnalysis {
         ownership::paths(&ty, &self.definitions, &CancellationToken::default()).ok()
     }
 
+    /// Returns the selected declaration's identity in this result's definition table.
     pub fn owner(&self) -> &DefinitionId {
         &self.owner
     }
 
+    /// Borrows the source revision owning the selected function.
     pub fn source(&self) -> &SourceFile {
         self.file.source()
     }
 
+    /// Borrows signature dependencies retained while this body was checked.
     pub fn signature_snapshot(&self) -> &SignatureSnapshot {
         &self.signatures
     }
@@ -97,18 +113,22 @@ impl FunctionAnalysis {
         &self.file.prepared.lowered
     }
 
+    /// Returns the function index to look up in [`Self::lowered`].
     pub fn function(&self) -> FunctionId {
         self.function
     }
 
+    /// Borrows resolved lexical names for the selected body analysis.
     pub fn names(&self) -> &ResolvedNames {
         &self.names
     }
 
+    /// Borrows declaration sites including bindings collected for the selected body.
     pub fn declarations(&self) -> &Declarations<DefinitionId> {
         &self.declarations
     }
 
+    /// Borrows checked types and lowering decisions for the selected analysis.
     pub fn type_table(&self) -> &TypeTable<DefinitionId> {
         &self.typed.facts.type_table
     }
@@ -119,16 +139,33 @@ impl FunctionAnalysis {
         self.typed.diagnostics()
     }
 
+    /// Returns the number of bodies checked while constructing this result.
     pub fn checked_bodies(&self) -> usize {
         self.typed.facts.checked_bodies
     }
 
+    /// Returns the number of bodies reused while constructing this result.
     pub fn reused_bodies(&self) -> usize {
         self.typed.facts.reused_bodies
     }
 }
 
 impl AnalysisDatabase {
+    /// Checks or reuses a selected function after preparing signature dependencies.
+    ///
+    /// Returns `Ok(None)` when the owner does not select an available source body (including
+    /// a trait method without a default). Constant prerequisites are also checked. Source
+    /// diagnostics remain in the returned analysis; signature diagnostics are available
+    /// through its retained [`SignatureSnapshot`].
+    ///
+    /// An unchanged signature result and equal body environment permit retaining the old
+    /// `Arc`. Otherwise compatible imports, hosts, types and aggregate contracts may permit
+    /// body-fact remapping; edits are not assumed reusable merely because the name matches.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AnalysisError`] for cancellation, invalid native inputs or identity mapping.
+    /// Cancellation is checked before publishing the selected-body result.
     pub fn body<I: DefinitionReference>(
         &mut self,
         source: SourceSnapshot,
@@ -293,6 +330,7 @@ impl AnalysisDatabase {
         Ok(Some(result))
     }
 
+    /// Publishes a selected result for a non-older revision and drops owners absent from declarations.
     pub(super) fn publish_body(
         &mut self,
         declarations: &DeclarationSnapshot,
@@ -320,10 +358,16 @@ impl AnalysisDatabase {
 }
 
 impl FunctionAnalysis {
+    /// Borrows the identity table owning scoped IDs in this result.
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
     }
 
+    /// Copies checked facts while translating scoped definition IDs into portable paths.
+    ///
+    /// # Errors
+    ///
+    /// Returns a mapping error if cancellation is requested or a referenced identity is invalid.
     pub fn type_table_to_paths(
         &self,
         cancel: &CancellationToken,

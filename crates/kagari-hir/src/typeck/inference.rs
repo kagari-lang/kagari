@@ -1,3 +1,7 @@
+//! Infer callee generic substitutions by structurally matching semantic types.
+//! This is separate from body-local solver variables; the caller validates the
+//! applied signature and repeated occurrences after collecting substitutions.
+
 use crate::{
     aggregates::AggregateCatalog,
     types::{GenericParameterType, TypeId, TypeSubstitution},

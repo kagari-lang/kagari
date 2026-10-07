@@ -17,28 +17,57 @@ use kagari_types::{
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
+/// Byte sites recorded while rendering one canonical declaration into generated Kagari text.
 #[derive(Debug, Clone)]
 pub struct NativeDeclarationSite {
+    /// Full declaration byte range in the generated text.
     pub span: Span,
+    /// Declaration-name byte range.
     pub name_span: Span,
+    /// Generic binder sites in declaration order.
     pub generics: Vec<Span>,
+    /// Parameter sites in declaration order.
     pub parameters: Vec<Span>,
+    /// Where/bound sites with their target and constraint ranges.
     pub bounds: Vec<NativeBoundSite>,
 }
 
+/// Generated source locations for a bound target and its requirements.
 #[derive(Debug, Clone)]
 pub struct NativeBoundSite {
+    /// Bound-subject byte range.
     pub target: Span,
+    /// Required trait/type constraint ranges in rendered order.
     pub constraints: Vec<Span>,
 }
 
+/// Generated declaration text and identity-to-site metadata from authoritative registration.
+///
+/// ```text
+/// registered ModuleDecl + providers -> declaration_source
+///   -> DeclarationSource { uri, text, sites }
+///   -> native::api parse_declarations + correspondence validation
+///   -> ordinary LoweredModule + attached installed metadata
+/// ```
+///
+/// The generated view is presentation/analysis input, not an independently authored
+/// source of native authority. All sites refer to this exact text, in bytes.
 #[derive(Debug, Clone)]
 pub struct DeclarationSource {
+    /// Source URI assigned to the generated module view.
     pub uri: String,
+    /// Complete rendered Kagari declarations and documentation.
     pub text: String,
+    /// Canonical definition paths to their generated source locations.
     pub sites: BTreeMap<DefinitionPath, NativeDeclarationSite>,
 }
 
+/// Renders complete source declarations using the module and its explicit provider set.
+///
+/// # Errors
+///
+/// Returns a declaration error if registered data cannot be rendered consistently
+/// with the supported source declaration model.
 pub fn declaration_source(
     module: &ModuleDecl,
     providers: &[Arc<ModuleDecl>],
@@ -46,6 +75,7 @@ pub fn declaration_source(
     DeclarationView { module, providers }.render()
 }
 
+/// Borrowed authoritative module plus provider context used to resolve rendered identities.
 struct DeclarationView<'a> {
     module: &'a ModuleDecl,
     providers: &'a [Arc<ModuleDecl>],

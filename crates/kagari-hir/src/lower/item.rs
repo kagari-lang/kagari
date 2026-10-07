@@ -1,3 +1,10 @@
+//! Declaration lowering, owner switching and use-tree flattening.
+//!
+//! Top-level headers enter `Module` collections; methods/defaults can also allocate
+//! function or constant slots there. Inline module declarations record a header only:
+//! analysis prepares their separate source units. `pub use ...::*` retains visibility
+//! on the import leaf and is expanded by import analysis, not into `Module.exports`.
+
 use crate::{
     hir::{
         ids::{BodyOwner, FieldId, HirOwner, TypeRefId, VariantId},
@@ -31,6 +38,7 @@ use kagari_common::span::Span;
 
 use smallvec::SmallVec;
 
+/// Accumulated use-tree prefix plus each prefix's physical source site.
 #[derive(Clone, Default)]
 struct ImportPath {
     text: String,
@@ -46,6 +54,7 @@ fn lower_visibility(visibility: AstVisibility) -> Visibility {
 }
 
 impl Lowerer {
+    /// Collects top-level declarations and explicit exports; cancellation leaves partial work for the caller to reject.
     pub(crate) fn lower_module(&mut self, module: &SourceFile) {
         for item in module.items() {
             if self.cancel.check().is_err() {
@@ -191,6 +200,12 @@ impl Lowerer {
         );
     }
 
+    /// Flattens a recursive use tree by extending a copied prefix for each child.
+    ///
+    /// For `use a::{b, c::d as e}`, leaves become `a::b`/`b` and `a::c::d`/`e`.
+    /// `base` contains the ancestors' joined spelling and prefix sites. Only leaves
+    /// allocate imports; this traversal does not resolve names or generate namespace
+    /// member imports. Recovery without a root tree yields no leaf.
     fn lower_use_tree(
         &mut self,
         visibility: Visibility,
@@ -220,6 +235,7 @@ impl Lowerer {
         }
     }
 
+    /// Stores one leaf and its prefix sites; only public non-glob leaves create explicit export records.
     fn lower_import(
         &mut self,
         visibility: Visibility,
@@ -391,6 +407,7 @@ impl Lowerer {
         }
     }
 
+    /// Builds a method's function slot under its owner, combining inherited and method generic binders.
     fn lower_method_function(
         &mut self,
         method: &MethodDef,
@@ -467,6 +484,7 @@ impl Lowerer {
             .collect::<Vec<_>>()
     }
 
+    /// Allocates a function ID, lowers signature/body under its owner, then restores the prior owner.
     fn lower_function(&mut self, function: &FnDef) -> Function {
         let id = self.source_map.push_function(syntax_span(function));
         if let Some(name) = function.name() {
@@ -564,6 +582,7 @@ impl Lowerer {
             .collect()
     }
 
+    /// Encodes trait syntax as type syntax; callable inputs become a tuple argument and an `Output` binding.
     pub(crate) fn lower_trait_ref(&mut self, trait_ref: &AstTraitRef) -> TraitRef {
         let name = trait_ref.path_text().unwrap_or_default();
         let args: SmallVec<[TypeRefId; 4]> = trait_ref
@@ -617,6 +636,7 @@ impl Lowerer {
         TraitRef { ty }
     }
 
+    /// Lowers annotation and initializer under a fresh constant body owner, restoring the caller's owner.
     fn lower_const(&mut self, const_def: &ConstDef) -> ConstItem {
         let id = self.source_map.push_const(syntax_span(const_def));
         if let Some(name) = const_def.name() {

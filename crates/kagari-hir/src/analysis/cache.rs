@@ -6,6 +6,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 
 impl FileAnalysis {
+    /// Requires identical source revision/arena and semantic dependencies before sharing the whole file result.
     pub(super) fn can_retain(
         &self,
         prepared: &PreparedAnalysis,
@@ -29,6 +30,11 @@ impl FileAnalysis {
             && previous.declarations.imported_types == prepared.declarations.imported_types
     }
 
+    /// Checks semantic compatibility before attempting per-body remapping into a new arena.
+    ///
+    /// Allows changed source revisions, but requires matching module identity, host revision,
+    /// import bindings, reachable namespaces, imported types/callables and aggregate contracts.
+    /// The body reuse layer must still compare and remap individual body contents.
     pub(super) fn can_reuse_body(
         &self,
         prepared: &PreparedAnalysis,

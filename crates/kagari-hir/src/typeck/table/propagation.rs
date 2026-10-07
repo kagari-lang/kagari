@@ -13,12 +13,18 @@ use kagari_common::{
     },
 };
 
+/// Checked branch/residual calls and ordinary enum variants selected for one postfix `?`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPropagation<I: DefinitionReference = DefinitionPath> {
+    /// Selected Try branch operation on the operand.
     pub branch: ResolvedCall<I>,
+    /// Selected conversion used on the early-return residual path.
     pub from_residual: ResolvedCall<I>,
+    /// Enclosing return type expected by residual conversion.
     pub return_type: TypeId<I>,
+    /// Canonical variant selecting the residual/early-return branch.
     pub break_variant: I,
+    /// Canonical variant carrying the successful output.
     pub continue_variant: I,
 }
 
@@ -29,6 +35,7 @@ impl TypeTable {
 }
 
 impl<I: DefinitionReference> TypeTable<I> {
+    /// Borrows the recorded propagation contract, or `None` when selection did not publish one.
     pub fn propagation(&self, id: ExprId) -> Option<&ResolvedPropagation<I>> {
         self.propagations.get(&id)
     }

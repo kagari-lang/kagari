@@ -1,3 +1,5 @@
+//! Declaration conflict collection and selected-body resolution over shared import facts.
+
 use crate::{
     AnalysisResult,
     hir::{ids::BodySelection, item::function::FunctionKind},
@@ -18,6 +20,11 @@ use {
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
+/// Resolves all bodies of one lowering with an empty host universe.
+///
+/// This convenience entrypoint builds a single-module import graph and retains
+/// declaration/import diagnostics. It neither installs foundation modules nor
+/// performs type checking; use analysis snapshots for a complete source input set.
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
     let hosts = HostDeclarations::empty();
     let graph = ModuleGraph::build([lowered], &hosts, &Default::default())
@@ -41,6 +48,7 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
     }
 }
 
+/// Shares the graph's exact scope table and adds declaration conflicts without traversing bodies.
 pub(crate) fn collect_declarations(
     lowered: &LoweredModule,
     hosts: Arc<HostDeclarations>,
@@ -159,6 +167,7 @@ pub(crate) fn collect_declarations(
     }
 }
 
+/// Resolves selected function bodies and constant initializers against the prepared declaration environment.
 pub(crate) fn resolve_bodies(
     lowered: &LoweredModule,
     names: &DeclarationNames,

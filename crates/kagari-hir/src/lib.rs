@@ -1,3 +1,31 @@
+//! Recoverable source analysis and the checked HIR boundary for Kagari.
+//!
+//! # Reading the data
+//!
+//! [`lower::LoweredModule`] owns structural HIR plus source ranges. [`hir::item::Module`]
+//! contains declarations and a shared [`hir::body::Body`] arena. Child nodes are
+//! connected by typed IDs; [`resolver::resolved::ResolvedNames`] and
+//! [`typeck::table::TypeTable`] add independent name/type/call facts using those IDs.
+//! The [`hir::ids`] documentation explains where each handle is looked up.
+//!
+//! ```text
+//! source snapshot + installed declarations
+//!   -> analysis preparation: parse/lower, namespaces, declarations, signatures
+//!   -> body resolution + type checking -> facts and diagnostics
+//!   -> checked analysis/program -> compiler source lowering
+//! ```
+//!
+//! This is a dependency outline, not a claim that every query scans or checks every
+//! body. [`analysis::AnalysisDatabase`] prepares immutable snapshots; their query
+//! APIs distinguish declaration, signature and body work and reuse retained inputs.
+//! HIR does not execute scripts. [`CheckedAnalysis`] and [`program::CheckedProgram`]
+//! feed compiler lowering; MIR verification and runtime execution have other owners.
+//!
+//! Start with [`lower::lower_module`] for a runnable node/storage example and
+//! [`analyze_source`] for single-source semantic analysis with explicit providers.
+//! The [repository reading guide](https://github.com/kagari-lang/kagari/blob/HEAD/docs/architecture/hir.md)
+//! links the local and cross-module example traces to their implementation owners.
+
 use crate::analysis::error::AnalysisError;
 use crate::{
     analysis::ownership::recover_invalid_identity,
@@ -63,36 +91,76 @@ pub mod source_map;
 pub mod typeck;
 pub mod types;
 
+/// Analysis diagnostics with four inline slots; additional diagnostics spill to the heap.
 pub type DiagnosticBuffer = SmallVec<[Diagnostic; 4]>;
 
+/// Owned diagnostic buffer used by checked-conversion failure paths.
 pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
+/// A module's lowered syntax plus independently produced semantic facts.
+///
+/// ```text
+/// AnalyzedModule<I>
+/// +-- lowered: Arc<LoweredModule> -> source + Module/Body + SourceMap
+/// +-- names: ResolvedNames       -> ExprId/PlaceId -> bindings, shared namespaces
+/// +-- declarations              -> source declarations and scoped identities
+/// +-- signatures: Arc<AnalysisResult<ModuleSignatures<I>>>
+/// +-- typed: TypedModule<I>      -> per-body types and selected operations
+/// +-- aggregates                -> nominal/trait/implementation catalog
+/// `-- imported_functions        -> callable facts for cross-module targets
+/// ```
+///
+/// The generic identity parameter distinguishes portable authoring paths from
+/// definition-table-scoped IDs. Facts may accompany error diagnostics; only the
+/// checked conversion produces [`CheckedAnalysis`] for executable lowering.
 #[derive(Debug, Clone)]
 pub struct AnalyzedModule<I: DefinitionReference = DefinitionPath> {
+    /// Nominal types, traits and implementation facts available to this analysis.
     pub aggregates: aggregates::AggregateCatalog<I>,
+    /// Shared matching source, node storage and source ranges.
     pub lowered: Arc<lower::LoweredModule>,
+    /// Resolved scope, expression, place and pattern bindings.
     pub names: ResolvedNames,
+    /// Declaration/binding metadata and definition identity context.
     pub declarations: declarations::Declarations<I>,
+    /// Checked or recovered function/constant facts, including expression types.
     pub typed: typeck::TypedModule<I>,
+    /// Shared signature-stage facts and their diagnostics.
     pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures<I>>>,
+    /// Signatures/identities of callable declarations reached through imports.
     pub imported_functions: ImportedFunctions<I>,
 }
 
+/// Useful analysis facts together with diagnostics, including recoverable errors.
+///
+/// Retrieving [`Self::facts`] does not validate the result. [`Self::into_checked`]
+/// rejects error-severity diagnostics, while warnings do not prevent extraction.
+/// Only the specialized code-generation conversion creates the checked HIR boundary.
 #[derive(Debug, Clone)]
 pub struct AnalysisResult<T> {
+    /// Produced facts; validity is determined together with the diagnostics.
     pub(crate) facts: T,
+    /// Diagnostics retained alongside the facts.
     pub(crate) diagnostics: DiagnosticBuffer,
 }
 
 impl<T> AnalysisResult<T> {
+    /// Borrows facts even when error diagnostics are present.
     pub fn facts(&self) -> &T {
         &self.facts
     }
 
+    /// Borrows diagnostics in the producer's accumulated order.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
+    /// Extracts facts when no error-severity diagnostic is present.
+    ///
+    /// # Errors
+    ///
+    /// Returns the complete diagnostic buffer if any entry has error severity.
+    /// This generic operation alone does not create the code-generation seal.
     pub fn into_checked(self) -> Result<T, BoxedDiagnosticBuffer> {
         if self
             .diagnostics
@@ -120,6 +188,13 @@ impl Deref for CheckedAnalysis {
 }
 
 impl AnalysisResult<AnalyzedModule> {
+    /// Validates diagnostics and adopts definition metadata for code generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics for analysis errors or failure to adopt bounded definition
+    /// metadata. Portable-path and already-scoped inputs use their respective identity
+    /// conversion paths; both produce immutable [`CheckedAnalysis`].
     pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
         let module = self.into_checked()?;
         CheckedAnalysis::adopt(&module, &CancellationToken::default()).map_err(|_| {
@@ -134,6 +209,7 @@ impl AnalysisResult<AnalyzedModule> {
 }
 
 impl CheckedAnalysis {
+    /// Borrows the definition table that gives all scoped IDs in this result their meaning.
     pub fn definitions(&self) -> &DefinitionTable {
         self.0.definitions()
     }
@@ -180,6 +256,11 @@ impl CheckedAnalysis {
     }
 }
 
+/// Internal signature-stage bundle passed to body checking.
+///
+/// Retains declaration inputs and shared checked signatures. `local_signature_diagnostics`
+/// separates reusable local diagnostics from the suffix recomputed against the completed
+/// aggregate catalog; signature reuse must not preserve stale cross-module diagnostics.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedAnalysis<I: DefinitionReference = DefinitionPath> {
     signatures_reused: bool,
@@ -193,6 +274,7 @@ pub(crate) struct PreparedAnalysis<I: DefinitionReference = DefinitionPath> {
 }
 
 impl PreparedAnalysis {
+    /// Validates signature contracts that require all modules' aggregate declarations to exist.
     fn completed_signatures(
         &self,
         aggregates: &aggregates::AggregateCatalog,
@@ -293,6 +375,7 @@ impl PreparedAnalysis {
     }
 }
 
+/// Internal declaration-stage bundle: shared lowering, resolved module names and declaration sites.
 #[derive(Debug, Clone)]
 pub(crate) struct DeclaredAnalysis<I: DefinitionReference = DefinitionPath> {
     lowered: Arc<lower::LoweredModule>,
@@ -301,6 +384,7 @@ pub(crate) struct DeclaredAnalysis<I: DefinitionReference = DefinitionPath> {
 }
 
 impl DeclaredAnalysis {
+    /// Checks signatures or remaps compatible previous facts after comparing imported types and namespace inputs.
     fn check_signatures(
         mut self,
         imported_types: ImportedTypes,
@@ -453,7 +537,30 @@ fn analyze_prepared(
     }
 }
 
-/// Analyze a source using only the declarations explicitly installed by its caller.
+/// Analyzes one source with explicitly installed native/foundation providers.
+///
+/// Returns recoverable facts and source diagnostics. This convenience entrypoint
+/// creates a fresh database; use [`AnalysisDatabase`] to retain caches across edits.
+///
+/// # Errors
+///
+/// Returns [`AnalysisError`] if provider import or identity conversion fails.
+///
+/// # Example
+///
+/// ```
+/// use kagari_hir::{analyze_source, hir::expr::ExprKind, types::TypeId};
+/// use kagari_source::source::SourceFile;
+/// use kagari_types::scalar::BuiltinType;
+///
+/// let source = SourceFile::new("add.kgr", "fn add(x: i32) -> i32 { val y = x + 1; y }");
+/// let analysis = analyze_source(&source, kagari_stdlib::catalog::shared()).unwrap();
+/// let facts = analysis.facts();
+/// let (sum, _) = facts.lowered.module.body.expressions()
+///     .find(|(_, expr)| matches!(expr.kind, ExprKind::Binary { .. })).unwrap();
+/// assert_eq!(facts.typed.type_table.expr_type(sum), Some(TypeId::Builtin(BuiltinType::I32)));
+/// assert!(analysis.into_codegen().is_ok());
+/// ```
 pub fn analyze_source(
     source: &SourceFile,
     providers: Vec<Arc<ModuleDecl>>,
@@ -474,11 +581,13 @@ pub fn analyze_source(
         .map_err(AnalysisError::from)
 }
 
+/// Per-analysis constant-evaluation and semantic diagnostic limits.
 pub(crate) struct AnalysisPolicy {
     const_limits: ConstLimits,
     max_semantic_diagnostics: usize,
 }
 
+/// Resolves selected lexical bodies, checks/reuses their facts and merges staged diagnostics.
 pub(crate) fn analyze_parsed(
     prepared: PreparedAnalysis,
     parsed: &Parse,
@@ -544,6 +653,13 @@ mod identity_mapping;
 mod identity_records;
 
 impl AnalysisResult<AnalyzedModule<DefinitionId>> {
+    /// Validates diagnostics and adopts definition metadata for code generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics for analysis errors or failure to adopt bounded definition
+    /// metadata. Portable-path and already-scoped inputs use their respective identity
+    /// conversion paths; both produce immutable [`CheckedAnalysis`].
     pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
         let module = self.into_checked()?;
         CheckedAnalysis::adopt_scoped(

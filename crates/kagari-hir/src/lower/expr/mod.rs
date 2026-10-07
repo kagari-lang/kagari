@@ -1,3 +1,5 @@
+//! Expression transformations and source-site recording; parentheses do not allocate HIR nodes.
+
 use crate::{
     hir::{
         expr::{
@@ -27,6 +29,7 @@ mod pattern;
 use smallvec::{SmallVec, smallvec};
 
 impl Lowerer {
+    /// Prefers binding-condition syntax over the plain expression accessor and supplies missing children for recovery.
     pub(crate) fn lower_condition(
         &mut self,
         binding: Option<BindingCondition>,
@@ -53,6 +56,12 @@ impl Lowerer {
         }
     }
 
+    /// Lowers one expression recursively and records its navigation sites.
+    ///
+    /// Parentheses return the inner ID directly. Interpolation becomes string/format
+    /// parts, constructor shorthand creates name expressions, and calls retain callee,
+    /// arguments and explicit types separately. Cancellation produces a missing node;
+    /// the enclosing analysis operation must reject cancelled publication.
     pub(crate) fn lower_expr(&mut self, expr: &Expr) -> ExprId {
         if self.cancel.check().is_err() {
             return self.missing_expr();

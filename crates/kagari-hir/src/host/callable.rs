@@ -1,3 +1,5 @@
+//! Borrowed host callable signatures consumed by the same call checker as source functions.
+
 use crate::{
     callable::CallableSignature,
     host::{HostFunctionId, origin::HostDeclarationOrigin, signature_type},
@@ -28,7 +30,7 @@ impl HostSignature {
 }
 
 /// One checked signature and its original provider contract. The contract retains
-/// capabilities, effects, resource charges and every parameter's passing style.
+/// effects and every parameter's declared type and passing style.
 #[derive(Debug, Clone, Copy)]
 pub struct HostCallable<'a> {
     pub(super) id: HostFunctionId,
@@ -38,10 +40,12 @@ pub struct HostCallable<'a> {
 }
 
 impl HostCallable<'_> {
+    /// Borrows the original installed parameter/result/effect contract.
     pub fn contract(&self) -> &HostFunctionDeclaration {
         self.declaration
     }
 
+    /// Borrows optional declaration/implementation navigation metadata.
     pub fn origin(&self) -> Option<&HostDeclarationOrigin> {
         self.origin
     }

@@ -15,9 +15,12 @@ use kagari_types::{
 };
 use std::collections::{BTreeMap, HashSet};
 
+/// HIR type views of compiler-recognized protocols whose declarations remain ordinary traits.
 pub trait ProtocolSemantics {
+    /// Builds the protocol's canonical nominal identity before applying arguments.
     fn nominal(self) -> NominalType;
 
+    /// Applies intrinsic receiver-dependent arguments and associated outputs.
     fn intrinsic_view(self, receiver: &TypeId) -> NominalType;
 }
 
@@ -158,6 +161,7 @@ pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<Ty
     }
 }
 
+/// Checks whether a protocol application is supported by intrinsic receiver semantics and available assumptions.
 pub fn intrinsic_applies(
     interface: &NominalType,
     receiver: &TypeId,
@@ -207,6 +211,7 @@ pub fn intrinsic_applies(
     }
 }
 
+/// Builds the ordinary Ordering type, optionally wrapped in the registered Option type.
 pub fn ordering_type(optional: bool) -> TypeId {
     let ordering = binding::ordering();
     raise_type(&if optional {
@@ -335,6 +340,7 @@ pub fn intrinsic_holds(
     true
 }
 
+/// Returns supported Iterable/Iterator associated outputs under the current catalog/bounds, or `None`.
 pub fn iteration_outputs(
     kind: Protocol,
     receiver: &TypeId,

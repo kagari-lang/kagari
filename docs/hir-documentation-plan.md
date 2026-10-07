@@ -1,6 +1,6 @@
 # HIR Documentation Completion Plan
 
-Status: planned; implementation has not started. The
+Status: complete; HD01-HD07 documentation and focused validation are finished. The
 [roadmap](implementation-roadmap.md#hir-documentation-completion) owns activation,
 phase order and progress. This plan is executable without the originating conversation.
 
@@ -98,7 +98,7 @@ tests where needed; do not bypass required registration to shorten an example.
 
 ```text
 fn add(x: i32) -> i32 {
-    let y = x + 1;
+    val y = x + 1;
     y
 }
 ```
@@ -200,3 +200,28 @@ Planning-only changes need link/content and diff checks, no Cargo invocation.
 No local workspace tests, complete HIR unit suite, full Clippy run or feature/backend
 matrix: GitHub CI owns broad testing. Report actual local results and CI status
 separately. Preserve unrelated work; do not fix behavioral defects as documentation.
+
+## Acceptance record
+
+HD01-HD07 are complete. All 125 production modules have orientation documentation;
+strict Rustdoc covers the public surface, including generated IDs. The
+[reading guide](architecture/hir.md) contains storage, semantic-table and query
+views, the local arithmetic trace and the three-module glob/alias trace.
+Required rendered pages were inspected, including their diagrams, table formatting
+and identity lookup links. Existing SA1-SA3 behavior is documented without changing
+it; no new architectural discrepancy requires a separate review entry.
+
+- Strict Rustdoc passes without warnings, missing public docs or broken intra-doc links.
+- Three runnable doctests pass: `lower::lower_module`, `analyze_source` and
+  `program::AnalysisSnapshot::check_program`. The first run exposed trailing syntax
+  trivia in a span assertion; the example now documents that range, and only
+  `lower::lower_module` was rerun after correction (one passed, two filtered out).
+- Changed-file formatting, local document links and `git diff --check` pass.
+  The structure checker inspected 921 Rust files: zero violations or exceptions.
+- Token comparison against the pre-task source confirms comment/format-only changes
+  in 96 Rust files, except the permitted ID macro documentation-attribute forwarding.
+  Existing user edits were preserved and excluded from the documentation commit.
+
+No local full test suite, Clippy or feature/backend matrix was run. GitHub CI has
+not been run or observed for this local documentation checkpoint. No carried
+documentation failures remain.

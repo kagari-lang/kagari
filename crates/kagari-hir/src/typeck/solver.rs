@@ -1,3 +1,5 @@
+//! Body-local constraint variables, occurs-checked substitutions and deferred numeric/never defaults.
+
 use crate::{
     hir::ids::{ExprId, TypeRefId},
     types::TypeId,
@@ -9,11 +11,17 @@ use std::collections::{HashMap, HashSet};
 /// Constraint storage belongs to one function body, never to a cached signature.
 #[derive(Default)]
 pub(super) struct Solver {
+    /// Stable per-expression/role slots to temporary inference variable numbers.
     variables: HashMap<(ExprId, usize), u32>,
+    /// Explicit type-hole sites to temporary inference variables.
     holes: HashMap<TypeRefId, u32>,
+    /// Variable-number to optional bound type; occurs checks keep substitutions acyclic.
     bindings: Vec<Option<TypeId>>,
+    /// Unsolved numeric variables and their fallback intrinsic types.
     numeric: HashMap<u32, BuiltinType>,
+    /// Unsolved variables eligible for a deferred `never` fallback.
     diverging: HashSet<u32>,
+    /// Monotonic change counter used to detect inference progress.
     pub revision: usize,
 }
 
@@ -38,6 +46,7 @@ impl Solver {
         self.revision != before
     }
 
+    /// Gets/allocates an inference variable for an explicit type-hole site.
     pub fn annotation_hole(&mut self, site: TypeRefId) -> TypeId {
         let next = self.bindings.len() as u32;
         let id = *self.holes.entry(site).or_insert_with(|| {
@@ -73,6 +82,7 @@ impl Solver {
         self.revision != before
     }
 
+    /// Gets/allocates the stable inference variable for an expression and local role slot.
     pub fn variable(&mut self, site: ExprId, slot: usize) -> TypeId {
         let next = self.bindings.len() as u32;
         let id = *self.variables.entry((site, slot)).or_insert_with(|| {
@@ -82,6 +92,7 @@ impl Solver {
         TypeId::Inference(id)
     }
 
+    /// Follows acyclic inference substitutions until stable, retaining unresolved variables.
     pub fn resolve(&self, ty: &TypeId) -> TypeId {
         let mut result = ty.clone();
         // Occurs checks guarantee an acyclic substitution graph.

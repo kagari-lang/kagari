@@ -1,3 +1,7 @@
+//! Check patterns against expected types and publish local binding types.
+//! Tuple, literal, struct and enum patterns recurse through stored PatternIds;
+//! name resolution supplies identities while this stage validates type compatibility.
+
 use crate::{
     hir::{
         expr::MatchArm,

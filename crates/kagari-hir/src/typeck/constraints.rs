@@ -1,3 +1,6 @@
+//! Resolve written generic bounds into semantic constraint targets and test standard
+//! constraints against known types, explicit generic assumptions and aggregate facts.
+
 use crate::{
     aggregates::AggregateCatalog,
     builtin::surface,
@@ -396,6 +399,10 @@ pub(super) fn parameter_bounds(
         .collect()
 }
 
+/// Returns whether a semantic type satisfies a builtin surface constraint.
+///
+/// Generic/projection types can use explicit `bounds`; equality/hash checks can consult
+/// `catalog` for declared implementations. This predicate does not emit diagnostics.
 pub fn type_satisfies_standard_constraint(
     ty: &TypeId,
     constraint: StandardTypeConstraint,

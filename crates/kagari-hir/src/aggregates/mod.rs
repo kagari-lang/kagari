@@ -33,66 +33,125 @@ pub mod protocols;
 mod storage;
 pub mod traits;
 
+/// A canonical struct field contract used for local and imported member access.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldSignature<I: DefinitionReference = DefinitionPath> {
+    /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
+    /// Canonical definition identity of the enclosing declaration.
     pub owner: I,
+    /// Zero-based member position within the enclosing declaration, not a byte offset.
     pub slot: usize,
+    /// Member/type spelling for lookup and diagnostics; identity is stored separately.
     pub name: String,
+    /// Declared access boundary checked when selecting this member.
     pub visibility: Visibility,
+    /// Declared binding/field mutation policy.
     pub writeability: Writeability,
+    /// Checked or recovered semantic value type.
     pub ty: TypeId<I>,
+    /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration<I>,
 }
 
+/// A canonical inherent method, its receiver pattern and typed callable contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InherentMethodSignature<I: DefinitionReference = DefinitionPath> {
+    /// Qualified source declaration address of the method function.
     pub id: SourceDeclRef,
+    /// Canonical method definition identity.
     pub declaration: I,
+    /// Original method declaration/navigation record.
     pub site: Declaration<I>,
+    /// Semantic receiver pattern to which this method belongs.
     pub owner: TypeId<I>,
+    /// Declared access boundary checked when selecting this member.
     pub visibility: Visibility,
+    /// Checked callable contract, including generic binders and implementation provenance.
     pub function: TypedFunction<I>,
 }
 
+/// Shared nominal struct contract with typed field slots and generic requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructSignature<I: DefinitionReference = DefinitionPath> {
+    /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
+    /// Generic binders in declaration order, identified by owner and position.
     pub generic_params: Vec<GenericParameterType<I>>,
+    /// Checked generic constraints used during application/implementation selection.
     pub bounds: GenericBounds<I>,
+    /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration<I>,
+    /// Fields in declaration slot order.
     pub fields: Vec<FieldSignature<I>>,
 }
 
+/// Shared registered nominal type contract and its installed representation descriptor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeTypeSignature<I: DefinitionReference = DefinitionPath> {
+    /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
+    /// Generic binders in declaration order, identified by owner and position.
     pub generic_params: Vec<GenericParameterType<I>>,
+    /// Checked generic constraints used during application/implementation selection.
     pub bounds: GenericBounds<I>,
+    /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration<I>,
+    /// Installed storage/type representation; independent of source spelling.
     pub representation: NativeTypeKind<I>,
 }
 
+/// Canonical enum variant, payload types and logical variant slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantSignature<I: DefinitionReference = DefinitionPath> {
+    /// Registration metadata marks this variant as reporting failure.
     pub reports_failure: bool,
+    /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
+    /// Canonical definition identity of the enclosing declaration.
     pub owner: I,
+    /// Zero-based member position within the enclosing declaration, not a byte offset.
     pub slot: usize,
+    /// Member/type spelling for lookup and diagnostics; identity is stored separately.
     pub name: String,
+    /// Payload semantic types in positional order.
     pub payload: Vec<TypeId<I>>,
+    /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration<I>,
 }
 
+/// Shared nominal enum contract with typed payloads and generic requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumSignature<I: DefinitionReference = DefinitionPath> {
+    /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
+    /// Generic binders in declaration order, identified by owner and position.
     pub generic_params: Vec<GenericParameterType<I>>,
+    /// Checked generic constraints used during application/implementation selection.
     pub bounds: GenericBounds<I>,
+    /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration<I>,
+    /// Variants in logical slot order.
     pub variants: Vec<VariantSignature<I>>,
 }
 
+/// Canonical nominal, member, trait and implementation contracts across prepared modules.
+///
+/// Built from declaration/signature facts, then read by body checking and compiler
+/// lowering. Source aliases do not create duplicate nominal types. Records are
+/// shared with `Arc`; reverse member indexes retain an owner identity and a slot.
+///
+/// ```text
+/// structures[struct_definition] -> Arc<StructSignature { fields, ... }>
+/// fields[field_definition]      -> (struct_definition, slot) -> fields[slot]
+/// traits[trait_definition]      -> Arc<TraitSignature { methods, ... }>
+/// methods[method_definition]    -> (trait_definition, slot) -> methods[slot]
+/// implementations[impl_definition] -> trait application + receiver pattern + bounds
+/// ```
+///
+/// The slots are semantic member positions, not native memory layout offsets.
+/// The catalog can contain recovered error types until the enclosing checked gate
+/// rejects diagnostics. Generic matching/normalization does not execute methods.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateCatalog<I: DefinitionReference = DefinitionPath> {
     language_items: BTreeMap<LangRole, I>,
@@ -101,15 +160,19 @@ pub struct AggregateCatalog<I: DefinitionReference = DefinitionPath> {
     traits: BTreeMap<I, Arc<TraitSignature<I>>>,
     implementations: BTreeMap<I, Arc<ImplementationSignature<I>>>,
     methods: BTreeMap<I, (I, usize)>,
+    /// Visits inherent method contracts in definition-key order.
     inherent_methods: BTreeMap<I, Arc<InherentMethodSignature<I>>>,
     native_types: BTreeMap<I, Arc<NativeTypeSignature<I>>>,
+    /// Visits struct contracts in definition-key order.
     structures: BTreeMap<I, Arc<StructSignature<I>>>,
     fields: BTreeMap<I, (I, usize)>,
+    /// Visits enum contracts in definition-key order.
     enumerations: BTreeMap<I, Arc<EnumSignature<I>>>,
     variants: BTreeMap<I, (I, usize)>,
 }
 
 impl AggregateCatalog {
+    /// Returns the installed declaration for a supported language protocol, or `None` if its role/trait is absent.
     pub fn language_trait(&self, protocol: Protocol) -> Option<NominalType> {
         let role = LangRole::from_protocol(protocol)?;
         let declaration = self.language_items.get(&role)?.clone();
@@ -121,6 +184,7 @@ impl AggregateCatalog {
         })
     }
 
+    /// Checks whether intrinsic protocol rules apply under the supplied generic bounds.
     pub fn intrinsic_implementation(
         &self,
         interface: &NominalType,
@@ -522,10 +586,12 @@ impl<I: DefinitionReference> Default for AggregateCatalog<I> {
 mod mapping;
 
 impl<I: DefinitionReference> AggregateCatalog<I> {
+    /// Borrows a registered native type contract by canonical definition identity.
     pub fn native_type(&self, id: &I) -> Option<&NativeTypeSignature<I>> {
         self.native_types.get(id).map(Arc::as_ref)
     }
 
+    /// Finds an implementation constant override, falling back to the trait member's default initializer.
     pub fn implementation_constant(&self, implementation: &I, member: &I) -> Option<&I> {
         self.implementation_constants
             .get(implementation)
@@ -538,31 +604,38 @@ impl<I: DefinitionReference> AggregateCatalog<I> {
             })
     }
 
+    /// Visits inherent method contracts in definition-key order.
     pub fn inherent_methods(&self) -> impl Iterator<Item = &InherentMethodSignature<I>> {
         self.inherent_methods.values().map(AsRef::as_ref)
     }
 
+    /// Visits enum contracts in definition-key order.
     pub fn enumerations(&self) -> impl Iterator<Item = &EnumSignature<I>> {
         self.enumerations.values().map(AsRef::as_ref)
     }
 
+    /// Borrows an enum contract, or `None` if the definition is not in this catalog.
     pub fn enumeration(&self, id: &I) -> Option<&EnumSignature<I>> {
         self.enumerations.get(id).map(AsRef::as_ref)
     }
 
+    /// Finds a canonical variant through its owner/slot reverse index.
     pub fn variant(&self, id: &I) -> Option<&VariantSignature<I>> {
         let (owner, slot) = self.variants.get(id)?;
         self.enumeration(owner)?.variants.get(*slot)
     }
 
+    /// Visits struct contracts in definition-key order.
     pub fn structures(&self) -> impl Iterator<Item = &StructSignature<I>> {
         self.structures.values().map(AsRef::as_ref)
     }
 
+    /// Borrows a struct contract, or `None` if the definition is not in this catalog.
     pub fn structure(&self, id: &I) -> Option<&StructSignature<I>> {
         self.structures.get(id).map(AsRef::as_ref)
     }
 
+    /// Finds a canonical field through its owner/slot reverse index.
     pub fn field(&self, id: &I) -> Option<&FieldSignature<I>> {
         let (owner, slot) = self.fields.get(id)?;
         self.structure(owner)?.fields.get(*slot)

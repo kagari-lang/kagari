@@ -1,3 +1,7 @@
+//! Resolve callable applications, infer substitutions and check arguments.
+//! Successful checks record canonical call targets and applied signatures in TypeTable
+//! so downstream lowering need not repeat overload or generic argument selection.
+
 use crate::{
     callable::{AppliedCallSignature, CallableSignature},
     hir::{expr::ExprKind, ids::ExprId},

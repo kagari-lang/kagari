@@ -21,6 +21,12 @@ pub struct HostSourceLocation {
 }
 
 impl HostSourceLocation {
+    /// Validates an origin URI and ordered half-open byte range without reading the document.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidDeclaration` for an invalid URI/source name, whitespace/control
+    /// characters, or a reversed range. The range is not checked against file contents.
     pub fn new(uri: impl Into<String>, range: Span) -> Result<Self, HostInterfaceError> {
         let uri = uri.into();
         let valid_scheme = uri.split_once("://").is_some_and(|(scheme, _)| {
@@ -39,15 +45,18 @@ impl HostSourceLocation {
         Ok(Self { uri, range })
     }
 
+    /// Borrows the supplied navigation URI.
     pub fn uri(&self) -> &str {
         &self.uri
     }
 
+    /// Returns the supplied half-open UTF-8 byte range.
     pub fn range(&self) -> Span {
         self.range
     }
 }
 
+/// Optional declaration and Rust implementation navigation sites, independent of binding authority.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostDeclarationOrigin {
     /// Preferred navigation target, usually a generated Kagari declaration.
@@ -57,6 +66,7 @@ pub struct HostDeclarationOrigin {
 }
 
 impl HostDeclarationOrigin {
+    /// Prefers the declaration view, then the Rust implementation site, or returns `None`.
     pub fn preferred(&self) -> Option<&HostSourceLocation> {
         self.declaration.as_ref().or(self.rust.as_ref())
     }
@@ -66,7 +76,9 @@ impl HostDeclarationOrigin {
 /// origins are a separate, optional view keyed by identities in that interface.
 #[derive(Debug, Clone, Default)]
 pub struct HostInput {
+    /// Authoritative portable host callable/type/access declarations.
     pub interface: HostInterface,
+    /// Optional navigation sites keyed by identities present in the interface.
     pub origins: HashMap<DefinitionPath, HostDeclarationOrigin>,
 }
 

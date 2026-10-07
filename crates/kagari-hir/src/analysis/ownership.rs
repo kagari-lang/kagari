@@ -20,6 +20,7 @@ use {
     kagari_source::source::SourceFile,
 };
 
+/// Interns portable paths in the database context and validates records with its resulting table.
 pub(super) fn scope<T: DefinitionRecord<DefinitionPath>>(
     record: &T,
     context: &DefinitionContext,
@@ -35,6 +36,7 @@ where
     DefinitionMetadata::checked(context.snapshot(), records, cancel)
 }
 
+/// Copies records while resolving every scoped ID through the supplied definition table.
 pub(crate) fn paths<T: DefinitionRecord<DefinitionId>>(
     record: &T,
     definitions: &DefinitionTable,
@@ -46,6 +48,7 @@ pub(crate) fn paths<T: DefinitionRecord<DefinitionId>>(
     ))
 }
 
+/// Maps portable or scoped references into an existing table; invalid/absent identities return None.
 pub(super) fn locate<I: DefinitionReference, T: DefinitionRecord<I>>(
     record: &T,
     definitions: &DefinitionTable,
@@ -58,6 +61,7 @@ pub(super) fn locate<I: DefinitionReference, T: DefinitionRecord<I>>(
         .ok()
 }
 
+/// Produces recoverable analysis with diagnostics for an over-limit source module identity.
 pub(crate) fn recover_invalid_identity(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
     let cancel = CancellationToken::default();
     let parsed =

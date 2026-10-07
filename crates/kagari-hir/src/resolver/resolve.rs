@@ -1,3 +1,5 @@
+//! Lexical traversal, shadowing, namespace lookup and closure capture collection.
+
 use crate::{
     builtin::BuiltinFunction,
     hir::{
@@ -26,11 +28,18 @@ use std::{
     sync::Arc,
 };
 
+/// Active lexical frame: retained scope index plus each spelling's latest binding index.
 struct ActiveScope {
     id: usize,
     latest: HashMap<String, usize>,
 }
 
+/// Mutable lexical traversal state for one lowering and shared module inputs.
+///
+/// `scopes` is an active stack pointing into the retained scope history in `resolved`.
+/// `latest` implements current shadowing; the retained history supports byte-offset
+/// queries. Closure frames accumulate captured bindings, and owner assertions prevent
+/// cross-function node traversal.
 pub(crate) struct BodyResolver<'a> {
     cancel: CancellationToken,
     names: &'a NameTable,
@@ -66,6 +75,7 @@ impl<'a> BodyResolver<'a> {
         self.resolved
     }
 
+    /// Checks the body owner, binds parameters, visits its nested block scopes and restores the outer scope.
     pub(crate) fn resolve_function(
         &mut self,
         function: FunctionId,
@@ -89,6 +99,7 @@ impl<'a> BodyResolver<'a> {
         self.pop_scope();
     }
 
+    /// Resolves a constant initializer under its asserted constant owner.
     pub(crate) fn resolve_top_level_expr(&mut self, owner: ConstId, expr: ExprId) {
         assert_eq!(
             expr.owner(),
@@ -451,6 +462,7 @@ impl<'a> BodyResolver<'a> {
         self.names.lookup(name)
     }
 
+    /// Checks lexical/module bindings, then qualified namespace lookup, then recognized runtime helpers; locals block a qualified root.
     fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
         if let Some(binding) = self.binding(name) {
             return binding.target();
@@ -477,6 +489,7 @@ impl<'a> BodyResolver<'a> {
         None
     }
 
+    /// Records a parameter/local binding and its visibility start, retaining shadowed history.
     fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {
         match resolved {
             ResolvedName::Param(id) => self.assert_current_owner(id.owner()),

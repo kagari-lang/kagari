@@ -77,23 +77,37 @@ pub(crate) mod ownership;
 pub mod signature_queries;
 mod target_queries;
 
+/// One file's parsed source and completed semantic analysis, retained by a snapshot.
+///
+/// `result` owns checked facts plus diagnostics and their definition table. Local HIR
+/// IDs index `result().facts().lowered`; scoped definition IDs resolve through
+/// [`Self::definitions`]. Position queries read these facts without rechecking bodies.
+/// Offsets are UTF-8 byte offsets in [`Self::source`]; missing or inapplicable facts
+/// return `None`. Type queries translate scoped identities to portable paths.
 #[derive(Debug)]
 pub struct FileAnalysis {
+    /// Cached source ranges and namespace lookup results for type navigation.
     type_hits: Vec<(Span, LookupHit)>,
     signatures_reused: bool,
+    /// Borrows the immutable source revision analyzed by this result.
     source: Arc<SourceFile>,
 
     parsed: Parse,
+    /// Semantic facts and diagnostics paired with the table owning their definition IDs.
     result: DefinitionMetadata<AnalysisResult<AnalyzedModule<DefinitionId>>>,
 }
 
+/// A visible lexical declaration paired with its checked, portable type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingInfo {
+    /// Type with portable definition paths, suitable for presentation outside the snapshot.
     pub ty: TypeId,
+    /// Binding declaration whose scoped IDs belong to the originating file analysis.
     pub declaration: Declaration<DefinitionId>,
 }
 
 impl FileAnalysis {
+    /// Returns the registered host field selected at an expression or assignment member name.
     pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
         let facts = self.result.records().facts();
         let expressions = facts
@@ -145,10 +159,12 @@ impl FileAnalysis {
         self.signatures_reused
     }
 
+    /// Borrows the shared signature-stage result used to check this file.
     pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures<DefinitionId>>> {
         &self.result.records().facts().signatures
     }
 
+    /// Finds an imported source function at a reference, checked call or import directive.
     pub fn source_function_at(&self, offset: usize) -> Option<&ImportedFunction<DefinitionId>> {
         let facts = self.result.records().facts();
         facts
@@ -212,6 +228,7 @@ impl FileAnalysis {
             })
     }
 
+    /// Finds the registered host function referenced at this byte offset.
     pub fn host_function_at(&self, offset: usize) -> Option<&HostFunctionDeclaration> {
         let facts = self.result.records().facts();
         facts
@@ -322,30 +339,36 @@ impl FileAnalysis {
             })
     }
 
+    /// Returns a typed AST view of the retained parse tree.
     pub fn syntax(&self) -> AstSourceFile {
         self.parsed.syntax()
     }
 
+    /// Borrows the immutable source revision analyzed by this result.
     pub fn source(&self) -> &SourceFile {
         &self.source
     }
 
+    /// Borrows recoverable semantic facts and diagnostics, including body analysis.
     pub fn result(&self) -> &AnalysisResult<AnalyzedModule<DefinitionId>> {
         self.result.records()
     }
 
+    /// Returns the most specific available checked type at a source byte offset.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         let facts = self.result.records().facts();
         let ty = type_at_in(&facts.lowered, &facts.typed.type_table, offset)?;
         ownership::paths(&ty, self.definitions(), &CancellationToken::default()).ok()
     }
 
+    /// Returns the checked receiver type for member access at this byte offset.
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
         let facts = self.result.records().facts();
         let ty = member_receiver_type_in(&facts.lowered, &facts.typed.type_table, offset)?;
         ownership::paths(&ty, self.definitions(), &CancellationToken::default()).ok()
     }
 
+    /// Finds a declaration site or the declaration selected by a checked source reference.
     pub fn definition_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
         let facts = self.result.records().facts();
         if let Some(declaration) = facts.declarations.site_at(offset) {
@@ -567,6 +590,7 @@ impl FileAnalysis {
             })
     }
 
+    /// Collects visible lexical bindings and their checked types at a source byte offset.
     pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {
         let facts = self.result.records().facts();
         facts
@@ -730,22 +754,50 @@ fn member_receiver_type_in<I: DefinitionReference>(
         .map(|(_, ty)| ty)
 }
 
+/// Mutable owner of reusable analysis inputs and published query caches.
+///
+/// Choose the required depth explicitly:
+///
+/// ```text
+/// SourceSnapshot + host/native registrations
+///   declarations() -> DeclarationSnapshot: parse, lower, imports, declaration names
+///   signatures()   -> SignatureSnapshot: declarations + checked signatures
+///   body(owner)    -> FunctionAnalysis: signatures + selected body/constant prerequisites
+///   snapshot()     -> AnalysisSnapshot: signatures + all file bodies
+/// ```
+///
+/// The last two entrypoints check or reuse bodies before returning; snapshot position
+/// queries are reads of prepared facts. Analysis errors describe cancellation or invalid
+/// inputs/identity metadata; ordinary source errors are retained as diagnostics.
+///
+/// Caches retain immutable `Arc` results. A matching revision alone is insufficient:
+/// imports, reachable namespaces, registered hosts and semantic dependencies also
+/// participate in reuse. Publication checks cancellation and does not replace newer
+/// published snapshots with older revisions. Earlier returned snapshots remain valid.
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    /// Database identity context used to scope portable declaration paths.
     definitions: DefinitionContext,
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
+    /// Selected-function results indexed by canonical definition identity.
     body_cache: DefinitionMap<Arc<FunctionAnalysis>>,
+    /// Newest source revision admitted to the selected-body cache.
     body_revision: Revision,
+    /// Latest published declaration snapshot, including shared parse/lowering results.
     declaration_cache: Option<DeclarationSnapshot>,
+    /// Latest published signatures and their declaration snapshot.
     signature_cache: Option<SignatureSnapshot>,
+    /// Latest fully analyzed files, retained independently of selected-body queries.
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
     hosts: Arc<HostDeclarations>,
+    /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
     native_modules: Vec<Arc<ModuleDecl>>,
     native_sources: Option<Vec<DeclarationSource>>,
+    /// Parsed/lowered installed declaration sources, initialized once per registration setup.
     native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
 }
 
@@ -800,6 +852,7 @@ impl AnalysisDatabase {
         Ok(())
     }
 
+    /// Sets the per-analysis diagnostic budget, clearing body/file caches when it changes.
     pub fn set_max_semantic_diagnostics(&mut self, limit: usize) {
         if self.max_semantic_diagnostics != limit {
             self.max_semantic_diagnostics = limit;
@@ -808,6 +861,7 @@ impl AnalysisDatabase {
         }
     }
 
+    /// Sets constant-evaluation limits, clearing body/file caches when they change.
     pub fn set_const_limits(&mut self, limits: ConstLimits) {
         if self.const_limits != limits {
             self.const_limits = limits;
@@ -830,10 +884,21 @@ impl AnalysisDatabase {
         self.files.clear();
     }
 
+    /// Replaces host inputs; later query reuse compares the host registry revision.
     pub fn set_host_declarations(&mut self, hosts: Arc<HostDeclarations>) {
         self.hosts = hosts;
     }
 
+    /// Prepares signatures and checks or reuses bodies for every supplied/discovered file.
+    ///
+    /// Returns an immutable result even when source diagnostics exist. Use
+    /// [`AnalysisSnapshot::check_program`] to require an error-free dependency closure.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AnalysisError`] on cancellation, invalid installed declarations or
+    /// identity mapping failure. A cancelled preparation is not published as a new
+    /// complete analysis snapshot.
     pub fn snapshot(
         &mut self,
         source: SourceSnapshot,
@@ -964,11 +1029,29 @@ impl AnalysisDatabase {
     }
 }
 
+/// Immutable, fully prepared analysis results from one source snapshot.
+///
+/// ```text
+/// AnalysisSnapshot
+///   signatures --shared results--> SignatureSnapshot --> DeclarationSnapshot
+///   graph      --Arc-------------> ModuleGraph
+///   files      --Arc<HashMap>----> FileId -> Arc<FileAnalysis>
+///                                            parse + HIR + semantic side tables
+///   definitions ----------------> scoped DefinitionId lookup table
+/// ```
+///
+/// Created eagerly by [`AnalysisDatabase::snapshot`]. Position queries select the
+/// appropriate inline-module analysis when necessary and read existing facts;
+/// they do not execute scripts. [`Self::check_program`] validates a root's reachable
+/// closure for compiler handoff. Keeping a snapshot keeps its source and facts alive
+/// across later database edits.
 #[derive(Debug, Clone)]
 pub struct AnalysisSnapshot {
     definitions: DefinitionTable,
     signatures: SignatureSnapshot,
+    /// Returns the revision of the input source snapshot.
     revision: Revision,
+    /// Returns the host registry revision used by this analysis.
     host_revision: u64,
     graph: Arc<ModuleGraph>,
     files: Arc<HashMap<FileId, Arc<FileAnalysis>>>,
@@ -1005,6 +1088,7 @@ impl AnalysisSnapshot {
         self.signatures.declaration_snapshot()
     }
 
+    /// Borrows the signature snapshot used to prepare all file bodies.
     pub fn signature_snapshot(&self) -> &SignatureSnapshot {
         &self.signatures
     }
@@ -1077,6 +1161,7 @@ impl AnalysisSnapshot {
             })
     }
 
+    /// Finds a declaration at a physical source position, including inline-module routing.
     pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration<DefinitionId>> {
         let analysis = self.analysis_at(file, offset)?;
         if let Some(declaration) = analysis.definition_at(offset) {
@@ -1116,22 +1201,27 @@ impl AnalysisSnapshot {
             .target(target.item.local()?)
     }
 
+    /// Borrows the import graph built for this source snapshot.
     pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph
     }
 
+    /// Returns the host registry revision used by this analysis.
     pub fn host_revision(&self) -> u64 {
         self.host_revision
     }
 
+    /// Returns the revision of the input source snapshot.
     pub fn revision(&self) -> Revision {
         self.revision
     }
 
+    /// Finds a physical or synthetic file analysis by its exact file ID.
     pub fn file(&self, id: FileId) -> Option<&Arc<FileAnalysis>> {
         self.files.get(&id)
     }
 
+    /// Finds a declaration after mapping its identity into this snapshot; returns `None` if absent.
     pub fn declaration<I: DefinitionReference>(
         &self,
         id: &DeclarationId<I>,
@@ -1191,6 +1281,7 @@ mod type_name_tests;
 mod tests;
 
 impl FileAnalysis {
+    /// Borrows the table that owns scoped definition IDs in this file result.
     pub fn definitions(&self) -> &DefinitionTable {
         self.result.definitions()
     }

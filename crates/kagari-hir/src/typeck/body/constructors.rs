@@ -1,3 +1,7 @@
+//! Check struct fields and enum payload applications against aggregate declarations.
+//! Records selected constructor/field identities and instantiated result types;
+//! missing, duplicate and incompatible inputs remain source diagnostics.
+
 use crate::{
     declarations::DeclarationId,
     hir::{

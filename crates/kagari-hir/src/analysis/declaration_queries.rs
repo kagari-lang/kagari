@@ -37,6 +37,10 @@ use std::{
 #[cfg(test)]
 mod tests;
 
+/// Parsed/lowered source with module imports and declaration names, before type checking.
+///
+/// Owns no checked function-body facts. The lowered arena is shared with later stages;
+/// [`Self::declarations`] contains declaration sites, not body-local bindings.
 #[derive(Debug)]
 pub struct FileDeclarations {
     pub(super) parsed: Parse,
@@ -45,14 +49,17 @@ pub struct FileDeclarations {
 }
 
 impl FileDeclarations {
+    /// Finds a declared field or enum variant at a source byte offset.
     pub fn member_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
         self.declarations().member_at(offset)
     }
 
+    /// Borrows the physical or synthetic source analyzed by this declaration result.
     pub fn source(&self) -> &SourceFile {
         &self.declared.lowered.source
     }
 
+    /// Returns a typed AST view of the retained parse.
     pub fn syntax(&self) -> AstSourceFile {
         self.parsed.syntax()
     }
@@ -62,6 +69,7 @@ impl FileDeclarations {
         &self.declared.declarations
     }
 
+    /// Borrows module-level name/import resolution without lexical body bindings.
     pub fn names(&self) -> &DeclarationNames {
         self.declared.names.facts()
     }
@@ -72,23 +80,34 @@ impl FileDeclarations {
     }
 }
 
+/// Immutable declarations and import graph for supplied, inline and installed sources.
+///
+/// `files` maps each `FileId` to a shared [`FileDeclarations`]. Inline modules have
+/// synthetic file IDs while retaining their physical source origin and byte offsets.
+/// Later signature queries retain this snapshot rather than independently recollecting
+/// its declaration sites.
 #[derive(Debug, Clone)]
 pub struct DeclarationSnapshot {
+    /// Returns the input source snapshot revision.
     revision: Revision,
+    /// Returns the host registry revision used for declaration resolution.
     host_revision: u64,
     pub(super) graph: Arc<ModuleGraph>,
     pub(super) files: Arc<BTreeMap<FileId, Arc<FileDeclarations>>>,
 }
 
 impl DeclarationSnapshot {
+    /// Returns the input source snapshot revision.
     pub fn revision(&self) -> Revision {
         self.revision
     }
 
+    /// Returns the host registry revision used for declaration resolution.
     pub fn host_revision(&self) -> u64 {
         self.host_revision
     }
 
+    /// Finds declarations for an exact physical or synthetic file ID.
     pub fn file(&self, id: FileId) -> Option<&Arc<FileDeclarations>> {
         self.files.get(&id)
     }
@@ -111,10 +130,12 @@ impl DeclarationSnapshot {
         })
     }
 
+    /// Borrows the resolved module graph shared by these declarations.
     pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph
     }
 
+    /// Maps an identity into each file table and returns its declaration, if present.
     pub fn declaration<I: DefinitionReference>(
         &self,
         id: &DeclarationId<I>,
@@ -127,6 +148,16 @@ impl DeclarationSnapshot {
 }
 
 impl AnalysisDatabase {
+    /// Parses/lowers sources and resolves imports and declaration names without checking bodies.
+    ///
+    /// Includes installed native declarations and recursively discovered inline modules.
+    /// Source errors remain in each file's diagnostics. Successful preparation is published
+    /// only after a cancellation check and never replaces a newer declaration snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AnalysisError`] for cancellation, invalid native declaration inputs or
+    /// invalid identity metadata.
     pub fn declarations(
         &mut self,
         source: SourceSnapshot,
@@ -138,6 +169,7 @@ impl AnalysisDatabase {
         Ok(snapshot)
     }
 
+    /// Publishes a non-older declaration snapshot and prunes stale selected-body entries.
     pub(super) fn publish_declarations(&mut self, snapshot: DeclarationSnapshot) {
         self.publish_body(&snapshot, None);
         if self
@@ -149,6 +181,13 @@ impl AnalysisDatabase {
         }
     }
 
+    /// Builds declarations using reusable parses and a newly resolved import graph.
+    ///
+    /// Current inline-module discovery copies the enclosing source, blanks bytes outside
+    /// the module body (preserving line breaks/offsets), assigns a synthetic file ID and
+    /// queues that source for parsing/lowering. It does not reuse the existing AST subtree.
+    /// File results are retained only when source/host revisions, import facts and reachable
+    /// namespace contents permit it. This prepares a value; publication is separate.
     pub(super) fn prepare_declarations(
         &self,
         source: SourceSnapshot,

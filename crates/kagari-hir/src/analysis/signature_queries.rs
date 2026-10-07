@@ -43,10 +43,12 @@ use std::{
 #[cfg(test)]
 mod tests;
 
+/// One file's declaration snapshot plus checked signature facts and accumulated diagnostics.
 #[derive(Debug, Clone)]
 pub struct FileSignatures {
     pub(super) declaration: Arc<FileDeclarations>,
     pub(super) prepared: PreparedAnalysis<DefinitionId>,
+    /// Returns accumulated diagnostics through the signature stage, excluding function bodies.
     diagnostics: DiagnosticBuffer,
 }
 
@@ -93,18 +95,22 @@ impl FileSignatures {
         .ok()
     }
 
+    /// Borrows the source retained by the declaration stage.
     pub fn source(&self) -> &SourceFile {
         self.declaration.source()
     }
 
+    /// Borrows declaration identities and imported type bindings used by signature checking.
     pub fn declarations(&self) -> &Declarations<DefinitionId> {
         &self.prepared.declarations
     }
 
+    /// Borrows checked signatures and their recoverable signature diagnostics.
     pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures<DefinitionId>>> {
         &self.prepared.signatures
     }
 
+    /// Returns accumulated diagnostics through the signature stage, excluding function bodies.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
@@ -115,6 +121,12 @@ impl FileSignatures {
     }
 }
 
+/// Checked signatures for all declaration files, before function-body checking.
+///
+/// Retains a [`DeclarationSnapshot`], a `FileId -> Arc<FileSignatures>` map and a
+/// shared aggregate catalog. Body queries derive visible function/aggregate inputs
+/// from this snapshot. Reuse depends on declaration results and imported type inputs;
+/// completing aggregate contracts can add signature diagnostics.
 #[derive(Debug, Clone)]
 pub struct SignatureSnapshot {
     pub(super) declarations: DeclarationSnapshot,
@@ -124,6 +136,7 @@ pub struct SignatureSnapshot {
 }
 
 impl SignatureSnapshot {
+    /// Projects signatures into per-file imported callable and visible aggregate inputs.
     pub(super) fn body_environments(
         &self,
         cancel: &CancellationToken,
@@ -156,34 +169,51 @@ impl SignatureSnapshot {
         Ok(result)
     }
 
+    /// Returns the declaration input snapshot revision.
     pub fn revision(&self) -> Revision {
         self.declarations.revision()
     }
 
+    /// Returns the host registry revision inherited from declaration analysis.
     pub fn host_revision(&self) -> u64 {
         self.declarations.host_revision()
     }
 
+    /// Finds checked signatures for an exact file ID, or `None` if absent.
     pub fn file(&self, id: FileId) -> Option<&Arc<FileSignatures>> {
         self.files.get(&id)
     }
 
+    /// Borrows the declaration-stage inputs retained by this snapshot.
     pub fn declaration_snapshot(&self) -> &DeclarationSnapshot {
         &self.declarations
     }
 
+    /// Borrows the declaration snapshot's resolved import graph.
     pub fn module_graph(&self) -> &ModuleGraph {
         self.declarations.module_graph()
     }
 }
 
+/// Semantic dependencies required to check one file's bodies.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct BodyEnvironment<I: DefinitionReference = DefinitionPath> {
+    /// Callable signatures selected by the file's imports, including inherent methods.
     pub imported_functions: ImportedFunctions<I>,
+    /// Aggregate and implementation contracts visible to this file.
     pub aggregates: AggregateCatalog<I>,
 }
 
 impl AnalysisDatabase {
+    /// Prepares declarations and checked signatures without analyzing function bodies.
+    ///
+    /// Builds imported type projections and aggregate contracts across the supplied sources.
+    /// Ordinary source errors remain in per-file diagnostics; successful preparation is
+    /// published after checking cancellation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AnalysisError`] for cancellation, invalid native inputs or identity mapping.
     pub fn signatures(
         &mut self,
         source: SourceSnapshot,
@@ -195,6 +225,7 @@ impl AnalysisDatabase {
         Ok(snapshot)
     }
 
+    /// Publishes the declaration dependency and signatures only when their revisions are not older.
     pub(super) fn publish_signatures(&mut self, snapshot: SignatureSnapshot) {
         self.publish_declarations(snapshot.declarations.clone());
         if self
@@ -206,6 +237,7 @@ impl AnalysisDatabase {
         }
     }
 
+    /// Checks or reuses file signatures, then completes visible aggregate contracts before publication.
     pub(super) fn prepare_signatures(
         &self,
         source: SourceSnapshot,
@@ -349,6 +381,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BodyEnvironment<I> {
 }
 
 impl FileSignatures {
+    /// Borrows the table owning scoped IDs in these signature facts.
     pub fn definitions(&self) -> &DefinitionTable {
         self.prepared.declarations.definitions()
     }

@@ -9,15 +9,27 @@ use crate::{
 use kagari_source::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
 
+/// Prior body facts plus old/new text used to attempt arena-aware reuse.
+///
+/// The caller first checks imports, signatures and aggregate environments. Reuse
+/// then requires compatible surrounding declaration tokens, unchanged body text
+/// and a source-map correspondence. Local IDs are remapped into the new arena;
+/// old IDs cannot simply be copied. Failed correspondence falls back to checking.
 pub struct BodyReuse<'a> {
+    /// Previous analysis diagnostics used to exclude unsafe reuse.
     pub previous_diagnostics: &'a [Diagnostic],
+    /// Old source, nodes and source-map ownership for remapping.
     pub previous_lowered: &'a LoweredModule,
+    /// Previously published type/call/member facts.
     pub previous_types: &'a TypeTable,
+    /// Text whose byte ranges the previous source map describes.
     pub old_text: &'a str,
+    /// Current text whose byte ranges the new lowering describes.
     pub new_text: &'a str,
 }
 
 impl BodyReuse<'_> {
+    /// Requires compatible surrounding source tokens and diagnostic locations before trying body reuse.
     pub(crate) fn environment_matches(&self, current: &LoweredModule) -> bool {
         self.previous_diagnostics.iter().all(|diagnostic| {
             diagnostic.span.is_some_and(|span| {
@@ -39,6 +51,7 @@ impl BodyReuse<'_> {
             )
     }
 
+    /// Matches unchanged body syntax and remaps its IDs/spans into the new lowering before restoring facts.
     pub(crate) fn restore(
         &self,
         current: &LoweredModule,

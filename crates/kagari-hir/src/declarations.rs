@@ -42,42 +42,88 @@ static NEXT_ANALYSIS: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AnalysisId(u64);
 
+/// Analysis-qualified identity of a parameter or local binding for navigation.
+///
+/// Combines an analysis identity, a scoped owning-body definition and the resolved
+/// local slot. Equal source text/slot numbers in another analysis do not identify
+/// the same binding. Unlike a portable definition path, this is snapshot-local.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BindingId {
+    /// Analysis instance that owns the binding record.
     pub analysis: AnalysisId,
+    /// Scoped definition identity of the owning function or constant.
     pub body: DefinitionId,
+    /// Parameter/local resolver handle qualified by the enclosing analysis/body.
     slot: ResolvedName,
 }
 
+/// Semantic declaration identity, distinguishing nominal definitions, binders and body locals.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DeclarationId<I: DefinitionReference = DefinitionPath> {
+    /// Portable or scoped identity of a named definition.
     Definition(I),
-    GenericParameter { owner: I, position: usize },
+    /// A binder identified by its declaring owner and ordinal, not spelling.
+    GenericParameter {
+        /// Definition that declares this generic parameter.
+        owner: I,
+        /// Zero-based parameter position within that owner.
+        position: usize,
+    },
+    /// A parameter/local binding valid only in its owning analysis.
     Binding(BindingId),
 }
 
+/// Semantic identity and authoritative source navigation site for one declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Declaration<I: DefinitionReference = DefinitionPath> {
+    /// Named definition, generic binder or analysis-local binding identity.
     pub id: DeclarationId<I>,
+    /// Display spelling; identity is carried separately.
     pub name: String,
+    /// Physical file/revision and half-open byte range for navigation.
     pub location: FileSpan,
 }
 
+/// Declaration identities and source sites collected before and during body analysis.
+///
+/// ```text
+/// resolved local/member handle -> targets -> Declaration { id, name, location }
+/// DeclarationId               -> identities -> local/member handle -> targets
+/// generic parameter           -> owner definition + ordinal
+/// parameter/local binding     -> AnalysisId + scoped body definition + local slot
+/// ```
+///
+/// `collect_named` visits headers/members and builds portable paths with kind/name/
+/// occurrence segments. `with_bindings` adds parameters and locals from resolved
+/// body scopes. The shared definition context interns paths into a matching table;
+/// checked publication maps portable records to its scoped IDs. Internal site ranges
+/// use analysis coordinates, which can differ from authoritative copied-source sites.
+/// Import lookup tables are shared inputs, not copied into every declaration.
 #[derive(Debug, Clone)]
 pub struct Declarations<I: DefinitionReference = DefinitionPath> {
+    /// Validated language-role identities used by ordinary syntax and protocol checking.
     pub(crate) language_items: BTreeMap<LangRole, I>,
+    /// Installed array protocol bridge declarations, when available.
     pub(crate) array_interfaces: BTreeMap<CollectionAccess, I>,
+    /// Type/variant projections selected by this module's resolved imports.
     pub(crate) imported_types: ImportedTypes<I>,
+    /// Module-level name table used to resolve declaration references.
     pub(crate) names: Arc<NameTable>,
+    /// Shared registered host declaration inputs.
     pub(crate) hosts: Arc<HostDeclarations>,
     imports: Arc<ModuleImportFacts>,
     catalog: Arc<NamespaceCatalog>,
     analysis: AnalysisId,
     definitions: DefinitionTable,
+    /// Shared definition interning context; publication retains a matching table snapshot.
     context: DefinitionContext,
+    /// Local name/member keys to identity and navigation records.
     targets: HashMap<DeclarationKey, Declaration<I>>,
+    /// Reverse identity lookup; binding keys include analysis identity.
     identities: HashMap<DeclarationId<I>, DeclarationKey>,
+    /// Declaration-site bytes in analysis coordinates, separate from navigation origins.
     site_ranges: HashMap<DeclarationKey, Span>,
+    /// Local implementation slots to semantic definition identities.
     impl_identities: HashMap<ImplId, I>,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind<I>>,
 }
@@ -98,6 +144,7 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    /// Collects header/member identities and sites, retaining partial facts if cancellation is observed by the caller.
     pub(crate) fn collect_named(
         source: &SourceFile,
         lowered: &LoweredModule,
@@ -371,6 +418,7 @@ impl Declarations {
         builder.result
     }
 
+    /// Adds resolved parameter/local declarations using this analysis and the owning body's scoped identity.
     pub(crate) fn with_bindings(
         mut self,
         lowered: &LoweredModule,
@@ -548,14 +596,17 @@ impl Builder<'_> {
 mod mapping;
 
 impl<I: DefinitionReference> Declarations<I> {
+    /// Borrows the scoped definition table associated with these records.
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
     }
 
+    /// Clones the installed representation for a local opaque type, if registered.
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind<I>> {
         self.native_types.get(&id).cloned()
     }
 
+    /// Borrows the semantic identity assigned to a local implementation block.
     pub fn impl_identity(&self, id: ImplId) -> Option<&I> {
         self.impl_identities.get(&id)
     }
@@ -576,6 +627,7 @@ impl<I: DefinitionReference> Declarations<I> {
         self.imported_types.variant(name)
     }
 
+    /// Finds a local enum variant declaration by its arena/owner/slot ID.
     pub fn variant(&self, id: VariantId) -> Option<&Declaration<I>> {
         self.targets.get(&DeclarationKey::Variant(id))
     }
@@ -609,6 +661,7 @@ impl<I: DefinitionReference> Declarations<I> {
             .and_then(|(key, _)| self.targets.get(key))
     }
 
+    /// Borrows canonical foreign type/variant declaration projections.
     pub fn imported_types(&self) -> &ImportedTypes<I> {
         &self.imported_types
     }
@@ -620,6 +673,7 @@ impl<I: DefinitionReference> Declarations<I> {
         }
     }
 
+    /// Finds a local name target for a definition identity; field/member-only keys return `None`.
     pub fn definition_target(&self, id: &I) -> Option<ResolvedName> {
         match self
             .identities
@@ -642,6 +696,7 @@ impl<I: DefinitionReference> Declarations<I> {
         })
     }
 
+    /// Returns the instance identity used to prevent cross-analysis binding lookup.
     pub fn analysis_id(&self) -> AnalysisId {
         self.analysis
     }
@@ -670,16 +725,19 @@ impl<I: DefinitionReference> Declarations<I> {
         params
     }
 
+    /// Finds declaration metadata for a resolved name, including eligible local/imported variants.
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration<I>> {
         self.targets
             .get(&DeclarationKey::Name(name.clone()))
             .or_else(|| self.resolved_variant(name))
     }
 
+    /// Finds a local struct field declaration, or `None` if not recorded.
     pub fn field(&self, field: FieldId) -> Option<&Declaration<I>> {
         self.targets.get(&DeclarationKey::Field(field))
     }
 
+    /// Finds the declaration-site record for a local generic-parameter handle.
     pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration<I>> {
         self.targets.get(&DeclarationKey::GenericParameter(id))
     }
@@ -691,12 +749,14 @@ impl<I: DefinitionReference> Declarations<I> {
             .and_then(|name| self.targets.get(name))
     }
 
+    /// Visits stored declaration records in unspecified hash-map order.
     pub fn iter(&self) -> impl Iterator<Item = &Declaration<I>> {
         self.targets.values()
     }
 }
 
 impl<I: DefinitionReference> Declarations<I> {
+    /// Shared definition interning context; publication retains a matching table snapshot.
     pub(crate) fn context(&self) -> &DefinitionContext {
         &self.context
     }

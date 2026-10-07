@@ -1,3 +1,7 @@
+//! Check registered host calls and typed host field/index paths.
+//! Records declared access contracts and path selections for lowering; HIR analysis
+//! does not borrow host state or invoke the registered Rust implementation.
+
 use crate::{
     builtin::BuiltinFunction,
     hir::{

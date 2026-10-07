@@ -5,6 +5,9 @@ behavior is defined in [the specifications](README.md#language-and-execution-spe
 [The roadmap](implementation-roadmap.md) owns pending work; proposals below are
 explicitly marked and do not describe implemented behavior.
 
+For source-level data structures and ID lookup, start with the
+[HIR reading guide](architecture/hir.md).
+
 ## Architectural Principles
 
 - Kagari is a statically typed, GC-backed language for Rust-hosted applications.

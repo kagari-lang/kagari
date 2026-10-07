@@ -1,3 +1,6 @@
+//! Infer numeric literal types from context and validate their representable values.
+//! Scalar facts preserve checked literal values for constant evaluation and lowering.
+
 use crate::{
     hir::{
         expr::literal::{Literal, LiteralKind},

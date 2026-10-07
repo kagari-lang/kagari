@@ -1,3 +1,7 @@
+//! Connect expression context, explicit type arguments and annotation holes to the
+//! body-local inference solver. Constraints refine temporary variables before checked
+//! types are finalized; source diagnostics retain unresolved or conflicting uses.
+
 use crate::{
     hir::{
         expr::ExprKind,

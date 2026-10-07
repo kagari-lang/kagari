@@ -1,3 +1,7 @@
+//! Check Result/Option-style propagation using validated language declarations.
+//! Records branch/payload/return conversion facts for later lowering of propagation
+//! operators; analysis does not perform the early return itself.
+
 use crate::{
     callable::AppliedCallSignature,
     hir::{expr::ExprKind, ids::ExprId},

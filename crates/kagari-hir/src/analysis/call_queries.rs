@@ -11,12 +11,15 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 
+/// Presentation view of a checked call with portable declaration/type identities.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallSignature {
+    /// Canonical declaration selected by the checked call.
     pub declaration: DeclarationId,
     /// Receiver parameters are omitted for method syntax. Missing or invalid
     /// arguments do not replace the declared parameter types.
     pub parameters: Vec<(String, TypeId)>,
+    /// Checked return type after applying available generic substitutions.
     pub result: TypeId,
 }
 

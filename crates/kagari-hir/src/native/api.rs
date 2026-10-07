@@ -34,6 +34,7 @@ use kagari_types::{
 };
 use std::{collections::HashSet, sync::Arc};
 
+/// Renders and imports a registered module through ordinary declaration parsing and lowering.
 pub(crate) fn import(
     definition: &ModuleDecl,
     providers: &[Arc<ModuleDecl>],
@@ -44,6 +45,7 @@ pub(crate) fn import(
     import_source(definition, providers, &generated, limits, cancel)
 }
 
+/// Validates supplied declaration text against registration, then attaches storage/native/role metadata to ordinary lowering.
 pub(crate) fn import_source(
     definition: &ModuleDecl,
     providers: &[Arc<ModuleDecl>],

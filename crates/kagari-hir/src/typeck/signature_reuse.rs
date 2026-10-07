@@ -7,11 +7,13 @@ use crate::{AnalysisResult, hir::item::function::FunctionKind, lower::LoweredMod
 
 use super::ModuleSignatures;
 
+/// Source text with eligible function bodies replaced by `{}`, plus span translation metadata.
 struct Surface {
     text: String,
     bodies: Vec<BodyRange>,
 }
 
+/// Original/projected body ranges and cumulative displacement used to rebase signature sites.
 struct BodyRange {
     original: Span,
     projected: Span,
@@ -94,6 +96,11 @@ impl Surface {
     }
 }
 
+/// Reuses signatures only when body-elided source surfaces match and all referenced sites remap.
+///
+/// Returns None for changed declaration text, invalid/recovery ranges, unavailable
+/// correspondences or cancellation. Successful reuse rebuilds local type/source IDs
+/// against the new lowering; it does not copy old arena-qualified IDs unchanged.
 pub(crate) fn reuse_signatures(
     previous: &LoweredModule,
     previous_signatures: &AnalysisResult<ModuleSignatures>,

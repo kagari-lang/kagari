@@ -1,3 +1,7 @@
+//! Type arithmetic, comparison, indexing and condition operations.
+//! Intrinsic scalar rules and declared operator protocols feed checked type/call facts;
+//! invalid operands produce diagnostics without inventing executable operations.
+
 use crate::{
     builtin::surface,
     hir::{

@@ -16,6 +16,7 @@ use std::{collections::HashMap, iter};
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
+/// Control-flow summary: a path may complete normally and/or break its enclosing loop.
 #[derive(Clone, Copy, Default)]
 struct Exits {
     normal: bool,
@@ -43,6 +44,7 @@ impl Exits {
     }
 }
 
+/// Returns whether the block has a normal fallthrough path; cancellation returns an error.
 pub(super) fn block_can_complete(
     module: &Module,
     names: &ResolvedNames,
@@ -85,6 +87,7 @@ pub(super) fn place_can_complete(
     .normal)
 }
 
+/// Returns whether evaluating the expression can complete normally; cancellation returns an error.
 pub(super) fn expr_can_complete(
     module: &Module,
     names: &ResolvedNames,
@@ -102,6 +105,7 @@ pub(super) fn expr_can_complete(
     .normal)
 }
 
+/// HIR node or synthetic control-flow combination used as a traversal-local memoization key.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Node {
     Expr(ExprId),
@@ -116,6 +120,7 @@ enum Node {
 
 type Nodes<'a> = Box<dyn Iterator<Item = Node> + 'a>;
 
+/// Explicit traversal continuation; the work stack replaces recursive completion walking.
 enum Task<'a> {
     Record(Node),
     MatchArms(&'a [MatchArm]),
@@ -159,6 +164,7 @@ impl<'a> Completion<'a> {
         })
     }
 
+    /// Evaluates normal/break exits with a work stack and per-traversal memoized node facts.
     fn run<'b>(&'b self, first: Task<'b>) -> Result<Exits, Cancelled> {
         let mut work = vec![first];
         // Facts belong to this immutable module traversal only. Cancellation

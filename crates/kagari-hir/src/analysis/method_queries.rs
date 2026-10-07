@@ -16,9 +16,12 @@ use std::collections::HashSet;
 #[cfg(test)]
 mod tests;
 
+/// A visible method candidate presented without executing or invoking it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodCompletion {
+    /// Portable identity of the candidate method declaration.
     pub declaration: DeclarationId,
+    /// Source-facing method name to offer at the member access.
     pub name: String,
 }
 

@@ -1,3 +1,5 @@
+//! Body traversal and inference orchestration; specialized operations live in child modules.
+
 use crate::{
     aggregates::AggregateCatalog,
     builtin::array_bridge,
@@ -71,6 +73,12 @@ struct LoopValue {
     found: Option<TypeId>,
 }
 
+/// Per-function/constant semantic traversal state borrowing prepared catalogs.
+///
+/// The checker reads lowered nodes and resolved names, updates the body environment,
+/// and writes diagnostics plus `TypeTable` facts. `Solver` holds temporary inference
+/// variables; solving/recheck state must be sealed before publishing the table.
+/// Loop and closure stacks keep expected/result types separate from outer returns.
 pub(crate) struct BodyChecker<'a> {
     aggregates: &'a AggregateCatalog,
     imported_functions: &'a ImportedFunctions,
@@ -82,18 +90,27 @@ pub(crate) struct BodyChecker<'a> {
     top_level_index: &'a TopLevelTypeIndex,
     const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
+    /// Mutable semantic output; node keys belong to `lowered`.
     type_table: &'a mut TypeTable,
     function_name: &'a str,
+    /// Result contract of the currently checked callable context.
     expected_return: TypeId,
     loop_depth: usize,
+    /// Nested loop result expectations and observed `break` value types.
     loop_results: Vec<LoopResult>,
+    /// Expression-inference recursion depth, limited before nested inference proceeds.
     inference_depth: usize,
+    /// Nested closure return observations, separate from the enclosing function.
     closure_returns: Vec<Vec<TypeId>>,
+    /// Body-local variables and constraints, never a reusable signature object.
     solver: Solver,
+    /// Whether the current traversal is accumulating/solving body constraints.
     solving: bool,
     body_inference: bool,
+    /// Call-site type arguments retained across inference/recheck passes.
     explicit_arguments: HashMap<ExprId, Vec<TypeId>>,
     used_explicit_arguments: HashSet<ExprId>,
+    /// Deferred propagation output/residual defaults awaiting inference resolution.
     propagation_defaults: Vec<(TypeId, TypeId)>,
 }
 
@@ -138,6 +155,7 @@ impl<'a> BodyChecker<'a> {
         self.infer_block_types_expected(block_id, env, None)
     }
 
+    /// Checks statements and the tail under an optional expected type, then accounts for whether the block can complete.
     pub(crate) fn infer_block_types_expected(
         &mut self,
         block_id: BlockId,
@@ -176,6 +194,7 @@ impl<'a> BodyChecker<'a> {
         self.infer_expr_type_expected(expr_id, env, None)
     }
 
+    /// Applies source context and the depth bound, computes an expression type, and records its semantic fact.
     pub(super) fn infer_expr_type_expected(
         &mut self,
         expr_id: ExprId,

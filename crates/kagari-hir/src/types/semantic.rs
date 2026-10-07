@@ -3,6 +3,7 @@ use crate::types::{GenericParameterType, NominalType, TypeId};
 use kagari_common::identity::reference::DefinitionReference;
 use kagari_types::ty::{NominalTy, Ty};
 
+/// Converts a nominal application to source-independent semantic metadata; child recovery types panic as in `lower_type`.
 pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> NominalTy<I> {
     NominalTy {
         associated_types: ty
@@ -15,6 +16,13 @@ pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> Nomina
     }
 }
 
+/// Converts HIR semantic types to the shared source-independent type representation.
+///
+/// Generic parameters and projections are preserved; this does not monomorphize.
+///
+/// # Panics
+///
+/// Panics if any inference variable, unknown or error type reaches this checked boundary.
 pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
     match ty {
         TypeId::Projection {
@@ -60,6 +68,7 @@ pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
     }
 }
 
+/// Reconstructs an authoring HIR nominal application from portable semantic metadata.
 pub fn raise_nominal_type(ty: &NominalTy) -> NominalType {
     NominalType {
         associated_types: ty
@@ -72,6 +81,7 @@ pub fn raise_nominal_type(ty: &NominalTy) -> NominalType {
     }
 }
 
+/// Reconstructs a HIR semantic type from portable metadata, synthesizing generic display names where needed.
 pub fn raise_type(ty: &Ty) -> TypeId {
     match ty {
         Ty::Projection {

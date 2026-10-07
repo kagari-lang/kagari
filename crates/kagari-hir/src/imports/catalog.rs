@@ -17,38 +17,71 @@ use std::{
     sync::Arc,
 };
 
+/// Unfiltered member candidates for one namespace and its glob-expansion policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamespaceTable {
+    /// Logical owner used when constructing/accessing this namespace.
     pub owner: ModuleIdentity,
+    /// Shared tiered candidates; visibility is checked against a lookup context.
     pub names: Arc<NameTable>,
+    /// Whether this namespace permits `use ...::*` expansion.
     pub glob_allowed: bool,
 }
 
+/// Canonical namespace lookup data retained by one module graph/snapshot.
+///
+/// ```text
+/// scope.hit("m") -> Found(namespace target)
+/// namespace_of(target) -> NamespaceId
+/// lookup_member(ctx, namespace, "nested") -> Found(next target)
+/// namespace_of(next target) -> next NamespaceId
+/// lookup_member(ctx, next namespace, "value") -> canonical declaration
+/// ```
+///
+/// [`Self::resolve_path`] performs this walk and accumulates binding origins.
+/// Tables retain private candidates as well as public ones: lookup checks access
+/// at each component. Source references must still belong to this catalog. A target
+/// stores only identity, so aliases do not copy member tables.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NamespaceCatalog {
+    /// All exact source units grouped by logical module identity; multiple entries remain ambiguous.
     pub(crate) modules: BTreeMap<ModuleIdentity, Vec<SourceUnit>>,
+    /// Namespace identity to owner, shared name table and glob policy.
     pub(crate) namespaces: HashMap<NamespaceId, NamespaceTable>,
+    /// Installed package aliases; multiple package targets make an alias ambiguous.
     pub(crate) package_aliases: BTreeMap<String, BTreeSet<PackageId>>,
 }
 
+/// A canonical target plus the selected binding origins along its lookup path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LookupHit {
+    /// Destination identity, independent of the import spelling.
     pub target: ResolvedTarget,
+    /// Origins retained in traversal order, including equal-target glob contributions.
     pub via: Vec<BindingOrigin>,
 }
 
+/// Detailed lookup outcome, preserving failure distinctions for diagnostics and tooling.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LookupResult {
+    /// One target with its selected provenance.
     Found(LookupHit),
+    /// No binding with that spelling exists.
     Missing,
+    /// A binding exists but has no resolved target; weaker tiers stay hidden.
     Unresolved,
+    /// Selected candidates conflict; the list may be empty for a package/module collision.
     Ambiguous(Vec<BindingCandidate>),
+    /// Candidates exist but are not accessible from the importer.
     Inaccessible(Vec<BindingCandidate>),
+    /// The selected target cannot be entered as a member container.
     NotNamespace,
+    /// A source unit does not belong to the retained catalog.
     StaleSource,
 }
 
 impl LookupResult {
+    /// Extracts a unique hit, discarding all failure distinctions.
     pub(crate) fn hit(self) -> Option<LookupHit> {
         if let Self::Found(hit) = self {
             Some(hit)
@@ -58,15 +91,22 @@ impl LookupResult {
     }
 }
 
+/// Whether a target can be entered for further member lookup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NamespaceResult {
+    /// Namespace identity to use for the next component.
     Found(NamespaceId),
+    /// No member namespace exists for this target.
     NotNamespace,
+    /// The source target no longer belongs to this catalog.
     StaleSource,
 }
 
+/// Importer-relative access context supplied without mutating catalog tables.
 pub struct LookupContext<'a> {
+    /// Logical module requesting access.
     pub importer: &'a ModuleIdentity,
+    /// Installed host namespace/type/function declarations.
     pub hosts: &'a HostDeclarations,
 }
 
@@ -77,6 +117,14 @@ impl NamespaceCatalog {
             .is_some_and(|units| units.contains(unit))
     }
 
+    /// Selects one member, checking source validity, precedence and importer visibility.
+    ///
+    /// Host namespaces delegate to host declarations. Lookup failures are returned as
+    /// [`LookupResult`] variants, not as cancellation errors.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Cancelled` when the cancellation token is set.
     pub fn lookup_member(
         &self,
         ctx: &LookupContext<'_>,
@@ -157,6 +205,14 @@ impl NamespaceCatalog {
         Ok(NameTable::select(&admitted, strong))
     }
 
+    /// Obtains a target's member-container identity, checking qualified source units.
+    ///
+    /// This does not itself select or authorize any member; [`Self::lookup_member`]
+    /// performs member access checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Cancelled` if cancellation is observed.
     pub fn namespace_of(
         &self,
         _ctx: &LookupContext<'_>,
@@ -187,6 +243,14 @@ impl NamespaceCatalog {
         })
     }
 
+    /// Walks `::`-separated suffix components from an existing root lookup.
+    ///
+    /// Empty components are skipped. A failed root/component stops traversal unchanged;
+    /// successful steps append provenance. No local bindings or import records are added.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Cancelled` if cancellation is observed during traversal.
     pub fn resolve_path(
         &self,
         ctx: &LookupContext<'_>,
@@ -324,6 +388,7 @@ impl NamespaceCatalog {
         Ok(true)
     }
 
+    /// Collects foreign declarations reachable through scope bindings and accessible namespaces, guarding namespace cycles.
     pub(crate) fn reachable_sources(
         &self,
         names: &NameTable,
@@ -368,6 +433,7 @@ impl NamespaceCatalog {
         Ok(sources)
     }
 
+    /// Resolves a scope root and suffix, falling back to an absolute path only when the root is missing; returns only unique hits.
     pub(crate) fn resolve_name(
         &self,
         names: &NameTable,

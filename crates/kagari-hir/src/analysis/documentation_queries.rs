@@ -29,8 +29,11 @@ mod tests;
 /// Written source metadata. Checked call signatures are a separate semantic query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeclarationDocumentation {
+    /// Declaration in the owning snapshot's scoped identity table.
     pub declaration: Declaration<DefinitionId>,
+    /// Attached source documentation rendered as Markdown text.
     pub documentation: String,
+    /// Signature spelling recovered from source, separate from checked semantic types.
     pub written_signature: String,
 }
 
@@ -53,12 +56,16 @@ impl FileAnalysis {
 /// Module Markdown and its location in this immutable analysis snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleDocumentation {
+    /// Logical identity of the documented module.
     pub module: ModuleIdentity,
+    /// Source range covering the module's retained source.
     pub location: FileSpan,
+    /// Module-level Markdown extracted from the syntax tree.
     pub documentation: String,
 }
 
 impl DeclarationSnapshot {
+    /// Finds module documentation in retained declarations; returns `None` for an unknown module.
     pub fn module_documentation(&self, module: &ModuleIdentity) -> Option<ModuleDocumentation> {
         let file = self
             .files
@@ -83,6 +90,7 @@ impl DeclarationSnapshot {
 }
 
 impl AnalysisSnapshot {
+    /// Resolves a source position to a module namespace and reads that module's documentation.
     pub fn module_documentation_at(
         &self,
         file: FileId,

@@ -1,3 +1,7 @@
+//! Translate HIR type spelling into semantic types using declaration/generic context.
+//! Resolved types and target identities are recorded by TypeRefId for later queries;
+//! invalid or incomplete spelling produces diagnostics and recovery types.
+
 use crate::{
     builtin::array_bridge,
     declarations::{DeclarationId, Declarations},
@@ -17,11 +21,16 @@ use crate::{
 use kagari_common::{cancellation::CancellationToken, identity};
 use kagari_types::{language::Protocol, scalar::BuiltinType};
 
+/// Borrowed declaration environment for resolving one written type.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {
+    /// Declaration and imported type names visible at the type occurrence.
     pub declarations: &'a Declarations,
+    /// Generic parameter names mapped to their canonical semantic parameters.
     pub generics: &'a [GenericParam],
+    /// Semantic replacement for Self, when the enclosing declaration defines one.
     pub self_type: Option<TraitId>,
+    /// Enclosing implementation identity, when resolving implementation-specific types.
     pub implementation: Option<ImplId>,
 }
 
@@ -155,6 +164,7 @@ pub(super) fn resolve_type(
     )
 }
 
+/// Resolves a TypeRefId with explicit generic/Self context, recording facts and recovery diagnostics.
 pub(super) fn resolve_type_in(
     module: &Module,
     ty: TypeRefId,

@@ -1,3 +1,7 @@
+//! Signature/body phase orchestration. Signature checking resolves declaration types
+//! and constraints; body checking starts from those facts, evaluates constant
+//! prerequisites, then checks or restores selected functions into a new type table.
+
 use crate::{
     AnalysisResult,
     aggregates::{AggregateCatalog, traits::MethodSignature},
@@ -43,6 +47,7 @@ mod trait_surface;
 #[cfg(test)]
 use kagari_types::collection::CollectionAccess;
 
+/// Resolves declaration types, generic bounds and associated members into reusable signature facts.
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,
     declarations: &Declarations,
@@ -388,6 +393,11 @@ pub(crate) fn check_signatures(
     }
 }
 
+/// Checks constant prerequisites and selected function bodies using completed signature inputs.
+///
+/// Copies signature facts into the output table, restores compatible body facts where
+/// possible, and records fresh diagnostics/types for remaining bodies. Caller-owned
+/// cancellation and policy limits apply throughout; publication occurs above this layer.
 pub(crate) fn check_bodies_controlled(
     lowered: &LoweredModule,
     names: &ResolvedNames,
@@ -833,6 +843,7 @@ pub(super) fn interface_method_compatible<'a>(
             .all(|parameter| !parameter.contains_self_type())
 }
 
+/// Shared read-only signature contract for comparing source and catalog methods.
 pub(super) trait MethodSignatureView {
     fn generic_params(&self) -> &[GenericParameterType];
 
@@ -891,6 +902,7 @@ impl MethodSignatureView for MethodSignature {
     }
 }
 
+/// Receiver, owner substitution and diagnostic site used to compare one implementation method.
 pub(super) struct MethodComparison<'a> {
     pub trait_name: &'a str,
     pub method_name: &'a str,

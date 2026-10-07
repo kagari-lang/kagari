@@ -1,3 +1,7 @@
+//! Check bindings, assignments, returns and loop control in lexical order.
+//! Updates local type/writeability environments and loop result constraints while
+//! recording statement child facts in the shared type table.
+
 use crate::{
     hir::{
         expr::{Condition, ops::BinaryOp},
