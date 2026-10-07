@@ -128,6 +128,13 @@ Some runners serialize many scenarios inside one test and repeatedly create fres
 analysis/standard-library environments; Cargo cannot schedule those cases separately.
 
 Routine follow-ups now use focused validation under [AGENTS.md](../AGENTS.md).
-Consider splitting aggregate cases for selective execution and reusing immutable
-test setup where safe. Preserve fresh-snapshot, runtime isolation and source-free
-coverage. Test-harness optimization remains unactivated.
+The [numeric fixture follow-up](implementation-roadmap.md#focused-test-harness-optimization-sa7-numeric-fixtures-complete)
+retains all 90 cases and both artifact routes, batches 90 compilations into 4,
+and installs/loads 8 runtimes instead of 180. Only scalar locals are shared within
+each route; a successful call after every case checks trap cleanup. The four
+numeric tests pass in an observed 4.51s; timing conditions and limitations are in
+the ledger. Source-free validation and route isolation remain covered.
+
+SDK/other aggregate runners and selectively executing their individual cases
+remain separate follow-ups. Reuse immutable setup where safe and preserve tests
+that specifically require fresh snapshots or independent mutable runtimes.

@@ -28,6 +28,44 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Focused test-harness optimization (SA7, numeric fixtures complete)
+
+- [x] Batch VM numeric fixtures into one compilation per test, preserving every
+  integer width, operation and conversion. Direct and serialized routes keep
+  separate fresh runtimes; a successful call after every scalar entry verifies
+  trap cleanup. Source-free validation remains active.
+- Scope: numeric fixtures only. SDK engine preparation, other aggregate runners,
+  production caches and broad acceptance matrices remain separate work.
+- Validation: compare the exact float test before/after, run the four numeric tests,
+  and check structure, formatting and diffs. Record compilation separately from
+  test execution; do not rerun the workspace or claim a whole-suite speedup.
+
+Ledger:
+
+- The four tests retain 90 scalar cases and 180 direct/decoded executions.
+  Compilations and artifact round-trips decrease from 90 to 4; standard-library
+  installation and loading decrease from 180 to 8. Each artifact route keeps a
+  separate runtime. A successful probe after every case verifies subsequent calls
+  work, including after traps. No source analysis or loader validation is bypassed.
+- `cargo test -p kagari-vm --lib tests::numeric::` passes all four tests in 4.51s
+  (Cargo preparation 0.13s, no rebuild). The intermediate compilation-only batch
+  still used a fresh runtime/load per case and took 82.32s with the same filter.
+  These are single-run observations with lightweight checks running concurrently,
+  not isolated benchmarks or a whole-workspace comparison.
+- The exact `tests::numeric::floats_use_their_source_precision_and_ieee_comparisons`
+  test (`cargo test -p kagari-vm --lib <name> -- --exact`) took 4.97s before,
+  3.87s with compilation-only batching, and 6.53s in the final version. No stable
+  standalone float speedup is established. Cargo build/preparation times were
+  65s, 4.61s and 8.25s respectively; the first package feature graph required
+  dependency rebuilds, while later builds reused them and rebuilt the VM test.
+- Environment: Windows x86_64 MSVC, Rust 1.99.0 (`b940084d7`), i9-12900K
+  (16 cores/24 logical processors), default optimized/debug test profile,
+  default target directory and Cargo/test parallelism, no extra VM features
+  (the compiler source dev-dependency remains enabled). Cached build products
+  were retained; process-local standard registration initializes per invocation.
+- Focused VM Clippy, structure (922 files, zero violations/exceptions), formatting
+  and diff checks pass. No workspace tests or backend matrix were rerun.
+
 ### Import and namespace resolution (IR01-IR03, complete)
 
 [SA4](review.md#sa4-import-records-also-represent-namespace-lookup-state) separates
