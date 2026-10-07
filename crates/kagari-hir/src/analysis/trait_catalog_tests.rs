@@ -104,6 +104,39 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
                 .unwrap()
                 .uri
         );
+        let native = snapshot.file(method.declaration.location.file).unwrap();
+        assert!(
+            native.result().diagnostics().is_empty(),
+            "{:?}",
+            native.result().diagnostics()
+        );
+        let authoring = native.to_unverified(&Default::default()).unwrap();
+        let facts = authoring.facts();
+        let Some(ResolvedName::Function(function)) =
+            facts.declarations.definition_target(&method.id)
+        else {
+            panic!("default method function");
+        };
+        assert!(
+            facts.lowered.module.functions[function.index()]
+                .body
+                .is_some()
+        );
+        assert!(
+            facts
+                .typed
+                .type_table
+                .native_default_call(function)
+                .is_some()
+        );
+        let call_offset = source
+            .text()
+            .find(&format!("default_{name}::<Self>(self)"))
+            .unwrap();
+        assert_eq!(
+            native.definition_at(call_offset).unwrap().name,
+            format!("default_{name}")
+        );
         let range = method.declaration.location.range;
         assert_eq!(&source.text()[range.start..range.end], name);
     }
@@ -136,14 +169,15 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
 }
 
 #[test]
-fn native_defaults_do_not_create_script_implementation_bodies() {
+fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
     let mut sources = SourceDatabase::default();
     let root = insert(
         &mut sources,
         "root",
         "use demo::native::NativeRead; struct Values {} impl NativeRead for Values {}",
     );
-    let snapshot = analyze(&mut test_analysis(), &sources);
+    let mut db = test_analysis();
+    let snapshot = analyze(&mut db, &sources);
     let file = snapshot.file(root).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -169,6 +203,105 @@ fn native_defaults_do_not_create_script_implementation_bodies() {
             Some(MethodDefault::Native(NativeBinding::Default(_)))
         ));
     }
+    let native_file = contract.methods[0].declaration.location.file;
+    let native = snapshot.file(native_file).unwrap();
+    let defaults = || {
+        native
+            .result()
+            .facts()
+            .typed
+            .functions
+            .iter()
+            .filter(|function| {
+                matches!(
+                    function.implementation,
+                    crate::typeck::FunctionImplementation::Native(NativeBinding::Default(_))
+                )
+            })
+    };
+    assert!(defaults().all(|function| {
+        native
+            .result()
+            .facts()
+            .typed
+            .type_table
+            .native_default_call(function.id)
+            .is_some()
+    }));
+    let retained = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert!(Arc::ptr_eq(native, retained.file(native_file).unwrap()));
+
+    // Signatures stay usable when an unused forwarding body has an invalid bound.
+    let mut invalid = fixture::module().as_ref().clone();
+    let helper = invalid
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "default_read")
+        .unwrap();
+    helper.bounds[0]
+        .constraints
+        .push(kagari_types::ty::Constraint::Standard(
+            kagari_types::surface::StandardTypeConstraint::SignedNumber,
+        ));
+    helper.bounds[0].constraints.sort();
+    db.set_native_modules(
+        foundation_catalog::shared()
+            .into_iter()
+            .chain([Arc::new(invalid)])
+            .collect(),
+    );
+    let signatures = db
+        .signatures(sources.snapshot(), &Default::default())
+        .unwrap();
+    let native_file = signatures
+        .declaration_snapshot()
+        .files()
+        .find(|file| file.source().name() == native.source().name())
+        .unwrap()
+        .source()
+        .id();
+    let signature_file = signatures.file(native_file).unwrap();
+    assert!(
+        signature_file.diagnostics().is_empty(),
+        "{:?}",
+        signature_file.diagnostics()
+    );
+    assert!(defaults().all(|function| {
+        signature_file
+            .signatures()
+            .facts()
+            .type_table()
+            .native_default_call(function.id)
+            .is_none()
+    }));
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(db.snapshot(sources.snapshot(), &cancel).is_err());
+    let failed = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let failed = failed.file(native_file).unwrap();
+    assert!(!failed.result().diagnostics().is_empty());
+    assert!(defaults().all(|function| {
+        failed
+            .result()
+            .facts()
+            .typed
+            .type_table
+            .native_default_call(function.id)
+            .is_none()
+    }));
+    assert!(defaults().all(|function| {
+        native
+            .result()
+            .facts()
+            .typed
+            .type_table
+            .native_default_call(function.id)
+            .is_some()
+    }));
 }
 
 #[test]

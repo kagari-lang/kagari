@@ -12,6 +12,13 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
         ("-> i32", "-> i64"),
         ("pub trait NativeRead", "trait NativeRead"),
         ("fn fixed", "fn different"),
+        ("default_read::<Self>(self)", "default_fixed::<Self>(self)"),
+        ("default_read::<Self>(self)", "default_read::<Self>()"),
+        (
+            "default_read::<Self>(self)",
+            "default_read::<Self>(self, self)",
+        ),
+        ("{\n        default_read::<Self>(self)\n    }", ";"),
         ("core::hash::Hash", "core::cmp::Eq"),
         ("value0: T0", "value0: i32"),
     ] {

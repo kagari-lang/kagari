@@ -813,6 +813,14 @@ resolution or generic specialization is performed.
 Offline host trait tables continue to map every declared method explicitly;
 omitted host mappings do not invoke script defaults in this checkpoint.
 
+Registered native defaults appear in generated traits as forwarding bodies to
+private typed native helpers. These bodies obey the same declaration-context
+checking rule, even when unused. Only a checked single call that forwards each
+parameter once, in order, and agrees with the registered generic application may
+lower directly to the native helper. This adds no script call frame and preserves
+native cancellation, traps and cleanup. Required methods still have no body;
+explicit implementations override defaults when their declaration permits it.
+
 See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which returns
 `42` through default and overridden static/dynamic calls.
 

@@ -14,7 +14,11 @@ use kagari_hir::{
     },
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, GenericBounds, scalar::ScalarValue, table::ConstraintTarget},
+    typeck::{
+        FunctionImplementation, GenericBounds,
+        scalar::ScalarValue,
+        table::{CallTarget, ConstraintTarget},
+    },
     types::{
         GenericParameterType, TypeId,
         semantic::{lower_nominal_type, lower_type, raise_type},
@@ -702,6 +706,28 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
         implementation: match typed.implementation.clone() {
             FunctionImplementation::Required => CallableImplementation::Required,
             FunctionImplementation::Script => CallableImplementation::Script,
+            FunctionImplementation::Native(NativeBinding::Default(_)) => {
+                let call = module.typed.type_table.native_default_call(function.id)?;
+                let declaration = match call.target {
+                    CallTarget::Function(id) => {
+                        let target = module.declarations.target(ResolvedName::Function(id))?;
+                        let DeclarationId::Definition(id) = &target.id else {
+                            return None;
+                        };
+                        id.clone()
+                    }
+                    CallTarget::SourceFunction(id) => id,
+                    _ => return None,
+                };
+                CallableImplementation::NativeDefault(NativeDefaultApplication {
+                    declaration,
+                    arguments: call
+                        .type_arguments
+                        .iter()
+                        .map(|ty| abi_type(module, ty))
+                        .collect(),
+                })
+            }
             FunctionImplementation::Native(binding) => native_implementation_abi(module, binding),
         },
         generic_params: generic_param_abi(module, &function.generic_params),
@@ -724,8 +750,8 @@ fn native_implementation_abi(
     binding: NativeBinding,
 ) -> CallableImplementation {
     let binding = match binding {
-        NativeBinding::Default(application) => {
-            return CallableImplementation::NativeDefault(application);
+        NativeBinding::Default(_) => {
+            unreachable!("native defaults require forwarding-call emission")
         }
         NativeBinding::Entry(binding) => binding,
         NativeBinding::Host(id) => module

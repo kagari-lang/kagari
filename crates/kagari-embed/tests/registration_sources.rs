@@ -195,6 +195,23 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
     let snapshot = engine
         .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
+    let collections = engine
+        .native_declaration_sources()
+        .iter()
+        .find(|source| source.text.contains("pub trait List<"))
+        .unwrap();
+    let forwarding =
+        "__default_List_sorted::<Self, T0, <Self as core::iter::Iterable<Item = T0>>::Iter>(self)";
+    assert!(
+        collections.text.contains(forwarding),
+        "{}",
+        collections.text
+    );
+    assert!(collections.text.contains("\nfn __default_List_sorted<"));
+    assert_eq!(
+        fs::read_to_string(physical_path(&collections.uri)).unwrap(),
+        collections.text
+    );
     let doc = snapshot
         .documentation_at(file, text.find("answer()").unwrap())
         .unwrap();

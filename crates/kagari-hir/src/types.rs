@@ -485,6 +485,23 @@ impl<I: DefinitionReference> NominalType<I> {
                 .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
     }
 
+    /// Tests a bound on `receiver`, including reflexive associated projections.
+    ///
+    /// `T: Trait` implies `T: Trait<Item = <T as Trait>::Item>` without a
+    /// concrete implementation. The projection must use the same receiver,
+    /// member and an interface whose constraints this bound already proves.
+    pub(crate) fn satisfies_for(&self, required: &Self, receiver: &TypeId<I>) -> bool {
+        self.declaration == required.declaration
+            && self.arguments == required.arguments
+            && required.associated_types.iter().all(|(member, ty)| {
+                self.associated_types.get(member) == Some(ty)
+                    || matches!(ty, TypeId::Projection {
+                        receiver: projected, interface, member: projected_member, arguments,
+                    } if projected.as_ref() == receiver && projected_member == member
+                        && arguments.is_empty() && self.satisfies(interface))
+            })
+    }
+
     /// Substitutes generic/Self occurrences in arguments and associated outputs.
     pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> Self {
         Self {

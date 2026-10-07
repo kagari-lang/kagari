@@ -222,10 +222,15 @@ fn attach_functions(
                 .iter_mut()
                 .find(|item| item.name == method.name)
                 .ok_or_else(|| DeclarationError("missing native trait member".into()))?;
-            member.has_default = matches!(
+            let registered_default = matches!(
                 method.implementation,
                 CallableImplementation::NativeDefault(_)
             );
+            if member.has_default != registered_default {
+                return Err(DeclarationError(
+                    "native trait default body differs from registration".into(),
+                ));
+            }
             bindings.push((member.function, method));
         }
     }

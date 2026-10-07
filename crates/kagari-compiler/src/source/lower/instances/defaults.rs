@@ -4,7 +4,10 @@ use kagari_common::{identity::DefinitionPath, span::Span};
 use kagari_contract::native_import::NativeImport;
 use kagari_hir::{
     aggregates::traits::MethodDefault,
+    declarations::DeclarationId,
     native::NativeBinding,
+    resolver::resolved::ResolvedName,
+    typeck::table::CallTarget,
     types::{
         GenericParameterType, NominalType, TypeId, TypeSubstitution,
         semantic::{lower_type, raise_type},
@@ -22,9 +25,32 @@ impl InstancePlanner<'_> {
     ) -> Result<NativeImport, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked native default application");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
-        let Some(MethodDefault::Native(NativeBinding::Default(application))) = &signature.default
+        let Some(MethodDefault::Native(NativeBinding::Default(_))) = &signature.default else {
+            return Err(invalid());
+        };
+        let module = self.modules.get(&method.module).ok_or_else(invalid)?;
+        let Some(ResolvedName::Function(function)) = module.declarations.definition_target(method)
         else {
             return Err(invalid());
+        };
+        let checked = module
+            .typed
+            .type_table
+            .native_default_call(function)
+            .ok_or_else(invalid)?;
+        let target = match &checked.target {
+            CallTarget::Function(id) => {
+                let declaration = module
+                    .declarations
+                    .target(ResolvedName::Function(*id))
+                    .ok_or_else(invalid)?;
+                let DeclarationId::Definition(target) = &declaration.id else {
+                    return Err(invalid());
+                };
+                target
+            }
+            CallTarget::SourceFunction(target) => target,
+            _ => return Err(invalid()),
         };
         let parameters = interface.arguments.iter().chain(arguments).cloned();
         if signature.generic_params.len() != interface.arguments.len() + arguments.len() {
@@ -43,13 +69,12 @@ impl InstancePlanner<'_> {
                     .with_associated_types(interface),
             )
         };
-        let template_arguments = application
-            .arguments
+        let template_arguments = checked
+            .type_arguments
             .iter()
-            .map(|ty| normalize(&raise_type(ty)))
+            .map(normalize)
             .collect::<Vec<_>>();
-        let import =
-            self.native_target_import(&application.declaration, &template_arguments, span)?;
+        let import = self.native_target_import(target, &template_arguments, span)?;
         if import.signature.params
             != signature
                 .params

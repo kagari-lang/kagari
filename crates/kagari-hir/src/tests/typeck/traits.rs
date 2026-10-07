@@ -27,6 +27,41 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
 }
 
 #[test]
+fn associated_projection_bounds_require_the_same_receiver_and_member() {
+    for (projection, valid) in [
+        ("<T as Carrier>::Item", true),
+        ("<U as Carrier>::Item", false),
+        ("<T as Carrier>::Other", false),
+    ] {
+        let source = SourceFile::new(
+            "projection-bound.kgr",
+            format!(
+                r#"
+trait Carrier {{ type Item; type Other; }}
+fn take<T, I>(value: T) where T: Carrier<Item = I> {{}}
+fn forward<T: Carrier, U: Carrier>(value: T) {{ take::<T, {projection}>(value); }}
+"#
+            ),
+        );
+        let result = crate::analyze_source(&source, foundation_catalog::shared()).unwrap();
+        if valid {
+            result
+                .into_checked()
+                .expect("reflexive associated equality");
+        } else {
+            assert!(
+                result.diagnostics().iter().any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::GenericBoundNotSatisfied { .. }
+                )),
+                "{:?}",
+                result.diagnostics()
+            );
+        }
+    }
+}
+
+#[test]
 fn trait_name_is_not_a_self_parameter_in_where_bounds() {
     let lowered = common::lower_ok("trait Sequence { fn size(self) -> usize where Sequence: Eq; }");
     let names = resolve_names(&lowered).into_checked().expect("trait names");

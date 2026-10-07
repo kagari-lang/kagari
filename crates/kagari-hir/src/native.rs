@@ -21,7 +21,9 @@ pub enum NativeBinding<I: DefinitionReference = DefinitionPath> {
     Entry(I),
     /// Revision-scoped callable in the immutable host declaration universe.
     Host(HostFunctionId),
-    /// Symbolic registered template application; selection resolves an Entry.
+    /// Registered recipe for a generated trait forwarding body.
+    /// Source lowering also requires [`crate::typeck::table::TypeTable::native_default_call`];
+    /// source-free linking independently validates the portable recipe.
     Default(NativeDefaultApplication<I>),
 }
 

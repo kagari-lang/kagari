@@ -267,14 +267,9 @@ not activated by this review.
 
 ## SA10 Generated trait declarations hide native default bodies
 
-The [renderer](../crates/kagari-hir/src/native/render.rs) emits bodyless trait
-methods and separate private native helper declarations. The
-[importer](../crates/kagari-hir/src/native/api.rs) restores `has_default` from
-registration metadata, so source alone looks like a mandatory method even when
-concrete implementations may omit it. This is a source/semantic presentation gap;
-no incorrect dispatch has been established.
-
-The [modification plan](native-default-bodies-plan.md) generates real trait
-forwarding bodies, checks them and requires checked-call evidence for source
-compilation. Keep private helper signatures and source-free registration contracts;
-do not merely print a decorative body or delete entries still consumed by linking.
+Resolved by [ND01-ND04](native-default-bodies-plan.md): generated traits own real
+forwarding bodies, parsed `has_default` must agree with registration, and source
+compilation consumes checked calls. SDK preparation checks unused defaults before
+publishing their source files. Private native helpers and source-free validated
+recipes remain; direct dispatch adds no script frame. Broader CI acceptance is
+reported separately in the plan.

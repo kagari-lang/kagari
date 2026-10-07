@@ -12,6 +12,7 @@ use kagari_hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
     },
+    native::NativeBinding,
     typeck::FunctionImplementation,
     types::semantic::raise_type,
 };
@@ -102,6 +103,21 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
 ) -> Result<VerifiedMirModule, MirLoweringError> {
     let mut planner = InstancePlanner::new(module, options, modules, catalog);
     planner.check()?;
+    for function in &module.typed.functions {
+        if matches!(
+            function.implementation,
+            FunctionImplementation::Native(NativeBinding::Default(_))
+        ) && module
+            .typed
+            .type_table
+            .native_default_call(function.id)
+            .is_none()
+        {
+            return Err(MirLoweringError::MissingBinding(
+                "checked native default body",
+            ));
+        }
+    }
     let callable_methods = module
         .lowered
         .module

@@ -217,6 +217,8 @@ pub struct TypeTable<I: DefinitionReference = DefinitionPath> {
     locals: HashMap<LocalId, TypeId<I>>,
     places: HashMap<PlaceId, TypeId<I>>,
     calls: HashMap<ExprId, ResolvedCall<I>>,
+    /// Generated methods whose checked tail call proves the registered default recipe.
+    pub(crate) native_default_calls: HashMap<FunctionId, ExprId>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
     pattern_ranges: HashMap<PatternId, (ScalarValue, ScalarValue)>,
@@ -351,6 +353,10 @@ impl TypeTable {
                 place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_variants: PatternId,
                 callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
+            for site in result.native_default_calls.values_mut() {
+                assert_eq!(site.arena(), from);
+                *site = ExprId::new(to, site.owner(), site.index());
+            }
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
                     assert_eq!(receiver.arena(), from);
@@ -731,6 +737,11 @@ impl TypeTable {
                 ));
             }
         }
+        for (function, site) in &old.native_default_calls {
+            if let Some(mapped) = expr_ids.get(site) {
+                self.native_default_calls.insert(*function, *mapped);
+            }
+        }
         self.calls.extend(calls);
         self.host_place_paths.extend(host_place_paths);
         self.host_paths.extend(host_paths);
@@ -1052,6 +1063,7 @@ impl<I: DefinitionReference> Default for TypeTable<I> {
             locals: Default::default(),
             places: Default::default(),
             calls: Default::default(),
+            native_default_calls: Default::default(),
             scalars: Default::default(),
             pattern_scalars: Default::default(),
             pattern_ranges: Default::default(),
@@ -1065,6 +1077,12 @@ mod mapping;
 pub mod propagation;
 
 impl<I: DefinitionReference> TypeTable<I> {
+    /// Returns the checked forwarding call for a generated native default method.
+    /// Signature-only or unsuccessful body analysis has no entry.
+    pub fn native_default_call(&self, function: FunctionId) -> Option<ResolvedCall<I>> {
+        self.call_resolution(*self.native_default_calls.get(&function)?)
+    }
+
     /// Returns the recorded selected iterator interfaces and element type, or `None` when no such fact was recorded.
     pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration<I>> {
         self.iterations.get(&id)

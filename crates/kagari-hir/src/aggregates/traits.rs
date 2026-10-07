@@ -64,7 +64,9 @@ pub struct MethodSignature<I: DefinitionReference = DefinitionPath> {
 }
 
 /// The method declaration owns a default's identity and checked signature.
-/// A native default has no script body to instantiate for an implementing type.
+/// A native default owns a checked forwarding body in its generated trait source.
+/// Lowering that proof selects a native entry; implementing types need no script
+/// body instance or extra script call frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MethodDefault<I: DefinitionReference = DefinitionPath> {
     /// Default body belongs to the method's source function.

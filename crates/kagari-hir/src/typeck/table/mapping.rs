@@ -541,6 +541,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
                     .iter()
                     .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
             )?,
+            native_default_calls: self.native_default_calls.clone(),
             calls: map_hash_entries(
                 self.calls.len(),
                 self.calls

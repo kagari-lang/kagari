@@ -417,7 +417,7 @@ impl<'a> BodyChecker<'a> {
                             | TypeId::Projection { .. } => self
                                 .trait_bounds_for(actual, env)
                                 .iter()
-                                .any(|bound| bound.satisfies(&trait_type)),
+                                .any(|bound| bound.satisfies_for(&trait_type, actual)),
                             _ => match self.aggregates.implementation_count(&trait_type, actual)
                                 + usize::from(
                                     self.declarations.hosts.implements(&trait_type, actual),

@@ -1055,6 +1055,17 @@ source spans remain analysis data. Remove duplicate injected library catalogs.
 Collect headers/roles before dependent bodies from the explicit provider set.
 Runtime installation never parses generated source.
 
+Registered trait defaults render as real single-tail-call bodies with explicit
+generic arguments, forwarding parameters in order to typed native helpers. HIR
+checks each body in its declaring context and records its call in
+`TypeTable::native_default_call` only after type/bound checking and registration
+agreement. Source lowering consumes that call and keeps direct native dispatch,
+without an extra script frame. Interface metadata retains the same portable
+recipe; source-free linking independently validates it against registration.
+The SDK checks all provider bodies before publishing generated cache files and
+retains the successful analysis under their final source identities. Signature
+queries remain body-free; invalid or cancelled analysis publishes no checked body.
+
 The dependency direction is contract -> ABI, never ABI -> contract. Neither has
 syntax/HIR or frontend build dependencies. Semantic type-to-representation lowering
 belongs to contract and uses physical ABI facts. Split logical from physical layouts.

@@ -34,8 +34,9 @@ The [execution plan](native-default-bodies-plan.md) makes registered trait defau
 visible as checked forwarding bodies in generated declarations. Private native
 helpers remain typed call targets; source compilation consumes checked calls and
 source-free linking retains validated symbolic registration recipes.
-Status: planned; ND01-ND04 have not started. The plan owns the implementation
-checklist and focused acceptance; no implementation is activated by this entry.
+Status: ND01-ND04 complete locally. Focused source/default/cache tests and
+structure checks pass; GitHub CI owns pending full-suite and source-free feature
+acceptance. The plan records the checkpoint and validation evidence.
 
 ### HIR documentation completion
 

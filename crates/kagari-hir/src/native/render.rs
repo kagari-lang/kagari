@@ -5,6 +5,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_types::{
+    callable::{CallableImplementation, NativeDefaultApplication},
     collection::CollectionAccess,
     declaration::{
         FnDecl, TypeDefKind,
@@ -586,12 +587,60 @@ impl Renderer<'_> {
                 .push_str(&self.module.type_spelling(&function.return_type)?);
         }
         let bounds = self.bounds(&function.bounds)?;
-        self.text.push_str(";\n");
+        if let CallableImplementation::NativeDefault(application) = &function.implementation {
+            self.default_body(application, function)?;
+        } else {
+            self.text.push_str(";\n");
+        }
         self.site(id.clone(), start, name_span, generics, parameters);
         self.sites
             .get_mut(&id)
             .expect("rendered declaration")
             .bounds = bounds;
+        Ok(())
+    }
+
+    /// Renders the registration recipe as a real, ordinarily checked tail call.
+    fn default_body(
+        &mut self,
+        application: &NativeDefaultApplication,
+        function: &FnDecl,
+    ) -> Result<(), DeclarationError> {
+        let target = &application.declaration;
+        let path = target
+            .path
+            .iter()
+            .map(|part| part.name.as_str())
+            .collect::<Vec<_>>()
+            .join("::");
+        let path = if target.module == self.module.identity {
+            path
+        } else {
+            format!(
+                "{}::{path}",
+                module_path(&target.module, self.module.providers)
+            )
+        };
+        self.text.push_str(" {\n        ");
+        self.text.push_str(&path);
+        if !application.arguments.is_empty() {
+            self.text.push_str("::<");
+            for (index, argument) in application.arguments.iter().enumerate() {
+                if index != 0 {
+                    self.text.push_str(", ");
+                }
+                self.text.push_str(&self.module.type_spelling(argument)?);
+            }
+            self.text.push('>');
+        }
+        self.text.push('(');
+        for (index, parameter) in function.params.iter().enumerate() {
+            if index != 0 {
+                self.text.push_str(", ");
+            }
+            self.text.push_str(&parameter.name);
+        }
+        self.text.push_str(")\n    }\n");
         Ok(())
     }
 

@@ -244,3 +244,18 @@ For where non-source declarations enter this flow, follow
 [builtin bridges](../../crates/kagari-hir/src/builtin/mod.rs). The runnable semantic
 examples install `kagari_stdlib::catalog::shared()` explicitly, as required by the
 current foundation contract.
+
+Registered native defaults follow an additional checked path:
+
+```text
+NativeDefaultApplication recipe -> generated trait method with a tail call
+FunctionId -> body BlockId -> tail ExprId -> ordinary ResolvedCall
+TypeTable.native_default_call(FunctionId) -> that call after recipe/bound validation
+source compiler -> selected native entry (no extra script frame)
+```
+
+The implementing type receives no synthetic HIR function. Signature queries expose
+the method signature without claiming body validation; SDK preparation checks all
+generated bodies, including unused defaults. A retained snapshot keeps its proof
+and HIR arena together. Source-free linking validates the portable recipe without
+depending on this HIR table.

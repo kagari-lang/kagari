@@ -22,7 +22,10 @@ use crate::{
         TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
         associated, associated_consts,
         body::BodyChecker,
-        check::{constants::validate_const_initializers, trait_surface::validate_trait_surface},
+        check::{
+            constants::validate_const_initializers, native_defaults::NativeDefaultCheck,
+            trait_surface::validate_trait_surface,
+        },
         completion,
         const_budget::ConstBudget,
         const_eval, constraints,
@@ -33,7 +36,7 @@ use crate::{
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, span::Span};
-use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, TypePosition};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
 use kagari_types::{
     scalar::BuiltinType, surface as standard_surface, surface::StandardTypeConstraint,
     visibility::Visibility,
@@ -42,6 +45,7 @@ use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
 mod constants;
+mod native_defaults;
 mod trait_surface;
 
 #[cfg(test)]
@@ -672,6 +676,47 @@ pub(crate) fn check_bodies_controlled(
             }
         }
 
+        let defaults = NativeDefaultCheck {
+            lowered,
+            names,
+            declarations,
+            imports: imported_functions,
+            aggregates,
+        };
+        for function in &lowered.module.functions {
+            // Recovery facts never authorize direct native lowering. In particular,
+            // a matching call signature does not prove its generic obligations.
+            if diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
+            {
+                break;
+            }
+            if !selection.includes(function.id) || cancel.check().is_err() {
+                continue;
+            }
+            let Some(NativeBinding::Default(application)) =
+                lowered.native_functions.get(&function.id)
+            else {
+                continue;
+            };
+            let Some(signature) = function_index.by_id.get(&function.id) else {
+                continue;
+            };
+            if let Some(site) =
+                defaults.forwarding_call(function, signature, application, &type_table)
+            {
+                type_table.native_default_calls.insert(function.id, site);
+            } else {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
+                        function: function.name.clone(),
+                        binding: "checked native default forwarding body".into(),
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+            }
+        }
         AnalysisResult {
             facts: TypedModule {
                 checked_bodies,

@@ -1,11 +1,11 @@
 # Explicit Native Default Bodies
 
-Status: planned; implementation has not started. The
+Status: ND01-ND04 complete locally; broader CI acceptance is pending. The
 [roadmap](implementation-roadmap.md#explicit-native-default-bodies) owns progress.
 
 ## Problem and intended result
 
-Generated declarations currently show `List::sorted` as a bodyless requirement,
+Generated declarations previously showed `List::sorted` as a bodyless requirement,
 followed by a private `__default_List_sorted` function declaration. Registration
 metadata supplies the missing relationship. Readers cannot tell from the trait
 whether an implementation may omit the method.
@@ -124,7 +124,7 @@ cargo test -p kagari-embed --test default_methods explicit_override_takes_preced
 - Extend native-view correspondence coverage for body removal/target/argument
   tampering; reuse existing trivia acceptance. Validate an unused malformed default
   at provider preparation and ensure cancelled preparation publishes no success.
-- Update `native_defaults_do_not_create_script_implementation_bodies`: the trait
+- Update `native_default_bodies_are_checked_without_synthesizing_impl_bodies`: the trait
   now owns a checked forwarding body; implementing types still need no synthesized
   HIR body. Consolidate this assertion into the existing default-ownership fixture
   if it no longer establishes a separate contract.
@@ -148,10 +148,38 @@ contract/runtime back to syntax or HIR to implement validation.
 
 ## Progress
 
-- [ ] ND01: Render and validate explicit forwarding bodies.
-- [ ] ND02: Check bodies and publish reusable checked-call evidence.
-- [ ] ND03: Consume checked calls in source compilation; preserve source-free linking.
-- [ ] ND04: Complete focused acceptance, navigation and documentation.
+- [x] ND01: Render and validate explicit forwarding bodies.
+- [x] ND02: Check bodies and publish reusable checked-call evidence.
+- [x] ND03: Consume checked calls in source compilation; preserve source-free linking.
+- [x] ND04: Complete focused acceptance, navigation and documentation.
 
-Planning checkpoint: source consumers and existing contract fixtures inspected;
-implementation and tests have not been run. No intermediate build errors are known.
+Implementation checkpoint:
+
+- Generated bodies and private helpers share ordinary parsing, resolution and type
+  checking. Failed body/bound checks cannot publish a forwarding proof; signature
+  queries remain body-free. Native calls and trait ABI emission use checked call
+  facts. Implementation interface recipes retain the proven trait application;
+  source-free contract validation and native algorithms are unchanged.
+- Ordinary bound checking now recognizes the reflexive equality
+  `T: Trait<Item = <T as Trait>::Item>` from `T: Trait`. Wrong receivers or associated
+  members remain rejected. This was required by the generated iterator arguments.
+- SDK preparation checks all provider bodies under their final source identities
+  before publishing files, retaining the successful cache instead of resetting it.
+- The initial list selector found a missing `raise_type` import (ND03) and then
+  `GenericBoundNotSatisfied { Self, Iterable }` (ND02); both are resolved and the
+  selector passes. The extended cache fixture initially used unsorted registration
+  constraints and an old file ID after provider replacement; both fixture errors
+  are fixed. No production checks were weakened.
+- Local focused passes: the five selectors above (HIR with `--lib`), plus HIR
+  `native_default_bodies_are_checked_without_synthesizing_impl_bodies` and
+  `associated_projection_bounds_require_the_same_receiver_and_member`, and SDK
+  `registration_sources::generated_files_docs_and_navigation_share_the_checked_snapshot`
+  and `modified_cache_content_is_rejected_without_replacing_an_active_target`.
+  These cover unused invalid defaults, proof invalidation/cancellation, retained
+  snapshots, body/helper navigation, generated `List::sorted` text, associated
+  iterator substitution, overrides and artifact round trips with GC checks.
+- Cache integrity, changed-file formatting and structure checks pass (922 Rust
+  files, zero violations). Local documentation link targets and final diff checks
+  also pass.
+  GitHub CI has not been run here; full suites, source-free feature builds and
+  backend matrices remain CI-owned acceptance. No performance claim is made.

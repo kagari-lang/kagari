@@ -303,10 +303,13 @@ calls and ControlFlow variant operations, without a Result-specific origin opcod
 ## Tooling
 
 Generated `.kgr` is a read-only projection for navigation, completion, signatures
-and documentation. It is not executable source, a second signature authority or
-an installation trigger. The compiler parses/lowers this view through ordinary
+and documentation. It is not an independently installable library or a second
+signature authority. The compiler parses/lowers this view through ordinary
 declaration machinery and checks non-trivia correspondence with registration
-before attaching native storage, bindings and default metadata. Declaration
+before attaching native storage, bindings and default provenance. Registered
+trait defaults include real forwarding bodies to typed native helpers; ordinary
+body checking must prove those calls before direct native lowering. The SDK
+checks unused defaults too, before publishing materialized source files. Declaration
 locations and docs come from the same records used by compilation. Standard
 registrations own all trait and module documentation. Core and application views
 use the uniform renderer and optional materialized declaration cache; navigation

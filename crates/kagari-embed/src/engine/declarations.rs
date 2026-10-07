@@ -10,7 +10,7 @@ use kagari_source::source_database::{SourceDatabase, normalize_source_name};
 use std::{
     fs::{self, OpenOptions},
     io::{Error, ErrorKind, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process,
     sync::{
         Arc,
@@ -37,31 +37,37 @@ pub(super) fn prepare(
         .map_err(|error| EmbeddingError::Source {
             message: error.to_string(),
         })?;
+    // Analyze the final source identity once; publish files only after checking.
+    if let Some(root) = &builder.declaration_cache {
+        for source in &mut sources {
+            source.uri = source_name(&cache_path(root, &source.text)?)?;
+        }
+    }
     let mut analysis = AnalysisDatabase::default();
     analysis
-        .set_native_sources(providers.clone(), sources.clone())
+        .set_native_sources(providers, sources.clone())
         .map_err(|error| EmbeddingError::Source {
             message: format!("{error:?}"),
         })?;
     // Validate all generated modules before publishing navigation locations.
-    let signatures = analysis
-        .signatures(
+    let snapshot = analysis
+        .snapshot(
             SourceDatabase::default().snapshot(),
             &CancellationToken::default(),
         )
         .map_err(|error| EmbeddingError::Source {
             message: format!("{error:?}"),
         })?;
-    for file in signatures.declaration_snapshot().files() {
-        let checked = signatures
+    for file in snapshot.declaration_snapshot().files() {
+        let checked = snapshot
             .file(file.source().id())
-            .expect("checked native signatures");
-        if !checked.diagnostics().is_empty() {
+            .expect("checked native bodies");
+        if !checked.result().diagnostics().is_empty() {
             return Err(EmbeddingError::Source {
                 message: format!(
                     "invalid registered declarations in {}: {:?}",
                     file.source().name(),
-                    checked.diagnostics()
+                    checked.result().diagnostics()
                 ),
             });
         }
@@ -70,11 +76,6 @@ pub(super) fn prepare(
         for source in &mut sources {
             source.uri = materialize(root, &source.text)?;
         }
-        analysis
-            .set_native_sources(providers, sources.clone())
-            .map_err(|error| EmbeddingError::Source {
-                message: format!("{error:?}"),
-            })?;
     }
     Ok((analysis, sources))
 }
@@ -87,12 +88,18 @@ fn cache_error(path: &Path, error: Error) -> EmbeddingError {
 }
 
 /// Identical text shares one immutable file. A doc-only change gets a new target.
-fn materialize(root: &Path, text: &str) -> Result<String, EmbeddingError> {
+fn cache_path(root: &Path, text: &str) -> Result<PathBuf, EmbeddingError> {
     let directory = root.join(RENDERER_VERSION);
     fs::create_dir_all(&directory).map_err(|error| cache_error(&directory, error))?;
     let directory = fs::canonicalize(&directory).map_err(|error| cache_error(&directory, error))?;
     let hash = content_hash(text.as_bytes()).to_hex();
-    let path = directory.join(format!("{hash}.kgr"));
+    Ok(directory.join(format!("{hash}.kgr")))
+}
+
+/// Publishes validated text atomically without replacing an existing snapshot's file.
+fn materialize(root: &Path, text: &str) -> Result<String, EmbeddingError> {
+    let path = cache_path(root, text)?;
+    let directory = path.parent().expect("declaration cache directory");
     match fs::read(&path) {
         Ok(bytes) => {
             if bytes != text.as_bytes() {
