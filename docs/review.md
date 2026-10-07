@@ -244,6 +244,22 @@ artifact ordering independently of allocation order. Parent/package/visibility c
 need table queries in place of editing copied path vectors. `Arc<ModuleIdentity>`
 alone reduces clone costs but still compares/hashes content with ordinary traits.
 
+Rust reference:
+
+- The resolver's [`Module<'ra>`](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/struct.Module.html)
+  wraps `Interned<'ra, ModuleData<'ra>>`: a `Copy` handle with identity-based
+  equality, while module data is stored separately. It does not copy a full
+  string path into every module reference.
+- Definitions, including modules, use [`DefId`](https://doc.rust-lang.org/stable/nightly-rustc/rustc_hir/def_id/struct.DefId.html),
+  a `Copy` pair of `CrateNum` and `DefIndex`, for compiler queries.
+- Session-local numeric IDs can change after source edits. The
+  [incremental cache](https://rustc-dev-guide.rust-lang.org/queries/incremental-compilation-in-detail.html)
+  stores `DefPathHash` and remaps it to the current session's `DefId` when loading.
+
+Apply the same separation in Kagari: portable `ModuleIdentity` at boundaries,
+shared identity data in the context, compact handles inside the graph. This does
+not require introducing Rust's crate model or adopting its arena lifetimes.
+
 Keep this a separate follow-up from SA8 and SA2/SA3. Measure graph build allocations
 and time before/after on the same module workload, separating compilation time;
 reuse identity/snapshot and import tests for focused validation. Code migration is
