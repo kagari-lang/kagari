@@ -439,6 +439,12 @@ scheduling, iteration exhaustion and mixed import/namespace records. Append futu
 review findings there. SA4 is resolved by the completed IR01-IR03 track above.
 SA1-SA3 remain unactivated HIR analysis/import follow-ups.
 
+[SA8](review.md#sa8-separate-typevalue-lookup-and-unify-export-information) records
+the proposed type/value namespace split and unified export derivation, including
+per-space import outcomes, host/tooling/cache consumers and focused acceptance.
+The design excludes macros; implementation is not activated. Stabilize this
+semantic model before changing SA2/SA3 solver scheduling and convergence handling.
+
 [The architecture review](architecture-review-2026-10-03.md#outstanding-findings)
 retains R1/R2/R5/R7/R8 for current-code confirmation: raw-kind safety, prepared-JIT
 policy, trait-search cancellation/bounds, repeated whole-program specialization

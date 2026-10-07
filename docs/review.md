@@ -138,3 +138,86 @@ the ledger. Source-free validation and route isolation remain covered.
 SDK/other aggregate runners and selectively executing their individual cases
 remain separate follow-ups. Reuse immutable setup where safe and preserve tests
 that specifically require fresh snapshots or independent mutable runtimes.
+
+## SA8 Separate type/value lookup and unify export information
+
+Design direction agreed in review: support type and value namespaces only; no
+macro namespace or macro implementation. This proposal does not activate code changes.
+
+[NameTable](../crates/kagari-hir/src/resolver/table.rs) currently keys all candidates
+by `LocalName`. Declaration conflicts, imported-name selection and prelude masking
+therefore share one bucket across kinds. [ImportDirective](../crates/kagari-hir/src/imports/mod.rs)
+also has one resolution, although a named import may introduce both a type and a
+value under the proposed rules. [Host lookup](../crates/kagari-hir/src/host.rs)
+chooses functions before types. HIR `module.exports` records explicit public
+declarations/imports but omits glob expansion; resolved bindings already own
+visibility. These are separate issues from the solver's SA2/SA3 scheduling debt.
+
+Recommended contract:
+
+- Type space contains structs, enums, traits, opaque/alias types and module/package
+  aliases. Generic type parameters and `Self` participate in type lookup within
+  their own scopes. Value space contains functions, constants, locals, parameters
+  and the existing unit/payload enum constructors. Keep canonical declaration IDs;
+  classify bindings, not the declarations' identity format.
+- Permit cross-space names; reject conflicting definitions/imports within each
+  space. Apply `strong > glob > implicit` separately in each space. Values must
+  not hide prelude types. Update the current broad shadowing language in the specs.
+- Resolve path prefixes through the type/module space, then select the terminal
+  space from the use site. `T { ... }` and struct patterns select a type; calls
+  and enum constructor patterns select values. Associated types/constants/methods
+  use the appropriate terminal category while retaining type-checker ownership of
+  trait/inherent dispatch. Field and method access on values remains separate.
+- A named `use m::Name as Local` introduces every applicable type/value binding
+  under `Local`; keep one source directive and per-space outcomes. Distinguish
+  pending, absent, resolved, inaccessible and ambiguous outcomes. Absence in one
+  space is valid if another succeeds; conflicts/access failures remain explicit.
+  Pending explicit imports must prevent premature glob/prelude selection in the
+  affected space; proven absence releases that reservation. Globs enumerate both
+  spaces, preserving per-binding visibility, precedence, provenance and dependencies.
+
+Suggested storage (pseudocode; retain the existing candidate representation):
+
+```rust
+enum NameNamespace { Type, Value }
+struct PerNamespace<T> { types: T, values: T }
+// NameEntry retains strong/globs/implicit candidate lists.
+type NameEntries = BTreeMap<LocalName, PerNamespace<NameEntry>>;
+// Named outcomes are per-space; glob resolution identifies its target namespace.
+enum ImportResolution {
+    Named(PerNamespace<LookupResult>),
+    Glob(NamespaceLookupResult),
+}
+```
+
+Require explicit categories on semantic `lookup`, `lookup_member` and path APIs;
+provide a deliberate two-space operation for imports and tooling. Do not retain
+an unqualified first-match fallback. `NamespaceId` continues to identify a module
+or associated-member container; it is not the new type/value category. Replace
+HIR `alias + alias_explicit + glob` with explicit named/glob syntax, deriving the
+default local name from the final path segment. Remove redundant HIR `Export`
+storage after migrating its actual consumers (including variant handling); derive
+public-member views from resolved bindings for both named and glob re-exports.
+
+Execution order for a future plan:
+
+1. Specify category membership, constructor/pattern rules, same-space conflicts,
+   import outcomes and prelude shadowing in the module/syntax specs.
+2. Migrate declaration collection, name tables, catalog lookup, import resolution
+   and host lookup/registration validation. Audit canonical identity consumers;
+   preserve identity, visibility and source-free boundaries. Distinguish source
+   names from native linkage symbols; do not relax ABI symbol uniqueness.
+3. Migrate type/body/pattern/associated-member queries, imported contracts and
+   export consumers. Update navigation/completion/reference provenance and cache
+   comparison/remapping together; include category and both import outcomes.
+4. Use a small focused contract matrix: cross-space coexistence versus same-space
+   conflicts; aliases/globs/re-exports of both spaces; constructors and patterns;
+   host/prelude lookup; incremental add/remove of one category versus fresh analysis,
+   retaining old snapshots. Reuse existing tests; full suites belong to GitHub CI.
+
+Keep SA2/SA3 as a later checkpoint: a dependency work queue and explicit convergence
+handling should follow stable lookup semantics. No hash-map replacement or speedup
+claim is justified by this review. Rust references for the boundaries:
+[binding keys](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/struct.BindingKey.html),
+[per-name state](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/imports/struct.NameResolution.html),
+[import resolution and derived module children](https://doc.rust-lang.org/stable/nightly-rustc/src/rustc_resolve/imports.rs.html).
