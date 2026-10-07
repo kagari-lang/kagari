@@ -39,6 +39,7 @@ impl EnvironmentStore {
             count: 0,
         }
     }
+
     pub(crate) fn insert(
         &mut self,
         environment: EnvironmentRecord,

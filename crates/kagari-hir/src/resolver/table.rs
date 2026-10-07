@@ -37,6 +37,7 @@ impl NameTable {
             ..Default::default()
         }
     }
+
     pub(crate) fn add(&mut self, name: LocalName, candidate: BindingCandidate) {
         let entry = self.entries.entry(name).or_default();
         match candidate.origin {
@@ -45,6 +46,7 @@ impl NameTable {
             _ => entry.strong.push(candidate),
         }
     }
+
     pub(crate) fn candidates(&self, name: &str) -> Option<(&[BindingCandidate], bool)> {
         let entry = self.entries.get(&LocalName::new(name)?)?;
         if !entry.strong.is_empty() {
@@ -55,6 +57,7 @@ impl NameTable {
             Some((&entry.implicit, false))
         }
     }
+
     pub(crate) fn select(candidates: &[BindingCandidate], strong: bool) -> LookupResult {
         if candidates.is_empty() {
             return LookupResult::Missing;
@@ -73,10 +76,12 @@ impl NameTable {
             via: candidates.iter().map(|c| c.origin.clone()).collect(),
         })
     }
+
     pub(crate) fn hit(&self, name: &str) -> LookupResult {
         self.candidates(name)
             .map_or(LookupResult::Missing, |(c, strong)| Self::select(c, strong))
     }
+
     pub fn lookup(&self, name: &str) -> Option<NameResolution> {
         self.candidates(name)
             .map(|(c, strong)| match Self::select(c, strong) {
@@ -87,9 +92,11 @@ impl NameTable {
                 _ => NameResolution::Unresolved,
             })
     }
+
     pub(crate) fn insert_impl(&mut self, id: ImplId) {
         self.impls.push(id);
     }
+
     pub fn impl_count(&self) -> usize {
         self.impls.len()
     }

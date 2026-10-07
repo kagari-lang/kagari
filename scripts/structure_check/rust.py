@@ -1,4 +1,4 @@
-"""Syntax-aware import, path, re-export and effective-LOC checks."""
+"""Syntax-aware import, path, spacing, re-export and effective-LOC checks."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ COMMENTS = {"line_comment", "block_comment"}
 PATHS = {"scoped_identifier", "scoped_type_identifier"}
 LITERALS = {"string_literal", "raw_string_literal", "char_literal"}
 OPAQUE = {"macro_definition", "macro_invocation"}
+FUNCTIONS = {"function_item", "function_signature_item"}
+ITEM_SCOPES = {"source_file", "declaration_list", "block"}
 LOC_LIMIT = 1200
 
 
@@ -157,6 +159,32 @@ def items(node: Node, test_only: bool):
         attributes = []
 
 
+def unseparated_functions(node: Node, data: bytes):
+    """Find sibling functions without a blank line before attached trivia."""
+    previous = None
+    leading = []
+    for child in node.named_children:
+        if child.type in COMMENTS or child.type == "attribute_item":
+            leading.append(child)
+            continue
+        if child.type in FUNCTIONS and previous is not None:
+            boundary = previous
+            prefix = child
+            for trivia in leading:
+                # A comment starting on the preceding function's closing line
+                # belongs to that function, even when it spans several lines.
+                if trivia.type in COMMENTS and trivia.start_point.row == boundary.end_point.row:
+                    boundary = trivia
+                else:
+                    prefix = trivia
+                    break
+            gap = data[boundary.end_byte:prefix.start_byte]
+            if not any(not line.strip() for line in gap.split(b"\n")[1:-1]):
+                yield prefix, boundary.end_byte
+        previous = child if child.type in FUNCTIONS else None
+        leading = []
+
+
 def module_edges(source: Source, available: set[str], entrypoint=False) -> list[tuple[str, bool]]:
     edges = []
     parent = posixpath.dirname(source.path) or "."
@@ -274,6 +302,10 @@ def inspect(source: Source, test_only: bool) -> list[dict]:
             return
         if node.type in {"attribute_item", "inner_attribute_item"}:
             return
+        if node.type in ITEM_SCOPES:
+            for following, _ in unseparated_functions(node, source.data):
+                emit("function-spacing", following,
+                     "separate adjacent functions with a blank line before their comments/attributes")
         if node.type == "use_declaration":
             visibility = next((c for c in node.named_children
                                if c.type == "visibility_modifier"), None)

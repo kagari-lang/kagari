@@ -123,6 +123,7 @@ impl Drop for Cache {
 struct Payload;
 impl NativePayload for Payload {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+
     fn units(&self) -> usize {
         0
     }

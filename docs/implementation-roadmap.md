@@ -28,6 +28,19 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Function spacing enforcement
+
+- [x] Require a blank line between adjacent Rust functions/methods, before the
+  following function's comments/attributes. Cover traits, local functions and tests;
+  retain the checker's macro/literal boundary.
+- [x] Insert missing separators without changing behavior; validate the checker
+  regression suite, full structure audit, formatting and diffs. No Cargo test run.
+
+Ledger: `function-spacing` now fails missing separators in parsed Rust item scopes,
+including tests. Inserted 81 blank lines in 27 Rust files, with no code changes.
+Checker self-tests pass (38); the audit passes (921 Rust files, zero violations or
+exceptions), as do formatting and diff checks. Existing user edits are preserved.
+
 ### Test consolidation (contract ownership, complete)
 
 - [x] Inventory Rust test entries and inspect grammar, HIR, VM and SDK contract owners.

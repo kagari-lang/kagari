@@ -433,6 +433,7 @@ mod tests {
         // An interpreter storage budget, not a serialized or external ABI.
         assert!(size_of::<Value>() <= 32);
     }
+
     fn host_root(object_id: u64) -> HostRootHandle {
         HostRootHandle::new(
             Default::default(),

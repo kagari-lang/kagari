@@ -53,6 +53,7 @@ impl SourceUnit {
             arena: lowered.module.body.arena(),
         }
     }
+
     pub(crate) fn matches(&self, lowered: &LoweredModule) -> bool {
         *self == Self::of(lowered)
     }
@@ -138,6 +139,7 @@ impl LocalName {
         ((first == '_' || first.is_alphabetic()) && chars.all(|c| c == '_' || c.is_alphanumeric()))
             .then(|| Self(name.into()))
     }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

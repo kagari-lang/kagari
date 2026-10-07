@@ -35,6 +35,7 @@ impl Location {
         };
         value >= min && value <= max
     }
+
     pub(crate) fn admits(self, value: &Value) -> bool {
         if !value.has_representation(self.representation) {
             return false;
@@ -94,6 +95,7 @@ impl FrameLayout {
             managed_count,
         }
     }
+
     pub(super) fn prepare(function: &BytecodeFunction<DefinitionId>, work: &mut usize) -> Self {
         let registers = RegisterAllocation::prepare(function, work);
         let mut scalar_count = 0;

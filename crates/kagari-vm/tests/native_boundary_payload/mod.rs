@@ -172,6 +172,7 @@ impl Drop for Counter {
 
 impl NativePayload for Counter {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
+
     fn units(&self) -> usize {
         1
     }
@@ -184,6 +185,7 @@ impl NativePayload for Edge {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         visit(&self.0);
     }
+
     fn units(&self) -> usize {
         1
     }

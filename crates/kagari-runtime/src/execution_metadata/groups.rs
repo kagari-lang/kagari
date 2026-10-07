@@ -46,6 +46,7 @@ impl OperationGroupStore {
             count: 0,
         }
     }
+
     pub(crate) fn insert(
         &mut self,
         entries: Vec<BoundOperation>,

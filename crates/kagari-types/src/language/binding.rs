@@ -49,12 +49,15 @@ fn applied(module: &str, name: &str, arguments: Vec<Ty>) -> Ty {
 pub fn option_declaration() -> DefinitionPath {
     declaration("option", "Option")
 }
+
 pub fn result_declaration() -> DefinitionPath {
     declaration("result", "Result")
 }
+
 pub fn ordering_declaration() -> DefinitionPath {
     declaration("cmp", "Ordering")
 }
+
 pub fn bound_declaration() -> DefinitionPath {
     declaration("ops", "Bound")
 }

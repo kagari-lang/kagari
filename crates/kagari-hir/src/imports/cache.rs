@@ -10,9 +10,11 @@ impl ModuleImportFacts {
     pub(crate) fn same_bindings(&self, other: &Self) -> bool {
         self.same_surface(other, false)
     }
+
     pub(crate) fn same_signature_bindings(&self, other: &Self) -> bool {
         self.same_surface(other, true)
     }
+
     fn same_surface(&self, other: &Self, signature: bool) -> bool {
         let local = self.scope.unit.as_ref();
         let old_local = other.scope.unit.as_ref();
@@ -70,6 +72,7 @@ pub(crate) fn same_name_tables(
             })
         })
 }
+
 fn unit_equal(
     a: &SourceUnit,
     b: &SourceUnit,
@@ -82,6 +85,7 @@ fn unit_equal(
             && a.module == b.module
             && a.file == b.file)
 }
+
 fn source_equal(
     a: &SourceDeclRef,
     b: &SourceDeclRef,
@@ -113,6 +117,7 @@ fn same_source_item(
     }
     a.item == b.item
 }
+
 fn target_equal(
     a: &ResolvedTarget,
     b: &ResolvedTarget,
@@ -135,6 +140,7 @@ fn target_equal(
         _ => a == b,
     }
 }
+
 fn origin_equal(
     a: &BindingOrigin,
     b: &BindingOrigin,

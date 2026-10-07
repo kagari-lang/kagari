@@ -49,6 +49,7 @@ impl ApplicationStore {
             count: 0,
         }
     }
+
     pub(crate) fn insert(
         &mut self,
         application: MethodApplication,

@@ -300,6 +300,7 @@ impl Runtime {
             mapping: PhantomData,
         })
     }
+
     fn closed_interface_signature(
         &self,
         member: &InterfaceMember,

@@ -1076,6 +1076,7 @@ impl AnalysisSnapshot {
                 })
             })
     }
+
     pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration<DefinitionId>> {
         let analysis = self.analysis_at(file, offset)?;
         if let Some(declaration) = analysis.definition_at(offset) {

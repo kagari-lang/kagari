@@ -69,6 +69,7 @@ impl NamespaceCatalog {
             .get(&unit.module)
             .is_some_and(|units| units.contains(unit))
     }
+
     pub fn lookup_member(
         &self,
         ctx: &LookupContext<'_>,
@@ -148,6 +149,7 @@ impl NamespaceCatalog {
         }
         Ok(NameTable::select(&admitted, strong))
     }
+
     pub fn namespace_of(
         &self,
         _ctx: &LookupContext<'_>,
@@ -177,6 +179,7 @@ impl NamespaceCatalog {
             _ => NamespaceResult::NotNamespace,
         })
     }
+
     pub fn resolve_path(
         &self,
         ctx: &LookupContext<'_>,
@@ -203,6 +206,7 @@ impl NamespaceCatalog {
         }
         Ok(root)
     }
+
     pub(crate) fn absolute(
         &self,
         ctx: &LookupContext<'_>,
@@ -288,6 +292,7 @@ impl NamespaceCatalog {
         }
         Ok(LookupResult::Missing)
     }
+
     fn module_accessible(
         &self,
         ctx: &LookupContext<'_>,
@@ -311,6 +316,7 @@ impl NamespaceCatalog {
         }
         Ok(true)
     }
+
     pub(crate) fn reachable_sources(
         &self,
         names: &NameTable,
@@ -354,6 +360,7 @@ impl NamespaceCatalog {
         }
         Ok(sources)
     }
+
     pub(crate) fn resolve_name(
         &self,
         names: &NameTable,

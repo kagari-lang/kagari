@@ -50,6 +50,7 @@ where
 {
     bounded_vec(deserializer, MAX_NESTED_RECORDS, "nested declaration")
 }
+
 pub fn table<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,

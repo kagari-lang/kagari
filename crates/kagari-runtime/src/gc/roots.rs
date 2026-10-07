@@ -36,6 +36,7 @@ impl RootedValue {
     ) -> Result<(), RuntimeError> {
         self.roots.set_metadata(runtime, metadata)
     }
+
     /// Read a protected value after checking the heap identity and root generation.
     pub fn value(&self, heap: &GcHeap) -> Option<Value> {
         self.roots.get(heap, 0)

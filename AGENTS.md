@@ -83,6 +83,9 @@ build policy.
 - Use normal Rust `mod` boundaries for handwritten source. Reserve `include!` for
   generated code and `#[path]` for justified test or cross-target sharing.
 - Follow the import/path rules and structural review below for handwritten Rust.
+- Separate adjacent functions and methods with at least one blank line, including
+  trait signatures and tests. Place the blank line before the next function's
+  attached comments and attributes; blank lines inside them do not count.
 - Split functions when control flow or ownership becomes difficult to follow.
   Group growing argument sets into cohesive parameter types where that clarifies
   the contract. Prefer explicit enums and focused handlers over conditional chains

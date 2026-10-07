@@ -44,6 +44,7 @@ source files.
 | `qualified-path` | Production paths at use sites with three or more components, paths starting at `crate`, `std`, `core`, `alloc` or a Cargo dependency, and leading `::` | Import the item or a meaningful short module name. |
 | `reexport-whitelist` | Every `pub use`, including restricted visibility and test-only scopes | Import directly from the owner or document one exact file/declaration whitelist entry. Library roots and `mod.rs` receive no exemption. |
 | `effective-loc` | Any scanned Rust file exceeding 1200 effective LOC | Split by responsibility, including test files. |
+| `function-spacing` | Adjacent functions or methods without a separating blank line, including trait signatures and tests | Add a blank line before the following function's comments/attributes. Blank lines inside them do not count. |
 | `parse-error` | Rust syntax the pinned parser cannot parse, including missing tokens | Fix invalid syntax or investigate/update parser support; never silently skip the file. |
 
 Explicit imports are the intended place for full paths:
@@ -83,7 +84,7 @@ For example, `cfg(all(test, feature = "extra"))` is test-only;
 platform or feature does not accidentally exempt production source. `cfg_attr`
 is not interpreted as a test exemption. Files reachable from both test and
 production roots receive production checks. Unknown/unreachable entrypoints are
-also checked as production. Tests never receive an LOC, parse-error or re-export exemption.
+also checked as production. Tests never receive an LOC, spacing, parse-error or re-export exemption.
 
 ## Effective LOC
 
@@ -155,7 +156,7 @@ test and documentation change.
 
 Tree-sitter parses source syntax; it does not compile code or expand macros.
 Macro definitions and invocations contain token trees rather than resolved Rust
-items/expressions, so their contents are excluded from import/path/re-export
+items/expressions, so their contents are excluded from import/path/spacing/re-export
 checks. Their source still contributes to LOC. Literal strings are likewise not
 reinterpreted as Rust code. Macro hygiene, macro-generated imports, `include!`,
 conditional `#[path]` produced by `cfg_attr`, and build-generated source need

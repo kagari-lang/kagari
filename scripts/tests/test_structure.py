@@ -125,6 +125,58 @@ fn f() { // Mixed.
         self.assertEqual((result[0]["line"], result[0]["column"]), (4, 1))
 
 
+class FunctionSpacingTests(unittest.TestCase):
+    def test_adjacent_functions_in_each_item_scope(self):
+        for source in [
+            "fn a() {} fn b() {}",
+            "fn a() {}\nfn b() {}",
+            "impl Thing { fn a() {}\nfn b() {} }",
+            "trait Thing { fn a();\nfn b() {} }",
+            'extern "C" { fn a();\nfn b(); }',
+            "fn outer() { fn a() {}\nfn b() {} }",
+            "#[cfg(test)] mod tests { #[test] fn a() {}\n#[test] fn b() {} }",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(rules(source), ["function-spacing"])
+
+    def test_blank_lines_and_intervening_items(self):
+        for newline in ["\n", "\r\n"]:
+            for source in [
+                "fn a() {}\n\nfn b() {}",
+                "impl Thing { fn a() {}\n \t\n/// Description.\n#[inline]\nfn b() {} }",
+                "fn a() {}\nstruct Thing;\nfn b() {}",
+            ]:
+                with self.subTest(source=source, newline=newline):
+                    self.assertEqual(rules(source.replace("\n", newline)), [])
+
+    def test_comments_and_attributes_belong_to_the_following_function(self):
+        for trivia in [
+            "/// Description.\n#[inline]\n",
+            "// Description.\n",
+            "/** Description.\n\n More documentation. */\n",
+            "#[cfg(any(\n\n test, unix))]\n",
+        ]:
+            with self.subTest(trivia=trivia):
+                source = "fn a() {}\n" + trivia + "fn b() {}"
+                finding, = audit({"src/worker.rs": source})
+                self.assertEqual((finding["rule"], finding["line"]), ("function-spacing", 2))
+
+    def test_trailing_comments_do_not_supply_a_blank_line(self):
+        for comment in ["// Trailing.", "/* Trailing. */", "/* Trailing.\n\n More. */"]:
+            with self.subTest(comment=comment):
+                self.assertEqual(rules(f"fn a() {{}} {comment}\nfn b() {{}}"),
+                                 ["function-spacing"])
+                self.assertEqual(rules(f"fn a() {{}} {comment}\n\nfn b() {{}}"), [])
+
+    def test_literals_and_macro_token_trees_are_not_function_items(self):
+        self.assertEqual(rules('''
+const TEXT: &str = r#"fn a() {}
+fn b() {}"#;
+macro_rules! functions { () => { fn a() {} fn b() {} }; }
+fn real() { println!("fn a() {} fn b() {}"); }
+'''), [])
+
+
 class TestScopeTests(unittest.TestCase):
     def test_inline_cfg_scopes_do_not_exempt_neighboring_code(self):
         result = rules('''

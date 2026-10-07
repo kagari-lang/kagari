@@ -73,27 +73,35 @@ fn from_residual(cx: &mut CallContext<'_>, name: &str, failure: &str) -> NativeR
 pub(super) fn option_branch(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     branch(cx, "Option", "Some", "None")
 }
+
 pub(super) fn result_branch(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     branch(cx, "Result", "Ok", "Err")
 }
+
 pub(super) fn control_flow_branch(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     branch(cx, "ControlFlow", "Continue", "Break")
 }
+
 pub(super) fn option_from_output(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     from_output(cx, "Option", "Some")
 }
+
 pub(super) fn result_from_output(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     from_output(cx, "Result", "Ok")
 }
+
 pub(super) fn control_flow_from_output(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     from_output(cx, "ControlFlow", "Continue")
 }
+
 pub(super) fn option_from_residual(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     from_residual(cx, "Option", "None")
 }
+
 pub(super) fn result_from_residual(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     from_residual(cx, "Result", "Err")
 }
+
 pub(super) fn control_flow_from_residual(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     from_residual(cx, "ControlFlow", "Break")
 }

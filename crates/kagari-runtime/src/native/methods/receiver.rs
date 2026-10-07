@@ -29,16 +29,20 @@ impl AppliedReceiver {
             _program: program,
         }
     }
+
     pub(crate) fn owner(&self) -> &LoadedModule {
         &self.owner
     }
+
     pub(crate) fn type_argument(&self) -> &TypeArgument {
         &self.argument
     }
+
     pub(crate) fn validate(&self, runtime: &Runtime) -> NativeResult<()> {
         runtime.validate_loaded_module(&self.owner)?;
         self.argument.validate(runtime)
     }
+
     pub(crate) fn matches(&self, other: &Self) -> bool {
         self.owner.program_root().key() == other.owner.program_root().key()
             && self
@@ -60,6 +64,7 @@ impl KagariType for RetainedReceiver {
             "method receiver needs an installed type",
         ))
     }
+
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
         expected.validate(cx.runtime())?;
         if matches!(expected.ty(), Ty::Struct(_) | Ty::NativeObject(_)) {

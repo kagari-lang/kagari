@@ -62,6 +62,7 @@ impl EnumType {
     pub fn type_argument(&self) -> &TypeArgument {
         &self.0.argument
     }
+
     pub fn owner(&self) -> &LoadedModule {
         &self.0.owner
     }

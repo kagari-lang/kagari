@@ -113,15 +113,19 @@ impl ModuleGraph {
             catalog: Arc::new(catalog),
         })
     }
+
     pub(crate) fn imports_for(&self, unit: &SourceUnit) -> Option<&Arc<ModuleImportFacts>> {
         self.source_facts.get(unit)
     }
+
     pub fn node(&self, module: &ModuleIdentity) -> Option<&ModuleNode> {
         self.nodes.get(module)
     }
+
     pub fn modules(&self) -> impl Iterator<Item = (&ModuleIdentity, &ModuleNode)> {
         self.nodes.iter()
     }
+
     pub fn reachable_order(
         &self,
         root: &ModuleIdentity,
@@ -156,6 +160,7 @@ fn location(module: &LoweredModule, span: Span) -> FileSpan {
         range: span,
     })
 }
+
 fn candidate(
     unit: &SourceUnit,
     target: Option<ResolvedTarget>,
@@ -171,6 +176,7 @@ fn candidate(
         location,
     }
 }
+
 fn add_source(
     names: &mut NameTable,
     unit: &SourceUnit,
@@ -196,6 +202,7 @@ fn add_source(
         );
     }
 }
+
 fn add_declarations(
     catalog: &mut NamespaceCatalog,
     module: &LoweredModule,
@@ -428,6 +435,7 @@ fn add_declarations(
     );
     Ok(())
 }
+
 fn add_installed_prefixes(
     catalog: &mut NamespaceCatalog,
     sources: &[&LoweredModule],
@@ -480,6 +488,7 @@ fn add_installed_prefixes(
     }
     Ok(())
 }
+
 fn resolve_imports(
     module: &LoweredModule,
     base: &NamespaceCatalog,
@@ -789,6 +798,7 @@ fn resolve_imports(
     result.scope = Arc::new(names);
     Ok(result)
 }
+
 fn add_dependencies(hit: &LookupHit, dependencies: &mut BTreeSet<ModuleIdentity>) {
     for origin in &hit.via {
         match origin {
@@ -814,6 +824,7 @@ fn add_dependencies(hit: &LookupHit, dependencies: &mut BTreeSet<ModuleIdentity>
         _ => {}
     }
 }
+
 fn visibility_covers(
     source: Visibility,
     owner: &ModuleIdentity,
@@ -838,6 +849,7 @@ fn visibility_covers(
     };
     exporter.path[..export_scope].starts_with(&owner.path[..source_scope])
 }
+
 fn reexport_allowed(
     catalog: &NamespaceCatalog,
     target: &ResolvedTarget,
@@ -862,6 +874,7 @@ fn reexport_allowed(
             .iter()
             .any(|c| visibility_covers(c.visibility, &c.owner, visibility, exporter))
 }
+
 fn normalize_import_path(path: &str, current: &ModuleIdentity) -> String {
     let mut segments = path.split("::").peekable();
     let mut base = current.path.clone();

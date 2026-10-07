@@ -190,6 +190,7 @@ impl Lowerer {
             token_span(&tree),
         );
     }
+
     fn lower_use_tree(
         &mut self,
         visibility: Visibility,
@@ -218,6 +219,7 @@ impl Lowerer {
             }
         }
     }
+
     fn lower_import(
         &mut self,
         visibility: Visibility,

@@ -24,6 +24,7 @@ impl LinkedCallable {
     pub fn primitive(&self) -> Option<RuntimePrimitive> {
         self.primitive
     }
+
     /// Checked parameter facts for representation-specific native fast paths.
     pub fn parameters(&self) -> &[Ty<DefinitionId>] {
         &self.params
@@ -35,10 +36,12 @@ impl<'call> CallContext<'call> {
     pub fn clone_sequence(&self, source: HeapObjectId) -> NativeResult<HeapObjectId> {
         self.heap().clone_array(source)
     }
+
     /// Check generation and active borrow/lease guards before a structural edit.
     pub fn ensure_collection_mutable(&self, target: HeapObjectId) -> NativeResult<()> {
         self.heap().ensure_structure_mutable(target)
     }
+
     /// Root traced elements, detach an exclusive buffer, and restore it on every
     /// success, trap or unwind. Callbacks may synchronously reenter the host.
     pub fn edit_sequence<R>(
@@ -49,6 +52,7 @@ impl<'call> CallContext<'call> {
         let heap = self.heap();
         heap.edit_sequence(target, |buffer| edit(self, buffer))
     }
+
     /// Resolve a selected result parameter in the selected generation's scope.
     pub fn selected_result_parameter(
         &self,

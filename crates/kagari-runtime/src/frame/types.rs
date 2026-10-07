@@ -71,6 +71,7 @@ impl EnvironmentRecord {
         Arc::make_mut(&mut self.types).associated_interfaces =
             self.operations.associated_interfaces();
     }
+
     #[cfg(test)]
     pub(crate) fn add_operation(
         &mut self,
@@ -81,6 +82,7 @@ impl EnvironmentRecord {
         self.refresh_types();
         Ok(())
     }
+
     pub(crate) fn add_receiver(
         &mut self,
         heap: &GcHeap,
@@ -90,6 +92,7 @@ impl EnvironmentRecord {
         self.refresh_types();
         Ok(())
     }
+
     pub(crate) fn extend_operations(&mut self, operations: OperationBindings) {
         self.operations.extend(operations);
         self.refresh_types();

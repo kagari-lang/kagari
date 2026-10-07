@@ -129,6 +129,7 @@ impl<'runtime> ConversionContext<'runtime> {
     pub fn runtime(&self) -> &'runtime Runtime {
         self.runtime
     }
+
     pub fn owner(&self) -> &'runtime LoadedModule {
         self.owner
     }

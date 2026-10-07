@@ -49,6 +49,7 @@ impl<'call> NativeContext<'call> {
             function: None,
         })
     }
+
     pub fn runtime(&self) -> &'call Runtime {
         self.conversion.runtime()
     }

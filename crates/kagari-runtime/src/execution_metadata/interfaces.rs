@@ -38,6 +38,7 @@ impl InterfaceStore {
             count: 0,
         }
     }
+
     pub(crate) fn insert(
         &mut self,
         interface: InterfaceValueSnapshot,
