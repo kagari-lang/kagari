@@ -24,10 +24,10 @@ version bumps, repeated artifact regeneration and exhaustive checkpoint validati
   readers. Batch necessary fixture updates at a coherent checkpoint instead of
   rebuilding all products after every incremental edit. Preserve meaningful
   source-free and behavioral coverage.
-- Use focused checks for the changed behavior during development. Run full
-  workspace checks and feature/backend matrices at final integration, or when
-  broad impact or a concrete failure justifies them. Do not repeat unchanged
-  successful checks or known failures at every small checkpoint.
+- During feature iteration and bug fixes, run only a small set of tests directly
+  affected by the change. Local full-suite testing is prohibited. Full workspace
+  tests and complete feature/backend matrices belong to GitHub CI, including
+  integration acceptance. Do not repeat unchanged successful focused checks.
 - Keep the authorized scope finite. Do not silently expand a library task into
   unrelated architecture migration or continually add checklist items. Implement
   shared capabilities only for concrete requirements; record material gaps
@@ -182,7 +182,9 @@ When changing the checker, run its `--self-test` suite as well.
 - Resolve integration errors through the intended architecture. Do not introduce
   fake success, disabled validation or production `todo!()` stubs to pass checks.
 - Final acceptance requires all carried build/test errors to be resolved and all
-  documented checks to pass. Track phase scope separately from build status.
+  documented checks to pass in their designated local or GitHub CI scope. Report
+  local validation separately from CI acceptance; never claim unrun CI checks pass.
+  Track phase scope separately from build status.
 
 ## Kagari Semantic Boundaries
 
@@ -216,12 +218,13 @@ When changing the checker, run its `--self-test` suite as well.
 - Run focused tests when affected units build. At intermediate architecture
   boundaries, attempt relevant checks and record failures honestly; avoid repeating
   unchanged known failures while their owning migration step is still pending.
-- Ordinary bug fixes and follow-ups to completed phases use focused regressions,
-  affected consumer smoke tests and lightweight checks. Do not reopen a completed
-  phase's full workspace or feature/backend matrix for each follow-up. Reserve
-  expensive acceptance runs for planned architecture integration, explicit user
-  requests or concrete evidence of broad impact. State broader checks not run;
-  do not expand verification merely to satisfy an old phase's command list.
+- Feature iterations, bug fixes and phase follow-ups use only a small set of
+  affected regressions, consumer smoke tests and lightweight checks. Agents must
+  not run `cargo test --workspace`, equivalent full suites split across commands,
+  or complete feature/backend test matrices locally. GitHub CI owns these runs.
+  Broad impact and integration checkpoints do not override this rule. This local
+  validation policy takes precedence over execution-plan command lists. Report
+  the selected tests and the CI status honestly.
 - Use the build profiles defined in the workspace `Cargo.toml`, the default
   `target` directory and Cargo's default build parallelism.
 - Python is managed through `uv`; use `uv run python` when Python is needed.
@@ -232,7 +235,9 @@ When changing the checker, run its `--self-test` suite as well.
   cache state and workload. Separate compilation time from execution time and
   avoid speed claims unsupported by measurements.
 
-Final architecture validation includes the plan's feature/behavior matrix and:
+GitHub CI owns full architecture acceptance, including the plan's complete
+feature/behavior matrix and the checks below. This is a CI checklist, not a local
+feature-iteration command list; local work uses the focused checks defined above.
 
 ```text
 uv run --locked scripts/check_structure.py
