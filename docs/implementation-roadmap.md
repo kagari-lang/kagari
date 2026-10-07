@@ -28,6 +28,23 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### HIR documentation completion
+
+The [execution plan](hir-documentation-plan.md) covers `kagari-hir` storage and ID
+relationships, lowering, imports/resolution, semantic facts, registered inputs,
+query caches and the checked compiler boundary. Documentation follows two concrete
+source examples with annotated storage/lookup diagrams and Rustdoc contracts.
+Status: planned; documentation implementation has not started. Behavior and API
+redesign are outside scope; validation is limited to focused documentation checks.
+
+- [ ] HD01: Document orientation, storage, IDs and source-map ownership.
+- [ ] HD02: Document HIR node families and AST-to-HIR lowering.
+- [ ] HD03: Document imports, namespaces and lexical resolution.
+- [ ] HD04: Document declarations, semantic types and type-checking facts.
+- [ ] HD05: Document host/native inputs, language roles and builtin bridges.
+- [ ] HD06: Document queries, caches, snapshots and checked-program handoff.
+- [ ] HD07: Audit coverage and perform focused documentation validation.
+
 ### Syntax documentation completion
 
 The [execution plan](syntax-documentation-plan.md) covers the entire `kagari-syntax`

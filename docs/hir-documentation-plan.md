@@ -1,0 +1,202 @@
+# HIR Documentation Completion Plan
+
+Status: planned; implementation has not started. The
+[roadmap](implementation-roadmap.md#hir-documentation-completion) owns activation,
+phase order and progress. This plan is executable without the originating conversation.
+
+## Goal and boundaries
+
+Document the entire production surface of `kagari-hir` so a reader can follow source
+meaning from lowering through checked analysis without reconstructing storage,
+identity or phase contracts from implementation bodies. Explain the current code,
+including recoverable analysis and tooling queries, not a proposed architecture.
+
+Deliver English Rustdoc beside the owning code and a short reading guide at
+`docs/architecture/hir.md`, linked from `docs/architecture.md` and crate docs.
+Reuse the [syntax documentation standard](syntax-documentation-plan.md#documentation-standard):
+short summaries, useful examples, intra-doc links and applicable error/panic contracts.
+Use storage diagrams and lookup tables as well as node shapes; HIR is not one tree.
+Keep language rules in the [module](spec/modules.md), [syntax](spec/syntax.md),
+[trait](spec/traits.md) and other relevant specifications.
+
+This is a documentation task. Preserve behavior, visibility, IDs, data layout,
+query scheduling and cache policy. Minimal macro changes to attach documentation
+to generated IDs/methods are allowed; changing their implementation is not.
+Do not implement inline-module reuse, import scheduling, identity interning or
+other optimizations. Record newly verified discrepancies concisely in
+[the existing review](review.md), checking for an existing entry first.
+Compiler/MIR/runtime implementation documentation and rewriting other crates are
+outside scope; link their owning symbols where a HIR handoff needs explanation.
+
+## Documentation contract
+
+- Cover every public module, type/alias, trait, function, inherent method, field
+  and enum variant, including macro-generated items. Trait implementations may
+  inherit their trait contract. Give private production modules an orientation;
+  explain important private state and algorithms, not every helper statement.
+- For each core structure explain what it represents, what it physically stores,
+  who owns it, which operation produces it and which operation consumes it. Link
+  to concrete symbols. Keep trivial entries short and share common explanations.
+- For each ID family provide an allocation -> storage -> lookup example, its
+  validity scope and relevant checks. Distinguish plain indices, arena/owner IDs,
+  member slots, source-unit references and scoped definition identities. Do not
+  claim all IDs have the same checks or remain valid after a source edit.
+- Show actual Rust fields separately from conceptual relationships. Label arrows
+  as stored IDs, borrowed views, shared `Arc` ownership or computed lookups.
+  Mark illustrative indices and collapsed fields; never imply an allocation order
+  or field that the implementation does not guarantee.
+- Every HIR node family must have a source example and annotated storage/ID diagram.
+  Cover materially different forms: declarations versus bodies, expression versus
+  place, block statements versus tail expression, binding patterns, calls,
+  generics and qualified paths. Simple variants may link to a shared family
+  diagram with a concise local description; do not invent a runtime node for syntax.
+- For semantic tables identify key, value, producer stage, consumer and absence
+  meaning. Distinguish missing facts, deliberate omission, error recovery and
+  invariant violations; do not interpret every `None` as a failed analysis.
+- For query APIs explain inputs, result/diagnostics, dependencies, cache granularity,
+  invalidation/reuse conditions and cancellation where applicable. Distinguish
+  conceptual phases from actual eager/lazy calls; show the real callers.
+- Document byte ranges and physical versus logical source association. Explain
+  internal assertions and caller-reachable panics accurately; do not describe an
+  unchecked ID constructor as validation or an invariant panic as a syntax error.
+- Use `text` fences for Kagari and diagrams. Rust examples must compile and assert
+  meaningful results; share setup and examples rather than adding one per getter.
+  Do not use `ignore` to conceal broken examples or `no_run` for runnable examples.
+
+## Required coverage
+
+Paths are relative to `crates/kagari-hir/src/`. Nested production modules belong
+to their listed family even when not individually named below.
+
+| Owner | Required content and concrete anchors |
+| --- | --- |
+| `lib.rs`, `hir/mod.rs`, `lower/mod.rs` | Crate map; `LoweredModule`, `AnalyzedModule`, `AnalysisResult`, `CheckedAnalysis`; distinguish stored HIR, semantic side tables and validated output. Explain retained source, diagnostics and `DefinitionPath`/`DefinitionId` parameterization. |
+| `hir/ids.rs`, `hir/body.rs`, `hir/item/` | `Module` declaration collections and `Body` vectors; `HirArenaId`, `HirOwner`, `BodyOwner`; all ID families and buffer aliases. `Body` can store nodes from multiple owners. Show allocation and checked lookup, including field/variant owner plus slot and parameters/locals at their actual owners. |
+| `hir/expr/`, `hir/stmt.rs`, `hir/place.rs`, `hir/pattern.rs`, `hir/ty.rs`, `hir/writeability.rs` | All node kinds and payloads; links between IDs; literals/operators; missing nodes; condition, closure, match and propagation forms; expression/place distinction and writeability. Type spelling is not a resolved semantic type. |
+| `source_map.rs`, `lower/` | AST-to-HIR construction, ID allocation and owner switching, import-tree flattening, expression/place lowering, source sites and recovery. Show which syntax is retained, transformed or omitted; explain inline-module handling as implemented. |
+| `imports/`, `resolver/` | `SourceUnit`, `SourceDeclRef`, `NamespaceId`, `ImportDirective`, `ModuleImportFacts`, `NameEntry`, `NameTable`, `NamespaceCatalog`, `ModuleGraph`, `ResolvedNames`, lexical scopes. Directive vs binding vs namespace vs target; visibility, alias/glob provenance, candidate precedence, ambiguity, unresolved states, re-exports, fixed-point scheduling/termination and cache inputs. |
+| `declarations.rs`, `declarations/`, `callable.rs`, `callable/`, `types.rs`, `types/` | Declaration and binding identity, callable signatures, semantic type variants, substitution and nominal/associated types. Explicitly distinguish `TypeRefId` from the semantic `TypeId` enum; explain portable paths versus scoped definition-table references and mapping failures. |
+| `typeck/`, `aggregates/` | `ModuleSignatures`, `TypedModule`, `TypeTable`, `ResolvedCall`, `CallTarget`, `AggregateCatalog`; signature/body division, constraints/inference, calls/member selection, generic bounds and implementations, scalar/constant facts, coercion, iteration and propagation. Explain temporary inference state versus published facts and body/signature reuse. |
+| `host.rs`, `host/`, `native.rs`, `native/`, `language/`, `builtin/` | Host declarations/IDs and origin, native registration/rendering, validated language roles and bounded builtin bridges. Explain how these provide inputs to ordinary analysis; do not imply HIR executes Rust functions or duplicate external registration specifications. |
+| `analysis/`, `program.rs` | `AnalysisDatabase`, `AnalysisSnapshot`, `DeclarationSnapshot`, `SignatureSnapshot`, `FunctionAnalysis`, `CheckedProgram`; preparation, publication and query callers, revisions/ownership/caches, navigation/completion and diagnostic queries. Checked dependency closure and compiler handoff; HIR checking is not MIR verification or execution. |
+
+At HD01 inventory production files and macro-generated APIs against this table.
+Extend the appropriate row for overlooked files, without creating a second catalog
+or expanding into other crates. Existing useful docs should be retained and corrected.
+
+## Diagrams and recurring examples
+
+The reading guide must contain three linked views: physical storage and IDs,
+semantic tables keyed by those IDs, and query dependencies/publication boundaries.
+Detailed node and algorithm explanations stay beside their owning code.
+
+Use these two examples throughout; verify them with current APIs and existing
+fixtures before publishing. Register the same foundation inputs used by analysis
+tests where needed; do not bypass required registration to shorten an example.
+
+**A. Local data and arithmetic**
+
+```text
+fn add(x: i32) -> i32 {
+    let y = x + 1;
+    y
+}
+```
+
+Trace parameter, local, block, statement and expression IDs, the source map,
+lexical resolution, inferred/declared types and checked output. At the binary node,
+include at least this level of detail (indices are illustrative):
+
+```text
+Body.exprs                         // physical rows, other fields collapsed
++-- e0 -> (owner, Name { name: "x", ... })
++-- e1 -> (owner, Literal(...))
+`-- e2 -> (owner, Binary { lhs: e0, op: ..., rhs: e1 })
+
+ExprId = { arena, owner, index }    // e0/e1/e2 abbreviate complete IDs
+Body::expr(e2) -> arena check -> vector[index] -> owner check -> ExprData
+ResolvedNames.exprs[e0] -> parameter binding
+TypeTable.exprs[e2]     -> semantic type
+SourceMap              -> corresponding source byte range
+```
+
+Replace schematic payloads with verified variants in the final Rustdoc. Show the
+actual SourceMap accessor and its source association. Do not embed resolved names
+or types in `ExprData` diagrams: they are independent facts keyed by IDs.
+
+**B. Cross-module lookup and calls**
+
+Bind three source units in package `pkg` to logical paths `math`, `api` and `app`:
+
+```text
+// math
+pub fn sum(x: i32) -> i32 { x + 1 }
+// api
+pub use pkg::math::*;
+// app
+use pkg::api::sum as add;
+fn main() -> i32 { add(41) }
+```
+
+Show the source-database bindings explicitly; filenames alone do not define this
+package layout. Trace the real directive, local name `add`, candidates/provenance,
+namespace lookup, canonical `SourceDeclRef` for `math::sum`, resolved expression,
+selected call/signature and checked dependency closure. Add a compact qualified-path
+variation to explain why entering a nested namespace creates no synthetic import.
+Distinguish glob expansion/re-export propagation from lookup at the use site.
+
+Use small local examples for generic/trait calls, incomplete syntax or source edits
+when these two do not expose the relevant contract. Reuse existing contract fixtures;
+do not grow a new tutorial or test suite for every feature. For cache documentation,
+contrast a body-only edit with a signature/export edit and show actual invalidation
+checks, not a promised minimal recomputation algorithm.
+
+## Execution and acceptance
+
+Implement in order. Each phase updates its roadmap checkbox and records only
+material gaps or carried errors there; this plan owns requirements, not a second
+progress log. Use coherent `docs(hir): ...` commits with a `HIR-Docs-Phase: HD0N`
+trailer (list phases together when a checkpoint combines them).
+
+| Phase | Deliverable and acceptance |
+| --- | --- |
+| HD01 | Inventory and crate/reading-guide orientation; document `Module`, `Body`, IDs and source-map storage. Readers can locate an expression, declaration, parameter/local and member from an ID, and explain arena/owner/source-unit/definition identity differences. Add macro doc forwarding only if necessary. |
+| HD02 | Complete HIR node families and lowering contracts. Example A has annotated storage diagrams, source ranges and AST-to-HIR transformations. Every node kind has a useful description; absence/recovery and expression/place differences are explicit. |
+| HD03 | Complete imports, namespaces and lexical resolution. Example B follows actual tables and lookup APIs to the original declaration. Document current fixed-point bounds, ambiguity, visibility and provenance; do not describe proposed work queues as implemented. |
+| HD04 | Complete declarations, callable/type models, aggregates and type checking. Show signature/body inputs and outputs and key/value/absence contracts for semantic tables. Trace a call from name resolution to `ResolvedCall`, and explain inference state versus published facts. |
+| HD05 | Complete host/native/language/builtin documentation. Readers can follow registered inputs, generated declarations, language-role validation and the existing syntax bridges into ordinary analysis. No external API redesign. |
+| HD06 | Complete analysis/query/cache and checked-program documentation. Link real entrypoints to declaration/signature/body queries; show retained snapshots, edit/reuse behavior, diagnostics/cancellation and checked handoff. Finish the two cross-linked example traces. |
+| HD07 | Audit all coverage rows, rendered diagrams/links and public docs; perform focused validation below; reconcile architecture and roadmap. No unexplained required coverage or carried documentation failures remain. |
+
+## Focused validation
+
+Inspect implementation and existing tests before asserting behavior, especially
+`tests/lower.rs`, `tests/resolver.rs`, `tests/recovery.rs`, import namespace/provenance
+tests and analysis arena/owner/identity/query tests. Reading these is not an
+instruction to run their suites. No failing test is required for comment edits.
+
+Batch the final documentation build after HD01-HD06:
+
+```text
+cargo rustdoc -p kagari-hir --lib -- --document-private-items -D missing_docs -D rustdoc::broken_intra_doc_links
+```
+
+Run only a few runnable documentation examples covering lowering/storage, analysis
+and cross-module lookup. Use filtered `cargo test -p kagari-hir --doc <filter>`
+commands and record the actual filters/counts. If the entire doctest inventory is
+already only those few examples, one `cargo test -p kagari-hir --doc` is sufficient.
+Do not add structural mirror tests, a new snapshot framework or a permanent dump
+tool. Temporary probes and generated output belong under ignored `target/`.
+
+Inspect rendered `Body`, `ExprId`, `ExprKind`, `SourceDeclRef`, `NameTable`,
+`TypeTable`, `AnalysisSnapshot` and `CheckedProgram` pages. Check diagrams against
+allocators/accessors and table writers, not merely whether Markdown renders.
+The missing-docs lint cannot verify private-state coverage or explanation quality.
+
+Run changed-file Rust formatting checks, the structure checker once at the coherent
+Rust documentation checkpoint, and local-link/content plus `git diff --check` checks.
+Rerun successful builds/tests only after relevant changes or concrete failures.
+Planning-only changes need link/content and diff checks, no Cargo invocation.
+No local workspace tests, complete HIR unit suite, full Clippy run or feature/backend
+matrix: GitHub CI owns broad testing. Report actual local results and CI status
+separately. Preserve unrelated work; do not fix behavioral defects as documentation.
