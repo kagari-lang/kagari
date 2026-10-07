@@ -1,22 +1,37 @@
 use super::*;
-use kagari_embed::program::PreparedProgram;
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_embed::{context::JitPolicy, program::PreparedProgram};
+use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 
 #[test]
 fn public_source_glob_reexports_members_through_artifacts() {
     let engine = KagariEngine::default();
-    insert(&engine, "model", "pub fn value() -> i32 { 42 }");
+    insert(
+        &engine,
+        "model",
+        "pub struct value { pub val amount: i32 } pub fn value() -> i32 { 40 }",
+    );
     insert(&engine, "facade", "pub use pkg::model::*;");
     let root = insert(
         &engine,
         "root",
-        "use pkg::facade::*; fn main() -> i32 { value() }",
+        "use pkg::facade::*; use pkg::facade::value as Item; fn main() -> i32 { val item: Item = Item { amount: 2 }; value() + item.amount }",
     );
     let artifact = compile(&engine, root);
-    for artifact in [
-        artifact.clone(),
-        BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
-    ] {
-        let context = ExecutionContext::default();
+    for (encoded, native) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+        } else {
+            artifact.clone()
+        };
+        let context = ExecutionContext {
+            jit_policy: if native {
+                JitPolicy::Enabled
+            } else {
+                JitPolicy::Disabled
+            },
+            ..Default::default()
+        };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
@@ -24,10 +39,35 @@ fn public_source_glob_reexports_members_through_artifacts() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
+        let report = if native {
+            let mut backend = CraneliftBackend::for_host().unwrap();
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            let expected = match prepared {
+                PreparedNativeEntry::Native(_) => JitExecutionStatus::Native,
+                PreparedNativeEntry::Unsupported { .. } => JitExecutionStatus::InterpreterFallback,
+            };
+            let report = runtime
+                .execute_prepared(&loaded, "main", &[], &context, &prepared)
+                .unwrap();
+            assert_eq!(report.jit.as_ref().unwrap().status, expected);
+            eprintln!(
+                "two-space artifact execution: {:?}",
+                report.jit.as_ref().unwrap().status
+            );
+            report
+        } else {
+            runtime.execute(&loaded, "main", &[], &context).unwrap()
+        };
         assert_eq!(
-            runtime
-                .execute(&loaded, "main", &[], &context)
-                .unwrap()
+            report
                 .return_value
                 .value(runtime.runtime().gc())
                 .expect("retained execution result"),

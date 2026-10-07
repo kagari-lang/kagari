@@ -14,16 +14,31 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
     let library = insert(
         &mut db,
         "library",
-        "pub struct Data { pub val value: i32 } pub fn answer() -> i32 { 7 }",
+        "pub struct Data { pub val value: i32 } pub fn answer() -> i32 { 7 } pub fn Data() -> i32 { 3 }",
     );
     insert(
         &mut db,
         "facade",
-        "pub use pkg::library as api; pub use alloc::vec::Vec::new; pub use alloc::vec;",
+        "pub use pkg::library as api; pub use pkg::library::*; pub use alloc::vec::Vec::new; pub use alloc::vec;",
     );
-    let text = "use pkg::facade::api as lib; use pkg::facade; fn main() -> lib::Data { lib::Data { value: { val a: Vec<i32> = facade::new(); val b: Vec<i32> = facade::vec::Vec::new(); lib::answer() } } }";
+    let text = "use pkg::facade::{api as lib, Data as Item}; use pkg::facade; fn main() -> lib::Data { val lib = 0; val Option = 1; val option: Option<i32> = None; Item { value: { val a: Vec<i32> = facade::new(); val b: Vec<i32> = facade::vec::Vec::new(); lib::answer() + Item() + lib } } }";
     let root = insert(&mut db, "root", text);
     let snapshot = analyze(&db);
+    for offset in [text.find("Data as").unwrap(), text.find("Item").unwrap()] {
+        let targets = snapshot.source_targets_at(root, offset);
+        assert_eq!(targets.len(), 2, "{targets:?}");
+        assert_ne!(targets[0].namespace, targets[1].namespace);
+        assert_ne!(targets[0].target, targets[1].target);
+        assert!(snapshot.source_target_at(root, offset).is_none());
+        assert!(snapshot.definition_at(root, offset).is_none());
+    }
+    let type_target = snapshot
+        .definition_at(root, text.find("lib::Data").unwrap() + 5)
+        .unwrap();
+    let value_target = snapshot
+        .definition_at(root, text.find("Item()").unwrap())
+        .unwrap();
+    assert_ne!(type_target.id, value_target.id);
     let file = snapshot.file(root).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),

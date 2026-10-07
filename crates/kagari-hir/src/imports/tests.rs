@@ -73,8 +73,16 @@ fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
 #[test]
 fn wildcard_imports_detect_conflicts_and_reject_nonmodule_targets() {
     let mut db = SourceDatabase::default();
-    insert(&mut db, "left", "pub fn same() -> i32 { 1 }");
-    insert(&mut db, "right", "pub fn same() -> i32 { 2 }");
+    insert(
+        &mut db,
+        "left",
+        "pub struct Marker {} pub fn same() -> i32 { 1 }",
+    );
+    insert(
+        &mut db,
+        "right",
+        "pub fn Marker() -> i32 { 42 } pub fn same() -> i32 { 2 }",
+    );
     let conflict = insert(
         &mut db,
         "conflict",
@@ -85,7 +93,15 @@ fn wildcard_imports_detect_conflicts_and_reject_nonmodule_targets() {
         "invalid",
         "use pkg::left::same::*; fn main() -> i32 { 42 }",
     );
+    let independent = insert(
+        &mut db,
+        "independent",
+        "use pkg::left::Marker; use pkg::right::*; fn main() -> i32 { val value: Marker = Marker {}; Marker() }",
+    );
     let snapshot = analyze(&db);
+    snapshot
+        .check_program(independent, &Default::default())
+        .unwrap();
     assert!(
         snapshot
             .file(conflict)
@@ -198,7 +214,7 @@ fn reexports_cannot_widen_private_items_or_modules() {
     let facade = insert(
         &mut db,
         "facade",
-        "mod hidden { pub fn value() -> i32 { 1 } fn secret() -> i32 { 2 } } pub use self::hidden::value; pub use self::hidden::secret; pub use self::hidden as leaked;",
+        "mod hidden { pub fn value() -> i32 { 1 } pub struct secret {} fn secret() -> i32 { 2 } } pub use self::hidden::value; pub use self::hidden::secret; pub use self::hidden as leaked;",
     );
     let outsider = insert(
         &mut db,
@@ -597,7 +613,7 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
             .iter()
             .filter(|d| matches!(d.kind, DiagnosticKind::AmbiguousImport { .. }))
             .count(),
-        2
+        1
     );
 }
 

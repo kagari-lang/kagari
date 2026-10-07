@@ -1,6 +1,6 @@
 # Type/value namespaces and import solving (SA8, SA2, SA3)
 
-Status: active; NR01-NR02 checkpoints are complete and NR03 is in progress. The
+Status: active; NR01-NR03 checkpoints are complete locally and NR04 is in progress. The
 [roadmap](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-active) owns
 activation, phase checkboxes, validation evidence and carried failures. This file
 owns the implementation contracts and NR01-NR05 phase boundaries. The user has authorized execution of NR01 through NR05 in order.

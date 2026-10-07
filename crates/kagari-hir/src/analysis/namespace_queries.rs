@@ -36,9 +36,20 @@ impl AnalysisSnapshot {
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .collect::<Vec<_>>();
         if let Some(length) = sites.iter().map(|(span, _)| span.end - span.start).min() {
-            let mut hits = Vec::new();
+            let mut hits: Vec<LookupHit> = Vec::new();
             for (span, hit) in sites {
-                if span.end - span.start == length && !hits.contains(hit) {
+                if span.end - span.start != length {
+                    continue;
+                }
+                if let Some(previous) = hits.iter_mut().find(|previous| {
+                    previous.namespace == hit.namespace && previous.target == hit.target
+                }) {
+                    for origin in &hit.via {
+                        if !previous.via.contains(origin) {
+                            previous.via.push(origin.clone());
+                        }
+                    }
+                } else {
                     hits.push(hit.clone());
                 }
             }

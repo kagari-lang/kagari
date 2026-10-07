@@ -21,6 +21,13 @@ use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{collections::BTreeSet, slice, sync::Arc};
 
+struct ImportContext<'a> {
+    lookup: LookupContext<'a>,
+    catalog: &'a NamespaceCatalog,
+    unit: &'a SourceUnit,
+    cancel: &'a CancellationToken,
+}
+
 pub(super) fn resolve_imports(
     module: &LoweredModule,
     base: &NamespaceCatalog,
@@ -34,6 +41,13 @@ pub(super) fn resolve_imports(
         importer: &unit.module,
         hosts,
     };
+    let context = ImportContext {
+        lookup: ctx,
+        catalog,
+        unit: &unit,
+        cancel,
+    };
+    let ctx = &context.lookup;
     let mut names = (*base.namespaces[&NamespaceId::Module(unit.clone())].names).clone();
     let mut result = ModuleImportFacts::default();
     let mut dependencies = BTreeSet::from_iter(module.native_dependencies.iter().cloned());
@@ -81,11 +95,11 @@ pub(super) fn resolve_imports(
                 &NameNamespace::ALL
             };
         for &namespace in categories {
-            let mut lookup = catalog.absolute(&ctx, &path, namespace, cancel)?;
+            let mut lookup = catalog.absolute(ctx, &path, namespace, cancel)?;
             if matches!(import.kind, ImportLeaf::Glob)
                 && matches!(lookup, LookupResult::Missing)
                 && matches!(
-                    catalog.absolute(&ctx, &path, NameNamespace::Value, cancel)?,
+                    catalog.absolute(ctx, &path, NameNamespace::Value, cancel)?,
                     LookupResult::Found(_)
                 )
             {
@@ -104,14 +118,11 @@ pub(super) fn resolve_imports(
                     add_dependencies(&hit, &mut directive.direct_dependencies);
                     if matches!(import.kind, ImportLeaf::Glob) {
                         expand_glob(
-                            &ctx,
-                            catalog,
-                            &unit,
+                            &context,
                             &directive,
                             &hit,
                             &mut names,
                             &mut result.diagnostics,
-                            cancel,
                         )?;
                     }
                     LookupOutcome::Resolved(hit.target)
@@ -192,7 +203,7 @@ pub(super) fn resolve_imports(
             } {
                 if let Some(mut hit) = catalog
                     .absolute(
-                        &ctx,
+                        ctx,
                         &normalize_import_path(prefix, &unit.module),
                         namespace,
                         cancel,
@@ -218,13 +229,10 @@ pub(super) fn resolve_imports(
     add_implicit(
         module,
         sources,
-        catalog,
-        &ctx,
-        &unit,
+        &context,
         &mut names,
         &mut result,
         &mut dependencies,
-        cancel,
     )?;
     result.dependencies = dependencies.into_iter().collect();
     result.scope = Arc::new(names);
@@ -232,15 +240,18 @@ pub(super) fn resolve_imports(
 }
 
 fn expand_glob(
-    ctx: &LookupContext<'_>,
-    catalog: &NamespaceCatalog,
-    unit: &SourceUnit,
+    context: &ImportContext<'_>,
     directive: &ImportDirective,
     hit: &LookupHit,
     names: &mut NameTable,
     diagnostics: &mut Vec<Diagnostic>,
-    cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
+    let ImportContext {
+        lookup: ctx,
+        catalog,
+        unit,
+        cancel,
+    } = context;
     let ns = catalog.namespace_of(ctx, &hit.target, cancel)?;
     let members = match &ns {
         NamespaceResult::Found(NamespaceId::Host(id)) => ctx
@@ -375,14 +386,17 @@ fn diagnose_bindings(
 fn add_implicit(
     module: &LoweredModule,
     sources: &[&LoweredModule],
-    catalog: &NamespaceCatalog,
-    ctx: &LookupContext<'_>,
-    unit: &SourceUnit,
+    context: &ImportContext<'_>,
     names: &mut NameTable,
     result: &mut ModuleImportFacts,
     dependencies: &mut BTreeSet<ModuleIdentity>,
-    cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
+    let ImportContext {
+        lookup: ctx,
+        catalog,
+        unit,
+        cancel,
+    } = context;
     for source in sources.iter().filter(|source| source.registered_native_api) {
         let installed = SourceUnit::of(source);
         if !module.registered_native_api {

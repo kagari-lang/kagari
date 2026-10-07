@@ -1,10 +1,13 @@
 use super::*;
 use crate::{
-    callable::CallableSignature, native::NativeBinding, tests::test_analysis,
-    typeck::FunctionImplementation,
+    callable::CallableSignature, native::NativeBinding, resolver::resolved::ResolvedName,
+    tests::test_analysis, typeck::FunctionImplementation,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::host_interface::{HostParameter, HostPassingStyle};
+use kagari_types::{
+    declaration::names::NameNamespace,
+    host_interface::{HostParameter, HostPassingStyle},
+};
 
 #[test]
 fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
@@ -255,14 +258,29 @@ fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
             .is_err()
         );
     }
+    let interface = HostInterface {
+        paths: vec![],
+        types: vec![],
+        functions: vec![
+            declaration(),
+            HostFunctionDeclaration::new("demo.echo.child", vec![], HostValueType::Unit),
+        ],
+    };
+    let declarations = HostDeclarations::new(interface).unwrap();
+    assert!(matches!(
+        declarations.resolve_name("demo::echo", NameNamespace::Value),
+        Some(ResolvedName::HostFunction(_))
+    ));
+    assert!(matches!(
+        declarations.resolve_name("demo::echo", NameNamespace::Type),
+        Some(ResolvedName::HostModule(_))
+    ));
+    // ABI symbols retain their independent uniqueness rule.
     assert!(
         HostDeclarations::new(HostInterface {
             paths: vec![],
-            types: Vec::new(),
-            functions: vec![
-                declaration(),
-                HostFunctionDeclaration::new("demo.echo.child", vec![], HostValueType::Unit)
-            ]
+            types: vec![],
+            functions: vec![declaration(), declaration()]
         })
         .is_err()
     );

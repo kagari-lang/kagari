@@ -10,6 +10,11 @@ use crate::{
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib::{catalog as foundation_catalog, catalog, identity as library};
+use kagari_types::declaration::{
+    module::ModuleDecl,
+    names::{ExportName, NameNamespace},
+};
+use std::sync::Arc;
 
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
@@ -93,9 +98,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         typeck::{FunctionImplementation, table::ConstraintTarget},
     };
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
-    use kagari_types::{
-        declaration::names::NameNamespace, language::Protocol, surface as standard_surface,
-    };
+    use kagari_types::{language::Protocol, surface as standard_surface};
 
     assert!(standard_surface::builtin_type("String").is_some());
     assert!(standard_surface::builtin_type("usize").is_some());
@@ -233,15 +236,28 @@ fn resolves_language_builtin_type_annotations() {
     let source = SourceFile::new(
         "native-annotations.kgr",
         r#"use std::collections::{HashMap, HashSet};
+use app::aliases::Pick;
 
-fn choose(value: Option<i32>) -> Option<i32> { value }
+fn choose(value: Pick<i32>) -> Pick<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
 fn lookup(value: HashMap<String, i32>) -> HashMap<String, i32> { value }
 fn unique(value: HashSet<String>) -> HashSet<String> { value }
 fn sized(value: usize) -> usize { value }
+fn constructed() -> Pick<i32> { Pick(7) }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+    let mut aliases = ModuleDecl::new(kagari_stdlib::namespaces::module("app", "aliases"));
+    let option = kagari_types::language::binding::option_declaration();
+    let some = ModuleDecl::variant_id(&option, "Some");
+    aliases
+        .exports
+        .insert(ExportName::new(NameNamespace::Type, "Pick"), option);
+    aliases
+        .exports
+        .insert(ExportName::new(NameNamespace::Value, "Pick"), some);
+    let mut modules = foundation_catalog::shared().to_vec();
+    modules.push(Arc::new(aliases));
+    let analyzed = crate::analyze_source(&source, modules)
         .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed declarations");

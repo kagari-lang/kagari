@@ -3,6 +3,7 @@ use crate::{
     imports::{
         BindingOrigin, DirectiveResolution, ImportKind, LocalName, ModuleGraph, ModuleOrderError,
         NamespaceId, ResolvedTarget, SourceUnit,
+        bindings::LookupOutcome,
         catalog::{LookupContext, LookupResult, NamespaceResult},
         tests::{analyze, insert},
     },
@@ -83,7 +84,7 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
 }
 
 #[test]
-fn equal_glob_targets_keep_both_origins_and_strong_errors_block_fallback() {
+fn equal_glob_targets_keep_origins_and_absent_categories_release_fallback() {
     let mut sources = SourceDatabase::default();
     insert(&mut sources, "library", "pub fn value() -> i32 { 7 }");
     insert(&mut sources, "left", "pub use pkg::library::value;");
@@ -111,18 +112,17 @@ fn equal_glob_targets_keep_both_origins_and_strong_errors_block_fallback() {
         .facts()
         .names
         .imports;
-    assert_eq!(
-        imports.scope.lookup("value", NameNamespace::Value),
-        Some(NameResolution::Unresolved)
-    );
-    assert_eq!(
-        imports.scope.lookup("Option", NameNamespace::Type),
-        Some(NameResolution::Unresolved)
-    );
     assert!(matches!(
-        imports.directives[0].resolution,
-        DirectiveResolution::Named(_)
+        imports.scope.lookup("value", NameNamespace::Value),
+        Some(NameResolution::Unique(_))
     ));
+    assert!(matches!(
+        imports.scope.lookup("Option", NameNamespace::Type),
+        Some(NameResolution::Unique(_))
+    ));
+    assert!(matches!(&imports.directives[0].resolution,
+        DirectiveResolution::Named(outcomes) if outcomes.types == LookupOutcome::Absent && outcomes.values == LookupOutcome::Absent));
+    assert!(snapshot.check_program(broken, &Default::default()).is_err());
     assert!(
         imports
             .dependencies
@@ -132,7 +132,7 @@ fn equal_glob_targets_keep_both_origins_and_strong_errors_block_fallback() {
     assert!(
         snapshot
             .source_target_at(broken, broken_text.rfind("value()").unwrap())
-            .is_none()
+            .is_some()
     );
 }
 

@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     hir::expr::ExprKind,
+    imports::{DirectiveResolution, bindings::LookupOutcome},
     resolver::{resolved::ResolvedName, table::NameResolution},
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -54,7 +55,7 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
-fn qualified_standard_source_and_host_calls_respect_lexical_bindings() {
+fn qualified_standard_source_and_host_calls_use_type_prefixes() {
     let cases = [
         ("use demo::native as api;", "api::choose(1, 1, 1)", "api"),
         ("use demo::native;", "native::choose(1, 1, 1)", "native"),
@@ -79,7 +80,7 @@ fn qualified_standard_source_and_host_calls_respect_lexical_bindings() {
             .collect::<Vec<_>>();
         assert_eq!(names.len(), 3, "{text}");
         assert!(facts.names.expr_resolution(names[0].0).is_some(), "{text}");
-        assert!(facts.names.expr_resolution(names[1].0).is_none(), "{text}");
+        assert!(facts.names.expr_resolution(names[1].0).is_some(), "{text}");
         assert!(facts.names.expr_resolution(names[2].0).is_some(), "{text}");
         let calls = facts
             .lowered
@@ -89,14 +90,14 @@ fn qualified_standard_source_and_host_calls_respect_lexical_bindings() {
             .filter(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
             .collect::<Vec<_>>();
         assert!(
-            facts.typed.type_table.call_resolution(calls[1].0).is_none(),
+            facts.typed.type_table.call_resolution(calls[1].0).is_some(),
             "{text}"
         );
         assert_eq!(
             analysis.type_at(text.find(call).unwrap()),
             Some(TypeId::Builtin(BuiltinType::I32))
         );
-        assert!(analysis.result().clone().into_codegen().is_err(), "{text}");
+        assert!(analysis.result().clone().into_codegen().is_ok(), "{text}");
     }
 }
 
@@ -157,49 +158,39 @@ fn qualified_call_navigation_selects_only_the_terminal_name() {
 }
 
 #[test]
-fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
+fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
     let cases = [
-        (
-            "use missing as print;",
-            "print(\"blocked\")",
-            "print",
-            NameResolution::Unresolved,
-        ),
+        ("use missing as print;", "print(\"blocked\")", "print", None),
         (
             "const print: i32 = 1; fn print() {}",
             "print(\"blocked\")",
             "print",
-            NameResolution::Ambiguous,
+            Some(NameResolution::Ambiguous),
         ),
         (
             "use demo::native as api; use core::cmp as api;",
             "api::choose(1, 1, 1)",
             "api",
-            NameResolution::Ambiguous,
+            Some(NameResolution::Ambiguous),
         ),
         (
             "use demo as api; use pkg::library as api;",
             "api::number()",
             "api",
-            NameResolution::Ambiguous,
+            Some(NameResolution::Ambiguous),
         ),
-        (
-            "use missing as demo;",
-            "demo::number()",
-            "demo",
-            NameResolution::Unresolved,
-        ),
+        ("use missing as demo;", "demo::number()", "demo", None),
         (
             "use missing as native;",
             "native::choose(1, 1, 1)",
             "native",
-            NameResolution::Unresolved,
+            None,
         ),
         (
             "use demo::number; const number: i32 = 9;",
             "number()",
             "number",
-            NameResolution::Ambiguous,
+            Some(NameResolution::Ambiguous),
         ),
     ];
     for (imports, call, alias, expected) in cases {
@@ -208,12 +199,31 @@ fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
         let snapshot = snapshot(&mut db, &sources);
         let analysis = snapshot.file(file).unwrap();
         let facts = analysis.result().facts();
-        assert_eq!(
-            facts.names.items.lookup(alias, NameNamespace::Type),
-            Some(expected),
-            "{text}"
-        );
-        for (id, expr) in facts.lowered.module.body.expressions() {
+        if let Some(expected) = &expected {
+            assert_eq!(
+                facts.names.items.lookup(
+                    alias,
+                    if alias == "print" || alias == "number" {
+                        NameNamespace::Value
+                    } else {
+                        NameNamespace::Type
+                    }
+                ),
+                Some(expected.clone()),
+                "{text}"
+            );
+        } else {
+            assert!(facts.names.imports.directives.iter().any(|directive|
+                matches!(&directive.resolution, DirectiveResolution::Named(outcomes)
+                    if outcomes.types == LookupOutcome::Absent && outcomes.values == LookupOutcome::Absent)));
+        }
+        for (id, expr) in facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter(|_| expected.is_some())
+        {
             if matches!(expr.kind, ExprKind::Call { .. }) {
                 assert!(
                     facts.typed.type_table.call_resolution(id).is_none(),

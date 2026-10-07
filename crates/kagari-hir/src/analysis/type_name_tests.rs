@@ -18,7 +18,20 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
         "mod Clash;",
     ];
     for first in declarations {
+        let namespace = if first.starts_with("fn ") || first.starts_with("const ") {
+            NameNamespace::Value
+        } else {
+            NameNamespace::Type
+        };
         for second in declarations {
+            let second_namespace = if second.starts_with("fn ") || second.starts_with("const ") {
+                NameNamespace::Value
+            } else {
+                NameNamespace::Type
+            };
+            if namespace != second_namespace {
+                continue;
+            }
             let text = format!(
                 "{first} {second} struct Valid {{}} fn bad(x: Clash) -> Clash {{ Clash::Ready }} fn make() {{ val x = Clash {{}}; }} fn call() {{ Clash(); }} fn read() {{ Clash; }} fn bound<T>(x: T) -> T where T: Clash {{ x }} impl Clash for Valid {{}} fn good(x: i32) -> i32 {{ x }}"
             );
@@ -32,7 +45,7 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                 .unwrap();
             let header = headers.file(file).unwrap();
             assert_eq!(
-                header.names().items.lookup("Clash", NameNamespace::Type),
+                header.names().items.lookup("Clash", namespace),
                 Some(NameResolution::Ambiguous)
             );
             let duplicates = header

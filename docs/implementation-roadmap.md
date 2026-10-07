@@ -31,7 +31,7 @@ carried build/test failures; their completion does not establish performance gai
 ### Name resolution (SA8, SA2, SA3, active)
 
 The [execution plan](name-resolution-plan.md) owns the two-space lookup/import
-contract and subsequent dependency-driven solver migration. Status: NR01-NR02 complete; NR03 active.
+contract and subsequent dependency-driven solver migration. Status: NR01-NR03 complete locally; NR04 active.
 Execute NR01-NR05 in order, with `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
 implementation commits. SA1 inline AST reuse and SA9 compact module handles remain
 outside this track.
@@ -39,7 +39,7 @@ outside this track.
 - [x] NR01: Specify type/value namespaces; replace binding, directive and exported
   alias storage and lookup APIs, including portable registration consumers.
 - [x] NR02: Migrate semantic/tooling/cache consumers and derive HIR public members.
-- [ ] NR03: Complete focused SA8 local acceptance before changing solver scheduling.
+- [x] NR03: Complete focused SA8 local acceptance before changing solver scheduling.
 - [ ] NR04: Introduce dependency-driven import work and explicit convergence,
   unresolved-cycle, exhaustion and cancellation outcomes.
 - [ ] NR05: Complete integration/measurements and resolve local failures; record
@@ -93,6 +93,48 @@ zero findings; formatting/diff checks passed. NR03 will adapt the existing broad
 single-space collision/shadowing matrices to the new contract and exercise dual
 source/native aliases, navigation and incremental behavior. No full suite or CI
 run has been performed; CI remains pending.
+
+NR03 local SA8 gate: reused the existing namespace, collision, import/native,
+cache and source-module contract owners; no new test function was added. The
+collision matrix now checks same-category conflicts (20 meaningful pairs instead
+of 36 including obsolete cross-category failures). Dual source/native aliases,
+Type-prefix lookup under lexical Value shadowing, prelude types, independent
+strong/glob tiers, partial access failure and category-specific navigation are
+covered. Transitive facade edits retarget/remove the Value category while retaining
+the Type identity; incremental diagnostics/locations match fresh analysis and
+old snapshots remain queryable. Grouped import prefixes coalesce equal canonical
+targets while preserving their distinct origins.
+
+Local commands/results (all Cargo commands use
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools`):
+
+- `cargo test -p kagari-hir analysis::namespace_tests --lib`: 5 passed.
+- `cargo test -p kagari-hir analysis::type_name_tests --lib`: 2 passed.
+- Exact HIR filters: `module_facade_bindings_share_source_type_call_and_navigation_targets`,
+  `resolves_language_builtin_type_annotations`,
+  `wildcard_imports_detect_conflicts_and_reject_nonmodule_targets`,
+  `reexports_cannot_widen_private_items_or_modules`,
+  `source_host_and_module_item_ambiguities_are_rejected`,
+  `host_catalog_rejects_ambiguous_or_unspellable_paths`,
+  `equal_glob_targets_keep_origins_and_absent_categories_release_fallback`,
+  `grouped_directives_keep_leaf_root_ranges_and_explicit_aliases`,
+  `transitive_alias_rename_invalidates_unchanged_caller`, and
+  `alias_target_swap_invalidates_body_reuse_after_trivia_edit`: each passed.
+- `cargo test -p kagari-embed --test source_modules
+  public_source_glob_reexports_members_through_artifacts -- --nocapture`: passed;
+  direct and encoded source-free products return 42. The selected Cranelift
+  preparation reported `InterpreterFallback`, and execution returned 42.
+- `cargo clippy -p kagari-hir --lib -- -D warnings`, structure (926 files, zero
+  findings), formatting and diff checks passed.
+
+The first runs exposed obsolete single-space assertions, a test import moved to
+an incorrect scope during import grouping, and duplicate grouped-prefix query
+results. All were repaired and the affected checks passed. Clippy's argument-count
+findings were resolved by an import context object, without lint allowances.
+No local failure is carried. Generated artifacts were rebuilt/round-tripped by the
+focused SDK fixture; no tracked artifact layout or version refresh was required.
+NR04 still owns whole-graph rounds, pending reservations and exhaustion handling.
+Full workspace/backend CI acceptance remains pending; no remote push was made.
 
 ### Explicit native default bodies
 

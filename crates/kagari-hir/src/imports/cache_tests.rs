@@ -8,14 +8,19 @@ use std::sync::Arc;
 #[test]
 fn transitive_alias_rename_invalidates_unchanged_caller() {
     let mut sources = SourceDatabase::default();
-    insert(&mut sources, "library", "pub fn value() -> i32 { 1 }");
+    insert(
+        &mut sources,
+        "library",
+        "pub struct Data {} pub fn value() -> i32 { 1 }",
+    );
     insert(
         &mut sources,
         "exports",
-        "pub use pkg::library::value as old;",
+        "pub use pkg::library::{Data as old, value as old};",
     );
     insert(&mut sources, "facade", "pub use pkg::exports::*;");
-    let text = "use pkg::facade as m; fn main() -> i32 { m::old() }";
+    let text =
+        "use pkg::facade as m; fn keep(x: m::old) -> m::old { x } fn main() -> i32 { m::old() }";
     let root = insert(&mut sources, "root", text);
     let unrelated = insert(&mut sources, "unrelated", "fn value() -> i32 { 9 }");
     let offset = text.rfind("old()").unwrap();
@@ -34,7 +39,7 @@ fn transitive_alias_rename_invalidates_unchanged_caller() {
     sources
         .set(
             "mem://exports",
-            "pub use pkg::library::value as new;".into(),
+            "pub use pkg::library::{Data as old, value as new};".into(),
             SourceLayer::Overlay,
         )
         .unwrap();
@@ -83,15 +88,15 @@ fn alias_target_swap_invalidates_body_reuse_after_trivia_edit() {
     insert(
         &mut sources,
         "library",
-        "pub fn number() -> i32 { 1 } pub fn flag() -> bool { true }",
+        "pub struct Data {} pub fn number() -> i32 { 1 } pub fn flag() -> bool { true }",
     );
     insert(
         &mut sources,
         "exports",
-        "pub use pkg::library::{number as selected, flag as spare};",
+        "pub use pkg::library::{Data as selected, number as selected, flag as spare};",
     );
     insert(&mut sources, "facade", "pub use pkg::exports::*;");
-    let text = "use pkg::facade as m; fn main() -> i32 { m::selected() }";
+    let text = "use pkg::facade as m; fn main() -> i32 { val item: m::selected = m::selected {}; m::selected() }";
     let root = insert(&mut sources, "root", text);
     let mut analysis = test_analysis();
     let first = analysis
@@ -101,7 +106,7 @@ fn alias_target_swap_invalidates_body_reuse_after_trivia_edit() {
     sources
         .set(
             "mem://exports",
-            "pub use pkg::library::{flag as selected, number as spare};".into(),
+            "pub use pkg::library::{Data as selected, flag as selected, number as spare};".into(),
             SourceLayer::Overlay,
         )
         .unwrap();
@@ -119,6 +124,16 @@ fn alias_target_swap_invalidates_body_reuse_after_trivia_edit() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let result = incremental.file(root).unwrap().result();
+    let old_type = first
+        .definition_at(root, text.find("m::selected").unwrap() + 3)
+        .unwrap();
+    let new_offset = "// trivia edit\n".len() + text.find("m::selected").unwrap() + 3;
+    let new_type = incremental.definition_at(root, new_offset).unwrap();
+    assert_eq!(old_type.location, new_type.location);
+    assert_eq!(
+        new_type.location,
+        fresh.definition_at(root, new_offset).unwrap().location
+    );
     assert_eq!(
         result.diagnostics(),
         fresh.file(root).unwrap().result().diagnostics()
