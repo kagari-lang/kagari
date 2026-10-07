@@ -6,7 +6,7 @@ use kagari_hir::{
     analysis::AnalysisDatabase,
     native::render::{DeclarationSource, declaration_source},
 };
-use kagari_source::source_database::SourceDatabase;
+use kagari_source::source_database::{SourceDatabase, normalize_source_name};
 use std::{
     fs::{self, OpenOptions},
     io::{Error, ErrorKind, Write},
@@ -146,7 +146,7 @@ fn source_name(path: &Path) -> Result<String, EmbeddingError> {
     // SourceDatabase uses normalized absolute paths for physical files. Keep the
     // published view and the analyzed source name identical; LSP adapters can
     // encode this path as a file URI at their protocol boundary.
-    path.to_str().map(str::to_owned).ok_or_else(|| {
+    let name = path.to_str().ok_or_else(|| {
         cache_error(
             path,
             Error::new(
@@ -154,5 +154,13 @@ fn source_name(path: &Path) -> Result<String, EmbeddingError> {
                 "declaration cache path is not UTF-8",
             ),
         )
-    })
+    })?;
+    // Windows canonicalization adds a verbatim disk prefix. Publish an ordinary
+    // drive path before lexical source normalization replaces its separators.
+    let name = name
+        .strip_prefix(r"\\?\")
+        .filter(|name| name.as_bytes().get(1) == Some(&b':'))
+        .unwrap_or(name);
+    normalize_source_name(name)
+        .map_err(|message| cache_error(path, Error::new(ErrorKind::InvalidInput, message)))
 }
