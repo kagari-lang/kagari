@@ -1,3 +1,14 @@
+//! Expression precedence, postfix chains, control-flow expressions and patterns.
+//!
+//! Precedence descends through range, logical-or/and, equality, comparison, bitwise
+//! or/xor/and, shift, additive, multiplicative, cast, prefix and postfix parsing.
+//! Repeated binary/postfix operations wrap a checkpoint iteratively, preserving
+//! grouping without recursion proportional to a flat operator chain. Recursion
+//! for nested expressions/patterns passes through the parser's nesting guard.
+//! Conditions suppress bare struct literals so `{` can start the following body.
+//! See [`crate::ast::expr`] for the concrete output shapes, especially paths,
+//! qualified members, binding conditions and the multiple forms of patterns.
+
 use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{kind::SyntaxKind, parser::core::Parser, token::TokenKind};
@@ -34,6 +45,7 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Enters a guarded expression parse, beginning at the lowest precedence.
     pub(crate) fn parse_expr(&mut self) {
         self.with_nesting(Self::parse_expr_nested);
     }
@@ -43,6 +55,7 @@ impl<'a> Parser<'a> {
         self.parse_range_expr();
     }
 
+    /// Wraps optional endpoints around one range token; endpoints use logical-or precedence.
     fn parse_range_expr(&mut self) {
         let checkpoint = self.checkpoint();
         if !self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
@@ -65,10 +78,12 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses while reserving the following bare brace for the control-flow body.
     pub(crate) fn parse_condition_expr(&mut self) {
         self.with_struct_literals_allowed(false, |parser| parser.parse_expr());
     }
 
+    /// Emits either an ordinary expression or a `BindingCondition` containing pattern/value.
     pub(crate) fn parse_condition(&mut self) {
         self.bump_trivia();
         if self.at(TokenKind::ValKw) {
@@ -459,6 +474,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Retains a path, optionally adding generic receiver arguments and a member name.
+    /// Fully qualified `<T as Trait>::member` expressions enter through `parse_atom`.
     fn parse_path_expr(&mut self) {
         self.start_node(SyntaxKind::PathExpr);
         self.parse_path();
@@ -653,6 +670,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Enters guarded pattern parsing; alternatives wrap nested `Pattern` children.
     pub(crate) fn parse_match_pattern(&mut self) {
         self.with_nesting(Self::parse_match_pattern_nested);
     }

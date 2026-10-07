@@ -1,8 +1,19 @@
+//! Source/module declarations, attributes, imports and shared name/signature syntax.
+//!
+//! Attributes and visibility are retained inside their owning declaration node.
+//! Function parentheses and struct/enum/use-group braces belong to the owner, not
+//! its list child. Trait/impl members are direct children without a body-list node.
+//! Lookahead selects attributed declarations and trait versus inherent impls without
+//! consuming their source. Unknown top-level input advances inside an error node;
+//! nested handlers preserve balanced construction when limits stop grammar work.
+//! See [`crate::ast::item`] and [`crate::ast::misc`] for the resulting layouts.
+
 use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{kind::SyntaxKind, parser::core::Parser, token::TokenKind};
 
 impl<'a> Parser<'a> {
+    /// Opens one source-file root, parses declarations and retains EOF or the unparsed suffix.
     pub(crate) fn parse_root(&mut self) {
         self.start_node(SyntaxKind::SourceFile);
         self.bump_trivia();
@@ -327,6 +338,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Guards recursive use groups; each branch retains only its own path prefix.
     fn parse_use_tree(&mut self) {
         self.with_nesting(Self::parse_use_tree_nested);
     }
@@ -817,6 +829,7 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Consumes `Name (:: Name)*`, leaving a following `::*`, `::{` or `::<` to its owner.
     pub(crate) fn parse_path(&mut self) {
         self.start_node(SyntaxKind::Path);
         self.parse_path_segment();
@@ -877,6 +890,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Scans balanced angles after an already-consumed `<` using an independent cursor.
+    /// Returns false on EOF/cancellation/exhaustion without mutating parser output.
     pub(crate) fn skip_angle_group(&self, cursor: &mut usize) -> bool {
         let mut depth = 1;
         while let Some(kind) = self.nth_nontrivia_kind_from(cursor) {

@@ -32,14 +32,16 @@ carried build/test failures; their completion does not establish performance gai
 
 The [execution plan](syntax-documentation-plan.md) covers the entire `kagari-syntax`
 crate using Rustdoc/standard-library conventions: visible token spellings, concrete
-AST shapes, accessor contracts, parser state and examples. Planning is complete;
-documentation implementation has not started.
+AST shapes, accessor contracts, parser state and examples. SD01-SD05 are complete:
+80 AST wrappers have annotated trees; strict Rustdoc, three documentation examples,
+structure/formatting and link/diff checks pass. Runtime/parser behavior is unchanged;
+the sole code change forwards AST macro documentation attributes.
 
-- [ ] SD01: Document orientation/storage and forward AST macro documentation.
-- [ ] SD02: Document kinds, tokens and Rowan vocabulary.
-- [ ] SD03: Document all AST categories with annotated trees and accessor mappings.
-- [ ] SD04: Document lexer/parser APIs, internal state and grammar flow.
-- [ ] SD05: Audit coverage and run focused documentation validation.
+- [x] SD01: Document orientation/storage and forward AST macro documentation.
+- [x] SD02: Document kinds, tokens and Rowan vocabulary.
+- [x] SD03: Document all AST categories with annotated trees and accessor mappings.
+- [x] SD04: Document lexer/parser APIs, internal state and grammar flow.
+- [x] SD05: Audit coverage and run focused documentation validation.
 
 ### Definition spacing enforcement
 

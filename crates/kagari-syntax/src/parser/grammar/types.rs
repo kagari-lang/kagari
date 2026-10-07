@@ -1,8 +1,18 @@
+//! Type spellings, generic arguments and qualified member grouping.
+//!
+//! Every entry opens a `TypeRef`, then selects its structural child or path form.
+//! `(T)` leaves parentheses and an inner `TypeRef` directly inside that wrapper;
+//! `(T,)` and `()` insert a `TupleType` child. Angle tokens remain separate here,
+//! allowing nested generic closing delimiters without expression shift joining.
+//! These handlers do not resolve names, validate trait bounds or infer types.
+//! See [`crate::ast::ty`] and [`crate::ast::misc::GenericArgList`] for child layouts.
+
 use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{kind::SyntaxKind, parser::core::Parser, token::TokenKind};
 
 impl<'a> Parser<'a> {
+    /// Enters a guarded type-spelling parse, retaining an empty wrapper after a missing type.
     pub(crate) fn parse_type_ref(&mut self) {
         self.with_nesting(Self::parse_type_ref_nested);
     }
@@ -104,6 +114,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Emits comma-separated types without consuming the owner's parentheses.
     pub(crate) fn parse_type_list(&mut self) {
         self.start_node(SyntaxKind::TypeList);
         self.bump_trivia();
@@ -122,6 +133,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Retains angles, positional `TypeRef` children and named associated-type bindings.
     pub(crate) fn parse_generic_arg_list(&mut self) {
         self.start_node(SyntaxKind::GenericArgList);
         self.expect(TokenKind::Lt, DiagnosticKind::ExpectedType);

@@ -1,3 +1,12 @@
+//! Block contents and statement-versus-tail classification.
+//!
+//! A block retains statements and an optional direct tail expression. Assignment
+//! and expression statements wrap an already-parsed expression using a checkpoint;
+//! a tail is left unwrapped. Bare blocks/ifs before another statement can omit `;`.
+//! Missing tokens produce diagnostics; explicit error-token consumption ensures
+//! progress through unexpected block contents. See [`crate::ast::stmt`] and
+//! [`crate::ast::expr::BlockExpr`] for the trees consumers inspect.
+
 use crate::{
     kind::SyntaxKind,
     parser::core::{Checkpoint, Parser},
@@ -6,6 +15,7 @@ use crate::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl<'a> Parser<'a> {
+    /// Enters a guarded block parse, preserving braces and statement/tail distinctions.
     pub(crate) fn parse_block(&mut self) {
         self.with_nesting(Self::parse_block_nested);
     }
@@ -98,6 +108,8 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Wraps the expression since `checkpoint` as an assignment if an assignment token follows.
+    /// Returns false without wrapping when no such operator is present.
     pub(crate) fn finish_assignment(&mut self, checkpoint: Checkpoint) -> bool {
         if !self.at_any(&[
             TokenKind::Eq,
@@ -181,6 +193,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Returns true when a direct tail expression ends block-content parsing.
     fn parse_expr_stmt_or_tail(&mut self) -> bool {
         let checkpoint = self.checkpoint();
         let bare_block_statement = self.at_any(&[TokenKind::LBrace, TokenKind::IfKw]);

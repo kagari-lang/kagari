@@ -1,3 +1,10 @@
+//! Tokenization preserving the original input's byte ranges and trivia.
+//!
+//! This layer recognizes spellings, not expression grouping. In particular, angle
+//! tokens remain separate so the parser can choose generic delimiters or combined
+//! shift operators. Invalid lexemes are retained as [`TokenKind::Unknown`]; the
+//! parser is responsible for reporting syntax diagnostics.
+
 use smallvec::SmallVec;
 use {
     kagari_common::{
@@ -12,10 +19,34 @@ use crate::{
     token::{Token, TokenKind},
 };
 
+/// Tokenizes UTF-8 text, retaining trivia and appending an empty EOF token.
+///
+/// Token spans are half-open byte ranges into `input`; token objects do not own
+/// the spelling. Unrecognized/malformed input becomes `Unknown`, not a returned
+/// error. Numeric/string classification does not establish semantic type validity.
+/// Use [`lex_with_cancellation`] to abandon a long scan cooperatively.
+///
+/// # Examples
+///
+/// ```
+/// use kagari_syntax::{lexer::lex, token::TokenKind};
+/// let source = "val x = 42;";
+/// let tokens = lex(source);
+/// let number = tokens.iter().find(|token| token.kind == TokenKind::Number)
+///     .expect("the example contains an integer");
+/// assert_eq!(&source[number.span.start..number.span.end], "42");
+/// assert_eq!(tokens.last().map(|token| &token.kind), Some(&TokenKind::Eof));
+/// ```
 pub fn lex(input: &str) -> TokenBuffer {
     lex_with_cancellation(input, &CancellationToken::default()).expect("fresh cancellation token")
 }
 
+/// Tokenizes as [`lex`], polling cancellation during scanning and before return.
+///
+/// # Errors
+///
+/// Returns [`Cancelled`] when cancellation is observed. The partial token buffer
+/// is discarded, so an error never publishes truncated input as a completed scan.
 pub fn lex_with_cancellation(
     input: &str,
     cancel: &CancellationToken,
@@ -26,7 +57,9 @@ pub fn lex_with_cancellation(
         .take_while(|_| cancel.check().is_ok())
         .peekable();
     let mut tokens = SmallVec::new();
-    // Text modes and expression brace depths use an explicit stack, not recursion.
+    // None means string text; Some(depth) means an expression hole with that many
+    // nested ordinary braces. Closing depth zero emits FormatClose; deeper braces
+    // remain block tokens. Nested f-strings push their own modes onto this stack.
     let mut formats: Vec<Option<usize>> = Vec::new();
 
     while let Some((index, ch)) = chars.peek().copied() {
@@ -539,6 +572,7 @@ pub fn lex_with_cancellation(
     Ok(tokens)
 }
 
+/// Constructs a token range in the original input; no spelling is copied.
 fn token(kind: TokenKind, start: usize, end: usize) -> Token {
     Token {
         kind,

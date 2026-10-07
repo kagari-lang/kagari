@@ -134,6 +134,27 @@ Two decisions illustrate why the lexer and parser have separate responsibilities
   in a type. Expression parsing joins the relevant adjacent tokens; type parsing
   keeps delimiters separate. Neither requires resolving a type or a name.
 
+### Reading the data structures
+
+The [AST module documentation](../../crates/kagari-syntax/src/ast/mod.rs) defines
+the common storage and traversal rules. Each concrete wrapper stores only a
+`SyntaxNode`; accessors select logical components from that node on demand.
+Cloning a wrapper retains the same tree rather than copying a semantic object.
+
+Every concrete AST type documents a source example and its actual child tree,
+with node/token distinctions and accessor arrows. The diagrams omit trivia and
+label collapsed descendants. Expression positions count only matching direct
+nodes: `next()` selects the first, `nth(1)` the second, and `skip(1)` the remainder.
+Tokens and nonmatching nodes do not occupy these positions. List accessors state
+when they traverse an intermediate list node instead of direct elements.
+
+Start with [expression views](../../crates/kagari-syntax/src/ast/expr.rs) for
+binary/call structure and recovery examples, then follow the declaration,
+statement, shared-component and type modules. [Syntax kinds](../../crates/kagari-syntax/src/kind.rs)
+and [token kinds](../../crates/kagari-syntax/src/token.rs) give exact spellings or
+representative source forms beside their variants. The Rustdoc entry page supplies
+a parse/inspect example; lexer and parser examples cover byte spans and partial trees.
+
 ## 4. Main flow
 
 ```mermaid
@@ -290,7 +311,8 @@ Changes to this crate must preserve:
 - Nesting, tree-depth and diagnostic limit behavior.
 - Caller ownership of source identity, revision tracking and parse reuse.
 
-Run `cargo test -p kagari-syntax` for syntax behavior changes. Grammar changes
+Run a small set of directly affected syntax tests for behavior changes; full
+crate/workspace suites belong to GitHub CI. Grammar changes
 also require the [coverage workflow](../syntax-coverage.md), including updates
 to the specification and affected inventories. Changes to syntax contracts used
 by HIR or installed package preparation require the corresponding consumer checks.

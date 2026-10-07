@@ -1,6 +1,6 @@
 # Syntax Documentation Completion Plan
 
-Status: planned; documentation implementation has not started. The
+Status: SD01-SD05 complete. The
 [roadmap](implementation-roadmap.md#syntax-documentation-completion) owns activation
 and progress. This plan can be executed without the originating conversation.
 
@@ -190,3 +190,10 @@ Run formatting on changed Rust files and the repository structure checker for th
 macro checkpoint. Use content/local-link checks and `git diff --check` at checkpoints.
 No workspace tests, full crate unit suite or feature matrix is required locally;
 GitHub CI owns broad testing. Planning-only changes require no Cargo build.
+
+Completion: all 80 concrete AST wrappers have annotated trees, including distinct
+forms and recovery examples. Public API/variant documentation, important parser
+state and grammar orientation are covered. Strict Rustdoc and its intra-doc links,
+three runnable documentation examples, the structure audit, changed-file formatting
+and local-link/diff checks pass. Representative generated pages were inspected.
+The only non-comment Rust change forwards attributes through `ast_node!`.

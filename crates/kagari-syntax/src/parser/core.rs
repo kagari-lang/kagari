@@ -1,3 +1,13 @@
+//! Mutable construction state shared by recursive-descent grammar handlers.
+//!
+//! The token cursor and Rowan builder advance together; `expect` reports a missing
+//! token without inventing one. Handlers own recovery/progress. A checkpoint lets
+//! a handler wrap already-emitted children (for example the left operand) in a
+//! larger node after discovering an operator. Completed-node depths are tracked
+//! separately because Rowan checkpoints alone do not carry that accounting.
+//! Exhaustion/cancellation appears as EOF to grammar loops; the facade performs
+//! the final cancellation check before publishing a result.
+
 use rowan::{Checkpoint as GreenCheckpoint, GreenNode, GreenNodeBuilder, Language};
 use smallvec::SmallVec;
 use {
@@ -12,29 +22,51 @@ use crate::{
     token::{Token, TokenKind},
 };
 
+/// A paired Rowan/output-depth position before a possible enclosing node begins.
 #[derive(Clone, Copy)]
 pub(crate) struct Checkpoint {
+    /// Builder position used to wrap children emitted since this checkpoint.
     green: GreenCheckpoint,
+    /// Corresponding index in `Parser::child_depths`, not a source/token offset.
     child: usize,
 }
 
+/// Per-parse mutable state; borrows source text and owns tokens, output and diagnostics.
+///
+/// All byte slicing uses ranges emitted by the lexer for `text`. Grammar handlers
+/// balance `start_node`/`finish_node`, including recovered and exhausted paths.
+/// The finished green tree owns its token text independently of this borrow.
 pub(crate) struct Parser<'a> {
+    /// Original UTF-8 text from which token spellings are sliced.
     text: &'a str,
+    /// Complete lexical stream, including trivia and the terminal EOF token.
     tokens: TokenBuffer,
+    /// Index of the next unconsumed token, including trivia; not a byte offset.
     cursor: usize,
+    /// Owns copied token text and open-node construction state.
     builder: GreenNodeBuilder<'static>,
+    /// Syntax errors plus at most the terminating resource-limit report.
     diagnostics: DiagnosticBuffer,
+    /// Whether a following `{` can begin a struct expression in this context.
     allow_struct_literals: bool,
+    /// Caller-selected diagnostic, recursive-entry and completed-depth thresholds.
     limits: super::ParseLimits,
+    /// Sticky stop flag after a parser limit; remaining input is retained as error text.
     exhausted: bool,
+    /// Number of active guarded recursive grammar entries, not tree depth.
     nesting: usize,
+    /// Stack of `child_depths` indices for open nodes, including checkpoint wrappers.
     node_starts: Vec<usize>,
+    /// Depths of completed nodes; finishing a parent collapses its child suffix to one depth.
     child_depths: Vec<usize>,
+    /// Shared cancellation request; a cancelled parse is discarded by the facade.
     cancel: CancellationToken,
+    /// Enables offline declaration forms; does not establish executable validity.
     pub(crate) declarations: bool,
 }
 
 impl<'a> Parser<'a> {
+    /// Starts empty output over tokens whose byte spans belong to `text`.
     pub(crate) fn new(
         text: &'a str,
         tokens: TokenBuffer,
@@ -58,6 +90,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Guards a recursive grammar entry, recording exhaustion before further recursion.
     pub(crate) fn with_nesting(&mut self, parse: impl FnOnce(&mut Self)) {
         if self.exhausted || self.cancel.check().is_err() {
             return;
@@ -79,15 +112,19 @@ impl<'a> Parser<'a> {
         self.nesting -= 1;
     }
 
+    /// Consumes balanced builder state into the green root and accumulated diagnostics.
     pub(crate) fn finish(self) -> (GreenNode, DiagnosticBuffer) {
         (self.builder.finish(), self.diagnostics)
     }
 
+    /// Opens a node at the current output position and starts child-depth accounting.
     pub(crate) fn start_node(&mut self, kind: SyntaxKind) {
         self.node_starts.push(self.child_depths.len());
         self.builder.start_node(KagariLanguage::kind_to_raw(kind));
     }
 
+    /// Closes the current node and replaces its child depths by `1 + max(children)`.
+    /// Tokens do not contribute depth; the threshold is checked after construction.
     pub(crate) fn finish_node(&mut self) {
         let start = self.node_starts.pop().expect("open syntax node");
         let depth = self.child_depths[start..]
@@ -112,6 +149,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Records the current output/depth positions without advancing the token cursor.
     pub(crate) fn checkpoint(&mut self) -> Checkpoint {
         Checkpoint {
             green: self.builder.checkpoint(),
@@ -119,12 +157,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Opens a parent around children emitted since a checkpoint in the same builder scope.
     pub(crate) fn start_node_at(&mut self, checkpoint: Checkpoint, kind: SyntaxKind) {
         self.node_starts.push(checkpoint.child);
         self.builder
             .start_node_at(checkpoint.green, KagariLanguage::kind_to_raw(kind));
     }
 
+    /// Emits leading trivia, then consumes the expected token or records a diagnostic.
+    /// Returns false on mismatch without consuming the mismatching non-trivia token.
     pub(crate) fn expect(&mut self, kind: TokenKind, diagnostic: DiagnosticKind) -> bool {
         self.bump_trivia();
         if self.at(kind) {
@@ -136,6 +177,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Emits consecutive whitespace/comments into the currently open node.
     pub(crate) fn bump_trivia(&mut self) {
         while self
             .peek()
@@ -166,6 +208,7 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Emits one shift token from two adjacent lexer tokens; requires `joint_shift()` success.
     pub(crate) fn bump_joint_shift(&mut self) {
         let kind = self.joint_shift().expect("joint shift");
         let start = self.tokens[self.cursor].span.start;
@@ -175,12 +218,15 @@ impl<'a> Parser<'a> {
         self.cursor += 2;
     }
 
+    /// Wraps the next token in an error node to retain text while advancing recovery.
     pub(crate) fn bump_as_error(&mut self) {
         self.start_node(SyntaxKind::Error);
         self.bump();
         self.finish_node();
     }
 
+    /// Copies the current token's source spelling into the builder and advances once.
+    /// Does nothing when `peek()` is unavailable, including exhaustion/cancellation.
     pub(crate) fn bump(&mut self) {
         if let Some(token) = self.peek().cloned() {
             let kind = token.kind.to_syntax_kind();
@@ -190,11 +236,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Reports a diagnostic at the current token range, or the default span if unavailable.
     pub(crate) fn error_here(&mut self, kind: DiagnosticKind) {
         let span = self.peek().map(|token| token.span).unwrap_or_default();
         self.push_diagnostic(Diagnostic::error(kind).with_span(span));
     }
 
+    /// Records an ordinary diagnostic or appends one limit report and makes exhaustion sticky.
     pub(crate) fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
         if self.exhausted {
             return;
@@ -230,16 +278,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Tests the current kind without skipping trivia; stopping grammar presents as EOF.
     pub(crate) fn at(&self, kind: TokenKind) -> bool {
         self.current_kind() == Some(kind)
     }
 
+    /// Tests membership of the current kind without advancing or skipping trivia.
     pub(crate) fn at_any(&self, kinds: &[TokenKind]) -> bool {
         self.current_kind()
             .map(|kind| kinds.contains(&kind))
             .unwrap_or(false)
     }
 
+    /// Returns EOF during exhaustion/cancellation so grammar loops terminate normally.
     pub(crate) fn current_kind(&self) -> Option<TokenKind> {
         // Grammar loops terminate on EOF, including module/trait bodies that
         // have no `None` recovery arm. Cancellation must follow that path.
@@ -249,10 +300,12 @@ impl<'a> Parser<'a> {
         self.peek().map(|token| token.kind.clone())
     }
 
+    /// Whether the current expression context admits a struct-literal suffix.
     pub(crate) fn allow_struct_literals(&self) -> bool {
         self.allow_struct_literals
     }
 
+    /// Temporarily changes brace interpretation and restores it after normal callback return.
     pub(crate) fn with_struct_literals_allowed<T>(
         &mut self,
         allowed: bool,
@@ -265,6 +318,8 @@ impl<'a> Parser<'a> {
         result
     }
 
+    /// Looks ahead by zero-based non-trivia position without changing the parser cursor.
+    /// Returns `None` beyond input or when parsing is stopped.
     pub(crate) fn nth_nontrivia_kind(&self, n: usize) -> Option<TokenKind> {
         self.cancel.check().ok()?;
         if self.exhausted {
@@ -278,10 +333,13 @@ impl<'a> Parser<'a> {
             .map(|token| token.kind.clone())
     }
 
+    /// Returns a token index suitable for an independent lookahead cursor.
     pub(crate) fn cursor(&self) -> usize {
         self.cursor
     }
 
+    /// Advances a caller-owned token index through the next non-trivia token.
+    /// Despite the name, consumes one lookahead match per call; the parser cursor is unchanged.
     pub(crate) fn nth_nontrivia_kind_from(&self, cursor: &mut usize) -> Option<TokenKind> {
         if self.exhausted {
             return None;
@@ -296,6 +354,7 @@ impl<'a> Parser<'a> {
         None
     }
 
+    /// Borrows the current raw token, or `None` after input/exhaustion/cancellation.
     pub(crate) fn peek(&self) -> Option<&Token> {
         self.cancel.check().ok()?;
         if self.exhausted {
