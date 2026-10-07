@@ -28,6 +28,37 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Name resolution (SA8, SA2, SA3, planned)
+
+The [execution plan](name-resolution-plan.md) owns the two-space lookup/import
+contract and subsequent dependency-driven solver migration. Status: planned;
+writing the plan has not activated implementation. Execute NR01-NR05 in order
+when assigned, with `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
+implementation commits. SA1 inline AST reuse and SA9 compact module handles remain
+outside this track.
+
+- [ ] NR01: Specify type/value namespaces; replace binding, directive and exported
+  alias storage and lookup APIs, including portable registration consumers.
+- [ ] NR02: Migrate semantic/tooling/cache consumers and derive HIR public members.
+- [ ] NR03: Complete focused SA8 local acceptance before changing solver scheduling.
+- [ ] NR04: Introduce dependency-driven import work and explicit convergence,
+  unresolved-cycle, exhaustion and cancellation outcomes.
+- [ ] NR05: Complete integration/measurements and resolve local failures; record
+  GitHub CI acceptance independently.
+
+Only NR01 may carry documented mechanical consumer build failures to NR02. The
+NR03 local gate must pass before NR04. Full workspace/feature/backend checks stay
+in GitHub CI; unrun CI remains pending. Reuse core contract fixtures, adding cases
+only for genuinely distinct missing semantics or boundaries.
+
+Planning review found that portable `ModuleDecl.exports` also uses a single
+spelling key. Supporting two-category aliases requires a bounded schema/consumer
+migration alongside HIR; deleting HIR `Module.exports` does not delete authored
+registration exports. The plan makes that ownership distinction explicit.
+Planning validation: local file/anchor links and diff whitespace checks pass.
+No production code, specifications or tests were changed/executed by this planning
+checkpoint; implementation and CI acceptance remain pending.
+
 ### Explicit native default bodies
 
 The [execution plan](native-default-bodies-plan.md) makes registered trait defaults
@@ -483,13 +514,16 @@ Lua parity and the shared-bound source-analysis capability remain open above.
 The [review document](review.md) records inline module AST reuse, import-resolution
 scheduling, iteration exhaustion and mixed import/namespace records. Append future
 review findings there. SA4 is resolved by the completed IR01-IR03 track above.
-SA1-SA3 remain unactivated HIR analysis/import follow-ups.
+SA1 remains a separate unactivated HIR analysis follow-up. SA2/SA3 are planned
+after SA8 in the [NR01-NR05 track](name-resolution-plan.md); implementation is
+not yet activated.
 
 [SA8](review.md#sa8-separate-typevalue-lookup-and-unify-export-information) records
 the proposed type/value namespace split and unified export derivation, including
 per-space import outcomes, host/tooling/cache consumers and focused acceptance.
-The design excludes macros; implementation is not activated. Stabilize this
-semantic model before changing SA2/SA3 solver scheduling and convergence handling.
+The [execution plan](name-resolution-plan.md) formalizes this design, excluding
+macros. Its NR03 local gate stabilizes the semantic model before NR04 changes
+SA2/SA3 solver scheduling and convergence handling.
 
 [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references)
 records compact module handles backed by shared portable identities as a separate,

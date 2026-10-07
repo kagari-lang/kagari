@@ -21,6 +21,9 @@ navigation tests. Keep declaration, signature and body checking separate.
 
 ## SA2 Import resolution rescans every module
 
+Planned with SA3 in NR04 of the [name-resolution plan](name-resolution-plan.md),
+after SA8's local semantic acceptance. Implementation is not yet activated.
+
 [ModuleGraph::build](../crates/kagari-hir/src/imports/builder.rs) resolves all modules
 against the previous catalog, rebuilds the catalog and compares it after every
 round. Chained public globs need information propagation, but unrelated and stable
@@ -36,6 +39,9 @@ caching are further options, not prerequisites. Measure chains, fan-out and cycl
 before choosing a broader design or claiming a speedup.
 
 ## SA3 Iteration exhaustion is not distinguished from convergence
+
+The [name-resolution plan](name-resolution-plan.md#completion-cycles-and-bounded-failure)
+defines explicit completion/failure contracts for NR04. This finding remains open.
 
 The same loop permits at most `2N + 2` rounds for `N` modules and exits early when
 [catalog equality](../crates/kagari-hir/src/imports/builder.rs) finds unchanged
@@ -142,7 +148,11 @@ that specifically require fresh snapshots or independent mutable runtimes.
 ## SA8 Separate type/value lookup and unify export information
 
 Design direction agreed in review: support type and value namespaces only; no
-macro namespace or macro implementation. This proposal does not activate code changes.
+macro namespace or macro implementation. The [NR01-NR05 execution plan](name-resolution-plan.md)
+now owns the implementation contract; code changes are not yet activated. Planning
+also confirmed that portable `ModuleDecl.exports` needs category-aware keys for
+dual-category aliases. Its authored registration records remain distinct from
+the redundant HIR export storage being removed.
 
 [NameTable](../crates/kagari-hir/src/resolver/table.rs) currently keys all candidates
 by `LocalName`. Declaration conflicts, imported-name selection and prelude masking
@@ -199,7 +209,7 @@ default local name from the final path segment. Remove redundant HIR `Export`
 storage after migrating its actual consumers (including variant handling); derive
 public-member views from resolved bindings for both named and glob re-exports.
 
-Execution order for a future plan:
+Design sequence, formalized by NR01-NR03 in the execution plan:
 
 1. Specify category membership, constructor/pattern rules, same-space conflicts,
    import outcomes and prelude shadowing in the module/syntax specs.
