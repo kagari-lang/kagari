@@ -24,6 +24,7 @@ struct Options {
     reverse: bool,
     interpreter_only: bool,
     profile: Option<String>,
+    workload: Option<String>,
     numeric_matrix: bool,
     source_forms: bool,
 }
@@ -37,6 +38,7 @@ impl Options {
             reverse: false,
             interpreter_only: false,
             profile: None,
+            workload: None,
             numeric_matrix: false,
             source_forms: false,
         };
@@ -55,11 +57,19 @@ impl Options {
                     options.profile = Some(argument["--profile=".len()..].to_owned());
                     options.setup_samples = 1;
                 }
+                _ if argument.starts_with("--workload=") => {
+                    options.workload = Some(argument["--workload=".len()..].to_owned());
+                }
                 _ => panic!(
-                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --profile=WORKLOAD"
+                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --profile=WORKLOAD, --workload=WORKLOAD"
                 ),
             }
         }
+        assert!(
+            options.workload.is_none()
+                || (!options.numeric_matrix && !options.source_forms && options.profile.is_none()),
+            "--workload selects the original suite and cannot be combined with a matrix or profile"
+        );
         options
     }
 }
@@ -293,6 +303,14 @@ fn main() {
         run(workload, &options);
         return;
     }
+    if let Some(name) = &options.workload {
+        let workload = WORKLOADS
+            .iter()
+            .find(|workload| workload.name == name)
+            .expect("unknown workload");
+        run(workload, &options);
+        return;
+    }
     if options.reverse {
         for workload in WORKLOADS.iter().rev() {
             run(workload, &options);
@@ -317,6 +335,7 @@ mod tests {
             reverse: false,
             interpreter_only: false,
             profile: None,
+            workload: None,
             numeric_matrix: false,
             source_forms: false,
         };

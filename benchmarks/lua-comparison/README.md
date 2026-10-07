@@ -6,6 +6,12 @@ Run from the repository root:
 uv run python scripts/benchmark_lua.py
 ```
 
+To measure only the arithmetic loop, without native preparation or other workloads:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --workload arithmetic
+```
+
 The driver builds `kagari-lua-benchmark` in the existing release profile and
 default target directory, then launches two sequential processes. It saves CSV
 samples, JIT diagnostics, source/binary hashes, machine/toolchain metadata,

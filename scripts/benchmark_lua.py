@@ -59,6 +59,7 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=2, help="Sequential fresh processes; default: 2")
     parser.add_argument("--interpreter-only", action="store_true",
                         help="Skip native backend preparation and execution")
+    parser.add_argument("--workload", help="Measure only one workload from the original suite")
     parser.add_argument("--numeric-matrix", action="store_true",
                         help="Measure bounded numeric/bit/cast loops in every numeric domain")
     parser.add_argument("--source-forms", action="store_true",
@@ -68,6 +69,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.numeric_matrix or args.source_forms or args.baseline_executable:
         args.interpreter_only = True
+    if args.workload and (args.numeric_matrix or args.source_forms or args.baseline_executable):
+        parser.error("--workload cannot be combined with a matrix or saved baseline")
     if args.numeric_matrix and args.source_forms:
         parser.error("select one expanded matrix")
     if args.baseline_executable and (args.numeric_matrix or args.source_forms):
@@ -88,7 +91,7 @@ def main() -> None:
                 "samples_per_process": 1 if args.check else 11,
                 "warmups_per_route": 0 if args.check else 3,
                 "setup_samples_per_workload": 1 if args.check or args.numeric_matrix or args.source_forms else 3,
-                "workloads": "source forms and byte state" if args.source_forms else "numeric matrix" if args.numeric_matrix else "original seven",
+                "workloads": "source forms and byte state" if args.source_forms else "numeric matrix" if args.numeric_matrix else args.workload or "original seven",
                 "setup_scope": "one matrix module per process" if args.numeric_matrix or args.source_forms else "per workload",
                 "runs": args.runs, "check": args.check,
                 "interpreter_only": args.interpreter_only,
@@ -125,6 +128,8 @@ def main() -> None:
             argv.append("--check")
         if args.interpreter_only:
             argv.append("--interpreter-only")
+        if args.workload:
+            argv.append(f"--workload={args.workload}")
         if args.numeric_matrix:
             argv.append("--numeric-matrix")
         if args.source_forms:
@@ -151,8 +156,12 @@ def main() -> None:
     print("\nExecution median per complete workload (microseconds):")
     results = {(row["workload"], row["engine"]): row["median_ns"] / 1_000
                for row in summary if row["phase"] == "execute" and row["variant"] == "candidate"}
-    names = sorted({name for name, engine in results if engine == "kagari_vm"}) if args.numeric_matrix or args.source_forms else (
-        "entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
+    if args.workload:
+        names = (args.workload,)
+    elif args.numeric_matrix or args.source_forms:
+        names = sorted({name for name, engine in results if engine == "kagari_vm"})
+    else:
+        names = ("entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
     for name in names:
         vm, lua = results[name, "kagari_vm"], results[name, "lua54"]
         jit = results.get((name, "kagari_jit"))

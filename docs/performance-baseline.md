@@ -7,32 +7,60 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
-## Standalone Rust arithmetic loop, 2026-10-07
+## Windows arithmetic comparison, 2026-10-07
 
-The same 50,000-iteration `sum += i % 97; i += 1` while loop returns 2,398,830.
-On an Intel Core i9-12900K (16 cores/24 logical CPUs), Windows 11 10.0.26300,
-Rust 1.99.0/LLVM 23.1.1, x86_64-pc-windows-msvc, standalone `rustc -C opt-level=3`
-with default CPU target, ordinary Rust takes **19.148 us** median
-(range 18.495-26.170); explicit `checked_add` for both sum and index takes
-**22.201 us** (range 20.937-29.550). Inputs remain within i32;
-these timings do not compare overflow behavior outside this workload.
+Only the unchanged arithmetic workload was measured: 50,000 iterations of
+`sum += i % 97; i += 1`, with result 2,398,830. Current worktree over `ef080344`
+includes the focused benchmark selector and existing uncommitted frontend edits;
+raw metadata and `worktree.diff` retain that state. This is a fresh Windows
+observation, not a regression comparison with the M1 Max report below.
 
-Each route uses a non-inlined function, runtime input and `black_box` on input/result.
-Two sequential single-threaded processes each run 20 warmups per route, then eleven
-samples of 1,000 calls with rotating route order. Every batch checks the result
-against the independent cycle/tail sum formula. No dependencies/features, profiler
-or concurrent agent build/test were used; execution is warmed, while the standalone
-build is fresh. The 0.400-second build is excluded. Desktop scheduling,
-core placement and frequency are uncontrolled. No Lua/Kagari route was timed on
-this machine, so do not divide these results by the M1 Max measurements below.
+Environment: Intel Core i9-12900K, 16 cores/24 logical CPUs, about 64 GiB RAM,
+Windows 11 10.0.26300, Rust/Cargo 1.99.0, LLVM 23.1.1,
+x86_64-pc-windows-msvc, workspace release/default target/default Cargo parallelism,
+opt-level=3/default CPU target. SDK source/native features and mlua 0.11.6
+lua54/vendored are enabled; native preparation/execution is disabled. The initial
+release build is cold and takes 128.739 seconds, excluded from execution.
+Lua source is the locked `lua-src` product recorded in `Cargo.lock`.
 
-Source, executable, per-process CSV, environment/hashes and summary are retained
-under ignored `target/rust-loop-baseline/`. Reproduction for the retained source:
+| Route | Median us per complete loop | Sample range us |
+| --- | ---: | ---: |
+| Kagari interpreter | 8648.300 | 5697.700-17582.000 |
+| PUC Lua 5.4 | 630.650 | 597.800-3807.700 |
+| Rust ordinary release | 19.639 | 18.445-21.227 |
+| Rust explicit checked additions | 22.371 | 20.916-25.814 |
+
+Kagari/Lua pooled median ratio is **13.71**. Two fresh sequential processes
+perform three warmups per route and eleven single-call timed samples per route,
+with rotating engine order and reversed second-process order. All 44 timed results
+pass the independent Rust reference checksum. Per-process Kagari/Lua medians are
+7,491.900/623.300 and 8,766.600/655.900 us. Source compilation, artifact preparation,
+runtime construction and linking are outside timing; public host entry/return and
+default GC remain included. No agent build/check/profile runs concurrently with
+execution. Desktop activity, core placement and frequency are uncontrolled;
+large sample ranges prevent treating the reported ratio as a precise constant.
+
+Rust is rerun afterwards in two sequential processes: 20 warmups per route,
+eleven batches of 1,000 calls per route/process, non-inlined functions and runtime
+input/result `black_box`, all batch checksums validated. No dependencies/features;
+standalone `rustc -C opt-level=3`, default CPU target, existing executable/cache.
+Its public function boundary differs from the embedding APIs; all intermediates
+fit i32. Earlier standalone medians were 19.148/22.201 us on the same machine.
+
+Reproduce the focused Kagari/Lua run:
 
 ```text
-rustc --edition=2024 -C opt-level=3 target/rust-loop-baseline/main.rs -o target/rust-loop-baseline/rust-loop-baseline.exe
-target/rust-loop-baseline/rust-loop-baseline.exe 50000
+uv run python scripts/benchmark_lua.py --interpreter-only --workload arithmetic
 ```
+
+Raw CSV, hashes/environment, setup timings, summary and Rust rerun samples are in
+ignored `target/lua-comparison/20261007T091754Z/`; Rust source/executable and original
+methodology remain under `target/rust-loop-baseline/`. The driver's original final
+printing failed after saving all samples/JSON because it still expected seven
+workloads; focused printing was corrected and replayed against the retained report.
+No timed batch was rerun for that correction. Release build, Rust formatting,
+structure audit (921 files, no violations), focused CLI/summary checks and diff
+checks pass; no workspace test suite was run.
 
 ## Typed numeric execution result (NE05), 2026-10-06
 
