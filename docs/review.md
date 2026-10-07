@@ -118,3 +118,16 @@ Publication now converts canonical drive paths to ordinary paths and applies the
 same source-name normalization as analysis. The unchanged six-test suite passes,
 including actual file reads, matching source views, content validation and retained
 snapshot navigation. This bounded integration correction preserves all assertions.
+
+## SA7 Routine fixes trigger expensive aggregate test suites
+
+SA5's five focused regressions executed in 1.07s, while unrelated aggregate
+language-contract, syntax-example and VM suites each took several minutes in that
+validation run. These are observed suite timings, not isolated benchmarks.
+Some runners serialize many scenarios inside one test and repeatedly create fresh
+analysis/standard-library environments; Cargo cannot schedule those cases separately.
+
+Routine follow-ups now use focused validation under [AGENTS.md](../AGENTS.md).
+Consider splitting aggregate cases for selective execution and reusing immutable
+test setup where safe. Preserve fresh-snapshot, runtime isolation and source-free
+coverage. Test-harness optimization remains unactivated.

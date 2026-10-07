@@ -216,6 +216,12 @@ When changing the checker, run its `--self-test` suite as well.
 - Run focused tests when affected units build. At intermediate architecture
   boundaries, attempt relevant checks and record failures honestly; avoid repeating
   unchanged known failures while their owning migration step is still pending.
+- Ordinary bug fixes and follow-ups to completed phases use focused regressions,
+  affected consumer smoke tests and lightweight checks. Do not reopen a completed
+  phase's full workspace or feature/backend matrix for each follow-up. Reserve
+  expensive acceptance runs for planned architecture integration, explicit user
+  requests or concrete evidence of broad impact. State broader checks not run;
+  do not expand verification merely to satisfy an old phase's command list.
 - Use the build profiles defined in the workspace `Cargo.toml`, the default
   `target` directory and Cargo's default build parallelism.
 - Python is managed through `uv`; use `uv run python` when Python is needed.
