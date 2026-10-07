@@ -1,6 +1,6 @@
 use crate::{
     builtin::surface,
-    hir::{expr::ExprKind, item::storage::ExportItem, pattern::PatternKind, stmt::StmtKind},
+    hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},
     resolver::collect::resolve_names,
     tests::{common, common::check_module},
     types::TypeId,

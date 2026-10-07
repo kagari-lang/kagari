@@ -2,7 +2,7 @@
 use crate::{
     imports::{
         BindingCandidate, BindingOrigin, DirectiveResolution, ModuleImportFacts, NamespaceId,
-        ResolvedTarget, SourceDeclRef, SourceItem, SourceUnit,
+        ResolvedTarget, SourceDeclRef, SourceItem, SourceUnit, bindings::LookupOutcome,
     },
     resolver::table::NameTable,
 };
@@ -21,6 +21,10 @@ impl ModuleImportFacts {
         let target_eq = |a: &ResolvedTarget, b: &ResolvedTarget| {
             target_equal(a, b, local, old_local, signature)
         };
+        let outcome_eq = |a: &LookupOutcome, b: &LookupOutcome| match (a, b) {
+            (LookupOutcome::Resolved(a), LookupOutcome::Resolved(b)) => target_eq(a, b),
+            _ => a == b,
+        };
         self.array_interfaces == other.array_interfaces
             && self.diagnostics.is_empty()
             && other.diagnostics.is_empty()
@@ -32,8 +36,11 @@ impl ModuleImportFacts {
                     && a.visibility == b.visibility
                     && a.direct_dependencies == b.direct_dependencies
                     && match (&a.resolution, &b.resolution) {
-                        (DirectiveResolution::Resolved(a), DirectiveResolution::Resolved(b)) => {
-                            target_eq(a, b)
+                        (DirectiveResolution::Named(a), DirectiveResolution::Named(b)) => a
+                            .iter()
+                            .all(|(namespace, outcome)| outcome_eq(outcome, &b[namespace])),
+                        (DirectiveResolution::Glob(a), DirectiveResolution::Glob(b)) => {
+                            outcome_eq(a, b)
                         }
                         (a, b) => a == b,
                     }
@@ -68,7 +75,12 @@ pub(crate) fn same_name_tables(
                                 }
                         })
                 };
-                eq(&a.strong, &b.strong) && eq(&a.globs, &b.globs) && eq(&a.implicit, &b.implicit)
+                a.iter().all(|(namespace, a)| {
+                    let b = &b[namespace];
+                    eq(&a.strong, &b.strong)
+                        && eq(&a.globs, &b.globs)
+                        && eq(&a.implicit, &b.implicit)
+                })
             })
         })
 }

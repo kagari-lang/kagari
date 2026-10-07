@@ -1,5 +1,7 @@
 //! Declaration and binding identities owned by one semantic analysis.
-use kagari_types::{collection::CollectionAccess, language::role::LangRole};
+use kagari_types::{
+    collection::CollectionAccess, declaration::names::NameNamespace, language::role::LangRole,
+};
 
 use crate::{
     hir::{
@@ -611,9 +613,19 @@ impl<I: DefinitionReference> Declarations<I> {
         self.impl_identities.get(&id)
     }
 
-    pub(crate) fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
+    pub(crate) fn resolve_name(
+        &self,
+        name: &str,
+        namespace: NameNamespace,
+    ) -> Option<ResolvedName> {
         self.catalog
-            .resolve_name(&self.names, &self.hosts, name, &Default::default())
+            .resolve_name(
+                &self.names,
+                &self.hosts,
+                name,
+                namespace,
+                &Default::default(),
+            )
             .map(|hit| hit.target.resolved(self.names.unit.as_ref()))
     }
 

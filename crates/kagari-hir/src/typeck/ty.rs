@@ -19,7 +19,7 @@ use crate::{
     types::{NominalType, TypeId},
 };
 use kagari_common::{cancellation::CancellationToken, identity};
-use kagari_types::{language::Protocol, scalar::BuiltinType};
+use kagari_types::{declaration::names::NameNamespace, language::Protocol, scalar::BuiltinType};
 
 /// Borrowed declaration environment for resolving one written type.
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +77,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         } else {
             context
                 .declarations
-                .resolve_name(name)
+                .resolve_name(name, NameNamespace::Type)
                 .and_then(|resolved| {
                     if let ResolvedName::HostType(id) = resolved {
                         target = Some(TypeTarget::Host(id));

@@ -115,6 +115,7 @@ impl NameTable {
             return LookupResult::Ambiguous(candidates.to_vec());
         }
         LookupResult::Found(LookupHit {
+            namespace: target.namespace(),
             target: target.clone(),
             via: candidates.iter().map(|c| c.origin.clone()).collect(),
         })

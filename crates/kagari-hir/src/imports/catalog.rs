@@ -56,6 +56,8 @@ pub struct NamespaceCatalog {
 /// A canonical target plus the selected binding origins along its lookup path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LookupHit {
+    /// Category selected at this source site.
+    pub namespace: NameNamespace,
     /// Destination identity, independent of the import spelling.
     pub target: ResolvedTarget,
     /// Origins retained in traversal order, including equal-target glob contributions.
@@ -142,6 +144,7 @@ impl NamespaceCatalog {
                 .and_then(host_target)
                 .map_or(LookupResult::Missing, |target| {
                     LookupResult::Found(LookupHit {
+                        namespace,
                         target,
                         via: vec![],
                     })
@@ -183,6 +186,7 @@ impl NamespaceCatalog {
                             .and_then(host_target)
                         {
                             return Ok(LookupResult::Found(LookupHit {
+                                namespace,
                                 target,
                                 via: vec![],
                             }));
@@ -323,6 +327,7 @@ impl NamespaceCatalog {
                     return Ok(LookupResult::Inaccessible(vec![]));
                 }
                 let root = LookupResult::Found(LookupHit {
+                    namespace: NameNamespace::Type,
                     target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
                     via: vec![],
                 });
@@ -355,6 +360,7 @@ impl NamespaceCatalog {
             .and_then(host_target)
         {
             return Ok(LookupResult::Found(LookupHit {
+                namespace,
                 target,
                 via: vec![],
             }));
@@ -367,6 +373,7 @@ impl NamespaceCatalog {
             return self.resolve_path(
                 ctx,
                 LookupResult::Found(LookupHit {
+                    namespace: NameNamespace::Type,
                     target: ResolvedTarget::Namespace(prefix),
                     via: vec![],
                 }),

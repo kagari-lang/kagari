@@ -1,5 +1,7 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
+mod namespace_queries;
+
 #[cfg(test)]
 use crate::hir::ids::StructId;
 use crate::{
@@ -13,8 +15,7 @@ use crate::{
     hir::{expr::ExprKind, place::PlaceKind},
     host::HostDeclarations,
     imports::{
-        BindingOrigin, ImportKind, ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit,
-        functions::ImportedFunction,
+        ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit, functions::ImportedFunction,
     },
     lower::LoweredModule,
     native::render::DeclarationSource,
@@ -1092,74 +1093,6 @@ impl AnalysisSnapshot {
         &self.signatures
     }
 
-    /// Canonical namespace/declaration hit and the binding origins selected at this use.
-    pub fn source_target_at(&self, file: FileId, offset: usize) -> Option<LookupHit> {
-        let analysis = self.analysis_at(file, offset)?;
-        if let Some((_, hit)) = analysis
-            .type_hits
-            .iter()
-            .filter(|(span, _)| span.start <= offset && offset < span.end)
-            .min_by_key(|(span, _)| span.end - span.start)
-        {
-            return Some(hit.clone());
-        }
-        let facts = analysis.result.records().facts();
-        if let Some((_, hit)) = facts
-            .names
-            .path_hits
-            .iter()
-            .filter(|(span, _)| span.start <= offset && offset < span.end)
-            .min_by_key(|(span, _)| span.end - span.start)
-        {
-            return Some(hit.clone());
-        }
-        if let Some((_, hit)) = facts
-            .names
-            .imports
-            .path_hits
-            .iter()
-            .filter(|(span, _)| span.range.start <= offset && offset < span.range.end)
-            .min_by_key(|(span, _)| span.range.end - span.range.start)
-        {
-            return Some(hit.clone());
-        }
-        facts
-            .lowered
-            .module
-            .body
-            .expressions()
-            .filter_map(|(id, _)| {
-                let span = facts
-                    .lowered
-                    .source_map
-                    .expr_reference_span(id)
-                    .unwrap_or_else(|| facts.lowered.source_map.expr_span(id));
-                if !(span.start <= offset && offset < span.end) {
-                    return None;
-                }
-                Some((span.end - span.start, facts.names.lookup_hit(id)?.clone()))
-            })
-            .min_by_key(|(length, _)| *length)
-            .map(|(_, hit)| hit)
-            .or_else(|| {
-                facts.names.imports.directives.iter().find_map(|directive| {
-                    if !(directive.span.range.start <= offset && offset < directive.span.range.end)
-                    {
-                        return None;
-                    }
-                    Some(LookupHit {
-                        target: directive.resolution.target()?.clone(),
-                        via: vec![match directive.kind {
-                            ImportKind::Named { .. } => {
-                                BindingOrigin::NamedImport(directive.id.clone())
-                            }
-                            ImportKind::Glob => BindingOrigin::GlobImport(directive.id.clone()),
-                        }],
-                    })
-                })
-            })
-    }
-
     /// Finds a declaration at a physical source position, including inline-module routing.
     pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration<DefinitionId>> {
         let analysis = self.analysis_at(file, offset)?;
@@ -1172,17 +1105,7 @@ impl AnalysisSnapshot {
         {
             return self.declaration(&DeclarationId::Definition(member));
         }
-        let target = facts
-            .names
-            .imports
-            .directives
-            .iter()
-            .find_map(|directive| {
-                (directive.span.range.start <= offset && offset < directive.span.range.end)
-                    .then(|| directive.resolution.target().cloned())
-                    .flatten()
-            })
-            .or_else(|| self.source_target_at(file, offset).map(|hit| hit.target))?;
+        let target = self.source_target_at(file, offset)?.target;
         let ResolvedTarget::Source(target) = target else {
             return None;
         };

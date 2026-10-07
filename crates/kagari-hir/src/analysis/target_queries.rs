@@ -11,6 +11,7 @@ use kagari_common::{
     identity::table::DefinitionId,
     span::Span,
 };
+use kagari_types::declaration::names::NameNamespace;
 
 pub(super) fn type_hits(
     facts: &AnalyzedModule<DefinitionId>,
@@ -31,12 +32,13 @@ pub(super) fn type_hits(
         else {
             continue;
         };
-        let Some(hit) =
-            facts
-                .names
-                .catalog
-                .resolve_name(&facts.names.items, &facts.names.hosts, name, cancel)
-        else {
+        let Some(hit) = facts.names.catalog.resolve_name(
+            &facts.names.items,
+            &facts.names.hosts,
+            name,
+            NameNamespace::Type,
+            cancel,
+        ) else {
             continue;
         };
         let admitted = match (target, &hit.target) {
@@ -73,6 +75,7 @@ pub(super) fn type_hits(
                 &facts.names.items,
                 &facts.names.hosts,
                 prefix,
+                NameNamespace::Type,
                 cancel,
             ) {
                 hits.push((*span, hit));

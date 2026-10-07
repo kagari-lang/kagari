@@ -1,6 +1,6 @@
 # Type/value namespaces and import solving (SA8, SA2, SA3)
 
-Status: active; NR01 storage checkpoint is complete and NR02 is in progress. The
+Status: active; NR01-NR02 checkpoints are complete and NR03 is in progress. The
 [roadmap](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-active) owns
 activation, phase checkboxes, validation evidence and carried failures. This file
 owns the implementation contracts and NR01-NR05 phase boundaries. The user has authorized execution of NR01 through NR05 in order.
@@ -297,6 +297,19 @@ graph, seal it as checked input or install it into successful reuse caches. Anal
 must report the failure at the responsible imports; retained older snapshots remain
 valid. Stable graphs containing ordinary source diagnostics are distinct from a
 solver that failed to establish a fixed point.
+
+## Implementation refinements
+
+NR02: generated native aliases retain a validated category per use-leaf slot.
+The renderer emits authored exports first in key order; exact syntax validation
+binds these slots to registration metadata before attaching them to lowering.
+Ordinary source use leaves still import both categories. This prevents an authored
+Type-only native alias from accidentally exporting a same-spelled Value target.
+The category participates in signature reuse. Portable alias eligibility remains
+its existing traits/types/variants set; SA8 does not add new registration kinds.
+The old HIR `ExportItem::Variant` branch had no producer: registered variant exports
+already render ordinary named use leaves. Removing that branch preserves seeding
+through those leaves and canonical variant identities.
 
 ## Ordered execution phases
 

@@ -10,6 +10,7 @@ use crate::{
     resolver::table::NameResolution,
 };
 use kagari_source::{source::SourceFile, source_database::SourceDatabase};
+use kagari_types::declaration::names::NameNamespace;
 use std::sync::Arc;
 
 #[test]
@@ -111,16 +112,16 @@ fn equal_glob_targets_keep_both_origins_and_strong_errors_block_fallback() {
         .names
         .imports;
     assert_eq!(
-        imports.scope.lookup("value"),
+        imports.scope.lookup("value", NameNamespace::Value),
         Some(NameResolution::Unresolved)
     );
     assert_eq!(
-        imports.scope.lookup("Option"),
+        imports.scope.lookup("Option", NameNamespace::Type),
         Some(NameResolution::Unresolved)
     );
     assert!(matches!(
         imports.directives[0].resolution,
-        DirectiveResolution::Unresolved
+        DirectiveResolution::Named(_)
     ));
     assert!(
         imports
@@ -176,8 +177,8 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
         let unit = SourceUnit::of(lowered);
         let facts = graph.imports_for(&unit).unwrap();
         assert_eq!(facts.directives[0].id.unit, unit);
-        assert!(facts.scope.lookup(own).is_some());
-        assert!(facts.scope.lookup(other).is_none());
+        assert!(facts.scope.lookup(own, NameNamespace::Value).is_some());
+        assert!(facts.scope.lookup(other, NameNamespace::Value).is_none());
         let table = &graph.catalog.namespaces[&NamespaceId::Module(unit)];
         assert!(Arc::ptr_eq(&facts.scope, &table.names));
         assert!(facts.diagnostics.iter().any(|d| matches!(
@@ -197,7 +198,7 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
     assert!(matches!(
         graph
             .catalog
-            .absolute(&ctx, &path, &Default::default())
+            .absolute(&ctx, &path, NameNamespace::Type, &Default::default())
             .unwrap(),
         LookupResult::Ambiguous(_)
     ));
@@ -221,7 +222,7 @@ fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter
     let ns = NamespaceId::Module(SourceUnit::of(&first));
     let LookupResult::Found(hit) = old
         .catalog
-        .lookup_member(&ctx, &ns, "Data", &Default::default())
+        .lookup_member(&ctx, &ns, "Data", NameNamespace::Type, &Default::default())
         .unwrap()
     else {
         panic!("public type")
@@ -234,13 +235,19 @@ fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter
     );
     assert_eq!(
         new.catalog
-            .lookup_member(&ctx, &ns, "Data", &Default::default())
+            .lookup_member(&ctx, &ns, "Data", NameNamespace::Type, &Default::default())
             .unwrap(),
         LookupResult::StaleSource
     );
     assert!(matches!(
         old.catalog
-            .lookup_member(&ctx, &ns, "value", &Default::default())
+            .lookup_member(
+                &ctx,
+                &ns,
+                "value",
+                NameNamespace::Value,
+                &Default::default()
+            )
             .unwrap(),
         LookupResult::Ambiguous(_)
     ));

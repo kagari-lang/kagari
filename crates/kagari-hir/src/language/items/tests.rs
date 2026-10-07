@@ -45,6 +45,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             lowered.language_foundation = original.language_foundation;
             lowered.registered_native_api = original.registered_native_api;
             lowered.native_package_alias = original.native_package_alias.clone();
+            lowered.native_import_namespaces = original.native_import_namespaces.clone();
             lowered.native_prelude = original.native_prelude;
             lowered.registered_traits = original.registered_traits.clone();
             lowered.native_array_interfaces = original.native_array_interfaces.clone();

@@ -1,5 +1,6 @@
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_stdlib::catalog as foundation_catalog;
+use kagari_types::declaration::names::NameNamespace;
 
 use crate::{
     analyze_source,
@@ -179,26 +180,26 @@ fn main() -> i32 { 1 }
     let resolved = result.facts();
 
     assert_eq!(
-        resolved.items.lookup("gameplay"),
+        resolved.items.lookup("gameplay", NameNamespace::Type),
         Some(NameResolution::Unresolved),
         "a missing module keeps its blocking name without inventing a namespace",
     );
     assert!(
         resolved
             .items
-            .lookup("Display")
+            .lookup("Display", NameNamespace::Type)
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Trait(_))))
     );
     assert!(
         resolved
             .items
-            .lookup("Player")
+            .lookup("Player", NameNamespace::Type)
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Struct(_))))
     );
     assert!(
         resolved
             .items
-            .lookup("main")
+            .lookup("main", NameNamespace::Value)
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
     assert_eq!(resolved.items.impl_count(), 1);

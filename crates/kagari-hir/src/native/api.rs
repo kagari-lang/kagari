@@ -85,6 +85,14 @@ pub(crate) fn import_source(
     lowered.language_foundation = language::is_language_module(&definition.identity);
     lowered.native_package_alias = definition.package_alias.clone();
     lowered.native_prelude = definition.prelude;
+    // The renderer emits authored aliases first, in this same ordered map traversal.
+    // Exact syntax correspondence above binds these trusted categories to the leaves.
+    lowered.native_import_namespaces = definition
+        .exports
+        .keys()
+        .enumerate()
+        .map(|(slot, name)| (slot, name.namespace))
+        .collect();
     lowered.native_array_interfaces = array_interfaces(providers)?;
     lowered.registered_traits = definition
         .traits

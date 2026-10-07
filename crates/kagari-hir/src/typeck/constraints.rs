@@ -25,7 +25,9 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{language::Protocol, surface::StandardTypeConstraint};
+use kagari_types::{
+    declaration::names::NameNamespace, language::Protocol, surface::StandardTypeConstraint,
+};
 use smallvec::SmallVec;
 
 /// Resolve bounds once in their declaring context, before signatures and bodies.
@@ -253,13 +255,18 @@ pub(super) fn resolve_constraint(
     }
     // The two sealed numeric predicates are language bounds, not traits from
     // a source catalog. A binder or explicit declaration still shadows them.
-    let standard = (resolved.target.is_none() && context.declarations.names.lookup(name).is_none())
-        .then_some(match name.as_str() {
-            "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
-            "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
-            _ => None,
-        })
-        .flatten();
+    let standard = (resolved.target.is_none()
+        && context
+            .declarations
+            .names
+            .lookup(name, NameNamespace::Type)
+            .is_none())
+    .then_some(match name.as_str() {
+        "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
+        "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
+        _ => None,
+    })
+    .flatten();
     let target = standard
         .map(ConstraintTarget::Standard)
         .or(match &resolved.ty {

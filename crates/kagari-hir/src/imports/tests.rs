@@ -6,7 +6,7 @@ use kagari_common::identity::PackageId;
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::host_interface::value_type::HostValueType;
+use kagari_types::{declaration::names::NameNamespace, host_interface::value_type::HostValueType};
 
 fn identity(name: &str) -> ModuleIdentity {
     ModuleIdentity {
@@ -270,7 +270,10 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         .unwrap()
         .imports;
     assert!(matches!(
-        imports.scope.lookup("echo").and_then(|b| b.target()),
+        imports
+            .scope
+            .lookup("echo", NameNamespace::Value)
+            .and_then(|b| b.target()),
         Some(ResolvedName::HostFunction(_))
     ));
     assert!(
@@ -740,7 +743,7 @@ fn deep_aliases_and_direct_leaves_share_declarations_without_child_bindings() {
             .facts()
             .names
             .items
-            .lookup("nested")
+            .lookup("nested", NameNamespace::Type)
             .is_none()
     );
     assert!(

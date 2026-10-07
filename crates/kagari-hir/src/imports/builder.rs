@@ -1,9 +1,6 @@
 //! Mutable fixed-point preparation; immutable publication contains no pending edges.
 use crate::{
-    hir::{
-        item::{function::FunctionKind, storage::ExportItem},
-        ty::TypeKind,
-    },
+    hir::{item::function::FunctionKind, ty::TypeKind},
     host::HostDeclarations,
     imports::{
         BindingCandidate, BindingOrigin, LocalName, ModuleGraph, ModuleImportFacts, ModuleNode,
@@ -342,18 +339,6 @@ fn add_declarations(
     }
     for item in &module.module.impls {
         names.insert_impl(item.id);
-    }
-    for export in &module.module.exports {
-        if let ExportItem::Variant(id) = export.item {
-            add_source(
-                &mut names,
-                &unit,
-                &export.name,
-                SourceItem::Variant(id),
-                Visibility::Public,
-                location(module, module.source_map.variant_span(id)),
-            );
-        }
     }
     let mut associated = BTreeMap::<String, (SourceItem, Visibility, NameTable)>::new();
     for item in &module.module.structs {

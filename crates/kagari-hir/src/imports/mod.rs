@@ -181,6 +181,15 @@ pub enum ResolvedTarget {
 }
 
 impl ResolvedTarget {
+    /// The binding category of this canonical declaration or namespace.
+    pub fn namespace(&self) -> NameNamespace {
+        match self {
+            Self::Namespace(_) | Self::HostType(_) => NameNamespace::Type,
+            Self::HostFunction(_) => NameNamespace::Value,
+            Self::Source(source) => source.item.namespace(),
+        }
+    }
+
     /// Converts to a resolver name; localizes source IDs only when the full supplied unit matches.
     pub(crate) fn resolved(&self, unit: Option<&SourceUnit>) -> ResolvedName {
         match self {
@@ -270,7 +279,7 @@ impl DirectiveResolution {
 /// One source use leaf with its resolution, origin sites and direct dependencies.
 ///
 /// The builder recreates these facts during each fixed-point pass. A named directive
-/// can create one local binding; a glob creates multiple candidates. Descending
+/// can create one binding per category; a glob creates multiple candidates. Descending
 /// `m::nested::value` does not create directives for `nested` or `value`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportDirective {

@@ -21,6 +21,7 @@ use crate::{
     },
     source_map::SourceMap,
 };
+use kagari_types::declaration::names::NameNamespace;
 
 use kagari_common::{cancellation::CancellationToken, span::Span};
 use std::{
@@ -197,14 +198,20 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Missing => {}
             ExprKind::Name { name, .. } => {
                 for (prefix, span) in self.source_map.expr_path(expr_id) {
+                    let namespace = if prefix == name {
+                        NameNamespace::Value
+                    } else {
+                        NameNamespace::Type
+                    };
                     if self.cancel.check().is_err() {
                         return;
                     }
-                    if let Some(resolved) = self.resolve_name(prefix)
+                    if let Some(resolved) = self.resolve_name(prefix, namespace)
                         && let Some(hit) = self.resolved.catalog.resolve_name(
                             self.names,
                             &self.resolved.hosts,
                             prefix,
+                            namespace,
                             &self.cancel,
                         )
                         && hit.target.resolved(self.names.unit.as_ref()) == resolved
@@ -212,12 +219,13 @@ impl<'a> BodyResolver<'a> {
                         self.resolved.path_hits.push((*span, hit));
                     }
                 }
-                if let Some(resolved) = self.resolve_name(name) {
+                if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
                     self.resolved.insert_expr(expr_id, resolved.clone());
                     if let Some(hit) = self.resolved.catalog.resolve_name(
                         self.names,
                         &self.resolved.hosts,
                         name,
+                        NameNamespace::Value,
                         &self.cancel,
                     ) && hit.target.resolved(self.names.unit.as_ref()) == resolved
                     {
@@ -225,7 +233,7 @@ impl<'a> BodyResolver<'a> {
                     }
                     self.record_capture(resolved);
                 } else if let Some((owner, member)) = name.rsplit_once("::")
-                    && let Some(owner) = self.resolve_name(owner)
+                    && let Some(owner) = self.resolve_name(owner, NameNamespace::Type)
                 {
                     self.resolved.insert_qualified_member(
                         expr_id,
@@ -373,7 +381,7 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn record_pattern_variant(&mut self, pattern: PatternId, path: &str) {
-        let Some(resolved) = self.resolve_name(path) else {
+        let Some(resolved) = self.resolve_name(path, NameNamespace::Value) else {
             return;
         };
         if matches!(&resolved, ResolvedName::Source(source) if matches!(source.item, SourceItem::Variant(_)))
@@ -424,7 +432,7 @@ impl<'a> BodyResolver<'a> {
         let place = self.module.place(place_id);
         match &place.kind {
             PlaceKind::Name(name) => {
-                if let Some(resolved) = self.resolve_name(name) {
+                if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
                     self.resolved.insert_place(place_id, resolved.clone());
                     self.record_capture(resolved);
                 }
@@ -449,8 +457,13 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn binding(&self, name: &str) -> Option<NameResolution> {
-        for scope in self.scopes.iter().rev() {
+    fn binding(&self, name: &str, namespace: NameNamespace) -> Option<NameResolution> {
+        for scope in self
+            .scopes
+            .iter()
+            .rev()
+            .filter(|_| namespace == NameNamespace::Value)
+        {
             if let Some(index) = scope.latest.get(name) {
                 return Some(NameResolution::Unique(
                     self.resolved.scopes[scope.id].bindings[*index]
@@ -459,31 +472,26 @@ impl<'a> BodyResolver<'a> {
                 ));
             }
         }
-        self.names.lookup(name)
+        self.names.lookup(name, namespace)
     }
 
-    /// Checks lexical/module bindings, then qualified namespace lookup, then recognized runtime helpers; locals block a qualified root.
-    fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
-        if let Some(binding) = self.binding(name) {
+    /// Checks lexical/module bindings, then qualified namespace lookup, then recognized value helpers; path roots select Type independently of locals.
+    fn resolve_name(&self, name: &str, namespace: NameNamespace) -> Option<ResolvedName> {
+        if let Some(binding) = self.binding(name, namespace) {
             return binding.target();
         }
-        if let Some((root, _)) = name.split_once("::")
-            && let Some(binding) = self.binding(root)
-            && matches!(
-                binding,
-                NameResolution::Unique(ResolvedName::Param(_) | ResolvedName::Local(_))
-            )
-        {
-            return None;
-        }
-        if let Some(hit) =
-            self.resolved
-                .catalog
-                .resolve_name(self.names, &self.resolved.hosts, name, &self.cancel)
-        {
+        if let Some(hit) = self.resolved.catalog.resolve_name(
+            self.names,
+            &self.resolved.hosts,
+            name,
+            namespace,
+            &self.cancel,
+        ) {
             return Some(hit.target.resolved(self.names.unit.as_ref()));
         }
-        if let Some(helper) = BuiltinFunction::from_name(name) {
+        if namespace == NameNamespace::Value
+            && let Some(helper) = BuiltinFunction::from_name(name)
+        {
             return Some(ResolvedName::RuntimeHelper(helper));
         }
         None

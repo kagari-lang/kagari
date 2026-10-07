@@ -8,7 +8,6 @@ use crate::{
     typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_types::declaration::names::NameNamespace;
 
 use callable::{HostCallable, HostSignature};
 use kagari_common::{
@@ -18,6 +17,7 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
+    declaration::names::NameNamespace,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError,
         constraints::satisfies_standard_constraint,
@@ -553,10 +553,7 @@ impl HostDeclarations {
                 modules.insert(path[..offset].to_owned());
             }
         }
-        if modules
-            .iter()
-            .any(|module| paths.contains_key(module) || type_paths.contains_key(module))
-        {
+        if modules.iter().any(|module| type_paths.contains_key(module)) {
             return Err(HostInterfaceError::DuplicateDeclaration);
         }
         Ok(Arc::new(Self {

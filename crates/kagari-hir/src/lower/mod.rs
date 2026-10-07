@@ -33,6 +33,7 @@ use kagari_syntax::{
 use kagari_types::{
     callable::MethodPolicy,
     collection::CollectionAccess,
+    declaration::names::NameNamespace,
     declaration::{NativeDeclaration, TraitDef, conversion::ConversionAdapter},
 };
 use std::{
@@ -64,6 +65,8 @@ mod ty;
 pub struct LoweredModule {
     /// Installed declaration dependencies added to source import reachability.
     pub(crate) native_dependencies: Vec<ModuleIdentity>,
+    /// Category of each authored native alias leaf, validated against its generated view.
+    pub(crate) native_import_namespaces: BTreeMap<usize, NameNamespace>,
     /// Registered enum failure variants identified by lowering-local variant handles.
     pub(crate) registered_enum_failures: HashSet<VariantId>,
     /// Source retained for this lowering; source-map byte offsets refer to this text.
@@ -251,6 +254,7 @@ pub(crate) fn lower_module_controlled(
         source_map,
         attributes,
         registered_native_api: false,
+        native_import_namespaces: BTreeMap::new(),
         language_foundation: false,
         native_package_alias: None,
         native_prelude: false,

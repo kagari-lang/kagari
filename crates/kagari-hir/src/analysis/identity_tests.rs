@@ -9,6 +9,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
+use kagari_types::declaration::names::NameNamespace;
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -87,7 +88,12 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     let option = facts
         .declarations
         .imported_types()
-        .resolved(facts.declarations.resolve_name("Maybe").unwrap())
+        .resolved(
+            facts
+                .declarations
+                .resolve_name("Maybe", NameNamespace::Type)
+                .unwrap(),
+        )
         .unwrap();
     assert_eq!(option.declaration.name, "Option");
     assert_ne!(option.declaration.location.file, id);

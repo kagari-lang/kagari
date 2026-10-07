@@ -93,7 +93,9 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         typeck::{FunctionImplementation, table::ConstraintTarget},
     };
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
-    use kagari_types::{language::Protocol, surface as standard_surface};
+    use kagari_types::{
+        declaration::names::NameNamespace, language::Protocol, surface as standard_surface,
+    };
 
     assert!(standard_surface::builtin_type("String").is_some());
     assert!(standard_surface::builtin_type("usize").is_some());
@@ -300,17 +302,21 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         .expect("installed declaration analysis")
         .into_checked()
         .expect("checked constructor imports");
-    let lowered = &analyzed.lowered;
-    assert!(
-        lowered
-            .module
-            .exports
-            .iter()
-            .any(|export| export.name == "foundation"
-                && matches!(export.item, ExportItem::Import(_)))
-    );
     for (name, function) in [("foundation", false), ("make_list", true)] {
-        let binding = analyzed.names.items.lookup(name).unwrap().target().unwrap();
+        let binding = analyzed
+            .names
+            .items
+            .lookup(
+                name,
+                if function {
+                    NameNamespace::Value
+                } else {
+                    NameNamespace::Type
+                },
+            )
+            .unwrap()
+            .target()
+            .unwrap();
         let (unit, is_function) = match &binding {
             ResolvedName::Source(target) => {
                 assert!(matches!(target.item, SourceItem::Function(_)));
@@ -323,6 +329,7 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         assert!(analyzed.names.catalog.valid(unit));
         assert_eq!(is_function, function);
     }
+    let lowered = &analyzed.lowered;
     for function in &lowered.module.functions {
         let tail = lowered
             .module

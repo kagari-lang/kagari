@@ -12,7 +12,7 @@ use crate::hir::{
         behavior::{ImplBuffer, MethodBuffer, TraitBuffer},
         function::FunctionBuffer,
         module::{ImportBuffer, ModuleDeclBuffer},
-        storage::{ConstBuffer, ConstItem, ExportBuffer},
+        storage::{ConstBuffer, ConstItem},
     },
     pattern::PatternData,
     place::PlaceData,
@@ -37,19 +37,16 @@ pub mod storage;
 /// +-- functions[f.index()] -> Function { params, body: Some(block_id), ... }
 /// +-- structs[s.index()] -> Struct { fields: [Field, ...], ... }
 /// +-- imports: [Import, ...]               // one entry per use-tree leaf
-/// +-- exports: [Export, ...]               // lowering's explicit export records
 /// `-- body: Body                           // blocks/expressions/types/... by ID
 /// ```
 ///
 /// Resolved scope/export candidates belong to the import graph. In particular,
-/// public glob imports are expanded there, not represented as concrete names in
-/// this `exports` collection. This value alone proves neither resolution nor typing.
+/// public glob imports are expanded there. This value alone proves neither resolution
+/// nor typing.
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     /// Top-level declaration handles in source order; import leaves are stored separately.
     pub items: ItemBuffer,
-    /// Explicit public declaration/named-import records; glob results live in namespace tables.
-    pub exports: ExportBuffer,
     /// Function declarations indexed by `FunctionId`, including trait/impl methods.
     pub functions: FunctionBuffer,
     /// Method records indexed by `MethodId`; their functions live in `functions`.

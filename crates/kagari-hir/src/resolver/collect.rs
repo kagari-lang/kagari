@@ -68,7 +68,11 @@ pub(crate) fn collect_declarations(
         }
     }
     // Declaration conflicts belong to declaration diagnostics, not graph import failure.
-    for (name, entry) in &names.entries {
+    for (name, entry) in names
+        .entries
+        .iter()
+        .flat_map(|(name, slots)| slots.iter().map(move |(_, entry)| (name, entry)))
+    {
         if cancel.check().is_err() {
             break;
         }

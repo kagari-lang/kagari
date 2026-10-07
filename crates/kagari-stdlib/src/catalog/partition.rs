@@ -7,8 +7,8 @@ use kagari_common::{
         mapping::{DefinitionMapper, DefinitionRecord},
     },
 };
-use kagari_types::declaration::names::{ExportName, NameNamespace};
 use kagari_types::{
+    declaration::names::{ExportName, NameNamespace},
     declaration::{FnDecl, module::ModuleDecl},
     ty::{GenericBound, Ty},
 };

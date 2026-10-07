@@ -19,7 +19,7 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, slice, sync::Arc};
 
 pub(super) fn resolve_imports(
     module: &LoweredModule,
@@ -62,20 +62,35 @@ pub(super) fn resolve_imports(
             root_span: location(module, import.root_span),
             visibility: import.visibility,
             resolution: match import.kind {
-                ImportLeaf::Named { .. } => DirectiveResolution::Named(PerNamespace::default()),
+                ImportLeaf::Named { .. } => DirectiveResolution::Named(PerNamespace {
+                    types: LookupOutcome::Absent,
+                    values: LookupOutcome::Absent,
+                }),
                 ImportLeaf::Glob => DirectiveResolution::Glob(LookupOutcome::Pending),
             },
             direct_dependencies: BTreeSet::new(),
         };
         let path = normalize_import_path(&directive.path, &unit.module);
         catalog.path_dependencies(&path, &mut directive.direct_dependencies);
-        let categories: &[NameNamespace] = if matches!(import.kind, ImportLeaf::Glob) {
-            &[NameNamespace::Type]
-        } else {
-            &NameNamespace::ALL
-        };
+        let categories: &[NameNamespace] =
+            if let Some(namespace) = module.native_import_namespaces.get(&slot) {
+                slice::from_ref(namespace)
+            } else if matches!(import.kind, ImportLeaf::Glob) {
+                &[NameNamespace::Type]
+            } else {
+                &NameNamespace::ALL
+            };
         for &namespace in categories {
-            let lookup = catalog.absolute(&ctx, &path, namespace, cancel)?;
+            let mut lookup = catalog.absolute(&ctx, &path, namespace, cancel)?;
+            if matches!(import.kind, ImportLeaf::Glob)
+                && matches!(lookup, LookupResult::Missing)
+                && matches!(
+                    catalog.absolute(&ctx, &path, NameNamespace::Value, cancel)?,
+                    LookupResult::Found(_)
+                )
+            {
+                lookup = LookupResult::NotNamespace;
+            }
             let outcome = match lookup {
                 LookupResult::Found(hit)
                     if matches!(import.kind, ImportLeaf::Glob)
@@ -141,6 +156,9 @@ pub(super) fn resolve_imports(
                 }
                 LookupOutcome::Inaccessible => {
                     Some(DiagnosticKind::ImportNotPublic { path: path.clone() })
+                }
+                LookupOutcome::NotNamespace if matches!(import.kind, ImportLeaf::Glob) => {
+                    Some(DiagnosticKind::InvalidGlobTarget { path: path.clone() })
                 }
                 LookupOutcome::NotNamespace | LookupOutcome::StaleSource => {
                     Some(DiagnosticKind::UnknownName { name: path.clone() })
@@ -346,23 +364,12 @@ fn diagnose_bindings(
             }
         }
     }
-    result.path_hits.retain(|(_, hit)| {
-        !hit.via.iter().any(|origin| {
-            let BindingOrigin::NamedImport(id) = origin else {
-                return false;
-            };
-            names.unit.as_ref() == Some(&id.unit)
-                && result
-                    .directives
-                    .get(id.slot as usize)
-                    .is_some_and(|directive| {
-                        !directive
-                            .resolution
-                            .targets()
-                            .any(|target| target == &hit.target)
-                    })
+    result.path_hits.retain(|(_, hit)| !hit.via.iter().any(|origin| {
+        let BindingOrigin::NamedImport(id) = origin else { return false; };
+        names.unit.as_ref() == Some(&id.unit) && result.directives.get(id.slot as usize).is_some_and(|directive| {
+            matches!(&directive.resolution, DirectiveResolution::Named(outcomes) if outcomes[hit.namespace] == LookupOutcome::Ambiguous)
         })
-    });
+    }));
 }
 
 fn add_implicit(

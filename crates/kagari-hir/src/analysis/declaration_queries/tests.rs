@@ -9,6 +9,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
+use kagari_types::declaration::names::NameNamespace;
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnapshot {
     db.declarations(sources.snapshot(), &Default::default())
@@ -118,7 +119,7 @@ fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluatio
     assert!(
         file.names()
             .items
-            .lookup("good")
+            .lookup("good", NameNamespace::Value)
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
     assert!(
@@ -240,7 +241,7 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
             .unwrap()
             .names()
             .items
-            .lookup("good")
+            .lookup("good", NameNamespace::Value)
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
     assert!(!latest.file(id).unwrap().diagnostics().is_empty());
@@ -255,7 +256,7 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
             .unwrap()
             .names()
             .items
-            .lookup("old")
+            .lookup("old", NameNamespace::Value)
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
     let again = query(&mut db, &sources);

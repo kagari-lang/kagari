@@ -14,7 +14,7 @@ use crate::{
 };
 use kagari_common::span::Span;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::scalar::BuiltinType;
+use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 mod enums;
@@ -277,7 +277,7 @@ impl<'a> BodyChecker<'a> {
             PatternBound::Path(path) => self
                 .declarations
                 .names
-                .lookup(path)
+                .lookup(path, NameNamespace::Value)
                 .and_then(|entry| entry.target())
                 .and_then(|target| match target {
                     ResolvedName::Const(id) => self.const_values?.get(&id).cloned(),

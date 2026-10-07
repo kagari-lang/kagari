@@ -20,6 +20,7 @@ use kagari_common::identity::DefinitionPath;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     collection::CollectionAccess,
+    declaration::names::NameNamespace,
     language::Protocol,
     scalar::{BuiltinType, IntegerType},
 };
@@ -342,7 +343,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn resolve_struct_id(&self, path: &str) -> Option<DefinitionPath> {
-        let resolved = self.declarations.resolve_name(path)?;
+        let resolved = self.declarations.resolve_name(path, NameNamespace::Type)?;
         if matches!(resolved, ResolvedName::Struct(_)) {
             return self.declarations.definition(resolved).cloned();
         }
@@ -353,7 +354,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn resolve_enum_id(&self, path: &str) -> Option<DefinitionPath> {
-        let resolved = self.declarations.resolve_name(path)?;
+        let resolved = self.declarations.resolve_name(path, NameNamespace::Type)?;
         if matches!(resolved, ResolvedName::Enum(_)) {
             return self.declarations.definition(resolved).cloned();
         }

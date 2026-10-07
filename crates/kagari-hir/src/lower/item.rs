@@ -3,7 +3,7 @@
 //! Top-level headers enter `Module` collections; methods/defaults can also allocate
 //! function or constant slots there. Inline module declarations record a header only:
 //! analysis prepares their separate source units. `pub use ...::*` retains visibility
-//! on the import leaf and is expanded by import analysis, not into `Module.exports`.
+//! on the import leaf and is expanded by import analysis, not into a separate export list.
 
 use crate::{
     hir::{
@@ -17,7 +17,7 @@ use crate::{
             },
             function::{Function, FunctionKind, Param},
             module::{Import, ImportLeaf, ModuleDecl},
-            storage::{ConstItem, ConstOwner, Export, ExportItem},
+            storage::{ConstItem, ConstOwner},
         },
         ty::{TypeData, TypeKind},
         writeability::Writeability,
@@ -54,7 +54,7 @@ fn lower_visibility(visibility: AstVisibility) -> Visibility {
 }
 
 impl Lowerer {
-    /// Collects top-level declarations and explicit exports; cancellation leaves partial work for the caller to reject.
+    /// Collects top-level declarations; cancellation leaves partial work for the caller to reject.
     pub(crate) fn lower_module(&mut self, module: &SourceFile) {
         for item in module.items() {
             if self.cancel.check().is_err() {
@@ -63,35 +63,17 @@ impl Lowerer {
             match item {
                 AstItem::TypeDecl(declaration) => {
                     let item = self.lower_opaque_type(&declaration);
-                    if item.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: item.name.clone(),
-                            item: ExportItem::OpaqueType(item.id),
-                        });
-                    }
                     self.module.items.push(Item::OpaqueType(item.id));
                     self.module.opaque_types.push(item);
                 }
                 AstItem::ModuleDef(module_def) => {
                     let hir_module = self.lower_module_decl(&module_def);
-                    if hir_module.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: hir_module.name.clone(),
-                            item: ExportItem::Module(hir_module.id),
-                        });
-                    }
                     self.module.items.push(Item::Module(hir_module.id));
                     self.module.modules.push(hir_module);
                 }
                 AstItem::UseDecl(use_decl) => self.lower_use_decl(&use_decl),
                 AstItem::TraitDef(trait_def) => {
                     let hir_trait = self.lower_trait(&trait_def);
-                    if hir_trait.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: hir_trait.name.clone(),
-                            item: ExportItem::Trait(hir_trait.id),
-                        });
-                    }
                     self.module.items.push(Item::Trait(hir_trait.id));
                     self.module.traits.push(hir_trait);
                 }
@@ -102,45 +84,21 @@ impl Lowerer {
                 }
                 AstItem::FnDef(function) => {
                     let hir_function = self.lower_function(&function);
-                    if hir_function.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: hir_function.name.clone(),
-                            item: ExportItem::Function(hir_function.id),
-                        });
-                    }
                     self.module.items.push(Item::Function(hir_function.id));
                     self.module.functions.push(hir_function);
                 }
                 AstItem::ConstDef(const_def) => {
                     let hir_const = self.lower_const(&const_def);
-                    if hir_const.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: hir_const.name.clone(),
-                            item: ExportItem::Const(hir_const.id),
-                        });
-                    }
                     self.module.items.push(Item::Const(hir_const.id));
                     self.module.consts.push(hir_const);
                 }
                 AstItem::StructDef(struct_def) => {
                     let hir_struct = self.lower_struct(&struct_def);
-                    if hir_struct.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: hir_struct.name.clone(),
-                            item: ExportItem::Struct(hir_struct.id),
-                        });
-                    }
                     self.module.items.push(Item::Struct(hir_struct.id));
                     self.module.structs.push(hir_struct);
                 }
                 AstItem::EnumDef(enum_def) => {
                     let hir_enum = self.lower_enum(&enum_def);
-                    if hir_enum.visibility == Visibility::Public {
-                        self.module.exports.push(Export {
-                            name: hir_enum.name.clone(),
-                            item: ExportItem::Enum(hir_enum.id),
-                        });
-                    }
                     self.module.items.push(Item::Enum(hir_enum.id));
                     self.module.enums.push(hir_enum);
                 }
@@ -235,7 +193,7 @@ impl Lowerer {
         }
     }
 
-    /// Stores one leaf and its prefix sites; only public non-glob leaves create explicit export records.
+    /// Stores one leaf and its prefix sites; public members derive from resolved bindings.
     fn lower_import(
         &mut self,
         visibility: Visibility,
@@ -244,16 +202,7 @@ impl Lowerer {
         root_span: Span,
     ) {
         let explicit = tree.alias().and_then(|alias| alias.text());
-        let alias_explicit = explicit.is_some();
-        let alias = explicit
-            .unwrap_or_else(|| path.text.rsplit("::").next().unwrap_or_default().to_owned());
         let glob = tree.is_glob();
-        if visibility == Visibility::Public && !glob {
-            self.module.exports.push(Export {
-                name: alias.clone(),
-                item: ExportItem::Import(self.module.imports.len()),
-            });
-        }
         self.source_map
             .insert_import_path(self.module.imports.len(), path.sites);
         self.module.imports.push(Import {
@@ -261,9 +210,7 @@ impl Lowerer {
             kind: if glob {
                 ImportLeaf::Glob
             } else {
-                ImportLeaf::Named {
-                    alias: alias_explicit.then_some(alias),
-                }
+                ImportLeaf::Named { alias: explicit }
             },
             path: path.text,
             span: token_span(tree),

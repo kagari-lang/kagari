@@ -128,11 +128,11 @@ outline; arrows to `S` denote equal canonical targets, not extra owned functions
 ```text
 S = SourceDeclRef { unit: math's SourceUnit, item: Function(sum_id) }
 
-math NameTable["sum"].strong -> Declaration(S), target Source(S), public
+math NameTable["sum"][Value].strong -> Declaration(S), target Source(S), public
 api  directive              -> Glob, resolved Namespace(math)
-api  NameTable["sum"].globs  -> GlobImport(api_directive), target Source(S), public
-app  directive              -> Named { alias: Some("add") }, resolved Source(S)
-app  NameTable["add"].strong -> NamedImport(app_directive), target Source(S)
+api  NameTable["sum"][Value].globs  -> GlobImport(api_directive), target Source(S), public
+app  directive              -> Named { Type: Absent, Value: Resolved(Source(S)) }
+app  NameTable["add"][Value].strong -> NamedImport(app_directive), target Source(S)
 ```
 
 Each candidate also retains its owner, visibility and source site. Provenance says
@@ -140,14 +140,19 @@ which declaration/import introduced it; the target says where the declaration
 actually lives. A glob's directive targets a namespace, while its contributed
 bindings target eligible members. Public re-exports become candidates with public
 visibility in that module's table; the catalog filters access for each importer.
-Glob expansion is stored in these namespace candidates. Lowered `Module.exports`
-retains explicit declaration/named-use exports; it does not contain expanded glob
-members.
+Public members derive from these namespace candidates, including glob expansion.
+There is no parallel HIR export list. Portable native `ModuleDecl.exports` remains
+authoritative authored metadata, keyed by category and alias; generated native
+imports retain its validated category. Ordinary source use leaves resolve both
+categories.
 
 [NameTable](../../crates/kagari-hir/src/resolver/table.rs) selects the first nonempty
 tier: strong, glob, then implicit. Conflicting strong entries are ambiguous;
 equal-target glob candidates can coexist with their origins preserved. These are
-precedence tiers, not separate type/value namespaces. See
+precedence tiers independently inside each Type/Value slot. Path prefixes select
+Type and terminal lookups explicitly select their use-site category. Navigation
+retains that category; a dual import has two `source_targets_at` results and no
+arbitrary `source_target_at` winner. See
 [import records](../../crates/kagari-hir/src/imports/mod.rs) for the concrete fields.
 
 The builder currently scans all supplied lowered modules each pass. With `N`

@@ -6,6 +6,7 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
+    declaration::names::NameNamespace,
     host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
     scalar::BuiltinType,
 };
@@ -207,7 +208,11 @@ fn invalid_or_ambiguous_imports_never_leave_a_fallback_target() {
         let snapshot = snapshot(&mut db, &sources);
         let analysis = snapshot.file(file).unwrap();
         let facts = analysis.result().facts();
-        assert_eq!(facts.names.items.lookup(alias), Some(expected), "{text}");
+        assert_eq!(
+            facts.names.items.lookup(alias, NameNamespace::Type),
+            Some(expected),
+            "{text}"
+        );
         for (id, expr) in facts.lowered.module.body.expressions() {
             if matches!(expr.kind, ExprKind::Call { .. }) {
                 assert!(
@@ -252,7 +257,12 @@ fn duplicate_type_imports_invalidate_all_alias_targets() {
                 .take(facts.lowered.module.imports.len())
                 .all(|import| import.resolution.target().is_none())
         );
-        assert!(facts.declarations.resolve_name(ty).is_none());
+        assert!(
+            facts
+                .declarations
+                .resolve_name(ty, NameNamespace::Type)
+                .is_none()
+        );
         assert_eq!(
             analysis.type_at(text.find("x: ").unwrap() + 3),
             Some(TypeId::Error)

@@ -31,14 +31,14 @@ carried build/test failures; their completion does not establish performance gai
 ### Name resolution (SA8, SA2, SA3, active)
 
 The [execution plan](name-resolution-plan.md) owns the two-space lookup/import
-contract and subsequent dependency-driven solver migration. Status: NR01 complete; NR02 active.
+contract and subsequent dependency-driven solver migration. Status: NR01-NR02 complete; NR03 active.
 Execute NR01-NR05 in order, with `Resolution-Phase: NR01` through `Resolution-Phase: NR05` on
 implementation commits. SA1 inline AST reuse and SA9 compact module handles remain
 outside this track.
 
 - [x] NR01: Specify type/value namespaces; replace binding, directive and exported
   alias storage and lookup APIs, including portable registration consumers.
-- [ ] NR02: Migrate semantic/tooling/cache consumers and derive HIR public members.
+- [x] NR02: Migrate semantic/tooling/cache consumers and derive HIR public members.
 - [ ] NR03: Complete focused SA8 local acceptance before changing solver scheduling.
 - [ ] NR04: Introduce dependency-driven import work and explicit convergence,
   unresolved-cycle, exhaustion and cancellation outcomes.
@@ -71,6 +71,28 @@ owns all these errors and test caller migration. Logs: `target/nr01-hir.log`,
 formatting and diff checks passed. Manual review retained existing visibility,
 qualified identities and module boundaries; no structural exception was added.
 Full CI acceptance remains pending.
+
+NR02 checkpoint: all NR01 production and test-caller compilation errors are
+resolved. Semantic queries select their syntactic category; lexical Value names
+no longer block Type path roots. Cache comparisons cover both category slots and
+native alias categories. Navigation records the selected category and exposes
+`source_targets_at` for dual imports. Removed HIR `Module.exports`/`ExportItem`;
+public names come from resolved bindings and registered variant use leaves.
+Native authored aliases retain their validated category in generated views (see
+the plan refinement), without changing ordinary source use syntax or native ABI
+symbol checks.
+
+Focused validation passed: HIR `wildcard_imports_detect_conflicts_and_reject_nonmodule_targets`,
+`resolves_native_constructor_imports_facade_exports_and_function_calls`,
+`type_alias_swap_invalidates_signature_reuse`; runtime
+`installed_reexports_require_declared_and_installed_canonical_targets` (including
+dual-category portable aliases and rejection of mismatched metadata). The initial
+glob diagnostic mismatch was fixed and its check passed. Runtime test compilation
+also built the affected compiler/MIR dependency path. Structure check: 926 files,
+zero findings; formatting/diff checks passed. NR03 will adapt the existing broad
+single-space collision/shadowing matrices to the new contract and exercise dual
+source/native aliases, navigation and incremental behavior. No full suite or CI
+run has been performed; CI remains pending.
 
 ### Explicit native default bodies
 

@@ -1,9 +1,6 @@
-//! Constant declarations and lowering-time explicit export records.
+//! Constant declarations and their semantic owners.
 
-use crate::hir::ids::{
-    ConstId, EnumId, ExprId, FunctionId, ImplId, ModuleId, OpaqueTypeId, StructId, TraitId,
-    TypeRefId, VariantId,
-};
+use crate::hir::ids::{ConstId, ExprId, ImplId, TraitId, TypeRefId};
 use kagari_types::visibility::Visibility;
 
 /// A constant declaration and its initializer expression.
@@ -42,39 +39,5 @@ pub enum ConstOwner {
     Impl(ImplId),
 }
 
-/// A lowering-local declaration/import reference used by an explicit export record.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ExportItem {
-    /// Local opaque type handle; resolve it against the matching module.
-    OpaqueType(OpaqueTypeId),
-    /// Local function handle; resolve it against the matching module.
-    Function(FunctionId),
-    /// Local constant handle; resolve it against the matching module.
-    Const(ConstId),
-    /// Local child module handle; resolve it against the matching module.
-    Module(ModuleId),
-    /// Named import slot in `Module.imports`; no glob expansion is stored here.
-    Import(usize),
-    /// Local struct handle; resolve it against the matching module.
-    Struct(StructId),
-    /// Local enum handle; resolve it against the matching module.
-    Enum(EnumId),
-    /// Local enum variant handle; resolve it against the matching module.
-    Variant(VariantId),
-    /// Local trait handle; resolve it against the matching module.
-    Trait(TraitId),
-}
-
-/// A named explicit export recorded during lowering; not the resolved export namespace.
-#[derive(Debug, Clone)]
-pub struct Export {
-    /// Name exposed by this explicit export.
-    pub name: String,
-    /// Local declaration or import slot supplying that name.
-    pub item: ExportItem,
-}
-
 /// Ordered `Vec<ConstItem>` storage for the owning declaration records.
 pub type ConstBuffer = Vec<ConstItem>;
-/// Ordered `Vec<Export>` storage for the owning declaration records.
-pub type ExportBuffer = Vec<Export>;

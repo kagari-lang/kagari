@@ -280,7 +280,7 @@ fn lowers_var_binding() {
 }
 
 #[test]
-fn lowers_const_items_and_exports() {
+fn lowers_public_const_items() {
     let lowered = common::lower_ok(
         r#"
 pub const VERSION: i32 = 1;
@@ -288,7 +288,6 @@ pub const VERSION: i32 = 1;
     );
 
     assert_eq!(lowered.module.items.len(), 1);
-    assert_eq!(lowered.module.exports.len(), 1);
 
     let const_item = &lowered.module.consts[0];
     assert_eq!(const_item.name, "VERSION");

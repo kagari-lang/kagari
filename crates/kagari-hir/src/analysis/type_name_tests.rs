@@ -5,7 +5,7 @@ use crate::{
     tests::test_analysis,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::scalar::BuiltinType;
+use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType};
 
 #[test]
 fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
@@ -32,7 +32,7 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                 .unwrap();
             let header = headers.file(file).unwrap();
             assert_eq!(
-                header.names().items.lookup("Clash"),
+                header.names().items.lookup("Clash", NameNamespace::Type),
                 Some(NameResolution::Ambiguous)
             );
             let duplicates = header
