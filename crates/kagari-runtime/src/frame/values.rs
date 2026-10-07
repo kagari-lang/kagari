@@ -78,7 +78,7 @@ impl Default for ExecutionValues {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         Self {
             owner: NEXT_OWNER
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
                 .expect("execution storage identity exhausted"),
             next_generation: 0,
             values: Vec::new(),

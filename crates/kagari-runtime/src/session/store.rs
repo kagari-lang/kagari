@@ -42,7 +42,7 @@ impl Default for SessionStore {
     fn default() -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         let owner = NEXT_OWNER
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("session store identity exhausted");
         Self {
             owner,
