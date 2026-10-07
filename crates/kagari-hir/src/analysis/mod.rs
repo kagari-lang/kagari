@@ -902,7 +902,6 @@ impl AnalysisDatabase {
     pub fn snapshot(
         &mut self,
         source: SourceSnapshot,
-
         cancel: &CancellationToken,
     ) -> Result<AnalysisSnapshot, AnalysisError> {
         cancel.check()?;

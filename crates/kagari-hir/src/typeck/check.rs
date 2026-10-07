@@ -18,9 +18,9 @@ use crate::{
     native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
     typeck::{
-        BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes,
-        TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
-        associated, associated_consts,
+        BodyInputs, BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex,
+        TypeIndexes, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
+        TypedParameterBuffer, associated, associated_consts,
         body::BodyChecker,
         check::{
             constants::validate_const_initializers, native_defaults::NativeDefaultCheck,
@@ -406,11 +406,11 @@ pub(crate) fn check_bodies_controlled(
     lowered: &LoweredModule,
     names: &ResolvedNames,
     declarations: &Declarations,
-    inputs: super::BodyInputs<'_>,
+    inputs: BodyInputs<'_>,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<TypedModule> {
-    let super::BodyInputs {
+    let BodyInputs {
         const_limits,
         selection,
         signatures,

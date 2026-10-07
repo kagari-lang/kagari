@@ -175,7 +175,6 @@ impl KagariEngine {
     pub fn analyze(
         &self,
         source: SourceSnapshot,
-
         cancel: &CancellationToken,
     ) -> CompileResult<AnalysisSnapshot> {
         self.analysis
@@ -225,7 +224,6 @@ impl KagariEngine {
         &self,
         source: SourceSnapshot,
         file: FileId,
-
         cancel: &CancellationToken,
     ) -> CompileResult<CheckedModule> {
         let snapshot = self.analyze(source, cancel)?;
@@ -337,7 +335,6 @@ impl KagariEngine {
     pub fn compile_to_artifact(
         &self,
         source: SourceFile,
-
         artifact_options: ArtifactOptions,
     ) -> CompileResult<BytecodeArtifact> {
         let checked = self.compile_source(source)?;
