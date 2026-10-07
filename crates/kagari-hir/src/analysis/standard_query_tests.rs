@@ -17,6 +17,7 @@ fn foundation_interface(name: &str) -> NominalType {
         associated_types: Default::default(),
     }
 }
+
 #[cfg(test)]
 mod tests {
 

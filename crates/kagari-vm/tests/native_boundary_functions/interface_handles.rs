@@ -56,6 +56,7 @@ fn retained_interface_round_trips_preserve_application_and_aliases() {
 }
 
 struct IntList;
+
 impl KagariType for IntList {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
         Ok(StandardDeclarations::default()

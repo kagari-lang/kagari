@@ -44,6 +44,7 @@ pub struct SourceUnit {
     pub revision: Revision,
     pub arena: HirArenaId,
 }
+
 impl SourceUnit {
     pub(crate) fn of(lowered: &LoweredModule) -> Self {
         Self {
@@ -58,6 +59,7 @@ impl SourceUnit {
         *self == Self::of(lowered)
     }
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SourceItem {
     Function(FunctionId),
@@ -68,6 +70,7 @@ pub enum SourceItem {
     Trait(TraitId),
     Variant(VariantId),
 }
+
 impl SourceItem {
     pub(crate) fn local(self) -> Option<ResolvedName> {
         Some(match self {
@@ -81,11 +84,13 @@ impl SourceItem {
         })
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourceDeclRef {
     pub unit: SourceUnit,
     pub item: SourceItem,
 }
+
 impl SourceDeclRef {
     pub fn function(&self) -> Option<FunctionId> {
         match self.item {
@@ -94,6 +99,7 @@ impl SourceDeclRef {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NamespaceId {
     Module(SourceUnit),
@@ -101,6 +107,7 @@ pub enum NamespaceId {
     Host(HostModuleId),
     InstalledPrefix(ModuleIdentity),
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResolvedTarget {
     Namespace(NamespaceId),
@@ -108,6 +115,7 @@ pub enum ResolvedTarget {
     HostFunction(HostFunctionId),
     HostType(HostTypeId),
 }
+
 impl ResolvedTarget {
     pub(crate) fn resolved(&self, unit: Option<&SourceUnit>) -> ResolvedName {
         match self {
@@ -125,13 +133,16 @@ impl ResolvedTarget {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DirectiveId {
     pub unit: SourceUnit,
     pub slot: u32,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocalName(String);
+
 impl LocalName {
     pub(crate) fn new(name: &str) -> Option<Self> {
         let mut chars = name.chars();
@@ -144,11 +155,13 @@ impl LocalName {
         &self.0
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportKind {
     Named { alias: Option<LocalName> },
     Glob,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirectiveResolution {
     Pending,
@@ -156,6 +169,7 @@ pub enum DirectiveResolution {
     Unresolved,
     Ambiguous,
 }
+
 impl DirectiveResolution {
     pub fn target(&self) -> Option<&ResolvedTarget> {
         if let Self::Resolved(target) = self {
@@ -165,6 +179,7 @@ impl DirectiveResolution {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportDirective {
     pub id: DirectiveId,
@@ -176,6 +191,7 @@ pub struct ImportDirective {
     pub resolution: DirectiveResolution,
     pub direct_dependencies: BTreeSet<ModuleIdentity>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BindingOrigin {
     Declaration(SourceDeclRef),
@@ -185,6 +201,7 @@ pub enum BindingOrigin {
     Package(PackageId),
     Prelude(NamespaceId),
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingCandidate {
     pub target: Option<ResolvedTarget>,
@@ -193,12 +210,14 @@ pub struct BindingCandidate {
     pub visibility: Visibility,
     pub location: Option<FileSpan>,
 }
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NameEntry {
     pub strong: Vec<BindingCandidate>,
     pub globs: Vec<BindingCandidate>,
     pub implicit: Vec<BindingCandidate>,
 }
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleImportFacts {
     pub(crate) path_hits: Vec<(FileSpan, catalog::LookupHit)>,
@@ -208,23 +227,27 @@ pub struct ModuleImportFacts {
     pub dependencies: Vec<ModuleIdentity>,
     pub(crate) array_interfaces: BTreeMap<CollectionAccess, DefinitionPath>,
 }
+
 #[derive(Debug, Clone)]
 pub struct ModuleNode {
     pub file: FileId,
     pub revision: Revision,
     pub imports: Arc<ModuleImportFacts>,
 }
+
 impl ModuleNode {
     pub fn dependencies(&self) -> &[ModuleIdentity] {
         &self.imports.dependencies
     }
 }
+
 #[derive(Debug, Clone, Default)]
 pub struct ModuleGraph {
     nodes: BTreeMap<ModuleIdentity, ModuleNode>,
     source_facts: HashMap<SourceUnit, Arc<ModuleImportFacts>>,
     pub catalog: Arc<catalog::NamespaceCatalog>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleOrderError {
     Missing(ModuleIdentity),

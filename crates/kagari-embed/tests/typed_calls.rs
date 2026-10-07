@@ -20,6 +20,7 @@ use std::sync::{
 
 #[derive(Debug)]
 struct Observer(Arc<AtomicUsize>);
+
 impl ExecutionObserver for Observer {
     fn observe(
         &mut self,

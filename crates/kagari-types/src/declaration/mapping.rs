@@ -372,6 +372,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for AssociatedTypeFamily<I> {
         Ok(())
     }
 }
+
 impl<I: DefinitionReference> DefinitionRecord<I> for NativeDeclaration<I> {
     type Rebind<J: DefinitionReference> = NativeDeclaration<J>;
 

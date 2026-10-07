@@ -23,17 +23,20 @@ pub struct NamespaceTable {
     pub names: Arc<NameTable>,
     pub glob_allowed: bool,
 }
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NamespaceCatalog {
     pub(crate) modules: BTreeMap<ModuleIdentity, Vec<SourceUnit>>,
     pub(crate) namespaces: HashMap<NamespaceId, NamespaceTable>,
     pub(crate) package_aliases: BTreeMap<String, BTreeSet<PackageId>>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LookupHit {
     pub target: ResolvedTarget,
     pub via: Vec<BindingOrigin>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LookupResult {
     Found(LookupHit),
@@ -44,6 +47,7 @@ pub enum LookupResult {
     NotNamespace,
     StaleSource,
 }
+
 impl LookupResult {
     pub(crate) fn hit(self) -> Option<LookupHit> {
         if let Self::Found(hit) = self {
@@ -53,16 +57,19 @@ impl LookupResult {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NamespaceResult {
     Found(NamespaceId),
     NotNamespace,
     StaleSource,
 }
+
 pub struct LookupContext<'a> {
     pub importer: &'a ModuleIdentity,
     pub hosts: &'a HostDeclarations,
 }
+
 impl NamespaceCatalog {
     pub(crate) fn valid(&self, unit: &SourceUnit) -> bool {
         self.modules
@@ -383,6 +390,7 @@ impl NamespaceCatalog {
         result.hit()
     }
 }
+
 fn host_target(name: ResolvedName) -> Option<ResolvedTarget> {
     Some(match name {
         ResolvedName::HostModule(id) => ResolvedTarget::Namespace(NamespaceId::Host(id)),

@@ -17,6 +17,7 @@ PATHS = {"scoped_identifier", "scoped_type_identifier"}
 LITERALS = {"string_literal", "raw_string_literal", "char_literal"}
 OPAQUE = {"macro_definition", "macro_invocation"}
 FUNCTIONS = {"function_item", "function_signature_item"}
+DEFINITIONS = FUNCTIONS | {"struct_item", "enum_item", "union_item", "trait_item", "impl_item"}
 ITEM_SCOPES = {"source_file", "declaration_list", "block"}
 LOC_LIMIT = 1200
 
@@ -159,20 +160,27 @@ def items(node: Node, test_only: bool):
         attributes = []
 
 
-def unseparated_functions(node: Node, data: bytes):
-    """Find sibling functions without a blank line before attached trivia."""
+def is_definition(node: Node) -> bool:
+    return node.type in DEFINITIONS or (
+        node.type in {"mod_item", "foreign_mod_item"}
+        and node.child_by_field_name("body") is not None
+    )
+
+
+def unseparated_items(node: Node, data: bytes):
+    """Find sibling definitions without a blank line before attached trivia."""
     previous = None
     leading = []
     for child in node.named_children:
         if child.type in COMMENTS or child.type == "attribute_item":
             leading.append(child)
             continue
-        if child.type in FUNCTIONS and previous is not None:
+        if is_definition(child) and previous is not None:
             boundary = previous
             prefix = child
             for trivia in leading:
-                # A comment starting on the preceding function's closing line
-                # belongs to that function, even when it spans several lines.
+                # A comment starting on the preceding item's closing line
+                # belongs to that item, even when it spans several lines.
                 if trivia.type in COMMENTS and trivia.start_point.row == boundary.end_point.row:
                     boundary = trivia
                 else:
@@ -180,8 +188,10 @@ def unseparated_functions(node: Node, data: bytes):
                     break
             gap = data[boundary.end_byte:prefix.start_byte]
             if not any(not line.strip() for line in gap.split(b"\n")[1:-1]):
-                yield prefix, boundary.end_byte
-        previous = child if child.type in FUNCTIONS else None
+                rule = ("function-spacing"
+                        if previous.type in FUNCTIONS and child.type in FUNCTIONS else "item-spacing")
+                yield rule, prefix
+        previous = child if is_definition(child) else None
         leading = []
 
 
@@ -303,9 +313,9 @@ def inspect(source: Source, test_only: bool) -> list[dict]:
         if node.type in {"attribute_item", "inner_attribute_item"}:
             return
         if node.type in ITEM_SCOPES:
-            for following, _ in unseparated_functions(node, source.data):
-                emit("function-spacing", following,
-                     "separate adjacent functions with a blank line before their comments/attributes")
+            for rule, following in unseparated_items(node, source.data):
+                emit(rule, following,
+                     "separate adjacent definitions with a blank line before their comments/attributes")
         if node.type == "use_declaration":
             visibility = next((c for c in node.named_children
                                if c.type == "visibility_modifier"), None)

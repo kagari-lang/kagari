@@ -69,6 +69,7 @@ fn f(x: std::sync::Arc<crate::error::Error>) {
         self.assertEqual(rules('''
 #[derive(thiserror::Error)]
 struct E;
+
 fn f() {
     <crate::model::Thing as crate::api::Trait>::call();
     let text = r###"use super::super::*; std::x::y();"###;
@@ -144,7 +145,7 @@ class FunctionSpacingTests(unittest.TestCase):
             for source in [
                 "fn a() {}\n\nfn b() {}",
                 "impl Thing { fn a() {}\n \t\n/// Description.\n#[inline]\nfn b() {} }",
-                "fn a() {}\nstruct Thing;\nfn b() {}",
+                "fn a() {}\nconst VALUE: u8 = 0;\nfn b() {}",
             ]:
                 with self.subTest(source=source, newline=newline):
                     self.assertEqual(rules(source.replace("\n", newline)), [])
@@ -174,6 +175,62 @@ const TEXT: &str = r#"fn a() {}
 fn b() {}"#;
 macro_rules! functions { () => { fn a() {} fn b() {} }; }
 fn real() { println!("fn a() {} fn b() {}"); }
+'''), [])
+
+
+class ItemSpacingTests(unittest.TestCase):
+    def test_type_and_implementation_pairs(self):
+        for source in [
+            "struct Thing {}\nimpl Thing {}",
+            "struct Thing;\nimpl Thing {}",
+            "struct Thing(u8);\nimpl Thing {}",
+            "enum Thing { A }\nimpl Thing {}",
+            "union Thing { value: u8 }\nimpl Thing {}",
+            "trait Thing {}\nimpl Thing for Other {}",
+            "impl Thing {}\nimpl Other {}",
+            "fn f() {}\nstruct Thing;",
+            "struct Thing;\nfn f() {}",
+            "mod nested {}\nfn f() {}",
+            'extern "C" { fn a(); }\nfn f() {}',
+            "struct Thing; impl Thing {}",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(rules(source), ["item-spacing"])
+
+    def test_reported_import_layout_and_attached_trivia(self):
+        source = "struct Unit {}\nimpl Unit {}\n#[derive(Clone)]\nenum Item { A }\nimpl Item {}"
+        findings = audit({"src/imports.rs": source})
+        self.assertEqual([(f["rule"], f["line"]) for f in findings],
+                         [("item-spacing", line) for line in [2, 3, 5]])
+        for trivia in ["/// Description.\n", "/** Description.\n\n More. */\n",
+                       "#[cfg(any(\n\n test, unix))]\n"]:
+            with self.subTest(trivia=trivia):
+                finding, = audit({"src/types.rs": "impl Thing {}\n" + trivia + "struct Other;"})
+                self.assertEqual((finding["rule"], finding["line"]), ("item-spacing", 2))
+
+    def test_blank_lines_trailing_comments_and_nested_scopes(self):
+        for newline in ["\n", "\r\n"]:
+            for comment in ["// Trailing.", "/* Trailing. */", "/* Trailing.\n\n More. */"]:
+                for scope in ["mod nested", "#[cfg(test)] mod tests", "fn outer()"]:
+                    with self.subTest(newline=newline, comment=comment, scope=scope):
+                        source = f"{scope} {{\nstruct Thing; {comment}\n#[derive(Clone)]\nstruct Other;\n}}"
+                        self.assertEqual(rules(source.replace("\n", newline)), ["item-spacing"])
+                        spaced = source.replace("\n#[derive", "\n \t\n#[derive")
+                        self.assertEqual(rules(spaced.replace("\n", newline)), [])
+
+    def test_compact_declaration_groups_and_opaque_tokens(self):
+        self.assertEqual(rules('''
+use std::fmt;
+use std::io;
+mod first;
+mod second;
+type First = u8;
+type Second = u16;
+const FIRST: u8 = 0;
+const SECOND: u8 = 1;
+const TEXT: &str = r#"struct Thing;
+impl Thing {}"#;
+macro_rules! types { () => { struct Thing; impl Thing {} }; }
 '''), [])
 
 

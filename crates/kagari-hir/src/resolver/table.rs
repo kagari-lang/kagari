@@ -15,6 +15,7 @@ pub enum NameResolution {
     Ambiguous,
     Unresolved,
 }
+
 impl NameResolution {
     pub fn target(self) -> Option<ResolvedName> {
         if let Self::Unique(target) = self {
@@ -24,12 +25,14 @@ impl NameResolution {
         }
     }
 }
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NameTable {
     pub(crate) unit: Option<SourceUnit>,
     pub(crate) entries: BTreeMap<LocalName, NameEntry>,
     impls: Vec<ImplId>,
 }
+
 impl NameTable {
     pub(crate) fn for_unit(unit: SourceUnit) -> Self {
         Self {

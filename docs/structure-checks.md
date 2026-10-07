@@ -45,6 +45,7 @@ source files.
 | `reexport-whitelist` | Every `pub use`, including restricted visibility and test-only scopes | Import directly from the owner or document one exact file/declaration whitelist entry. Library roots and `mod.rs` receive no exemption. |
 | `effective-loc` | Any scanned Rust file exceeding 1200 effective LOC | Split by responsibility, including test files. |
 | `function-spacing` | Adjacent functions or methods without a separating blank line, including trait signatures and tests | Add a blank line before the following function's comments/attributes. Blank lines inside them do not count. |
+| `item-spacing` | Adjacent definitions involving a struct, enum, union, trait, impl block, inline module or extern block, including pairs with functions | Add a blank line before the following definition's comments/attributes. Compact import, out-of-line module, type alias and constant groups are outside this rule. |
 | `parse-error` | Rust syntax the pinned parser cannot parse, including missing tokens | Fix invalid syntax or investigate/update parser support; never silently skip the file. |
 
 Explicit imports are the intended place for full paths:

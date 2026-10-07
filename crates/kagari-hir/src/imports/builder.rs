@@ -153,6 +153,7 @@ impl ModuleGraph {
         Ok(reachable.into_iter().collect())
     }
 }
+
 fn location(module: &LoweredModule, span: Span) -> FileSpan {
     module.source.span(span).unwrap_or(FileSpan {
         file: module.source.origin_id(),

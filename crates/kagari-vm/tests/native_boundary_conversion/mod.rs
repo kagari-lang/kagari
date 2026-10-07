@@ -106,6 +106,7 @@ fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles()
 #[test]
 fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments() {
     struct Label(String);
+
     impl KagariType for Label {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
             let module = ModuleDecl::new(ModuleIdentity {
@@ -117,6 +118,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
                 .apply([])
         }
     }
+
     impl FromKagari for Label {
         fn from_kagari(
             cx: &mut ConversionContext<'_>,
@@ -302,11 +304,13 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
 #[test]
 fn invalid_typed_registration_is_atomic_and_failed_output_preserves_callback_effects() {
     struct Invalid;
+
     impl KagariType for Invalid {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
             i32::kagari_type(catalog)
         }
     }
+
     impl IntoKagari for Invalid {
         fn into_kagari(
             self,
@@ -394,11 +398,13 @@ fn invalid_typed_registration_is_atomic_and_failed_output_preserves_callback_eff
 #[test]
 fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     struct RetainedVec(RootedValue);
+
     impl KagariType for RetainedVec {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
             Vec::<i32>::kagari_type(catalog)
         }
     }
+
     impl FromKagari for RetainedVec {
         const PRESERVES_IDENTITY: bool = true;
         fn from_kagari(
@@ -454,11 +460,13 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
 #[test]
 fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_them() {
     struct Fails;
+
     impl KagariType for Fails {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
             i32::kagari_type(catalog)
         }
     }
+
     impl FromKagari for Fails {
         fn from_kagari(
             _: &mut ConversionContext<'_>,

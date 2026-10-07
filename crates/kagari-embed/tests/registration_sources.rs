@@ -100,6 +100,7 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
 }
 
 struct Cache(PathBuf);
+
 impl Cache {
     fn new() -> Self {
         Self(
@@ -113,6 +114,7 @@ impl Cache {
         )
     }
 }
+
 impl Drop for Cache {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
@@ -121,6 +123,7 @@ impl Drop for Cache {
 
 #[derive(Debug)]
 struct Payload;
+
 impl NativePayload for Payload {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
 

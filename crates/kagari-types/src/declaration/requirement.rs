@@ -22,6 +22,7 @@ pub struct NativeCallableRequirement<I = DefinitionPath> {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<Ty<I>>,
 }
+
 impl NativeCallableRequirement {
     pub fn apply(
         &self,

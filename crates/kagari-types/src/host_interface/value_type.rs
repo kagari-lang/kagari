@@ -298,6 +298,7 @@ impl HostValueType {
         ))
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -77,6 +77,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeDefaultApplication<I>
         Ok(())
     }
 }
+
 impl<I: DefinitionReference> DefinitionRecord<I> for Signature<I> {
     type Rebind<J: DefinitionReference> = Signature<J>;
 
