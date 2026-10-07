@@ -211,15 +211,28 @@ When changing the checker, run its `--self-test` suite as well.
 
 ## Verification and Tooling
 
+- Tests are organized around language grammar, static typing, observable execution
+  semantics and core boundaries: artifact/ABI validation, GC ownership and cleanup,
+  host borrowing, cancellation and generation-pinned reload. A feature addition,
+  bug fix or internal migration does not automatically require a new test.
+- First locate the existing contract owner and reuse or update its fixtures. Add
+  a test or matrix row only for a distinct, previously uncovered grammar rule,
+  semantic rule or core boundary. A historical bug, changed function or alternate
+  spelling alone is not a reason to retain another regression case. Temporary
+  reproductions may be discarded after the existing contract coverage is checked.
+- Remove duplicate smoke tests, obsolete migration checks and assertions that only
+  mirror private implementation structure. Consolidate equivalent cases at their
+  semantic owner; do not merely hide an ever-growing case list in one test. Keep
+  separate backend, source-free or ownership checks when they establish a distinct
+  core contract. Do not use test counts or coverage percentages as growth targets.
 - Run checks appropriate to the change. Reuse valuable subsystem and conformance
-  tests; add tests for meaningful behavior or boundaries, not just implementation
-  structure. Documentation-only edits need link/content and diff checks, not a
-  full workspace rebuild.
+  tests. Documentation-only edits need link/content and diff checks, not a full
+  workspace rebuild.
 - Run focused tests when affected units build. At intermediate architecture
   boundaries, attempt relevant checks and record failures honestly; avoid repeating
   unchanged known failures while their owning migration step is still pending.
 - Feature iterations, bug fixes and phase follow-ups use only a small set of
-  affected regressions, consumer smoke tests and lightweight checks. Agents must
+  affected contract tests and lightweight checks. Agents must
   not run `cargo test --workspace`, equivalent full suites split across commands,
   or complete feature/backend test matrices locally. GitHub CI owns these runs.
   Broad impact and integration checkpoints do not override this rule. This local

@@ -45,8 +45,9 @@ Negative source cases keep remaining gaps visible until implemented. If a gap be
 its negative case fails so the inventory and positive example must be updated
 together.
 
-When changing syntax, update the EBNF, add a focused parser case or executable
-example, and then update the affected inventory rows. Keep `unverified` when
+When changing syntax, update the EBNF, reuse or update an existing parser case or
+executable example, and update the affected inventory rows. Add a witness only
+for a previously uncovered grammar rule or alternative. Keep `unverified` when
 the available example only happens to parse but does not demonstrate the
 particular branch. The parser's Rowan CST, semantic analysis, artifact loading,
 and runtime execution require their own tests; this audit measures their

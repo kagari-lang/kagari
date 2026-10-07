@@ -115,7 +115,7 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
         assert!(analysis.result().clone().into_codegen().is_err());
     }
     let mut sources = SourceDatabase::default();
-    let text = "trait Eq {} struct Point {} impl Eq for Point {} fn pass<T: Eq>(x: T) -> T { x }";
+    let text = "trait Eq {} struct Point {} impl Eq for Point {} fn pass<T: Eq>(x: T) -> T { x } fn identity<Eq>(value: Eq) -> Eq { value }";
     let file = sources
         .set("valid.kgr", text.into(), SourceLayer::Base)
         .unwrap();

@@ -1,9 +1,12 @@
-use kagari_source::diagnostic::DiagnosticKind;
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
+use kagari_stdlib::catalog as foundation_catalog;
 
 use crate::{
+    analyze_source,
     hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},
     resolver::{collect::resolve_names, resolved::ResolvedName, table::NameResolution},
     tests::common,
+    typeck::table::CallTarget,
 };
 
 #[test]
@@ -199,4 +202,32 @@ fn main() -> i32 { 1 }
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
     assert_eq!(resolved.items.impl_count(), 1);
+}
+
+#[test]
+fn same_named_user_functions_are_not_reflection_helpers() {
+    let module = SourceFile::new(
+        "profile.kgr",
+        "fn type_of(value: i32) -> i32 { value + 1 } fn main() -> i32 { type_of(41) }",
+    );
+    let checked = analyze_source(&module, foundation_catalog::shared())
+        .expect("installed declaration analysis")
+        .into_codegen()
+        .expect("resolved user function does not need reflection permission");
+    let main = &checked.lowered.module.functions[1];
+    let call = checked
+        .lowered
+        .module
+        .block(main.body.unwrap())
+        .tail_expr
+        .unwrap();
+    assert_eq!(
+        checked
+            .typed
+            .type_table
+            .call_resolution(call)
+            .unwrap()
+            .target,
+        CallTarget::Function(checked.lowered.module.functions[0].id)
+    );
 }

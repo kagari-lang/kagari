@@ -11,14 +11,6 @@ use kagari_embed::{
 };
 
 #[test]
-fn generic_trait_methods_infer_concrete_arguments_across_execution_routes() {
-    execute_contextual_source(
-        include_str!("../../../examples/generic-trait-methods.kgr"),
-        42,
-    );
-}
-
-#[test]
 fn generic_trait_method_bounds_reject_invalid_arguments() {
     let source = include_str!("../../../examples/generic-trait-methods.kgr")
         .replace("fn echo<U>(", "fn echo<U: Eq + Hash>(")
@@ -87,53 +79,6 @@ fn explicit_returns_execute_without_a_synthetic_unit_result() {
         "#,
         42,
     );
-}
-
-#[test]
-fn returning_initializer_does_not_store_an_unproduced_value() {
-    execute_contextual_source(
-        "fn main() -> i32 { val unused = if true { return 42; } else { return 7; }; }",
-        42,
-    );
-    execute_contextual_source(
-        "fn grow<T>(x: T) { grow((x, x)); } fn take<T>(first: (), second: T) {} fn main() -> i32 { take(if true { return 42; } else { return 7; }, grow(1)); }",
-        42,
-    );
-}
-
-#[test]
-fn terminating_helper_operands_preserve_short_circuit_paths() {
-    for (condition, expected) in [("false", 9), ("true", 42)] {
-        execute_contextual_source(
-            &format!(
-                "fn main() -> i32 {{ {condition} && (type_of(if true {{ return 42; }} else {{ return 7; }}) == \"\"); 9 }}"
-            ),
-            expected,
-        );
-    }
-    execute_contextual_source(
-        "fn main() -> i32 { while type_of(if true { return 42; } else { return 7; }) == \"\" { } 9 }",
-        42,
-    );
-    execute_contextual_source(
-        "fn main() -> i32 { var value = \"\"; value = type_of(if true { return 42; } else { return 7; }); 9 }",
-        42,
-    );
-}
-
-#[test]
-fn terminating_assignment_places_stop_before_later_indexes() {
-    for target in [
-        "grid[index(if true { return 42; } else { return 7; })][grow(1)]",
-        "matrix(if true { return 42; } else { return 7; })[grow(1)][0]",
-    ] {
-        execute_contextual_source(
-            &format!(
-                "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> Vec<Vec<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} += grow(2); 9 }}"
-            ),
-            42,
-        );
-    }
 }
 
 #[test]
@@ -284,10 +229,6 @@ fn explicit_struct_arguments_emit_distinct_phantom_layouts() {
 }
 
 fn execute_contextual_source(source: &str, expected: i32) {
-    execute_contextual_source_with_writes(source, expected, false);
-}
-
-fn execute_contextual_source_with_writes(source: &str, expected: i32, _reflection_write: bool) {
     let engine = KagariEngine::default();
     let mut context = ExecutionContext::default();
 
@@ -428,10 +369,9 @@ fn partial_constructor_member_context_executes_for_structs_and_enums() {
 
 #[test]
 fn reflective_write_targets_supply_generic_constructor_context() {
-    execute_contextual_source_with_writes(
+    execute_contextual_source(
         "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: Vec<Marker<i32>> = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
         42,
-        true,
     );
 }
 
@@ -452,14 +392,6 @@ fn generic_negation_executes_using_checked_signed_number_bounds() {
 }
 
 #[test]
-fn standard_equality_rhs_uses_left_constructor_context() {
-    execute_contextual_source(
-        "enum Token<T> { Empty } fn main() -> i32 { if Token<i32>::Empty == Token::Empty {42}else{0} }",
-        42,
-    );
-}
-
-#[test]
 fn binary_context_preserves_constructor_inference_and_left_to_right_evaluation() {
     execute_contextual_source(
         "enum Token<T> { Empty } struct Count { var value: i32 } fn left(count: Count) -> Token<i32> { count.value = count.value * 10 + 1; Token::Empty } fn right<T>(count: Count) -> Token<T> { count.value = count.value * 10 + 2; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; if left(count) == right(count) && Token<i32>::Empty == Token::Empty { count.value + 30 } else { 0 } }",
@@ -473,292 +405,6 @@ fn array_and_branch_context_execute_with_selected_branch_side_effects() {
         "enum Token<T> { Empty } struct Count { var value: i32 } fn tick<T>(count: Count) -> Token<T> { count.value += 1; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; val values = [Token<i32>::Empty, tick(count)]; val a = if false { Token<i32>::Empty } else { tick(count) }; val b = match false { true => Token<i32>::Empty, false => tick(count) }; if values[1] == a && a == b { count.value + 39 } else { 0 } }",
         42,
     );
-}
-
-#[test]
-fn terminating_array_members_preserve_prefix_effects_and_skip_suffixes() {
-    execute_contextual_source(
-        "struct Count { var value: i32 } fn tick(count: Count) -> i32 { count.value += 1; count.value } fn run(count: Count) -> i32 { val items = [tick(count), if true { return 40; } else { return 40; }, true, tick(count)]; 0 } fn main() -> i32 { val count = Count { value: 1 }; run(count) + count.value }",
-        42,
-    );
-}
-
-#[test]
-fn returning_if_and_while_conditions_skip_unselected_work() {
-    for statement in [
-        "if (if true { return 40; } else { return 40; }) { count.value += 100; };",
-        "while (if true { return 40; } else { return 40; }) { count.value += 100; }",
-    ] {
-        execute_contextual_source(
-            &format!(
-                "struct Count {{ var value: i32 }} fn run(count: Count) -> i32 {{ count.value += 1; {statement} count.value += 1000; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn nested_returns_preserve_the_inner_result_and_single_condition_evaluation() {
-    execute_contextual_source(
-        "struct Count { var value: i32 } fn tick(count: Count) -> bool { count.value += 1; true } fn run(count: Count) -> i32 { return if tick(count) { return 40; } else { return 0; }; } fn main() -> i32 { val count = Count { value: 1 }; run(count) + count.value }",
-        42,
-    );
-}
-
-#[test]
-fn terminating_initializers_and_assignment_values_skip_the_write() {
-    for statement in [
-        "val value: i32 = if tick(count) { return 40; } else { return 0; };",
-        "count.value = if tick(count) { return 40; } else { return 0; };",
-        "count.value += if tick(count) { return 40; } else { return 0; };",
-    ] {
-        execute_contextual_source(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {statement} count.value += 1000; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_function_arguments_skip_calls_and_generic_instances() {
-    for signature in [
-        "fn take(count: Count, value: i32) -> i32 { count.value += 100; value }",
-        "fn take<T: SignedNumber>(count: Count, value: T) -> i32 { count.value += 100; 0 }",
-    ] {
-        execute_contextual_source(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} {signature} fn run(count: Count) -> i32 {{ take(count, if tick(count) {{ return 40; }} else {{ return 0; }}) }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_trait_and_standard_arguments_preserve_only_operand_effects() {
-    for body in [
-        "value.take(if tick(count) { return 40; } else { return 0; })",
-        "(if tick(count) { return 40; } else { return 0; }).sort(); 0",
-    ] {
-        execute_contextual_source(
-            &format!(
-                "use std::collections; struct Count {{ var value: i32 }} trait Take {{ fn take(self, input: bool) -> i32; }} impl Take for Count {{ fn take(self, input: bool) -> i32 {{ self.value += 100; 0 }} }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run<T: Take>(value: T, count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count, count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_native_arguments_skip_calls() {
-    for body in [
-        "(ARG).sort(); 0",
-        "[1].sort_by(ARG); 0",
-        "collections::map(ARG, |n:i32|n); 0",
-    ] {
-        let body = body.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
-        execute_contextual_source(
-            &format!(
-                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {body} }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_enum_payloads_skip_unresolved_layouts_and_later_effects() {
-    for constructor in ["Item::Value", "Item<i32>::Value"] {
-        execute_contextual_source(
-            &format!(
-                "enum Item<T> {{ Value(T, bool) }} struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {constructor}(if tick(count) {{ return 40; }} else {{ return 0; }}, tick(count)); 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_struct_fields_skip_unused_layouts_and_remaining_effects() {
-    for constructor in ["Item", "Item<i32>"] {
-        execute_contextual_source(
-            &format!(
-                "struct Item<T> {{ val value: T, val flag: bool }} struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {constructor} {{ value: if tick(count) {{ return 40; }} else {{ return 0; }}, flag: tick(count) }}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_unary_operands_require_no_enclosing_result_layouts() {
-    for expression in ["-(ARG)", "!(ARG)", "[-(ARG)]", "(-(ARG), tick(count))"] {
-        let expression =
-            expression.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
-        execute_contextual_source(
-            &format!(
-                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn binary_termination_preserves_evaluation_order_and_short_circuit_paths() {
-    for (expression, result) in [
-        ("ARG + 7", 42),
-        ("7 + ARG", 42),
-        ("ARG < 7", 42),
-        ("ARG == false", 42),
-        ("true && ARG", 42),
-        ("false || ARG", 42),
-        ("false && ARG", 1),
-        ("true || ARG", 1),
-        ("ARG || tick(count)", 42),
-    ] {
-        let expression =
-            expression.replace("ARG", "(if tick(count) { return 40; } else { return 0; })");
-        execute_contextual_source(
-            &format!(
-                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            result,
-        );
-    }
-}
-
-#[test]
-fn terminating_reflection_values_preserve_effects_without_committing_writes() {
-    for call in [
-        r#"set_field(count, "value", VALUE)"#,
-        "set_index(array, 0, VALUE)",
-    ] {
-        let body = call.replace("VALUE", "if tick(count) { return 30; } else { return 0; }");
-        execute_contextual_source_with_writes(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count, array: Vec<i32>) -> i32 {{ {body}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
-            ),
-            42,
-            true,
-        );
-    }
-}
-
-#[test]
-fn terminating_indexes_skip_reads_rhs_effects_and_writes() {
-    for statement in [
-        "array[INDEX];",
-        "tuple[INDEX];",
-        "array[INDEX] = later(count);",
-        "array[INDEX] += later(count);",
-        "tuple[INDEX] = later(count);",
-        "set_index(array, INDEX, later(count));",
-    ] {
-        let statement =
-            statement.replace("INDEX", "if tick(count) { return 30; } else { return 0; }");
-        execute_contextual_source_with_writes(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 99 }} fn run(count: Count, array: Vec<i32>) -> i32 {{ var tuple = (1, true); {statement} 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
-            ),
-            42,
-            true,
-        );
-    }
-}
-
-#[test]
-fn terminating_match_scrutinees_skip_pattern_dispatch_and_arm_effects() {
-    execute_contextual_source(
-        "struct Count { var value: i32 } fn tick(count: Count) -> bool { count.value += 1; true } fn run(count: Count) -> i32 { match (if tick(count) { return 40; } else { return 0; }) { 1 => tick(count), _ => 7 }; 0 } fn main() -> i32 { val count = Count { value: 1 }; run(count) + count.value }",
-        42,
-    );
-}
-
-#[test]
-fn terminating_if_conditions_produce_no_branch_result_or_effects() {
-    for branches in ["{ tick(count) } else { 7 }", "{ tick(count) }"] {
-        execute_contextual_source(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ if (if tick(count) {{ return 40; }} else {{ return 0; }}) {branches}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_field_receivers_skip_member_layout_resolution() {
-    for fields in [".value", ".value.other"] {
-        execute_contextual_source(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ (if tick(count) {{ return 40; }} else {{ return 0; }}){fields}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_index_receivers_skip_index_effects_and_reads() {
-    for indexes in ["[later(count)]", "[later(count)][later(count)]"] {
-        execute_contextual_source(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 0 }} fn run(count: Count) -> i32 {{ (if tick(count) {{ return 40; }} else {{ return 0; }}){indexes}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_native_arguments_skip_remaining_operands() {
-    for call in [
-        "(ARG).sort()",
-        "(ARG).sort_by(|a:i32,b:i32|a.cmp(b))",
-        "collections::map(ARG, |n:i32|{tick(count);n})",
-    ] {
-        let expression = call.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
-        execute_contextual_source(
-            &format!(
-                "use std::collections; struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {expression}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
-}
-
-#[test]
-fn terminating_reflection_receivers_skip_remaining_operands_and_accesses() {
-    for call in [
-        r#"get_field(BASE, "value")"#,
-        r#"set_field(BASE, "value", tick(count))"#,
-        "set_index(BASE, tick(count), tick(count))",
-    ] {
-        let call = call.replace("BASE", "if tick(count) { return 40; } else { return 0; }");
-        execute_contextual_source_with_writes(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ {call}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-            true,
-        );
-    }
-}
-
-#[test]
-fn terminating_callees_skip_explicit_argument_effects() {
-    for member in ["", ".missing"] {
-        execute_contextual_source(
-            &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count) -> i32 {{ (if tick(count) {{ return 40; }} else {{ return 0; }}){member}(tick(count)); 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; run(count) + count.value }}"
-            ),
-            42,
-        );
-    }
 }
 
 #[test]

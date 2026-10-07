@@ -96,11 +96,6 @@ fn fixed_width_bits_and_shifts() {
 }
 
 #[test]
-fn bitwise_example() {
-    execute(include_str!("../../../examples/syntax/bitwise.kgr"));
-}
-
-#[test]
 fn generic_bitwise_static_dispatch() {
     execute(
         r#"use std::ops::{BitOr};

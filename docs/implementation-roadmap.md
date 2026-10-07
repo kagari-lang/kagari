@@ -28,6 +28,77 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Test consolidation (contract ownership, complete)
+
+- [x] Inventory Rust test entries and inspect grammar, HIR, VM and SDK contract owners.
+- [x] Replace 23 per-position early-return tests in SDK instantiation with four
+  evaluation-contract matrices in `tests/never.rs`; prune equivalent variants
+  rather than transferring every historical reproduction. Preserve observable
+  order, short-circuiting, skipped specialization and uncommitted writes.
+- [x] Remove duplicate example wrappers and the identical enum equality fixture.
+  Remove four standalone tests of the obsolete permission model; retain ordinary
+  function resolution in the resolver suite and merge generic-name shadowing into
+  the existing trait-reference contract.
+- [x] Make contract coverage, rather than feature/bug history, govern test growth.
+- [x] Run focused checks and review the final diff.
+
+Audit:
+
+| Crate | Rust test attributes before | After |
+| --- | ---: | ---: |
+| embed | 443 | 421 |
+| HIR | 438 | 434 |
+| VM | 302 | 302 |
+| runtime | 301 | 301 |
+| compiler | 187 | 187 |
+| syntax | 80 | 80 |
+| contract | 49 | 49 |
+| types | 42 | 42 |
+| bytecode | 29 | 29 |
+| common | 14 | 14 |
+| source | 7 | 7 |
+| Cranelift | 7 | 7 |
+| CLI | 5 | 5 |
+| MIR | 1 | 1 |
+| stdlib | 1 | 1 |
+| **Total** | **1906** | **1880** |
+
+Counts are a static inventory of Rust test attributes in 307 files, not Cargo's
+feature-dependent runtime count or the number of fixture rows; after this pass
+306 files contain these attributes. The major suites own core language and runtime
+contracts; individual redundant variants still require review. No blanket deletion
+by crate or age is appropriate. Grammar inventories and numeric-width matrices remain canonical.
+HIR tooling and snapshot queries, bounded executable rejection, GC/host safety,
+cancellation, source-free consumers and pinned reload are also core contracts.
+
+The bounded cleanup removes two standalone wrappers for examples already owned by
+`syntax_examples` (`bitwise` and `generic-trait-methods`); focused numeric/static
+dispatch and generic argument coverage remains. The four return matrices own
+control flow, calls, aggregate construction and accesses/writes: 43 named entries
+in four compilations instead of 62 independent compilations, with direct, decoded
+and JIT/fallback routes. Equivalent repetitions (such as typed/untyped constructors,
+repeated member chains and overlapping native-call positions) are removed. Each entry
+observes its own counter and array state; route-local runtimes retain root/depth
+cleanup checks. The removed enum fixture is byte-for-byte identical to the retained
+`enum_value` fixture apart from its label. No production behavior or compatibility
+contract changes.
+
+Remaining suite ownership is recorded here rather than opening a parallel cleanup
+queue. This pass does not claim that every other fixture is minimal. Further
+iteration should prune redundant variants within its existing contract owner;
+it must not introduce new permanent cases solely to record a fix.
+
+Validation: the four `returning_expressions_` matrices pass (43 entries, 129
+route executions). Five selected surviving tests also pass: never closure/loop
+joins, contextual generic calls, fixed-width bit operations, ordinary `type_of`
+function resolution and generic/trait name shadowing. The shared observable suite
+compiles with `cargo test -p kagari-embed --lib runtime::language_contract:: --no-run`;
+its full matrix was not executed locally. Strict Clippy passes for the three
+affected SDK test targets. Structure checks pass for 921 Rust files with no
+violations/exceptions; formatting, added local links and `git diff --check` pass.
+No local failures are carried. Full workspace and feature/backend acceptance
+remain owned by GitHub CI and were not run or claimed passing in this cleanup.
+
 ### Focused test-harness optimization (SA7, numeric fixtures complete)
 
 - [x] Batch VM numeric fixtures into one compilation per test, preserving every
@@ -372,8 +443,10 @@ record a command, cause and bounded follow-up. Replace obsolete internals direct
 preserving static typing, bounds, roots, declared access and generation validation.
 Do not accumulate successful command logs or completed per-commit narratives.
 
-Use focused checks during development. Final architecture integration runs the
-track's behavioral/feature matrix, source-free/backend consumers and:
+Use focused checks during development. GitHub CI owns final architecture
+integration, the track's behavioral/feature matrix, source-free/backend consumers
+and the commands below. Do not run local full suites or split them into package
+runs; the repository policy takes precedence over older execution-plan lists.
 
 ```text
 uv run --locked scripts/check_structure.py

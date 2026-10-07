@@ -1,7 +1,10 @@
 # Language conformance entry
 
-Run `cargo test -p kagari-vm language_contract` for the shared observable suite.
-Fixtures live in `crates/kagari-vm/src/tests/language_contract.rs` and contain:
+The shared observable suite is
+`cargo test -p kagari-embed --lib runtime::language_contract::language_contract_routes_preserve_values_diagnostics_and_effects`.
+Its complete backend/load matrix runs in GitHub CI; local iterations select the
+directly affected contract tests under [the repository policy](../../AGENTS.md#verification-and-tooling).
+Fixtures live in `crates/kagari-embed/src/runtime/language_contract.rs` and contain:
 
 - root source, optional named dependency sources, and an expected value, diagnostic
   code or runtime failure category;
@@ -32,7 +35,9 @@ barrier or a transaction/replay facility.
 
 The authority for expected behavior remains [value semantics](value-semantics.md),
 [failure semantics](failure-semantics.md), and [module activation](module-activation.md).
-New contract behavior extends this suite alongside focused subsystem tests.
+Extend an existing fixture only when a distinct core semantic rule is uncovered;
+feature iterations and historical bugs do not each create a permanent regression
+case. Keep subsystem checks only when they establish another core boundary.
 Assignment fixtures check target/index/RHS call order, reading RHS-updated values,
 rejected removed locations, captured root identity, and tuple value updates. These
 use the existing JIT fallback for local and aggregate operations. The optional array observer declares `observe.array` offline and binds it to an
