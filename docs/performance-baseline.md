@@ -7,6 +7,33 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Standalone Rust arithmetic loop, 2026-10-07
+
+The same 50,000-iteration `sum += i % 97; i += 1` while loop returns 2,398,830.
+On an Intel Core i9-12900K (16 cores/24 logical CPUs), Windows 11 10.0.26300,
+Rust 1.99.0/LLVM 23.1.1, x86_64-pc-windows-msvc, standalone `rustc -C opt-level=3`
+with default CPU target, ordinary Rust takes **19.148 us** median
+(range 18.495-26.170); explicit `checked_add` for both sum and index takes
+**22.201 us** (range 20.937-29.550). Inputs remain within i32;
+these timings do not compare overflow behavior outside this workload.
+
+Each route uses a non-inlined function, runtime input and `black_box` on input/result.
+Two sequential single-threaded processes each run 20 warmups per route, then eleven
+samples of 1,000 calls with rotating route order. Every batch checks the result
+against the independent cycle/tail sum formula. No dependencies/features, profiler
+or concurrent agent build/test were used; execution is warmed, while the standalone
+build is fresh. The 0.400-second build is excluded. Desktop scheduling,
+core placement and frequency are uncontrolled. No Lua/Kagari route was timed on
+this machine, so do not divide these results by the M1 Max measurements below.
+
+Source, executable, per-process CSV, environment/hashes and summary are retained
+under ignored `target/rust-loop-baseline/`. Reproduction for the retained source:
+
+```text
+rustc --edition=2024 -C opt-level=3 target/rust-loop-baseline/main.rs -o target/rust-loop-baseline/rust-loop-baseline.exe
+target/rust-loop-baseline/rust-loop-baseline.exe 50000
+```
+
 ## Typed numeric execution result (NE05), 2026-10-06
 
 NE01-NE05 implementation is complete; **Lua parity acceptance is not met**.
