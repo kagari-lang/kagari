@@ -60,7 +60,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostFunctionDeclaration<I> 
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.id)?;
         for value0 in &self.params {
             (value0).visit_definitions(visit, cancel)?;

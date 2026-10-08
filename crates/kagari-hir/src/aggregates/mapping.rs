@@ -42,7 +42,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FieldSignature<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.id)?;
         check_cancel(cancel)?;
         visit(&self.owner)?;
@@ -75,7 +74,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InherentMethodSignature<I> 
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         self.site.visit_definitions(visit, cancel)?;
@@ -117,7 +115,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructSignature<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.id)?;
         for value0 in &self.generic_params {
@@ -170,7 +167,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeSignature<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.id)?;
         for value0 in &self.generic_params {
             (value0).visit_definitions(visit, cancel)?;
@@ -211,7 +207,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VariantSignature<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.id)?;
         check_cancel(cancel)?;
@@ -256,7 +251,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumSignature<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.id)?;
 

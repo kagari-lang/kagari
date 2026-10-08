@@ -39,7 +39,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostFieldDeclaration<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.id)?;
         self.ty.visit_definitions(visit, cancel)?;
         Ok(())
@@ -71,7 +70,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostMethodDeclaration<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.id)?;
         for value0 in &self.params {
             (value0).visit_definitions(visit, cancel)?;
@@ -101,7 +99,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitMethodBinding<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.trait_method)?;
         check_cancel(cancel)?;
         visit(&self.host_method)?;
@@ -128,7 +125,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostAssociatedTypeBinding<I
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         self.ty.visit_definitions(visit, cancel)?;
@@ -162,7 +158,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTraitImplementationDecl
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.trait_id)?;
         for value0 in &self.trait_arguments {
@@ -206,7 +201,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostTypeDeclaration<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.id)?;
         for value0 in &self.fields {

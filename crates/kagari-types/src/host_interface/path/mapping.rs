@@ -35,7 +35,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathDeclaration<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.root)?;
         for value0 in &self.segments {
             (value0).visit_definitions(visit, cancel)?;

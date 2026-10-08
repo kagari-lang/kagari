@@ -318,7 +318,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceResultAdapter<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.method)?;
         self.implementation.visit_definitions(visit, cancel)?;
         Ok(())
@@ -345,7 +344,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceMethodSlot<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.method)?;
         for value0 in &self.arguments {

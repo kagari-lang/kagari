@@ -31,7 +31,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumLayout<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
             (value0).visit_definitions(visit, cancel)?;
@@ -64,7 +63,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for EnumVariantLayout<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.payload {
             (value0).visit_definitions(visit, cancel)?;
@@ -93,7 +91,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructLayout<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
@@ -128,7 +125,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for StructFieldLayout<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         self.ty.visit_definitions(visit, cancel)?;

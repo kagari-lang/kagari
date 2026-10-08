@@ -31,7 +31,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedFunction<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.declaration)?;
         self.site.visit_definitions(visit, cancel)?;
         self.signature.visit_definitions(visit, cancel)?;

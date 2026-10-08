@@ -78,7 +78,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImportedTraitMethod<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.declaration)?;
         Ok(())
     }

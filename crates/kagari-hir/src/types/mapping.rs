@@ -83,7 +83,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericParameterType<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.owner)?;
         Ok(())
     }
@@ -181,7 +180,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NominalType<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {

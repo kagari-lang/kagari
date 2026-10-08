@@ -69,7 +69,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeDefaultApplication<I>
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
             (value0).visit_definitions(visit, cancel)?;

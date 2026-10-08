@@ -646,6 +646,16 @@ These tracks are complete and require no replay. Current architecture/specificat
 supersede historical designs; use `git show <checkpoint>:docs/implementation-roadmap.md`
 for the detailed acceptance record at each final checkpoint.
 
+### Definition visitor cancellation cleanup
+
+Removed 35 consecutive duplicate `check_cancel(cancel)?` calls in 15 definition
+mapping modules. Each pair retains one check; distinct traversal/callback checks
+remain in place. The Rust diff contains only those 35 deletions. The existing
+`kagari-types --test host_metadata` case
+`resolved_host_types_still_validate_identity_kind_and_mapping_observes_cancellation`
+passed, as did structure (928 files, zero findings), formatting and diff checks.
+No new test, full-suite run or cancellation contract change was needed.
+
 ### Contract and common responsibility cleanup
 
 **AC01-AC05 complete**, final checkpoint `15fbd5df`. Separated physical ABI and

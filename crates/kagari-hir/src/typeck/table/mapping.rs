@@ -236,7 +236,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedStructInit<I> {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        check_cancel(cancel)?;
         visit(&self.structure)?;
         for value0 in &self.fields {
             if let Some(value1) = (value0).as_ref() {
@@ -271,7 +270,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedEnumConstructor<I> 
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.enumeration)?;
         if let Some(value0) = self.variant.as_ref() {
@@ -316,7 +314,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TraitImplementation<I> {
         visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.parameters {
