@@ -14,7 +14,8 @@ scope-owned scheduled executions observed through `Task<T>` handles.
 Both documents remain design-only work built on current
 [native registration](spec/standard-declarations.md) and
 [execution control](spec/execution.md). The [roadmap](implementation-roadmap.md)
-owns activation; the async proposal owns implementation sequencing.
+owns activation and progress; the [AX00-AX06 execution plan](async-execution-plan.md)
+owns implementation sequencing. The async proposal owns observable semantics.
 The selected script names are `spawn`, `Future<T>` and `Task<T>`, with explicit
 postfix `.await`. Explicit `async |args| body` closures produce Futures through
 ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; exact rejection
@@ -339,11 +340,11 @@ revalidate conditions or use version-checked host operations.
 
 ## Design gates and acceptance
 
-Resolve exact SpawnError variants, callable/Future capture verification, scope
-capability passing, queue reservation, drive/report APIs, bounded waiter/result
-storage and shutdown ownership under the parent async proposal before implementation.
-This companion introduces no independent phase ledger or new current implementation
-requirement.
+AX00 resolves exact SpawnError variants, callable/Future capture verification,
+scope capability passing, queue reservation, drive/report APIs, bounded waiter/result
+storage and shutdown ownership before dependent implementation. AX04 owns scope
+admission/Task waiters and AX05 closes lifecycle integration. This companion
+introduces no independent phase ledger or separate implementation activation.
 
 Acceptance must demonstrate:
 

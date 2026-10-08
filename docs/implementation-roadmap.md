@@ -621,20 +621,28 @@ Further optimization/frontend work requires a separately bounded activation.
 Collector replacement, enum unboxing, general collection lease redesign, JIT
 expansion and new numeric APIs remain outside these completed tracks.
 
-### Other proposals
+### Async execution (AX00-AX06, planned)
 
-These are design documents, not additional active execution plans. Activation and
-exact scheduling must be agreed within the user's scope. Completed migrations are
-not prerequisites to replay.
+The [execution plan](async-execution-plan.md) owns phase scope, dependencies,
+checkpoint policy and focused acceptance. The [async design](async-execution-design.md)
+and [host task scopes](host-task-scope-design.md) own language/lifetime behavior.
+Status: plan prepared; implementation has not been activated or started. The user
+authorized plan authoring, not execution of AX00-AX06. Current specifications
+continue to describe synchronous support until the corresponding phases land.
 
-| Track | Scope and dependencies |
-| --- | --- |
-| [Rust interoperability](rust-interop-design.md) — RI00-RI05 | DTO derives, optional schema-backed Serde and independently retained opaque objects; reuse GO conversion/root contracts. External host mutation remains distinct from GO managed-payload editing. |
-| [Host API](host-api-refactor.md) — HA00-HA05 | Preparation/load/reload facade and logical entry policy; reuse GO typed calls/roots and RI value extensions. Package identity and update compatibility must be frozen before affected phases, without requiring both entire tracks first. |
-| [Packages](package-design.md) — PK00-PK04 | Cargo-style manifests, exact dependency graphs and source/module identities. First source kinds, single-selection policy and defaults remain review choices. |
-| [Update model](update-model-design.md) — UP00-UP05 | Compatible publication versus explicit state replacement. GO supplies calls/roots, RI value extensions, PK identities and HA the facade; lower-level cutover belongs to UP. |
-| [Async execution](async-execution-design.md) | `async fn`/closures produce once-driven `Future<T>`; `.await` returns T and propagates cancellation/traps as termination. Scope-owned Tasks share retained results. Concrete state/verification/completion APIs remain open. |
-| [Host task scopes](host-task-scope-design.md) | `spawn` accepts `Fn() -> Future<T>` and returns `Result<Task<T>, SpawnError>`. Scope-owned lifetime and bounded host driving; exact errors/native registration/dispatch APIs remain open. |
+- [ ] AX00: Finalize concrete semantic/executable, state, host and verification contracts.
+- [ ] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry.
+- [ ] AX02: Prove typed native Future completion and checked source-free wait/resume.
+- [ ] AX03: Implement async functions, explicit async closures and await through source and artifacts.
+- [ ] AX04: Add scope spawn, shared Task results, waiters and directional cancellation.
+- [ ] AX05: Complete lifecycle, reload, cleanup and diagnostic integration.
+- [ ] AX06: Deliver embedding/example products and local integration evidence; record full CI separately.
+
+Dependency order is AX00 through AX06. Each implementation checkpoint must pass
+its focused checks without carrying known compilation/test failures; unsupported
+intermediate async operations reject before execution. Full suites and complete
+feature/backend matrices remain GitHub CI work. Commits carry `Async-Phase: AX00`
+through `Async-Phase: AX06`; the planning commit has no implementation trailer.
 
 Async design checkpoint (2026-10-08): selected explicit `.await` over implicit
 waiting. Calling an async function creates a cold Future, not a scheduled Task;
@@ -658,8 +666,9 @@ with source-task provenance. Nested spawns belong to the selected scope; scope
 close cancels unfinished work. Host reports identify task/scope/cause and distinguish
 cancel request acceptance from completed cleanup. Wait cycles are rejected.
 Local structured scopes, parent-child task trees, supervisor modes and script-level
-async cleanup remain deferred. Remaining gates are concrete error/report APIs,
-bounded state/storage, native registration, dispatch races and executable verification.
+async cleanup remain deferred. AX00 now owns concrete error/report and state
+contracts; AX01-AX06 own their implementation and acceptance without reopening
+these language choices.
 Updated both proposals without activating implementation or changing current specs.
 Documentation validation passed: 58 local links/anchors, content review and
 `git diff --check`; CRLF line endings are preserved. No Rust
@@ -668,6 +677,28 @@ build/test or CI acceptance is claimed by this design checkpoint.
 Ordinary callback reentry remains synchronous. Async designs must later share
 the same quiescence, cancellation, late-completion and pinned-generation rules.
 No new restoration checklist for retired standard-library APIs is active.
+
+Planning ledger (2026-10-08): added AX00-AX06 with current code/test owners, explicit
+producer/consumer exits, a no-carried-failure checkpoint policy and bounded local
+checks. Runtime sessions/frames/native registration, VM executor, HIR closures and
+SDK entry/features were inspected; no implementation, build or test was run.
+No Rust validation was attempted and no newly observed build/test failure is
+carried. Runtime correctness and full async CI acceptance are unrun. Planning
+validation passed: 116 local links/anchors, code-fence/content consistency, CRLF
+preservation and `git diff --check`.
+
+### Other proposals
+
+These are design documents, not additional active execution plans. Activation and
+exact scheduling must be agreed within the user's scope. Completed migrations are
+not prerequisites to replay.
+
+| Track | Scope and dependencies |
+| --- | --- |
+| [Rust interoperability](rust-interop-design.md) — RI00-RI05 | DTO derives, optional schema-backed Serde and independently retained opaque objects; reuse GO conversion/root contracts. External host mutation remains distinct from GO managed-payload editing. |
+| [Host API](host-api-refactor.md) — HA00-HA05 | Preparation/load/reload facade and logical entry policy; reuse GO typed calls/roots and RI value extensions. Package identity and update compatibility must be frozen before affected phases, without requiring both entire tracks first. |
+| [Packages](package-design.md) — PK00-PK04 | Cargo-style manifests, exact dependency graphs and source/module identities. First source kinds, single-selection policy and defaults remain review choices. |
+| [Update model](update-model-design.md) — UP00-UP05 | Compatible publication versus explicit state replacement. GO supplies calls/roots, RI value extensions, PK identities and HA the facade; lower-level cutover belongs to UP. |
 
 ## Completed milestones
 

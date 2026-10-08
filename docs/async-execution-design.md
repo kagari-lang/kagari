@@ -7,9 +7,10 @@ callbacks to script authors. Rust remains responsible for IO and scheduling.
 
 This design builds on current [native registration](spec/standard-declarations.md)
 and [execution control](spec/execution.md). Implementation requires separate
-activation through the [roadmap](implementation-roadmap.md) and resolution of the
-design gates below. Existing specifications remain authoritative until an
-implementation updates them.
+activation through the [roadmap](implementation-roadmap.md) and the staged
+[AX00-AX06 execution plan](async-execution-plan.md). AX00 finalizes the concrete
+contracts below before their implementation. Existing specifications remain
+authoritative until implementation updates them.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns centralized stores, automatic retention and movement of an exclusively driven
@@ -590,11 +591,12 @@ a reason to reintroduce Engine-versus-Host method lists or privileged RPC paths.
 
 ## Design gates and implementation sequence
 
-This is a queued design. Re-audit the implementation and resolve these gates
-before activating async work:
+This is a queued design with a prepared [execution plan](async-execution-plan.md).
+AX00 owns the following concrete contract handoff before dependent code is enabled;
+implementation activation and progress remain in the roadmap:
 
-- Lower the selected explicit async-closure/Future-factory contract through source
-  declarations, generic `Fn` metadata and source-free callable/resume verification;
+- Specify lowering of the selected async-closure/Future-factory contract through
+  source declarations, generic `Fn` metadata and source-free callable/resume verification;
   finalize the native registration adapter without adding an async trait system.
 - Specify bounded storage/state transitions for once-driven Futures, Task waiters,
   retained results, terminal propagation and wait-cycle detection under the selected
@@ -609,24 +611,13 @@ before activating async work:
   bounded completion storage and trace/debug behavior while several roots are parked;
   do not reintroduce a generic hierarchy of quotas or permissions.
 
-Suggested vertical implementation order:
-
-1. Update the relevant syntax, type, execution, host, failure, security, reload,
-   artifact and embedding specifications; finalize executable contracts and examples.
-2. Prove one registered async native operation with immediate and deferred completion
-   through the generic provider path and an owned, cancellable execution handle.
-3. Implement async functions and await through HIR, MIR and bytecode; validate
-   encoded artifacts and run a two-RPC script with normal Result propagation.
-   Include explicit async closures and a synchronous handler spawning that flow
-   through the Future-producing `Fn` contract into a host-owned scope.
-4. Complete independent parked roots, Task waiters, GC, borrow restrictions, reload,
-   debugger origins and all cleanup/race cases before claiming supported async.
-5. Validate an external embedding consumer, publish examples and run the final
-   feature matrix. Convenience Future adapters may follow the executor-neutral API.
-
-Each implementation checkpoint must cover a real producer-to-consumer path. Record
-intermediate failures and their owner here after activation; do not weaken tests
-or add production placeholder success. This proposal does not activate any phase.
+The execution plan replaces the earlier suggested sequence with AX00-AX06:
+contracts, owned driving, native source-free wait/resume, source functions/closures,
+scope Tasks, lifecycle integration, and embedding/CI acceptance. Each implementation
+checkpoint covers a real producer-to-consumer path. Record failures and their owner
+in the roadmap's single ledger; do not add a parallel log here. The plan defines
+focused local checks and GitHub CI acceptance separately. This proposal and the
+planning checkpoint do not activate implementation.
 
 ## Acceptance evidence
 

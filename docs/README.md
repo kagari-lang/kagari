@@ -43,4 +43,5 @@ owns activation, dependencies and phase order.
 - [Host API unification](host-api-refactor.md).
 - [Packages and dependency resolution](package-design.md).
 - [Compatible reload and state replacement](update-model-design.md).
-- [Async execution](async-execution-design.md) and [host task scopes](host-task-scope-design.md).
+- [Async execution](async-execution-design.md), [host task scopes](host-task-scope-design.md)
+  and the [AX00-AX06 execution plan](async-execution-plan.md).
