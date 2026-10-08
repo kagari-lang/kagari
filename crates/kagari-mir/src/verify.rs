@@ -24,6 +24,7 @@ mod flow;
 mod layout;
 mod operation;
 pub(crate) mod ownership;
+mod suspension;
 
 /// Owns a checked module. Mutating a copy requires verifying it again.
 ///
@@ -526,5 +527,7 @@ fn verify_function(
     flow::check_size(function, context)?;
     analysis::reserve(function, context, budget)?;
     let initialized = flow::verify(function, context, budget)?;
-    analysis::build(function, initialized, context, budget)
+    let analysis = analysis::build(function, initialized, context, budget)?;
+    suspension::verify(function, &analysis, context, budget)?;
+    Ok(analysis)
 }

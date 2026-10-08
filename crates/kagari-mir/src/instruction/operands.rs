@@ -34,6 +34,7 @@ impl<I: DefinitionReference> Instruction<I> {
     /// Temporary uses for dataflow analysis; this order is not evaluation order.
     pub fn inputs(&self) -> SmallVec<[MirValue; 4]> {
         match self {
+            Instruction::Await { value, .. } => smallvec::smallvec![*value],
             Instruction::Convert { src, .. } => smallvec::smallvec![*src],
             Instruction::Numeric { lhs, rhs, .. } => {
                 iter::once(*lhs).chain(rhs.iter().copied()).collect()
@@ -129,7 +130,8 @@ impl<I: DefinitionReference> Instruction<I> {
     /// Temporary defined only after this instruction completes successfully.
     pub fn output(&self) -> Option<MirValue> {
         match self {
-            Instruction::LoadConst { dst, .. }
+            Instruction::Await { dst, .. }
+            | Instruction::LoadConst { dst, .. }
             | Instruction::LoadLocal { dst, .. }
             | Instruction::LoadModule { dst, .. }
             | Instruction::Move { dst, .. }

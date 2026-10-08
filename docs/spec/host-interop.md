@@ -953,6 +953,9 @@ nominal type and the resumed output are checked against the waiting frame's scop
 nonzero. A pending wait belongs to the owned execution session. Cancellation,
 owner retirement and runtime destruction release it; provider cleanup panic
 quarantines the runtime. Late endpoints cannot restart or retain the execution.
-Encoded bytecode `Await` and VM Waiting are implemented. MIR lowering, suspension
-flow proofs, foundation publication and SDK integration still belong to AX02;
-source async syntax belongs to AX03.
+MIR lowering, encoded bytecode `Await` and VM Waiting are implemented. Independent
+bounded MIR/bytecode flow checks reject uninitialized resume reads, inconsistent
+iteration stacks and statically visible host capabilities live across an await.
+Runtime checks remain mandatory for actual values and active native/host resources.
+Foundation publication and SDK integration still belong to AX02; source async
+syntax belongs to AX03.

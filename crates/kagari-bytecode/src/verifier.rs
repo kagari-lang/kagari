@@ -9,6 +9,7 @@ use crate::{
         RootSlotLayout,
     },
     program::BytecodeProgram,
+    suspension::{AwaitLiveness, FlowBudget},
     trait_bounds,
     verifier::operation::verify_instruction,
 };
@@ -34,6 +35,7 @@ use std::{collections::HashSet, iter};
 
 #[cfg(test)]
 mod async_tests;
+mod flow;
 mod operation;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -192,7 +194,7 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
     if !module.dependencies.is_empty() {
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
-    verify_module_with_program(module, None)?;
+    verify_module_with_program(module, None, &mut FlowBudget::default())?;
     trait_bounds::verify_trait_bounds(module, &[module], None)?;
     Ok(())
 }
@@ -200,7 +202,8 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
 pub(super) fn verify_module_with_program(
     module: &BytecodeModule,
     program: Option<&BytecodeProgram>,
-) -> Result<(), BytecodeVerificationError> {
+    flow_budget: &mut FlowBudget,
+) -> Result<Vec<Vec<AwaitLiveness>>, BytecodeVerificationError> {
     if module
         .paths
         .iter()
@@ -283,6 +286,7 @@ pub(super) fn verify_module_with_program(
         });
     }
     let mut identities = HashSet::new();
+    let mut suspensions = Vec::with_capacity(module.functions.len());
     for (index, function) in module.functions.iter().enumerate() {
         let expected_ref = FunctionRef::new(index);
         if function.id != expected_ref {
@@ -319,10 +323,10 @@ pub(super) fn verify_module_with_program(
                 function: function.id,
             });
         }
-        verify_function(module, function, program)?;
+        suspensions.push(verify_function(module, function, program, flow_budget)?);
     }
     verify_interface_tables(module)?;
-    Ok(())
+    Ok(suspensions)
 }
 
 fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
@@ -565,7 +569,8 @@ fn verify_function(
     module: &BytecodeModule,
     function: &BytecodeFunction,
     program: Option<&BytecodeProgram>,
-) -> Result<(), BytecodeVerificationError> {
+    flow_budget: &mut FlowBudget,
+) -> Result<Vec<AwaitLiveness>, BytecodeVerificationError> {
     if !matches!(
         function.instructions.last(),
         Some(
@@ -591,7 +596,7 @@ fn verify_function(
         verify_instruction(module, function, instruction, program)?;
     }
     access::verify(module, function, program)?;
-    Ok(())
+    flow::verify(function, flow_budget)
 }
 
 fn verify_root_layout(function: &BytecodeFunction) -> Result<(), BytecodeVerificationError> {

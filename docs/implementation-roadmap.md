@@ -802,6 +802,54 @@ not the entire AX02 checklist. Source async functions/closures and actual deferr
 `for { ... .await }` remain AX03; Task scopes remain AX04. No extra collection rule,
 implicit async callback or user-defined awaitable was introduced.
 
+AX02 suspension verification checkpoint (2026-10-08): implemented portable MIR
+Await, identity/operand/effect mapping and bytecode lowering. MIR verification
+checks the native Future role and output contract, definite initialization,
+live host capabilities and iteration-stack joins/backedges. Bytecode independently
+rebuilds bounded initialization, liveness and iteration-resource facts; serialized
+resume flags cannot substitute for those checks. Direct synchronous MIR calls and
+closure construction reject resume targets, and Cranelift rejects resume bodies
+before compilation/entry.
+
+Sealed bytecode retains computed await liveness through identity normalization and
+artifact adoption. Runtime preparation maps those logical facts through physical
+slot reuse, preserving every location with a live alias. Dead managed slots are
+discarded before suspension checks, avoiding false rejection from stale temporary
+host capabilities and unnecessary GC retention. Debug-visible locals remain live;
+iteration leases remain independently owned and are not dropped/reacquired at await.
+Register operand roles now belong to bytecode and are consumed by both verification
+and runtime allocation; the old runtime copy was removed directly.
+
+Focused validation passed:
+
+- `cargo test -p kagari-bytecode -p kagari-compiler --lib async_` initially passed
+  the two bytecode contracts and exposed invalid identity/effect metadata in the
+  newly constructed MIR fixture. The fixture was corrected; the final
+  `cargo test -p kagari-compiler --lib async_mir_suspension_contract` passed MIR
+  encode/decode, checked lowering, artifact adoption and four malformed-MIR cases.
+- `cargo test -p kagari-bytecode --lib async_flow_validation_contract` passed after
+  the final debugger-liveness case. The existing artifact contract plus CFG cases
+  cover initialization, premature destination reads, iteration underflow/joins,
+  host liveness, dead host slots, debugger visibility and a valid loop backedge.
+- `cargo test -p kagari-vm --lib async_native_completion_contract`: three existing
+  cold/deferred completion, admission/retirement and cleanup contracts passed.
+- `cargo test -p kagari-vm --lib async_wait_live_storage_and_iteration_contract`:
+  encoded source-free actual Waiting, dead-slot collection, live physical aliases,
+  iteration structural-write exclusion, nonstructural visibility and normal,
+  cancellation and owner-drop cleanup passed. This is not the source for-await gate.
+- `cargo clippy -p kagari-vm -p kagari-compiler -p kagari-codegen-cranelift --lib -- -D warnings`
+  passed after replacing one range-index loop with iteration. Structure review
+  passed for 944 Rust files with zero findings/exceptions; manual review found no
+  forwarding/re-export growth or unrelated module migration. Formatting, CRLF and
+  diff/content checks passed. No full suite or GitHub CI acceptance was run.
+
+The initial bytecode test had a wrong Branch field name; corrected before its
+successful focused run. No build/test failures are carried. AX02 remains unchecked:
+next publish the canonical `core::future`/prelude declaration, connect SDK owned
+driving and verify pre-entry native fallback through that surface. AX03 still owns
+source async functions/closures and the required ordinary for-body await matrix;
+AX04 owns Task scopes. No format/ABI number bump or historical artifact reader.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and

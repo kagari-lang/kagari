@@ -51,7 +51,8 @@ impl<I: DefinitionReference> Instruction<I> {
                     rewrite(value);
                 }
             }
-            Self::RangeBound { value, .. }
+            Self::Await { value, .. }
+            | Self::RangeBound { value, .. }
             | Self::MakeCell { value, .. }
             | Self::MakeInterface { value, .. }
             | Self::UpcastInterface { value, .. }

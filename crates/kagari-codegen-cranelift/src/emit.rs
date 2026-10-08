@@ -260,6 +260,11 @@ fn safepoint(instruction_offset: usize) -> ExecutableSafepoint {
 }
 
 fn check_subset(function: &MirFunction<DefinitionId>) -> Result<(), BackendCompileError> {
+    if function.effects.may_suspend {
+        return Err(BackendCompileError::unsupported(
+            "Cranelift cannot execute resume bodies",
+        ));
+    }
     let scalar = |ty| matches!(ty, ValueType::Unit | ValueType::Bool | ValueType::I32);
     if !function.params.is_empty() {
         return Err(BackendCompileError::unsupported(

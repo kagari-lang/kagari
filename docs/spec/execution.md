@@ -467,6 +467,15 @@ safety proof: the runtime also checks the complete active resource chain before
 starting any await, including immediately completing operations. Ordinary calls
 and ordinary closure construction cannot select a resume body; synchronous frame
 entry and native backend installation reject it before entering its body. Owned
-entry can drive it. MIR/CFG suspension proofs and the SDK surface are still pending.
+entry can drive it. MIR Await is lowered and encoded with the same type contract.
+Both verifiers check definite initialization and live slots, including debug-visible
+locals, and require matching iteration-stack depth at normal joins/backedges.
+Return/trap still unwinds owned leases. Live host capabilities cannot cross an
+await; owned iteration resources can. The bytecode verifier derives bounded,
+non-serializable await liveness. Runtime preparation maps it through physical slot
+reuse, preserving a location if any logical alias is live. Dead managed slots are
+discarded before the runtime resource check so unused values cannot falsely prevent
+suspension or retain heap objects. Foundation publication and SDK integration remain
+pending in AX02.
 These transitions do not add polling loops, thread preemption or cancellation of
 another execution merely because it is being observed.

@@ -2,6 +2,7 @@ use crate::{
     artifact::{ArtifactFingerprint, DependencyFingerprint},
     instruction::{BytecodeInstruction, CallTarget},
     module::BytecodeModule,
+    suspension::{FlowBudget, ProgramSuspensions},
     trait_bounds, verifier,
     verifier::BytecodeVerificationError,
 };
@@ -50,6 +51,14 @@ pub struct BytecodeProgram<I = DefinitionPath> {
 }
 
 pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificationError> {
+    verify_with_suspensions(program).map(|_| ())
+}
+
+pub(crate) fn verify_with_suspensions(
+    program: &BytecodeProgram,
+) -> Result<ProgramSuspensions, BytecodeVerificationError> {
+    let mut flow_budget = FlowBudget::default();
+    let mut suspensions = Vec::with_capacity(program.modules.len());
     let invalid = || BytecodeVerificationError::InvalidProgramGraph;
     if program.modules.len() > u32::MAX as usize || program.root.index() >= program.modules.len() {
         return Err(invalid());
@@ -136,7 +145,11 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 ));
             }
         }
-        verifier::verify_module_with_program(module, Some(program))?;
+        suspensions.push(verifier::verify_module_with_program(
+            module,
+            Some(program),
+            &mut flow_budget,
+        )?);
         for owner in &program.modules {
             if owner.identity != module.identity
                 && !host::trait_bindings_match(
@@ -300,7 +313,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
     if reachable.len() != program.modules.len() {
         return Err(invalid());
     }
-    Ok(())
+    Ok(suspensions)
 }
 
 impl BytecodeProgram {

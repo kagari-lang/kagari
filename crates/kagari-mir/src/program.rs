@@ -500,6 +500,7 @@ pub fn verify_program(
                 .map(|p| p.ty)
                 .ne(contract.params.iter().copied())
                 || function.return_type != contract.return_type
+                || function.effects.may_suspend
             {
                 return Err(error(
                     &module.identity,

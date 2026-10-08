@@ -315,6 +315,21 @@ impl ExecutionValues {
         Some(self.window(slots)?.ranges.clone())
     }
 
+    /// Only checked await facts may clear dead storage. Ordinary typed writes
+    /// cannot put Unit into another representation; this discards unused roots.
+    pub(crate) fn retain_managed(&mut self, slots: FrameSlots, retained: &[u64]) -> Option<()> {
+        let range = self.window(slots)?.ranges.managed.clone();
+        if retained.len() != range.len().div_ceil(64) {
+            return None;
+        }
+        for (index, value) in self.values[range].iter_mut().enumerate() {
+            if retained[index / 64] & (1 << (index % 64)) == 0 {
+                *value = Value::Unit;
+            }
+        }
+        Some(())
+    }
+
     pub(crate) fn with_value<R>(
         &self,
         slots: FrameSlots,

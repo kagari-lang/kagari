@@ -1,7 +1,8 @@
 //! Immutable evidence for a resource-bounded, fully checked bytecode graph.
 use crate::{
     artifact::{ArtifactValidationError, validate_program_resource_limits},
-    program::{BytecodeProgram, verify_program},
+    program::{BytecodeProgram, ModuleRef, verify_with_suspensions},
+    suspension::{AwaitLiveness, ProgramSuspensions},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -31,20 +32,32 @@ use kagari_common::{
 #[derive(Debug, Clone)]
 pub struct VerifiedBytecodeProgram {
     metadata: DefinitionMetadata<BytecodeProgram<DefinitionId>>,
+    suspensions: ProgramSuspensions,
 }
 
 impl VerifiedBytecodeProgram {
     pub fn new(program: BytecodeProgram) -> Result<Self, ArtifactValidationError> {
         validate_program_resource_limits(&program)?;
-        verify_program(&program).map_err(ArtifactValidationError::Bytecode)?;
-        Self::from_verified(program)
+        let suspensions =
+            verify_with_suspensions(&program).map_err(ArtifactValidationError::Bytecode)?;
+        Self::from_verified(program, suspensions)
     }
 
     // Only bytecode-owned validation may retain evidence without repeating it.
-    pub(crate) fn from_verified(program: BytecodeProgram) -> Result<Self, ArtifactValidationError> {
+    pub(crate) fn from_verified(
+        program: BytecodeProgram,
+        suspensions: ProgramSuspensions,
+    ) -> Result<Self, ArtifactValidationError> {
         let metadata = scope_record(&program, &CancellationToken::default())
             .map_err(ArtifactValidationError::Identity)?;
-        Ok(Self { metadata })
+        Ok(Self {
+            metadata,
+            suspensions,
+        })
+    }
+
+    pub fn suspensions(&self, module: ModuleRef) -> Option<&[Vec<AwaitLiveness>]> {
+        self.suspensions.get(module.index()).map(Vec::as_slice)
     }
 
     pub fn program(&self) -> &BytecodeProgram<DefinitionId> {

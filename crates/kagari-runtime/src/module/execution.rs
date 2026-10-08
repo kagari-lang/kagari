@@ -3,7 +3,6 @@
 //! variable-length operands stay in that immutable code, addressed by the PC.
 pub(crate) mod allocation;
 pub(crate) mod layout;
-mod operands;
 
 use crate::numeric::binary_operation;
 use crate::{
@@ -15,10 +14,11 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BinaryOp, BytecodeInstruction, ConstantOperand, JumpTarget, Register, UnaryOp},
     module::BytecodeModule,
+    suspension::AwaitLiveness,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::payload::{self, ScalarKernel};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// A bounded physical operand in a prepared function's value window.
 #[derive(Debug, Clone, Copy)]
@@ -97,13 +97,20 @@ pub(crate) struct ExecutionModule {
 pub(crate) struct ExecutionFunction {
     pub instructions: Box<[ExecutionInstruction]>,
     pub registers: Arc<FrameLayout>,
+    /// Managed physical locations retained immediately before an await. Slot
+    /// coalescing may share a location: any live logical alias keeps it alive.
+    pub awaits: BTreeMap<usize, Box<[u64]>>,
 }
 
 impl ExecutionModule {
     // Only VerifiedProgram constructs this product, after artifact verification.
     // Identity normalization preserves instruction order and physical operands,
     // so the product can be shared across runtime-local definition scopes.
-    pub(super) fn prepare(module: &BytecodeModule<DefinitionId>, work: &mut usize) -> Self {
+    pub(super) fn prepare(
+        module: &BytecodeModule<DefinitionId>,
+        suspensions: &[Vec<AwaitLiveness>],
+        work: &mut usize,
+    ) -> Self {
         Self {
             native_layouts: module
                 .native_imports
@@ -113,8 +120,22 @@ impl ExecutionModule {
             functions: module
                 .functions
                 .iter()
-                .map(|function| {
+                .zip(suspensions)
+                .map(|(function, suspensions)| {
                     let registers = Arc::new(FrameLayout::prepare(function, work));
+                    let awaits = suspensions
+                        .iter()
+                        .map(|point| {
+                            let mut retained = vec![0; registers.managed_count.div_ceil(64)];
+                            for logical in point.live_slots() {
+                                let slot = registers.locations[logical].operand;
+                                if slot.managed() {
+                                    retained[slot.index() / 64] |= 1 << (slot.index() % 64);
+                                }
+                            }
+                            (point.instruction(), retained.into_boxed_slice())
+                        })
+                        .collect();
                     let instructions = function
                         .instructions
                         .iter()
@@ -123,6 +144,7 @@ impl ExecutionModule {
                     ExecutionFunction {
                         instructions,
                         registers,
+                        awaits,
                     }
                 })
                 .collect(),

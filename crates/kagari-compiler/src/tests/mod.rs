@@ -1,5 +1,6 @@
 mod abi_contracts;
 mod analysis;
+mod async_mir;
 mod bytecode;
 mod codec;
 pub(crate) mod common;

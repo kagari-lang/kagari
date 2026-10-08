@@ -7,7 +7,7 @@ use crate::{
     native::{binding::NativeResult, completion::CompletionRegistry, future::PendingNative},
     value::Value,
 };
-use kagari_bytecode::instruction::Register;
+use kagari_bytecode::{instruction::Register, module::CallableTarget};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 use std::{slice, task::Poll};
@@ -53,6 +53,7 @@ impl ExecutionStack<'_> {
         future: &Ty<DefinitionId>,
     ) -> NativeResult<()> {
         self.validate_runtime(runtime)?;
+        self.discard_dead_await_slots(runtime)?;
         if !self.can_park(runtime)? || self.session.state().pending.borrow().is_some() {
             return Err(RuntimeError::module_validation(
                 "await requires a suspendable owned execution",
@@ -105,6 +106,30 @@ impl ExecutionStack<'_> {
             _future: root,
         });
         Ok(())
+    }
+
+    fn discard_dead_await_slots(&self, runtime: &Runtime) -> NativeResult<()> {
+        let frame = self.current()?;
+        let invalid = || RuntimeError::module_validation("await lacks checked suspension facts");
+        let CallableTarget::Script(function) = frame.target else {
+            return Err(invalid());
+        };
+        let point = frame.executing.ok_or_else(invalid)?;
+        let retained = frame.loaded.execution().functions[function.index()]
+            .awaits
+            .get(&point)
+            .ok_or_else(invalid)?;
+        runtime
+            .resources()
+            .frame_values
+            .try_borrow_mut()
+            .map_err(|_| {
+                runtime
+                    .resources()
+                    .quarantine("execution windows borrowed during await")
+            })?
+            .retain_managed(frame.slots, retained)
+            .ok_or_else(invalid)
     }
 
     /// No callback, conversion or result destruction occurs while the session

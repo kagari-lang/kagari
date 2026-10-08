@@ -10,10 +10,10 @@ use kagari_contract::{
     operations,
     operations::range_operands_valid,
     representation::{host_representation, semantic_representation},
-    types::PublicItem,
+    types::{PublicItem, type_contract},
 };
 use kagari_types::{
-    declaration::verify::types_in_scope,
+    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
     host_interface::{HostInterface, type_declaration::PathAccess},
     ty::Ty,
 };
@@ -71,6 +71,42 @@ pub(super) fn verify(
         return Err(context.error(Error::InvalidStructInitializer));
     }
     match instruction {
+        Instruction::Await { dst, value, future } => {
+            let invalid = || {
+                contract(ContractError::InvalidOperation {
+                    reason: "invalid Future await contract",
+                })
+            };
+            let Ty::NativeObject(nominal) = future else {
+                return Err(invalid());
+            };
+            if nominal.arguments.len() != 1
+                || !nominal.associated_types.is_empty()
+                || function.semantic.registers.get(&value.temp.index()) != Some(future)
+                || function.semantic.registers.get(&dst.temp.index()) != nominal.arguments.first()
+            {
+                return Err(invalid());
+            }
+            if nominal.declaration.module == module.identity {
+                let ty = type_contract(
+                    &module.identity,
+                    &module.abi.public_items,
+                    &nominal.declaration,
+                );
+                if ty.is_none_or(|ty| {
+                    ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future)
+                }) {
+                    return Err(invalid());
+                }
+            }
+            // Imported roles are checked in the complete program dependency closure.
+            context.expect(value.ty, ValueType::HeapObject, "await Future")?;
+            context.expect(
+                dst.ty,
+                semantic_representation(&nominal.arguments[0]),
+                "await output",
+            )?;
+        }
         Instruction::Convert {
             dst,
             src,
@@ -197,7 +233,7 @@ pub(super) fn verify(
                     .functions
                     .get(target.index())
                     .ok_or_else(|| context.error(Error::InvalidCall(*target)))?;
-                if callee.semantic.generic.is_some() {
+                if callee.semantic.generic.is_some() || callee.effects.may_suspend {
                     return Err(context.error(Error::InvalidCall(*target)));
                 }
                 if args.len() != callee.params.len() {
@@ -410,6 +446,9 @@ pub(super) fn verify(
                 .functions
                 .get(target.index())
                 .ok_or_else(|| context.error(Error::InvalidCall(*target)))?;
+            if callee.effects.may_suspend {
+                return Err(context.error(Error::InvalidCall(*target)));
+            }
             if captures.len() > callee.params.len() {
                 return Err(context.error(Error::CallArity {
                     expected: callee.params.len(),

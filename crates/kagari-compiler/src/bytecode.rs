@@ -799,6 +799,11 @@ fn lower_instruction(
             lhs: lower_value(*lhs),
             rhs: rhs.map(lower_value),
         },
+        Instruction::Await { dst, value, future } => BytecodeInstruction::Await {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+            future: future.clone(),
+        },
         Instruction::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
             dst: lower_value(*dst),
             value: value.map(lower_value),

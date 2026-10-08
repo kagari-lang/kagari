@@ -1129,5 +1129,11 @@ attention without entering script. `native::future` and `frame::waiting` connect
 typed cold producers to durable completion reservations. A session owns its pending consumer/destination; the VM
 returns Waiting and resumes the same PC after checked driver-side conversion.
 Heap Future state is claimed once, so aliases cannot repeat submission. Ordinary
-entry and native installation reject resume bodies. AX02 still owns MIR/flow proofs,
-foundation exports and SDK integration; AX03/AX04 add source async and Task scopes.
+entry and native installation reject resume bodies. MIR Await lowers into the same
+instruction; both MIR and bytecode independently check initialized live values,
+iteration-stack joins and host capabilities at suspension points. Sealed bytecode
+retains computed await liveness, which physical allocation maps to retained managed
+locations. The runtime discards dead slots before its resource check, preserving
+live aliases and debugger-visible locals. These facts are rebuilt after decoding,
+never trusted from an artifact flag. AX02 still owns foundation exports and SDK
+integration; AX03/AX04 add source async and Task scopes.

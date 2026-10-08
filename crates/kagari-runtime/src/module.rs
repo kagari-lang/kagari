@@ -151,7 +151,16 @@ impl VerifiedProgram {
         let mut allocation_work = 0;
         let execution = modules
             .iter()
-            .map(|module| ExecutionModule::prepare(module, &mut allocation_work))
+            .enumerate()
+            .map(|(index, module)| {
+                ExecutionModule::prepare(
+                    module,
+                    program
+                        .suspensions(ModuleRef::new(index))
+                        .expect("verified module suspension facts"),
+                    &mut allocation_work,
+                )
+            })
             .collect();
         Self {
             execution,

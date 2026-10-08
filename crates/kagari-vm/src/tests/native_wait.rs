@@ -94,6 +94,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_functions(|_| {})
+    }
+
+    fn with_functions(edit: impl FnOnce(&mut Vec<BytecodeFunction>)) -> Self {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let starts = Arc::new(AtomicUsize::new(0));
         let cancels = Arc::new(AtomicUsize::new(0));
@@ -144,7 +148,7 @@ impl Fixture {
             Box::new(Ty::Builtin(BuiltinType::I32)),
             CollectionAccess::Mutable,
         );
-        let functions = vec![
+        let mut functions = vec![
             function(
                 0,
                 "create",
@@ -184,6 +188,7 @@ impl Fixture {
                 true,
             ),
         ];
+        edit(&mut functions);
         let module = BytecodeModule {
             identity: declaration.identity.clone(),
             native_imports: vec![NativeImport {
@@ -278,6 +283,155 @@ impl Fixture {
 
 fn slice() -> NonZeroUsize {
     NonZeroUsize::new(100).unwrap()
+}
+
+#[test]
+fn async_wait_live_storage_and_iteration_contract() {
+    let f = Fixture::with_functions(|functions| {
+        let array = functions[0].metadata.semantic.params[&0].clone();
+        let mut function = functions[1].clone();
+        function.id = FunctionRef::new(2);
+        function.name = "wait_with_lease".into();
+        function.parameter_count = 3;
+        function.local_count = 3;
+        function.register_count = 5;
+        function.metadata.params.extend([ValueType::HeapObject; 2]);
+        function.metadata.locals = function.metadata.params.clone();
+        function.metadata.registers.extend([
+            ValueType::HeapObject,
+            ValueType::HeapObject,
+            ValueType::I32,
+        ]);
+        for index in [1, 2] {
+            function
+                .metadata
+                .semantic
+                .params
+                .insert(index, array.clone());
+            function
+                .metadata
+                .semantic
+                .locals
+                .insert(index, array.clone());
+        }
+        for index in [2, 3] {
+            function
+                .metadata
+                .semantic
+                .registers
+                .insert(index, array.clone());
+        }
+        function
+            .metadata
+            .semantic
+            .registers
+            .insert(4, Ty::Builtin(BuiltinType::I32));
+        function.metadata.roots =
+            RootSlotLayout::from_types(&function.metadata.locals, &function.metadata.registers);
+        let await_instruction = function.instructions[1].clone();
+        function.instructions = vec![
+            I::LoadLocal {
+                dst: Register::new(3),
+                local: LocalSlot::new(2),
+            },
+            I::LoadLocal {
+                dst: Register::new(2),
+                local: LocalSlot::new(1),
+            },
+            I::BeginIteration {
+                collection: Register::new(2),
+            },
+            I::LoadLocal {
+                dst: Register::new(0),
+                local: LocalSlot::new(0),
+            },
+            await_instruction,
+            I::ReadAggregateIndex {
+                dst: Register::new(4),
+                base: Register::new(2),
+                index: Register::new(1),
+            },
+            I::EndIteration,
+            I::Return(Some(Register::new(4))),
+        ];
+        functions.push(function);
+    });
+    for exit in 0..3 {
+        let future = f.cold(12);
+        let array = |value| {
+            f.vm.runtime()
+                .alloc_array(
+                    &f.module,
+                    Ty::Builtin(BuiltinType::I32),
+                    vec![Value::I32(value)],
+                )
+                .unwrap()
+        };
+        let live = array(41);
+        let dead = array(99);
+        let execution =
+            f.vm.start(
+                &f.module,
+                "wait_with_lease",
+                &[
+                    future.value(f.vm.runtime().gc()).unwrap(),
+                    Value::Array(live),
+                    Value::Array(dead),
+                ],
+                ExecutionOptions::default(),
+            )
+            .unwrap();
+        let live_root = f.vm.runtime().root_value(Value::Array(live)).unwrap();
+        assert!(matches!(
+            f.vm.drive(&execution, slice()).unwrap(),
+            DriveResult::Waiting
+        ));
+        f.vm.runtime().collect_garbage().unwrap();
+        assert!(
+            f.vm.runtime().gc().object_kind(dead).is_none(),
+            "dead slots must not keep objects alive"
+        );
+        assert!(
+            f.vm.runtime().gc().array_push(live, Value::I32(3)).is_err(),
+            "iteration lease survives an actual wait"
+        );
+        f.vm.runtime()
+            .gc()
+            .array_set(live, 0, Value::I32(42))
+            .unwrap();
+        let (_, completion) = f.sent.lock().unwrap().pop().unwrap();
+        match exit {
+            0 => {
+                assert_eq!(completion.complete(Ok(0)), CompletionStatus::Accepted);
+                let DriveResult::Complete(result) = f.vm.drive(&execution, slice()).unwrap() else {
+                    panic!("resumed array read");
+                };
+                assert_eq!(
+                    result.unwrap().value(f.vm.runtime().gc()),
+                    Some(Value::I32(42)),
+                    "live aliases survive physical slot reuse"
+                );
+            }
+            1 => {
+                execution.cancel();
+                assert!(matches!(
+                    f.vm.drive(&execution, slice()).unwrap(),
+                    DriveResult::Complete(Err(_))
+                ));
+            }
+            _ => {
+                drop(execution);
+                assert_eq!(f.vm.runtime().drain_retired_executions().unwrap(), 1);
+            }
+        }
+        assert_eq!(completion.complete(Ok(9)), CompletionStatus::Stale);
+        f.vm.runtime().gc().array_push(live, Value::I32(3)).unwrap();
+        assert_eq!(
+            live_root.value(f.vm.runtime().gc()),
+            Some(Value::Array(live))
+        );
+        assert_eq!(f.vm.runtime().resources().counters().current_call_depth, 0);
+    }
 }
 
 #[test]

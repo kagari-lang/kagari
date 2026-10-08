@@ -1,7 +1,6 @@
 //! Physical register intervals are derived from verified control flow, not from
 //! semantic type inference. Canonical register identities remain unchanged for
 //! contracts, native boundaries and debugging. Locals have separate fixed slots.
-use crate::module::execution::operands;
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeFunction};
 use kagari_common::identity::table::DefinitionId;
 use std::collections::BTreeSet;
@@ -89,7 +88,7 @@ impl RegisterAllocation {
                 ..Default::default()
             };
             for (pc, instruction) in code.iter().enumerate().take(end).skip(start) {
-                for register in operands::reads(instruction) {
+                for register in instruction.register_inputs() {
                     charge(work, 1)?;
                     let slot = register.index();
                     touch(&mut ranges[slot], pc);
@@ -98,7 +97,7 @@ impl RegisterAllocation {
                         block.uses[slot / 64] |= bit;
                     }
                 }
-                if let Some(register) = operands::writes(instruction) {
+                if let Some(register) = instruction.register_output() {
                     charge(work, 1)?;
                     let slot = register.index();
                     touch(&mut ranges[slot], pc);

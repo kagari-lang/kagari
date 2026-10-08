@@ -8,8 +8,10 @@ use kagari_contract::{
     types::applications::{validate_declarations, validate_layouts, validate_slots},
 };
 use kagari_types::{
-    declaration::{TraitDef, TypeDefKind, applications::ApplicationValidator},
-    ty::substitution::TypeTransformError,
+    declaration::{
+        TraitDef, TypeDefKind, applications::ApplicationValidator, native::NativeStorageLayout,
+    },
+    ty::{Ty, substitution::TypeTransformError},
 };
 
 pub(super) fn validate<'a>(
@@ -18,7 +20,7 @@ pub(super) fn validate<'a>(
     lookup: impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
     nominal: impl Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
 ) -> Result<(), TypeTransformError> {
-    let validator = ApplicationValidator::new(cancel, lookup, nominal);
+    let validator = ApplicationValidator::new(cancel, lookup, &nominal);
     validate_declarations(
         &validator,
         &module.abi.public_items,
@@ -64,6 +66,17 @@ pub(super) fn validate<'a>(
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match instruction {
+                Instruction::Await { future, .. } => {
+                    validator.validate_type(future)?;
+                    let Ty::NativeObject(future) = future else {
+                        return Err(TypeTransformError::InvalidContract);
+                    };
+                    if nominal(&future.declaration)
+                        != Some((TypeDefKind::NativeStorage(NativeStorageLayout::Future), 1))
+                    {
+                        return Err(TypeTransformError::InvalidContract);
+                    }
+                }
                 Instruction::Call {
                     callee: CallTarget::Shared(contract),
                     ..

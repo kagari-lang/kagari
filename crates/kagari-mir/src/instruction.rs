@@ -55,6 +55,11 @@ pub struct PathRef<I = DefinitionPath> {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub enum Instruction<I = DefinitionPath> {
+    Await {
+        dst: MirValue,
+        value: MirValue,
+        future: Ty<I>,
+    },
     Convert {
         dst: MirValue,
         src: MirValue,
@@ -303,6 +308,10 @@ impl<I: DefinitionReference> Instruction<I> {
 
     pub fn effects(&self) -> EffectSet {
         match self {
+            Self::Await { .. } => EffectSet {
+                may_suspend: true,
+                ..EffectSet::native_call()
+            },
             Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),
             Self::Convert { conversion, .. } => {
                 let _ = conversion;

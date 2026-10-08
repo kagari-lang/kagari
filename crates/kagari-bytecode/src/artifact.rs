@@ -3,7 +3,10 @@ use crate::{
     instruction::{JumpTarget, PathId},
     module::{BytecodeDebugMetadata, BytecodeModule, RootSlotLayout},
     native_input::PortableMir,
-    program::{BytecodeProgram, verified::VerifiedBytecodeProgram, verify_program},
+    program::{
+        BytecodeProgram, verified::VerifiedBytecodeProgram, verify_program, verify_with_suspensions,
+    },
+    suspension::ProgramSuspensions,
     verifier::BytecodeVerificationError,
 };
 use bincode::{DefaultOptions, ErrorKind, Options};
@@ -125,9 +128,9 @@ impl KbcArtifact {
         self,
         requirements: &ArtifactCompatibility,
     ) -> Result<VerifiedArtifact, ArtifactValidationError> {
-        self.validate_for_loader(requirements)?;
+        let suspensions = self.validate_with_suspensions(requirements)?;
         Ok(VerifiedArtifact {
-            bytecode: VerifiedBytecodeProgram::from_verified(self.program)?,
+            bytecode: VerifiedBytecodeProgram::from_verified(self.program, suspensions)?,
             portable_mir: self.portable_mir,
         })
     }
@@ -200,11 +203,19 @@ impl KbcArtifact {
         &self,
         requirements: &ArtifactCompatibility,
     ) -> Result<(), ArtifactValidationError> {
+        self.validate_with_suspensions(requirements).map(|_| ())
+    }
+
+    fn validate_with_suspensions(
+        &self,
+        requirements: &ArtifactCompatibility,
+    ) -> Result<ProgramSuspensions, ArtifactValidationError> {
         if let Some(reason) = artifact_count_limit(self) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
         self.validate_header(requirements)?;
-        verify_program(&self.program).map_err(ArtifactValidationError::Bytecode)?;
+        let suspensions =
+            verify_with_suspensions(&self.program).map_err(ArtifactValidationError::Bytecode)?;
         if self.header.content_hash != self.compute_content_hash() {
             return Err(ArtifactValidationError::ContentHashMismatch);
         }
@@ -298,7 +309,7 @@ impl KbcArtifact {
         {
             return Err(ArtifactValidationError::TableMismatch);
         }
-        Ok(())
+        Ok(suspensions)
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, ArtifactCodecError> {

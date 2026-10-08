@@ -1,8 +1,12 @@
 use crate::{
     artifact::KbcArtifact,
-    instruction::{BytecodeInstruction as I, CallTarget, LocalSlot, Register},
-    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
-    program::{BytecodeProgram, ModuleRef, verify_program},
+    instruction::{BytecodeInstruction as I, CallTarget, JumpTarget, LocalSlot, Register},
+    module::{
+        BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, LocalLiveRange,
+        RootSlotLayout,
+    },
+    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram, verify_program},
+    verifier::BytecodeVerificationError,
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{DefinitionKind, ModuleIdentity};
@@ -89,6 +93,186 @@ fn program() -> BytecodeProgram {
             ..Default::default()
         }],
     }
+}
+
+fn loop_program() -> BytecodeProgram {
+    let mut program = program();
+    let module = &mut program.modules[0];
+    module
+        .types
+        .extend([ValueType::Bool, ValueType::HostHandle]);
+    let function = &mut module.functions[0];
+    let array = function.metadata.semantic.result.clone().unwrap();
+    function.parameter_count = 4;
+    function.local_count = 5;
+    function.register_count = 6;
+    function.metadata.params.extend([
+        ValueType::HeapObject,
+        ValueType::Bool,
+        ValueType::HostHandle,
+    ]);
+    function.metadata.locals = function.metadata.params.clone();
+    function.metadata.locals.push(ValueType::HeapObject);
+    function.metadata.registers.extend([
+        ValueType::Bool,
+        ValueType::HeapObject,
+        ValueType::HostHandle,
+        ValueType::HostHandle,
+    ]);
+    function.metadata.semantic.params.insert(1, array.clone());
+    function
+        .metadata
+        .semantic
+        .params
+        .insert(2, Ty::Builtin(BuiltinType::Bool));
+    function.metadata.semantic.locals = function.metadata.semantic.params.clone();
+    function.metadata.semantic.locals.insert(4, array.clone());
+    function
+        .metadata
+        .semantic
+        .registers
+        .insert(2, Ty::Builtin(BuiltinType::Bool));
+    function.metadata.semantic.registers.insert(3, array);
+    function.metadata.roots =
+        RootSlotLayout::from_types(&function.metadata.locals, &function.metadata.registers);
+    let await_instruction = function.instructions[1].clone();
+    function.instructions = vec![
+        I::LoadLocal {
+            dst: Register::new(3),
+            local: LocalSlot::new(1),
+        },
+        I::BeginIteration {
+            collection: Register::new(3),
+        },
+        I::LoadLocal {
+            dst: Register::new(2),
+            local: LocalSlot::new(2),
+        },
+        I::Branch {
+            cond: Register::new(2),
+            then_target: JumpTarget::new(4),
+            else_target: JumpTarget::new(9),
+        },
+        I::LoadLocal {
+            dst: Register::new(4),
+            local: LocalSlot::new(3),
+        },
+        I::LoadLocal {
+            dst: Register::new(0),
+            local: LocalSlot::new(0),
+        },
+        await_instruction,
+        I::StoreLocal {
+            local: LocalSlot::new(1),
+            src: Register::new(1),
+        },
+        I::Jump {
+            target: JumpTarget::new(2),
+        },
+        I::EndIteration,
+        I::LoadLocal {
+            dst: Register::new(1),
+            local: LocalSlot::new(1),
+        },
+        I::Return(Some(Register::new(1))),
+    ];
+    // The host parameter is dead after its pre-await read, including the next
+    // iteration. Overwrite that local with another host value before a backedge
+    // would still make it live, so use a single iteration's terminal path here.
+    function.instructions[8] = I::Jump {
+        target: JumpTarget::new(9),
+    };
+    module.function_table[0].params = function.metadata.params.clone();
+    program
+}
+
+#[test]
+fn async_flow_validation_contract() {
+    let valid = loop_program();
+    let verified = VerifiedBytecodeProgram::new(valid.clone()).unwrap();
+    let points = verified.suspensions(ModuleRef::new(0)).unwrap();
+    assert_eq!(points[0].len(), 1);
+    let live: Vec<_> = points[0][0].live_slots().collect();
+    assert_eq!(points[0][0].instruction(), 6);
+    assert!(!live.contains(&4), "dead host temporary must be discarded");
+    assert!(!live.contains(&9), "dead host parameter must be discarded");
+    for mutation in 0..7 {
+        let mut invalid = valid.clone();
+        let function = &mut invalid.modules[0].functions[0];
+        let reason = match mutation {
+            0 => {
+                function.instructions[0] = I::Jump {
+                    target: JumpTarget::new(1),
+                };
+                "uninitialized slot in resume body"
+            }
+            1 => {
+                function.instructions[5] = I::StoreLocal {
+                    local: LocalSlot::new(1),
+                    src: Register::new(1),
+                };
+                "uninitialized slot in resume body"
+            }
+            2 => {
+                function.instructions[10] = I::LoadLocal {
+                    dst: Register::new(1),
+                    local: LocalSlot::new(4),
+                };
+                "uninitialized slot in resume body"
+            }
+            3 => {
+                function.instructions[1] = I::EndIteration;
+                "iteration resource underflow"
+            }
+            4 => {
+                function.instructions[8] = I::Jump {
+                    target: JumpTarget::new(1),
+                };
+                "inconsistent iteration resource stack"
+            }
+            5 => {
+                function.instructions[7] = I::Move {
+                    dst: Register::new(5),
+                    src: Register::new(4),
+                };
+                "host capability live across await"
+            }
+            6 => {
+                function
+                    .metadata
+                    .debug
+                    .local_live_ranges
+                    .push(LocalLiveRange {
+                        local: LocalSlot::new(3),
+                        name: "host".into(),
+                        span: Default::default(),
+                        start: 0,
+                        end: 7,
+                        ty: ValueType::HostHandle,
+                        is_parameter: true,
+                    });
+                "host capability live across await"
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            verify_program(&invalid),
+            Err(BytecodeVerificationError::InvalidOperation {
+                function: FunctionRef::new(0),
+                reason,
+            }),
+            "flow mutation {mutation}"
+        );
+    }
+    let mut backedge = valid;
+    let function = &mut backedge.modules[0].functions[0];
+    function.instructions[4] = I::Jump {
+        target: JumpTarget::new(5),
+    };
+    function.instructions[8] = I::Jump {
+        target: JumpTarget::new(2),
+    };
+    verify_program(&backedge).unwrap();
 }
 
 #[test]
