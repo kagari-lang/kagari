@@ -10,7 +10,7 @@ use kagari_abi::representation::ValueType;
 use kagari_contract::contracts::ContractError;
 use kagari_types::ty::Ty;
 
-fn ephemeral(physical: ValueType, semantic: Option<&Ty>) -> bool {
+pub(super) fn ephemeral(physical: ValueType, semantic: Option<&Ty>) -> bool {
     physical == ValueType::HostHandle || semantic.is_some_and(inline_host)
 }
 

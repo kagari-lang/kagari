@@ -101,6 +101,17 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 lhs: *(lhs),
                 rhs: *(rhs),
             },
+            Self::MakeFuture {
+                dst,
+                function,
+                arguments,
+                future,
+            } => Instruction::MakeFuture {
+                dst: *dst,
+                function: *function,
+                arguments: arguments.clone(),
+                future: future.map_identities(mapper)?,
+            },
             Self::Await { dst, value, future } => Instruction::Await {
                 dst: *dst,
                 value: *value,
@@ -381,7 +392,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 lhs: _,
                 rhs: _,
             } => {}
-            Self::Await { future, .. } => future.visit_definitions(visit, cancel)?,
+            Self::Await { future, .. } | Self::MakeFuture { future, .. } => {
+                future.visit_definitions(visit, cancel)?
+            }
             Self::Iter {
                 dst: _,
                 value: _,

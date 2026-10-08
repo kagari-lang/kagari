@@ -628,8 +628,8 @@ checkpoint policy and focused acceptance. The [async design](async-execution-des
 and [host task scopes](host-task-scope-design.md) own language/lifetime behavior.
 Status: active. On 2026-10-08 the user authorized goal execution of AX00-AX06,
 including ordinary `for` traversal with `.await` in the body. Current specifications
-distinguish implemented owned native waits from scheduled source async and Task
-support; implementation and local/CI acceptance are recorded separately below.
+distinguish implemented owned native/script waits from scheduled Task support;
+implementation and local/CI acceptance are recorded separately below.
 
 - [x] AX00: Finalize concrete semantic/executable, state, host and verification contracts (local documentation gate).
 - [x] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry (local gate).
@@ -925,12 +925,53 @@ removed. Manual review retained parser, HIR role/context checking and compiler
 lowering boundaries with explicit imports and no new re-exports. No build/test
 failures are carried.
 
-AX03 remains open. Executable script Future factories/resume bodies are the next
-unit; source lowering currently returns explicit unsupported errors for those
-forms rather than executing their bodies eagerly. Complete cold-argument capture
-safety, runtime/artifact lowering, source origins and the real deferred for-await
-interleaving/cleanup cases in AX03. The frontend for-await test is not a runtime
-acceptance claim. AX04-AX06 and full CI acceptance remain outstanding.
+AX03 executable checkpoint (2026-10-08): source async functions and explicit async
+closures now emit synchronous cold factories and private resume bodies. The new
+portable MakeFuture instruction captures checked arguments and existing closure
+cells exactly once; nested script awaits share the owned stack. Future payloads
+retain private closure metadata edges, preserving the existing GC/type environment
+mechanism. Independent MIR/bytecode validation checks factory target, signature,
+Future role, output and definite initialization. No format/ABI identifier bump is
+needed for this unpublished internal opcode change.
+
+Runtime/VM/SDK start_future explicitly queues one Future layer; ordinary function
+entry still returns the cold value. Native Future roots use the same endpoint
+path without a synthetic caller. Captures are traced with cycle detection at
+construction, first drive and safe parking, under the native tracing/reentry guard.
+This checks actual mutable cells, interfaces and native edges as well as static
+outer types. Known direct host captures remain rejected by executable validation.
+
+Local evidence: `cargo test -p kagari-embed --test async_execution sdk_` passed
+the three SDK contracts. The source contract compiles and round-trips bytecode,
+parks a Vec loop on real deferred IO, interleaves element replacement and rejected
+structural mutation, forces GC, resumes at the saved cursor and releases the lease
+on completion/cancellation/owner drop. It also exercises generic nested awaits,
+async closures with shared writable captures, unflattened Future results and
+business Err propagation. Its final focused rerun additionally passed no-await
+body laziness, cancellation before claim and repeated-Future rejection. Native
+root immediate/pending/cancel/drop behavior and pre-entry backend rejection passed.
+
+`async_factory_artifact_contract` (bytecode) passed the encoded valid factory and
+malformed target/signature/initialization cases. `async_retention_graph_contract`
+(runtime) passed cycle handling, hidden invalid edges after mutation, foreign
+values and stale identities. Focused compiler/runtime/VM library and SDK test
+Clippy passed after replacing two unnecessary map lookups. The initial SDK test
+harness was corrected to use owned start for arguments because synchronous SDK
+execute does not implement nonempty argument lists; that unrelated facade limit
+was not changed. No compilation or behavioral failures are carried.
+
+Manual review kept factory lowering, executable validation, sealed payload/graph
+checks and host orchestration with their existing owners. New Rust modules remain
+below the effective-LOC threshold, with explicit imports and no re-exports/globs.
+The test-only path attribute groups the source fixture under its integration-test
+owner. Structure checked 952 files with no findings/exceptions; formatting and
+documentation/diff checks complete the local checkpoint. Full CI remains unrun.
+
+AX03 stays open: complete the nested/custom/erased/adapter
+iterator and break/continue/return/trap cases, two-RPC early-Err flow, source-origin
+and cold-parameter diagnostic review. The real deferred Vec for-await case now
+exists, but is not acceptance of the entire AX03 matrix. AX04-AX06 and full CI
+acceptance remain outstanding.
 
 ### Other proposals
 

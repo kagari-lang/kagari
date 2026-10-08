@@ -34,6 +34,15 @@ impl Vm {
             .start_owned_execution(module, entry, arguments, options)?)
     }
 
+    /// Queue a cold Future as a root; drive exactly one layer without flattening.
+    pub fn start_future(
+        &self,
+        future: &Value,
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, VmError> {
+        Ok(self.runtime.start_owned_future(future, options)?)
+    }
+
     /// Returns only at a safe interpreter boundary. Native calls are cooperative.
     pub fn drive(
         &self,

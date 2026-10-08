@@ -96,6 +96,7 @@ impl InstanceKey {
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
     pub callable: Option<CallableInstance>,
+    pub resume: bool,
     pub origin: ModuleIdentity,
     pub id: InstanceId,
     pub function: FunctionId,
@@ -131,6 +132,31 @@ pub(super) struct InstancePlanner<'a> {
 }
 
 impl<'a> InstancePlanner<'a> {
+    pub fn enqueue_resume(
+        &mut self,
+        parent: &Instance,
+        span: Span,
+    ) -> Result<InstanceId, MirLoweringError> {
+        self.check()?;
+        let mut key = parent.key.clone();
+        key.declaration.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::Function,
+            name: "$resume".into(),
+            occurrence: 0,
+        });
+        if let Some(id) = self.keys.get(&key) {
+            return Ok(*id);
+        }
+        self.charge_layout_instance(span)?;
+        let mut resume = parent.clone();
+        resume.id = InstanceId::new(self.instances.len());
+        resume.key = key.clone();
+        resume.resume = true;
+        self.keys.insert(key, resume.id);
+        self.instances.push(resume);
+        Ok(InstanceId::new(self.instances.len() - 1))
+    }
+
     pub fn enqueue_callable(
         &mut self,
         parent: &Instance,
@@ -169,6 +195,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            resume: false,
             callable: Some(body),
             origin: parent.origin.clone(),
             id,
@@ -307,6 +334,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            resume: false,
             callable: None,
             origin,
             id,
@@ -423,6 +451,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            resume: false,
             callable: None,
             origin,
             id,
@@ -680,6 +709,7 @@ impl<'a> InstancePlanner<'a> {
             .collect();
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            resume: false,
             callable: None,
             origin: self.module.lowered.source.module_identity().clone(),
             id,
@@ -722,6 +752,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            resume: false,
             callable: None,
             origin: parent.origin.clone(),
             id,

@@ -51,6 +51,11 @@ impl<I: DefinitionReference> Instruction<I> {
                     rewrite(value);
                 }
             }
+            Self::MakeFuture { arguments, .. } => {
+                for value in arguments {
+                    rewrite(value);
+                }
+            }
             Self::Await { value, .. }
             | Self::RangeBound { value, .. }
             | Self::MakeCell { value, .. }

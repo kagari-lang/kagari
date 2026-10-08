@@ -17,6 +17,7 @@ use kagari_types::declaration::native::NativeStorageLayout;
 use std::{
     fmt,
     marker::PhantomData,
+    slice,
     sync::Arc,
     task::{Poll, Waker},
 };
@@ -42,7 +43,7 @@ trait Producer: fmt::Debug + Send + Sync {
     fn start(
         &self,
         cx: &mut ConversionContext<'_>,
-        cold: &ColdFuture,
+        cold: &NativeFuture,
         registry: &CompletionRegistry,
         wake: &Waker,
     ) -> NativeResult<Box<dyn PendingNative>>;
@@ -74,7 +75,7 @@ where
     fn start(
         &self,
         cx: &mut ConversionContext<'_>,
-        cold: &ColdFuture,
+        cold: &NativeFuture,
         registry: &CompletionRegistry,
         wake: &Waker,
     ) -> NativeResult<Box<dyn PendingNative>> {
@@ -138,7 +139,7 @@ impl<R: IntoKagari + Send + 'static> PendingNative for TypedPending<R> {
 }
 
 #[derive(Debug)]
-pub(crate) struct ColdFuture {
+pub(crate) struct NativeFuture {
     owner: LoadedModule,
     parameters: Vec<TypeArgument>,
     output: TypeArgument,
@@ -146,7 +147,7 @@ pub(crate) struct ColdFuture {
     producer: Arc<dyn Producer>,
 }
 
-impl ColdFuture {
+impl NativeFuture {
     pub(crate) fn start(
         &self,
         runtime: &Runtime,
@@ -159,6 +160,23 @@ impl ColdFuture {
 }
 
 #[derive(Debug)]
+pub(crate) enum ColdFuture {
+    Native(NativeFuture),
+    // A private, fully captured resume closure keeps its executable environment
+    // reachable through the existing GC metadata graph. It never escapes alone.
+    Script(Value),
+}
+
+impl ColdFuture {
+    pub(crate) fn values(&self) -> &[Value] {
+        match self {
+            Self::Native(cold) => &cold.values,
+            Self::Script(closure) => slice::from_ref(closure),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct FuturePayload {
     pub(crate) cold: Option<ColdFuture>,
 }
@@ -166,14 +184,14 @@ pub(crate) struct FuturePayload {
 impl NativePayload for FuturePayload {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         if let Some(cold) = &self.cold {
-            for value in &cold.values {
+            for value in cold.values() {
                 visit(value);
             }
         }
     }
 
     fn units(&self) -> usize {
-        self.cold.as_ref().map_or(0, |cold| cold.values.len())
+        self.cold.as_ref().map_or(0, |cold| cold.values().len())
     }
 }
 

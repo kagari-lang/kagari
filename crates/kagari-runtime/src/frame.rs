@@ -30,6 +30,7 @@ use std::{
 
 mod arguments;
 pub mod cursor;
+mod future;
 mod layouts;
 mod native;
 mod owned;
@@ -219,6 +220,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             FrameArguments::frame(slots, registers),
             return_dst,
             FrameDispatch {
+                entry: FrameEntry::Call,
                 interface_method: None,
                 environment: None,
             },
@@ -278,6 +280,7 @@ impl<'runtime> ExecutionStack<'runtime> {
                     FrameArguments::plain(args),
                     return_dst,
                     FrameDispatch {
+                        entry: FrameEntry::Call,
                         interface_method: None,
                         environment,
                     },
@@ -335,6 +338,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             all,
             return_dst,
             FrameDispatch {
+                entry: FrameEntry::Call,
                 interface_method: None,
                 environment: closure.environment.clone(),
             },
@@ -360,6 +364,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             FrameArguments::plain(args),
             return_dst,
             FrameDispatch {
+                entry: FrameEntry::Call,
                 interface_method,
                 environment,
             },
@@ -387,7 +392,8 @@ impl<'runtime> ExecutionStack<'runtime> {
                 .functions
                 .get(function.index())
                 .is_some_and(|function| function.metadata.effects.may_suspend)
-            && (self.session.state().owner.borrow().is_none() || !self.frames()?.is_empty())
+            && (self.session.state().owner.borrow().is_none()
+                || (!self.frames()?.is_empty() && !matches!(dispatch.entry, FrameEntry::Await)))
         {
             return Err(RuntimeError::module_validation(
                 "resume body requires an owned driver entry",
@@ -520,7 +526,14 @@ impl Debug for ExecutionFrame {
     }
 }
 
+#[derive(Clone, Copy)]
+enum FrameEntry {
+    Call,
+    Await,
+}
+
 struct FrameDispatch {
+    entry: FrameEntry,
     interface_method: Option<RootedInterfaceMethod>,
     environment: Option<TypeEnvironment>,
 }
@@ -558,6 +571,7 @@ impl ExecutionFrame {
         let heap = runtime.gc();
         let resources = runtime.resources();
         let FrameDispatch {
+            entry: _,
             interface_method,
             environment,
         } = dispatch;

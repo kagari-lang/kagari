@@ -264,6 +264,19 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
+            BytecodeInstruction::MakeFuture {
+                dst,
+                function,
+                ref arguments,
+                ref future,
+            } => {
+                let values = self.read_path_args(arguments)?;
+                let value = self
+                    .stack
+                    .make_future(self.runtime, function, values, future)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
+            }
             BytecodeInstruction::MakeClosure {
                 dst,
                 function,

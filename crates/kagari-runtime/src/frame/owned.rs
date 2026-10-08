@@ -47,9 +47,11 @@ impl<'runtime> ExecutionStack<'runtime> {
                     .resources
                     .quarantine("invalid parked frame window")
             })?;
-            if !values.values[ranges.managed].iter().all(Value::is_storable) {
+            let retained = &values.values[ranges.managed];
+            if !retained.iter().all(Value::is_storable) {
                 return Ok(false);
             }
+            runtime.gc().validate_async_values(retained)?;
         }
         Ok(true)
     }

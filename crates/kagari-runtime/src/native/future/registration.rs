@@ -6,7 +6,7 @@ use crate::{
         catalog::DeclarationCatalog,
         completion::Completion,
         conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
-        future::{ColdFuture, FuturePayload, NativeStart, Producer, TypedProducer},
+        future::{ColdFuture, FuturePayload, NativeFuture, NativeStart, Producer, TypedProducer},
         registration::FunctionSpec,
         types::{FunctionRef, TypeRef},
     },
@@ -75,14 +75,15 @@ impl ModuleBuilder {
                 let values = (0..call.arguments.len())
                     .map(|index| call.argument(index))
                     .collect::<NativeResult<Vec<_>>>()?;
+                call.runtime.gc().validate_async_values(&values)?;
                 call.allocate_result_payload(FuturePayload {
-                    cold: Some(ColdFuture {
+                    cold: Some(ColdFuture::Native(NativeFuture {
                         owner: call.owner.clone(),
                         parameters: signature.params.clone(),
                         output,
                         values,
                         producer: producer.clone(),
-                    }),
+                    })),
                 })
             },
         );

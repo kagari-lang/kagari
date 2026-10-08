@@ -1139,4 +1139,18 @@ never trusted from an artifact flag. The foundation owns `core::future::Future<T
 the SDK's `runtime::owned` maps drive results to embedding errors while reusing the
 runtime owner, readiness and cleanup path. Per-execution cancellation is separate
 from the host's shared context signal. Native preparation rejects resume bodies
-before invoking a backend. AX03/AX04 add source async and Task scopes.
+before invoking a backend. Source async functions and explicit async closures lower
+to ordinary factories plus private resume functions. Portable `MakeFuture` captures
+checked arguments without running the resume body; its sealed payload retains a
+fully captured closure with the existing executable/type environment edges.
+Independent verifiers check the Future storage role, resume target, exact capture
+signature and output. Runtime graph checks cover reachable cells/interfaces and
+native traced edges at capture, first drive and safe parking.
+
+The SDK/VM `start_future` entry explicitly queues one Future layer. Ordinary calls
+return cold values, including Future-valued outputs without flattening. Nested
+script awaits push owned resume frames; native waits also work directly as a root
+without an artificial script caller. Real deferred for-body waits retain the same
+cursor and lease, observe later element replacement and reject structural writes.
+Cancellation and owner retirement release the lease. Broader AX03 acceptance and
+AX04 Task scopes remain open in the roadmap.

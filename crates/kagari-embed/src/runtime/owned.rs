@@ -31,6 +31,19 @@ impl KagariRuntime {
             .map_err(EmbeddingError::vm)
     }
 
+    /// Drive an explicitly supplied Future as a root. Calling an async function
+    /// through synchronous execute only constructs this cold value.
+    pub fn start_future(
+        &self,
+        future: &Value,
+        context: &ExecutionContext,
+    ) -> RunResult<OwnedExecution> {
+        context.validate_for_execute("Future")?;
+        self.vm
+            .start_future(future, context.runtime_options())
+            .map_err(EmbeddingError::vm)
+    }
+
     /// Drive one positive instruction slice. A Waiting result retains no Runtime
     /// borrow; register a host waker on the owner and drive again when it is ready.
     /// Wakes are scheduling hints, never callbacks into this driver.

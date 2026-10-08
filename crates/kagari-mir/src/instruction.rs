@@ -152,6 +152,14 @@ pub enum Instruction<I = DefinitionPath> {
         #[serde(deserialize_with = "crate::codec::small_operands")]
         elements: ValueBuffer,
     },
+    /// Capture every resume parameter without entering its body.
+    MakeFuture {
+        dst: MirValue,
+        function: InstanceId,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
+        arguments: ValueBuffer,
+        future: Ty<I>,
+    },
     MakeClosure {
         dst: MirValue,
         function: InstanceId,
@@ -367,6 +375,7 @@ impl<I: DefinitionReference> Instruction<I> {
             | Self::MakeArray { .. }
             | Self::RepeatArray { .. }
             | Self::RangeBound { .. }
+            | Self::MakeFuture { .. }
             | Self::MakeClosure { .. }
             | Self::MakeCell { .. }
             | Self::MakeInterface { .. }

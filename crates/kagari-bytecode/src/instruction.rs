@@ -339,6 +339,14 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         elements: Vec<Register>,
     },
+    /// Capture every resume parameter without entering its body.
+    MakeFuture {
+        dst: Register,
+        function: FunctionRef,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
+        arguments: Vec<Register>,
+        future: Ty<I>,
+    },
     MakeClosure {
         dst: Register,
         function: FunctionRef,

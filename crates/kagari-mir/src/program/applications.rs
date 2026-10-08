@@ -66,7 +66,7 @@ pub(super) fn validate<'a>(
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match instruction {
-                Instruction::Await { future, .. } => {
+                Instruction::Await { future, .. } | Instruction::MakeFuture { future, .. } => {
                     validator.validate_type(future)?;
                     let Ty::NativeObject(future) = future else {
                         return Err(TypeTransformError::InvalidContract);

@@ -732,6 +732,17 @@ fn lower_instruction(
                 .map(|element| lower_value(*element))
                 .collect(),
         },
+        Instruction::MakeFuture {
+            dst,
+            function,
+            arguments,
+            future,
+        } => BytecodeInstruction::MakeFuture {
+            dst: lower_value(*dst),
+            function: FunctionRef::new(function.index()),
+            arguments: arguments.iter().copied().map(lower_value).collect(),
+            future: future.clone(),
+        },
         Instruction::MakeClosure {
             dst,
             function,

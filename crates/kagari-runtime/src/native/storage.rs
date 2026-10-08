@@ -340,6 +340,10 @@ impl Debug for NativeObject {
 }
 
 impl NativeObject {
+    pub(crate) fn owner(&self) -> &LoadedModule {
+        &self._owner
+    }
+
     // Linking compares every native storage contract with its installed owner.
     // Installation forbids replacing that owner while its heap objects exist.
     pub(crate) fn definition_name(&self, id: DefinitionId) -> Option<&str> {

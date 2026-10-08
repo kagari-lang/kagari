@@ -44,6 +44,10 @@ use std::{
     task::{Wake, Waker},
 };
 
+#[cfg(feature = "source")]
+#[path = "async_execution/source.rs"]
+mod source;
+
 fn function(
     id: usize,
     name: &str,
@@ -81,12 +85,15 @@ fn function(
 }
 
 struct Fixture {
+    #[cfg(feature = "source")]
+    engine: KagariEngine,
     runtime: KagariRuntime,
     module: LoadedModule,
     program: PreparedProgram,
     starts: Arc<AtomicUsize>,
     cancels: Arc<AtomicUsize>,
     sent: Arc<Mutex<Vec<Completion<i32>>>>,
+    inputs: Arc<Mutex<Vec<i32>>>,
 }
 
 impl Fixture {
@@ -98,6 +105,8 @@ impl Fixture {
         let starts = Arc::new(AtomicUsize::new(0));
         let cancels = Arc::new(AtomicUsize::new(0));
         let sent = Arc::new(Mutex::new(Vec::new()));
+        let inputs = Arc::new(Mutex::new(Vec::new()));
+        let recorded = inputs.clone();
         let (started, cancelled, send) = (starts.clone(), cancels.clone(), sent.clone());
         let mut native = ModuleBuilder::new("test::async_sdk", engine.declarations());
         native
@@ -105,6 +114,7 @@ impl Fixture {
                 FunctionSpec::new("request").parameter_names(["input"]),
                 move |(input,), completion| {
                     started.fetch_add(1, Ordering::SeqCst);
+                    recorded.lock().unwrap().push(input);
                     match input {
                         0 => Ok(NativeStart::Ready(7)),
                         1 => {
@@ -270,12 +280,15 @@ impl Fixture {
         let mut runtime = engine.runtime(Default::default());
         let module = runtime.load_program(&program, Default::default()).unwrap();
         Self {
+            #[cfg(feature = "source")]
+            engine,
             runtime,
             module,
             program,
             starts,
             cancels,
             sent,
+            inputs,
         }
     }
 
@@ -347,6 +360,7 @@ fn sdk_owned_native_wait_contract() {
     ));
     assert!(!execution.is_ready());
     assert_eq!(f.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(*f.inputs.lock().unwrap(), [21]);
     drop(future);
     f.runtime.runtime().collect_garbage().unwrap();
     let completion = f.sent.lock().unwrap().pop().unwrap();
@@ -380,10 +394,8 @@ fn sdk_owned_native_wait_contract() {
         let future = f.cold(input);
         let execution = f
             .runtime
-            .start(
-                &f.module,
-                "wait",
-                &[future.value(f.runtime.runtime().gc()).unwrap()],
+            .start_future(
+                &future.value(f.runtime.runtime().gc()).unwrap(),
                 &Default::default(),
             )
             .unwrap();
@@ -454,12 +466,7 @@ fn sdk_owned_native_wait_contract() {
         let context = ExecutionContext::default();
         let execution = f
             .runtime
-            .start(
-                &f.module,
-                "wait",
-                &[future.value(f.runtime.runtime().gc()).unwrap()],
-                &context,
-            )
+            .start_future(&future.value(f.runtime.runtime().gc()).unwrap(), &context)
             .unwrap();
         assert!(matches!(
             f.runtime.drive(&execution, slice()).unwrap(),

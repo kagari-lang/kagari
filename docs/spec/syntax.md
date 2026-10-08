@@ -1201,9 +1201,9 @@ object initialization. See [the value contract](value-semantics.md#repeat-arrays
 
 ## Async syntax (AX03)
 
-Parsing and type checking are implemented. Script Future construction and execution
-remain in progress under AX03; successful analysis does not yet imply executable
-async code. The
+Parsing, type checking, cold script Future factories and interpreted `.await` are
+implemented. AX03 acceptance remains open for the broader iterator/control-flow
+and cold-capture diagnostic cases recorded in the roadmap. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 

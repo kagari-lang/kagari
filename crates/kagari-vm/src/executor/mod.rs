@@ -105,8 +105,10 @@ impl<'a> Executor<'a> {
                 .stack
                 .poll_await(self.runtime)
                 .map_err(VmError::RuntimeError);
-            if self.report_operation(resumed)? == Poll::Pending {
-                return Ok(DriveOutcome::Waiting);
+            match self.report_operation(resumed)? {
+                Poll::Pending => return Ok(DriveOutcome::Waiting),
+                Poll::Ready(Some(value)) => return Ok(DriveOutcome::Complete(value)),
+                Poll::Ready(None) => {}
             }
             if remaining == Some(0) && self.stack.can_park(self.runtime)? {
                 return Ok(DriveOutcome::Runnable);

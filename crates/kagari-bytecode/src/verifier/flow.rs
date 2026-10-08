@@ -36,7 +36,12 @@ pub(super) fn verify(
     function: &BytecodeFunction,
     budget: &mut FlowBudget,
 ) -> Result<Vec<AwaitLiveness>, Error> {
-    if !function.metadata.effects.may_suspend {
+    if !function.metadata.effects.may_suspend
+        && !function
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, I::MakeFuture { .. }))
+    {
         return Ok(vec![]);
     }
     let registers = usize::from(function.register_count);
@@ -357,7 +362,7 @@ impl Flow<'_> {
     }
 }
 
-fn inline_host(ty: &Ty) -> bool {
+pub(super) fn inline_host(ty: &Ty) -> bool {
     match ty {
         Ty::Host(_) => true,
         Ty::Tuple(items) => items.iter().any(inline_host),

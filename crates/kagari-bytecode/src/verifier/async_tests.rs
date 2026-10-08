@@ -330,3 +330,73 @@ fn async_artifact_validation_contract() {
         );
     }
 }
+
+#[test]
+fn async_factory_artifact_contract() {
+    let mut valid = program();
+    let module = &mut valid.modules[0];
+    let mut factory = module.functions[0].clone();
+    let future = factory.metadata.semantic.params[&0].clone();
+    factory.id = FunctionRef::new(1);
+    factory.name = "factory".into();
+    factory.metadata.effects.may_suspend = false;
+    factory.metadata.semantic.result = Some(future.clone());
+    factory
+        .metadata
+        .semantic
+        .registers
+        .insert(1, future.clone());
+    factory.instructions[1] = I::MakeFuture {
+        dst: Register::new(1),
+        function: FunctionRef::new(0),
+        arguments: vec![Register::new(0)],
+        future,
+    };
+    module.function_table.push(FunctionRecord {
+        id: factory.id,
+        identity: None,
+        name: factory.name.clone(),
+        params: factory.metadata.params.clone(),
+        return_type: factory.metadata.return_type,
+        effects: factory.metadata.effects,
+    });
+    module.functions.push(factory);
+    let artifact = KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
+    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+        .unwrap()
+        .validate_for_loader(&Default::default())
+        .unwrap();
+    for mutation in 0..5 {
+        let mut invalid = valid.clone();
+        let factory = &mut invalid.modules[0].functions[1];
+        if mutation == 4 {
+            factory.instructions.remove(0);
+        } else {
+            let I::MakeFuture {
+                function,
+                arguments,
+                future,
+                ..
+            } = &mut factory.instructions[1]
+            else {
+                unreachable!();
+            };
+            match mutation {
+                0 => *function = FunctionRef::new(99),
+                1 => *function = FunctionRef::new(1),
+                2 => arguments.clear(),
+                3 => {
+                    let Ty::NativeObject(nominal) = future else {
+                        unreachable!();
+                    };
+                    nominal.arguments[0] = Ty::Builtin(BuiltinType::Bool);
+                }
+                _ => unreachable!(),
+            }
+        }
+        assert!(
+            verify_program(&invalid).is_err(),
+            "factory mutation {mutation}"
+        );
+    }
+}

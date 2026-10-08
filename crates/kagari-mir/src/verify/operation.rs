@@ -1,7 +1,9 @@
 use crate::{
     function::{MirFunction, MirModule},
     instruction::{CallTarget, Constant, Instruction, RuntimeHelper},
-    verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
+    verify::{
+        Context, MirVerificationError, MirVerificationErrorKind as Error, suspension::ephemeral,
+    },
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
@@ -71,6 +73,50 @@ pub(super) fn verify(
         return Err(context.error(Error::InvalidStructInitializer));
     }
     match instruction {
+        Instruction::MakeFuture {
+            dst,
+            function: target,
+            arguments,
+            future,
+        } => {
+            let invalid = || context.error(Error::InvalidCall(*target));
+            let callee = module.functions.get(target.index()).ok_or_else(invalid)?;
+            let Ty::NativeObject(nominal) = future else {
+                return Err(invalid());
+            };
+            if nominal.arguments.len() != 1
+                || !nominal.associated_types.is_empty()
+                || function.semantic.registers.get(&dst.temp.index()) != Some(future)
+                || !callee.effects.may_suspend
+                || callee.semantic.result.as_ref() != nominal.arguments.first()
+                || arguments.len() != callee.params.len()
+                || (callee.semantic.generic.is_some()
+                    && callee.semantic.generic != function.semantic.generic)
+            {
+                return Err(invalid());
+            }
+            if nominal.declaration.module == module.identity
+                && type_contract(
+                    &module.identity,
+                    &module.abi.public_items,
+                    &nominal.declaration,
+                )
+                .is_none_or(|ty| ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future))
+            {
+                return Err(invalid());
+            }
+            context.expect(dst.ty, ValueType::HeapObject, "Future destination")?;
+            for (index, (argument, parameter)) in arguments.iter().zip(&callee.params).enumerate() {
+                context.expect(argument.ty, parameter.ty, "Future capture")?;
+                if ephemeral(argument.ty, callee.semantic.params.get(&index))
+                    || !callee.semantic.params.contains_key(&index)
+                    || function.semantic.registers.get(&argument.temp.index())
+                        != callee.semantic.params.get(&index)
+                {
+                    return Err(invalid());
+                }
+            }
+        }
         Instruction::Await { dst, value, future } => {
             let invalid = || {
                 contract(ContractError::InvalidOperation {

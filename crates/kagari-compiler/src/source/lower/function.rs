@@ -29,6 +29,17 @@ use kagari_types::{
 };
 use std::iter;
 
+fn completed_output(future: &TypeId) -> Result<TypeId, MirLoweringError> {
+    let TypeId::NativeObject(nominal) = future else {
+        return Err(MirLoweringError::MissingBinding("checked Future result"));
+    };
+    nominal
+        .arguments
+        .first()
+        .cloned()
+        .ok_or(MirLoweringError::MissingBinding("checked Future output"))
+}
+
 pub(crate) fn lower_callable<'a>(
     module: &'a AnalyzedModule,
     parent: &Function,
@@ -303,19 +314,22 @@ pub(crate) fn lower_function<'a>(
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
-    if function.is_async {
-        return Err(MirLoweringError::UnsupportedExpr(
-            "async script factory lowering",
-        ));
-    }
     let typed = module
         .typed
         .functions
         .iter()
         .find(|typed| typed.id == function.id)
         .ok_or(MirLoweringError::MissingTypedFunction(function.id))?;
-
-    let mut lowerer = FunctionLowerer::new(module, function, typed, instance, planner)?;
+    let mut typed = typed.clone();
+    if instance.resume {
+        typed.return_type = completed_output(&typed.return_type)?;
+    }
+    let mut lowerer = FunctionLowerer::new(module, function, &typed, instance, planner)?;
+    if function.is_async && !lowerer.instance.resume {
+        lowerer.lower_future_factory()?;
+        return lowerer.finish();
+    }
+    lowerer.mark_resume();
     let body = function
         .body
         .ok_or(MirLoweringError::MissingBinding("script function body"))?;
@@ -347,11 +361,6 @@ pub(crate) fn lower_closure<'a>(
     else {
         return Err(MirLoweringError::MissingBinding("closure body"));
     };
-    if *is_async {
-        return Err(MirLoweringError::UnsupportedExpr(
-            "async closure factory lowering",
-        ));
-    }
     let TypeId::Function { result, .. } = module
         .typed
         .type_table
@@ -367,10 +376,15 @@ pub(crate) fn lower_closure<'a>(
         id: parent.id,
         name: format!("closure_{}", closure.index()),
         params: Default::default(),
-        return_type: *result,
+        return_type: if instance.resume {
+            completed_output(&result)?
+        } else {
+            *result
+        },
     };
     let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
     lowerer.function.name = typed.name;
+    lowerer.mark_resume();
     lowerer.function.debug.source_span = module.lowered.source_map.expr_span(closure);
     for capture in module.names.closure_captures(closure) {
         let ty = match capture {
@@ -491,6 +505,10 @@ pub(crate) fn lower_closure<'a>(
             local,
         });
         lowerer.locals.insert(param.local, local);
+    }
+    if *is_async && !lowerer.instance.resume {
+        lowerer.lower_future_factory()?;
+        return lowerer.finish();
     }
     let value = lowerer.lower_expr(*body)?;
     if !lowerer.current_block_terminated() {

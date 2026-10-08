@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::ExecutionStack,
+    frame::{ExecutionStack, waiting::QueuedFuture},
     module::LoadedModule,
     session::{ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState, store::SessionId},
     value::Value,
@@ -10,12 +10,18 @@ use crate::{
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
 use kagari_contract::ids::FunctionRef;
 use std::{
+    slice,
     sync::{
         Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
     },
     task::{Wake, Waker},
 };
+
+enum OwnedStart<'a> {
+    Function(FunctionRef, &'a [Value]),
+    Future(QueuedFuture),
+}
 
 #[derive(Debug)]
 pub(crate) struct ExecutionOwner {
@@ -169,6 +175,52 @@ impl Runtime {
                 "invalid owned execution arguments",
             ));
         }
+        self.create_owned_execution(module, options, OwnedStart::Function(entry, args))
+    }
+
+    /// Queue exactly one Future layer. Neither script code nor native submission
+    /// runs until the host drives the returned owner.
+    pub fn start_owned_future(
+        &self,
+        value: &Value,
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.require_idle_driver()?;
+        self.drain_retired_executions()?;
+        if options.phase != ExecutionPhase::Ordinary {
+            return Err(RuntimeError::execution_phase_violation(
+                "owned candidate Future",
+            ));
+        }
+        let Value::GcHandle(id) = value else {
+            return Err(RuntimeError::module_validation(
+                "owned entry requires a Future",
+            ));
+        };
+        let (owner, ty, scope) = self.gc().future_contract(*id)?;
+        self.validate_loaded_module(&owner)?;
+        let future = match scope {
+            Some(scope) => scope,
+            None => self
+                .resolve_type_arguments(&owner, slice::from_ref(&ty))?
+                .pop()
+                .ok_or_else(|| RuntimeError::module_validation("Future entry type"))?,
+        };
+        let queued = QueuedFuture {
+            output: future.parameter(self, &owner, 0)?,
+            value: self
+                .root_value(value.clone())
+                .ok_or_else(|| RuntimeError::module_validation("Future entry root"))?,
+        };
+        self.create_owned_execution(&owner, options, OwnedStart::Future(queued))
+    }
+
+    fn create_owned_execution(
+        &self,
+        module: &LoadedModule,
+        options: ExecutionOptions,
+        entry: OwnedStart<'_>,
+    ) -> Result<OwnedExecution, RuntimeError> {
         let external_cancellation = options.cancellation;
         let options = ExecutionOptions {
             cancellation: CancellationToken::default(),
@@ -207,7 +259,22 @@ impl Runtime {
             .owner
             .borrow_mut() = Some(owner.clone());
         let handle = OwnedExecution { id, owner };
-        if let Err(error) = stack.push(self, module.slot(), entry, args, None) {
+        let initialized = match entry {
+            OwnedStart::Function(function, args) => {
+                stack.push(self, module.slot(), function, args, None)
+            }
+            OwnedStart::Future(queued) => {
+                *self
+                    .resources()
+                    .sessions
+                    .get(id)
+                    .expect("new session")
+                    .queued_future
+                    .borrow_mut() = Some(queued);
+                Ok(())
+            }
+        };
+        if let Err(error) = initialized {
             drop(stack);
             self.finish_owned_execution(&handle)?;
             return Err(error);

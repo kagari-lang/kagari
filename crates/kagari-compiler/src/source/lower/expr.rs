@@ -391,9 +391,7 @@ impl FunctionLowerer<'_, '_> {
             ExprKind::Missing => Err(MirLoweringError::UnresolvedExpr(expr_id)),
             ExprKind::Name { .. } => self.lower_name_expr(expr_id),
             ExprKind::Literal(_) => Err(MirLoweringError::MissingBinding("checked literal")),
-            ExprKind::Await { .. } => Err(MirLoweringError::UnsupportedExpr(
-                "await outside a lowered resume body",
-            )),
+            ExprKind::Await { expr } => self.lower_await(expr_id, expr),
             ExprKind::Propagate { expr } => self.lower_propagation(expr_id, expr),
             ExprKind::InterpolatedString(parts) => {
                 let elements = match self.lower_values(&parts)? {

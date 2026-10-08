@@ -4,7 +4,11 @@ use crate::{
     error::RuntimeError,
     frame::{ExecutionStack, types::arguments::TypeArgument},
     gc::roots::RootedValue,
-    native::{binding::NativeResult, completion::CompletionRegistry, future::PendingNative},
+    native::{
+        binding::NativeResult,
+        completion::CompletionRegistry,
+        future::{ColdFuture, PendingNative},
+    },
     value::Value,
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget};
@@ -14,11 +18,17 @@ use std::{slice, task::Poll};
 
 #[derive(Debug)]
 pub(crate) struct PendingWait {
-    destination: Register,
+    destination: Option<Register>,
     pending: Box<dyn PendingNative>,
     output: TypeArgument,
     // Keep the Future's exact code/type provenance alive through conversion.
     _future: RootedValue,
+}
+
+#[derive(Debug)]
+pub(crate) struct QueuedFuture {
+    pub value: RootedValue,
+    pub output: TypeArgument,
 }
 
 impl PendingWait {
@@ -73,13 +83,25 @@ impl ExecutionStack<'_> {
             }
             applied.parameter(runtime, frame.loaded(), 0)?
         };
+        self.start_await(runtime, value, Some(destination), output)
+    }
+
+    fn start_await(
+        &self,
+        runtime: &Runtime,
+        value: Value,
+        destination: Option<Register>,
+        output: TypeArgument,
+    ) -> NativeResult<()> {
         let Value::GcHandle(id) = value else {
             return Err(RuntimeError::module_validation("await requires a Future"));
         };
         let root = runtime
             .root_value(value)
             .ok_or_else(|| RuntimeError::module_validation("Future await root"))?;
-        let registry = runtime.operation_registry()?;
+        runtime
+            .gc()
+            .validate_async_values(slice::from_ref(&Value::GcHandle(id)))?;
         let wake = self
             .session
             .state()
@@ -92,8 +114,15 @@ impl ExecutionStack<'_> {
         // Claim removed the GC edges. Root them before converters or submission.
         let _captures = runtime
             .gc()
-            .root_execution_values(cold.values.clone())
+            .root_execution_values(cold.values().to_vec())
             .ok_or_else(|| RuntimeError::module_validation("Future capture roots"))?;
+        let cold = match cold {
+            ColdFuture::Script(closure) => {
+                return self.push_future(runtime, closure, destination, &output);
+            }
+            ColdFuture::Native(cold) => cold,
+        };
+        let registry = runtime.operation_registry()?;
         let started = cold.start(runtime, registry, &wake);
         registry.check().map_err(|_| {
             runtime.quarantine_execution_invariant("native operation cleanup failed")
@@ -134,12 +163,25 @@ impl ExecutionStack<'_> {
 
     /// No callback, conversion or result destruction occurs while the session
     /// table is borrowed. This also permits custom conversion to allocate safely.
-    pub fn poll_await(&self, runtime: &Runtime) -> NativeResult<Poll<()>> {
+    pub fn poll_await(&self, runtime: &Runtime) -> NativeResult<Poll<Option<Value>>> {
         self.validate_runtime(runtime)?;
         runtime.resources().poll_execution()?;
+        let queued = self.session.state().queued_future.borrow_mut().take();
+        if let Some(queued) = queued {
+            if !self.can_park(runtime)? || !self.frames()?.is_empty() {
+                return Err(RuntimeError::module_validation(
+                    "invalid queued Future activation",
+                ));
+            }
+            let value = queued
+                .value
+                .value(runtime.gc())
+                .ok_or_else(|| RuntimeError::module_validation("queued Future root"))?;
+            self.start_await(runtime, value, None, queued.output)?;
+        }
         let pending = self.session.state().pending.borrow_mut().take();
         let Some(mut wait) = pending else {
-            return Ok(Poll::Ready(()));
+            return Ok(Poll::Ready(None));
         };
         let polled = wait.pending.poll(runtime);
         if polled.is_err() {
@@ -153,17 +195,23 @@ impl ExecutionStack<'_> {
                 Ok(Poll::Pending)
             }
             Poll::Ready(value) => {
-                if !wait
-                    .output
-                    .matches(runtime, &value, self.current()?.loaded())
-                {
+                let owner = if wait.destination.is_some() {
+                    self.current()?.loaded().clone()
+                } else {
+                    self.session.root()
+                };
+                if !wait.output.matches(runtime, &value, &owner) {
                     return Err(RuntimeError::module_validation(
                         "await output type mismatch",
                     ));
                 }
-                self.current_mut()?
-                    .write_register(runtime, wait.destination, value)?;
-                Ok(Poll::Ready(()))
+                if let Some(destination) = wait.destination {
+                    self.current_mut()?
+                        .write_register(runtime, destination, value)?;
+                    Ok(Poll::Ready(None))
+                } else {
+                    Ok(Poll::Ready(Some(value)))
+                }
             }
         }
     }

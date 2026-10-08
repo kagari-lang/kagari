@@ -51,6 +51,7 @@ impl<I: DefinitionReference> BytecodeInstruction<I> {
             | BytecodeInstruction::MakeEnum {
                 fields: elements, ..
             } => elements.to_vec(),
+            BytecodeInstruction::MakeFuture { arguments, .. } => arguments.clone(),
             BytecodeInstruction::MakeClosure { captures, .. } => captures.to_vec(),
             BytecodeInstruction::MakeCell { value, .. } => vec![*value],
             BytecodeInstruction::ReadCell { cell, .. } => vec![*cell],
@@ -121,6 +122,7 @@ impl<I: DefinitionReference> BytecodeInstruction<I> {
             | BytecodeInstruction::RepeatArray { dst, .. }
             | BytecodeInstruction::MakeRange { dst, .. }
             | BytecodeInstruction::RangeBound { dst, .. }
+            | BytecodeInstruction::MakeFuture { dst, .. }
             | BytecodeInstruction::MakeClosure { dst, .. }
             | BytecodeInstruction::MakeCell { dst, .. }
             | BytecodeInstruction::ReadCell { dst, .. }

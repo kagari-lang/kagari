@@ -5,8 +5,9 @@ use crate::{
     trait_bounds::shared,
     verifier::{
         BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
-        function_ref_exists, ir_binary_op, local_ty, module_slot_ty, path_record, register_ty,
-        verify_call_dst, verify_dynamic_path_args, verify_jump, verify_standard_intrinsic_call,
+        flow::inline_host, function_ref_exists, ir_binary_op, local_ty, module_slot_ty,
+        path_record, register_ty, verify_call_dst, verify_dynamic_path_args, verify_jump,
+        verify_standard_intrinsic_call,
     },
 };
 use kagari_abi::representation::ValueType;
@@ -47,6 +48,66 @@ pub(super) fn verify_instruction(
         });
     }
     match instruction {
+        BytecodeInstruction::MakeFuture {
+            dst,
+            function: target,
+            arguments,
+            future,
+        } => {
+            let invalid = || BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "invalid cold script Future contract",
+            };
+            let callee = module.functions.get(target.index()).ok_or_else(invalid)?;
+            let Ty::NativeObject(nominal) = future else {
+                return Err(invalid());
+            };
+            let owner = if nominal.declaration.module == module.identity {
+                Some(module)
+            } else {
+                program.and_then(|program| {
+                    program
+                        .modules
+                        .iter()
+                        .find(|owner| owner.identity == nominal.declaration.module)
+                })
+            };
+            let declaration = owner.and_then(|owner| {
+                type_contract(&owner.identity, &owner.public_items, &nominal.declaration)
+            });
+            if declaration
+                .is_none_or(|ty| ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future))
+                || nominal.arguments.len() != 1
+                || !nominal.associated_types.is_empty()
+                || function.metadata.semantic.registers.get(&dst.index()) != Some(future)
+                || !callee.metadata.effects.may_suspend
+                || callee.metadata.semantic.result.as_ref() != nominal.arguments.first()
+                || arguments.len() != callee.metadata.params.len()
+                || (callee.metadata.semantic.generic.is_some()
+                    && callee.metadata.semantic.generic != function.metadata.semantic.generic)
+            {
+                return Err(invalid());
+            }
+            expect_register_ty(function, *dst, ValueType::HeapObject, "Future destination")?;
+            for (index, (argument, parameter)) in
+                arguments.iter().zip(&callee.metadata.params).enumerate()
+            {
+                expect_register_ty(function, *argument, *parameter, "Future capture")?;
+                if *parameter == ValueType::HostHandle
+                    || callee
+                        .metadata
+                        .semantic
+                        .params
+                        .get(&index)
+                        .is_some_and(inline_host)
+                    || !callee.metadata.semantic.params.contains_key(&index)
+                    || function.metadata.semantic.registers.get(&argument.index())
+                        != callee.metadata.semantic.params.get(&index)
+                {
+                    return Err(invalid());
+                }
+            }
+        }
         BytecodeInstruction::Await { dst, value, future } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {
                 function: function.id,

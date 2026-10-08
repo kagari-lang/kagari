@@ -70,6 +70,7 @@ impl<I: DefinitionReference> Instruction<I> {
             | Instruction::MakeEnum {
                 fields: elements, ..
             } => elements.clone(),
+            Instruction::MakeFuture { arguments, .. } => arguments.clone(),
             Instruction::MakeClosure { captures, .. } => captures.clone(),
             Instruction::MakeCell { value, .. } => smallvec::smallvec![*value],
             Instruction::ReadCell { cell, .. } => smallvec::smallvec![*cell],
@@ -142,6 +143,7 @@ impl<I: DefinitionReference> Instruction<I> {
             | Instruction::RepeatArray { dst, .. }
             | Instruction::MakeRange { dst, .. }
             | Instruction::RangeBound { dst, .. }
+            | Instruction::MakeFuture { dst, .. }
             | Instruction::MakeClosure { dst, .. }
             | Instruction::MakeCell { dst, .. }
             | Instruction::ReadCell { dst, .. }

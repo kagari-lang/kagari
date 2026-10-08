@@ -960,4 +960,8 @@ bounded MIR/bytecode flow checks reject uninitialized resume reads, inconsistent
 iteration stacks and statically visible host capabilities live across an await.
 Runtime checks remain mandatory for actual values and active native/host resources.
 The SDK exposes start/drive, rooted terminal values, owner wakers and explicit
-retirement draining. Source async syntax belongs to AX03.
+retirement draining. `start_future` queues a supplied script or native Future;
+the first drive claims it and runs exactly one layer. Calling a source async
+function returns a cold value through the ordinary entry path. Future-valued
+outputs are not implicitly flattened. Cancelling a queued owner before its first
+drive releases that owner's root without claiming the cold Future.

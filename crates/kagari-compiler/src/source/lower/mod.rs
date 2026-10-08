@@ -29,6 +29,7 @@ mod abi;
 mod debug;
 mod expr;
 mod function;
+mod future;
 mod host;
 mod host_interfaces;
 pub mod instances;

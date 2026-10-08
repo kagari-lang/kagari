@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{
-        ExecutionStack, FrameDispatch,
+        ExecutionStack, FrameDispatch, FrameEntry,
         arguments::FrameArguments,
         types::{EnvironmentRecord, TypeEnvironment},
     },
@@ -43,6 +43,7 @@ impl ExecutionStack<'_> {
             FrameArguments::plain(args),
             None,
             FrameDispatch {
+                entry: FrameEntry::Call,
                 interface_method: None,
                 environment: selected.environment.clone(),
             },
@@ -111,6 +112,7 @@ impl ExecutionStack<'_> {
             FrameArguments::plain(args),
             return_dst,
             FrameDispatch {
+                entry: FrameEntry::Call,
                 interface_method: None,
                 environment: Some(environment),
             },

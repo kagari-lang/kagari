@@ -536,6 +536,23 @@ pub(super) fn verify(
                         })),
                     ));
                 }
+                I::MakeFuture {
+                    dst,
+                    function: target,
+                    arguments,
+                    future,
+                } => {
+                    let signature = &module.functions[target.index()].metadata.semantic;
+                    for (index, argument) in arguments.iter().enumerate() {
+                        if let (Some(value), Some(expected)) =
+                            (get(*argument), signature.params.get(&index))
+                            && !flows(&value, expected)
+                        {
+                            return Err(invalid());
+                        }
+                    }
+                    produced = Some((*dst, Fact::typed(future.clone())));
+                }
                 I::MakeClosure {
                     dst,
                     function: target,
