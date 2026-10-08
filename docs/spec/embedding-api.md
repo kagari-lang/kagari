@@ -755,3 +755,16 @@ incomplete trailing-dot targets retain a known receiver where analysis recovered
 one. Full-file and per-function queries share this implementation. Repeating an
 unchanged query uses its cached snapshot; source movement rebases query positions
 without changing the results retained by an earlier snapshot.
+
+## Owned driver and scopes draft (AX01-AX04)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+The planned start/drive API returns an owned execution token, accepts a positive
+instruction slice, and produces rooted terminal results. Scope spawn reserves
+capacity/readiness/report storage before invoking any factory. A durable ready
+set and coalesced wake sink handle completion; dispatch failure requests cleanup
+through the host control/drain path. Owner drop requests retirement; explicit
+drain or the next drive completes cleanup. Runtime destruction is the backstop.

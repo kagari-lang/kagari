@@ -889,3 +889,14 @@ or a promise about the number of calls. There are no `FnMut` or `FnOnce` protoco
 Calling or adapting a callable retains ordinary trap, cancellation and resource-cleanup
 behavior. Generic callable constraints reuse specialization; function values retain
 indirect closure dispatch. No inlining guarantee is part of this contract.
+
+## Async callable draft (AX03)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Async callables expose synchronous `Fn(A) -> Future<T>` factory behavior.
+Invocation allocates a fresh cold Future; the private resume body produces T.
+Existing generic Fn selection is reused without AsyncFn, FnOnce or automatic
+flattening. Synchronous predicates/comparators do not accept Future-valued results.

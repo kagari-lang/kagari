@@ -121,3 +121,16 @@ requires a host-owned transaction; Kagari does not infer or emulate one.
 - Dirty-record preparation failure does not commit the corresponding field write.
 - A trap during nested host reentry clears all execution resources exactly once.
 - Reentry shares the outer version, cancellation state and call-depth limit.
+
+## Async outcomes draft (AX02-AX05)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Await returns T, without an implicit Result wrapper. Business Err is an ordinary
+value; cancellation, traps and resource exhaustion terminate the waiting execution
+with their original class and provenance. Cancelling a waiter detaches it without
+cancelling its target; a target termination propagates to its waiters. Task
+self/transitive dependency cycles trap before parking. One driver terminal
+transition decides cancellation versus completion; queued payload is not success.

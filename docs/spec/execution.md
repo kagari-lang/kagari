@@ -400,3 +400,16 @@ The incremental implementation order is:
 7. add baseline JIT as an optional backend
 
 This order keeps the interpreter as the semantic foundation while preserving JIT as an optional backend path.
+
+## Owned async execution draft (AX01-AX04)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Runtime-owned execution records survive short driver activations. The driver
+returns Runnable, Waiting or Complete, and completion endpoints only publish
+readiness. Direct Future await drives once in the current execution; Task await
+waits for a scope-owned execution. Owned iteration leases remain in parked frames,
+so ordinary for bodies can await with existing structural-mutation exclusion.
+Rust borrows, mutation guards and synchronous reentry cannot cross suspension.

@@ -9,3 +9,16 @@ Artifact preparation validates the entire executable closure and any supplied na
 An embedding host may explicitly call functions during a restricted candidate session. That session can mutate candidate-owned state, perform pure computation, and read explicitly immutable configuration; external modifications are denied. Termination and resource errors invalidate the candidate. Publication rechecks the base version and candidate references after the session ends. Publication is per runtime; coordination across actors belongs to the host.
 
 The root call pins a dependency program. Nested calls and synchronous host reentry use that same version set and cancellation state. A later publication does not redirect existing calls. Old versions remain usable while reachable and are reclaimed after their remaining references and calls end.
+
+## Async activation draft (AX03-AX05)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Cold Futures and waiting executions pin their original body, types, dependencies
+and native provider contracts across compatible publication. Candidate
+initialization rejects Future creation, spawn and await; candidate output graphs
+cannot contain Future, Task or scope capabilities through aggregates or aliases.
+These checks apply to source-free execution and actual mutable graph state.
+State replacement and suspended-state migration are outside this implementation.

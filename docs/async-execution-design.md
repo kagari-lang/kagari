@@ -58,7 +58,7 @@ may execute script at a time. This is cooperative interleaving, not parallel hea
 access. A root has one active await chain. A host-provided scope creates a separate
 managed execution through `spawn`; unrestricted global spawning is deferred.
 Task result sharing across executions follows the cancellation and result-retention
-rules below; concrete waiter storage and host completion APIs remain to be specified.
+rules below; the AX00 contracts define waiter storage and host completion boundaries.
 
 Do not include script threads, a mandatory Rust async executor, implicit blocking,
 detached background jobs, async generators or general async trait methods
@@ -92,8 +92,7 @@ allocation can fail, and argument evaluation can have effects.
 `scope.spawn(...)` creates a separate scope-owned execution and exposes a
 `Task<T>` handle after successful admission. Use this single task API rather than
 separate `launch` and `async` methods. `Task<()>` covers Unit-producing work.
-The admission result is `Result<Task<T>, SpawnError>`; exact rejection variants
-remain to be specified. Spawn enqueues work without executing its body inside
+The admission result is `Result<Task<T>, SpawnError>`; the concrete variants are specified in the AX00 contract below. Spawn enqueues work without executing its body inside
 the caller's activation. Discarding the returned handle
 does not cancel accepted work.
 
@@ -311,7 +310,7 @@ The script execution carries the continuation after `.await`. A native algorithm
 that itself waits and then continues needs resumable state, but that is a distinct
 use case, not a requirement for every native function.
 
-Conceptual registration sketch, with API names and adapter types still undecided:
+Conceptual registration sketch; the AX00 contract below fixes adapter ownership and timing:
 
 ```rust
 registry.register_async(contract, move |start, owned_request| {
@@ -396,8 +395,7 @@ rejected or ignored with bounded diagnostics; neither resumes script twice.
 Readiness registration and completion publication must also avoid lost wakeups
 when integrated with a host Future. Completion queues, payloads, outstanding roots
 and operation counts are bounded; overload must have a defined terminal outcome,
-not silently drop the only completion and leave a task waiting forever. Exact
-limits and failure classification are a pre-implementation design gate.
+not silently drop the only completion and leave a task waiting forever. The AX00 admission/readiness contract below defines the limits and failure classes.
 
 ## Failure and cancellation
 
@@ -507,15 +505,25 @@ temporaries; runtime checks cover the complete active frame chain and native
 resources. Artifact validation must enforce the same facts without trusting HIR.
 Suspension checks apply even when a particular await happens to complete immediately.
 
-Implicit resources matter too: iterator guards, writable path preparation and
-collection mutation guards cannot accidentally remain locked during external IO.
-The first release rejects suspension through such a live resource unless its
-contract has an explicitly reviewed suspend-safe representation. It does not
-silently release a guard and resume with weaker semantics. In particular, ordinary
-prepared `retain`/`sort_by` operations remain synchronous, and a guarded loop may
-need an owned snapshot traversed by index or another explicitly suspend-safe
-iterator before awaiting in its body. Copying a container alone does not make an
-iteration guard suspendable.
+Ordinary `for` bodies support `.await`. Native collection iteration already uses
+owned `CollectionIteration` records: rooted sources plus `OwnedLease` tokens,
+without a retained Rust Ref/RefMut or storage pointer. These iteration records
+are suspend-safe and stay in the parked frame. Preserve the existing exclusion
+of structural mutation until exhaustion, break, return, trap or cancellation;
+another execution attempting structural mutation receives the existing trap.
+Nonstructural replacements remain visible to later steps. Do not copy the source,
+restart `iter`/`next`, release/reacquire leases or change to fail-fast iteration at
+an await. Nested loops, erased Iterator views and native adapters retain their
+existing declared resource edges. Custom script iterators retain ordinary rooted
+state and use their existing consistency rules. Their `iter` and `next` calls
+remain synchronous; awaiting in the loop body needs no async iterator protocol.
+
+Frame mutation guards, prepared writable paths, ephemeral host access and native
+storage borrows remain non-suspendable. Even though a mutation guard may share
+an owned representation with an iteration guard, its operation is unfinished and
+its semantics differ. Ordinary `retain`/`sort_by` callbacks cannot contain await
+under the selected callable rules: `Fn(T) -> Bool` is not `Fn(T) -> Future<Bool>`.
+No additional user restriction or async collection algorithm is introduced.
 
 Owned host IDs and permitted stable path descriptors are not Rust borrows. Their
 validity and authority are checked again on access after resumption; they do not
@@ -550,8 +558,8 @@ The installed surface remains the access boundary. Completion cannot install API
 change execution ownership or reset its cancellation state. Candidate initialization
 rejects async entries and external waits in the first release; do not park a staged
 reload session or bypass its restrictions by exporting deferred external work.
-The new independently retained Future model requires an explicit candidate-output
-rule before implementation; creating a Future is not the same as starting IO.
+The AX00 candidate rule below rejects construction and deferred-work output graphs
+in candidate initialization, even though cold construction does not itself start IO.
 
 ## Compiler and runtime responsibilities
 
@@ -589,35 +597,189 @@ verification and runtime support. Callback resumption inside the current session
 and external suspension back to the host are distinct capabilities. Async is not
 a reason to reintroduce Engine-versus-Host method lists or privileged RPC paths.
 
-## Design gates and implementation sequence
+## Concrete implementation contracts (AX00)
 
-This is a queued design with a prepared [execution plan](async-execution-plan.md).
-AX00 owns the following concrete contract handoff before dependent code is enabled;
-implementation activation and progress remain in the roadmap:
+These contracts are approved implementation inputs, not a claim that async is
+already executable. AX01-AX06 in the [execution plan](async-execution-plan.md)
+implement them; the roadmap owns phase evidence.
 
-- Specify lowering of the selected async-closure/Future-factory contract through
-  source declarations, generic `Fn` metadata and source-free callable/resume verification;
-  finalize the native registration adapter without adding an async trait system.
-- Specify bounded storage/state transitions for once-driven Futures, Task waiters,
-  retained results, terminal propagation and wait-cycle detection under the selected
-  semantics above; do not add a second script-visible error wrapper.
-- Finalize SpawnError variants and the companion's admission/dispatch contracts.
-  Local structured scopes and implicit parent-child task relationships are deferred.
-- Specify source grammar, offline declaration encoding, exact suspension effects,
-  ephemeral-value analysis, candidate-output restrictions and artifact verification rules.
-- Specify owned execution APIs, activation/reentry rules, completion ownership,
-  cancellation races, overload behavior and host lifetime/shutdown requirements.
-- Define scheduling slices, host deadline cancellation,
-  bounded completion storage and trace/debug behavior while several roots are parked;
-  do not reintroduce a generic hierarchy of quotas or permissions.
+### Semantic roles, factories and portable execution
 
-The execution plan replaces the earlier suggested sequence with AX00-AX06:
-contracts, owned driving, native source-free wait/resume, source functions/closures,
-scope Tasks, lifecycle integration, and embedding/CI acceptance. Each implementation
-checkpoint covers a real producer-to-consumer path. Record failures and their owner
-in the roadmap's single ledger; do not add a parallel log here. The plan defines
-focused local checks and GitHub CI acceptance separately. This proposal and the
-planning checkpoint do not activate implementation.
+Register `Future<T>` and `Task<T>` as nominal managed native types with exactly one
+invariant output parameter and distinct checked language roles. The foundation
+exports Future from `core::future` and Task from `std::task`, including prelude
+names. Role checks use declaration identities and validated generic arity, not
+spelling, member lookup or a user-defined `await` method. Physical representation
+is the existing managed heap-object slot, with runtime-checked payload kind,
+owner and concrete output type. No new scalar ABI category is required.
+
+An async source declaration exposes a synchronous factory signature
+`fn(A) -> Future<T>` plus a private resume-body signature with the same captured
+inputs and output T. The factory allocates a traced payload retaining its exact
+body/dependency generation and owned input environment; it executes no body code.
+An async closure uses the existing environment/callable representation for its
+factory. The resume body is never an ordinary callable target. Native factories
+retain a checked registered producer identity and owned inputs instead of a script
+body. Producer metadata declares output T and cold construction separately from
+starting the external operation. Ordinary generic Fn dispatch still calls the
+factory synchronously.
+
+Portable contracts encode the factory/resume relationship, producer kind, output
+type, suspension capability and await operand/destination. Await evaluates its
+operand once. The next instruction is the resume PC; its destination becomes
+initialized only on successful completion. MIR and bytecode verification derive
+live initialized slots and balanced iteration/mutation scopes at this boundary,
+validate the role and exact T representation, and reject direct resume-body calls,
+forged producers, incompatible outputs and non-suspendable live resources. No
+serialized `safe_to_suspend` boolean supplied by a producer is trusted. Linked
+verification checks native declaration identities/effects; runtime validates the
+actual reachable values and active resource chain before driving even an immediate
+await. Artifacts contain no live runtime IDs or completion endpoints.
+
+### Owned execution and driver interface
+
+Runtime session storage owns stacks, roots, options, pins and terminal state.
+`OwnedExecution` is a non-cloneable owner token carrying a checked session identity
+and a retirement signal; it holds no runtime reference. Dropping it requests
+retirement and wakes the host; cleanup is performed by the next owner-thread drive
+or explicit drain, with runtime destruction as the final backstop. Scope-owned
+Tasks retain their execution owner independently of script handles.
+
+VM `start` validates a pinned entry and owned arguments and returns this owner
+without executing script. `drive(runtime, owner, slice)` grants short-lived
+activation and returns `Runnable`, `Waiting` or `Complete(Result<rooted output,
+execution failure>)`. AX01 initially supports synchronous entries and Runnable /
+Complete; AX02 adds waits, AX03 script factories, AX04 Tasks. The SDK exposes these
+operations without a Runtime borrow surviving the call. Slice is a positive
+instruction interval, not a work quota or native preemption guarantee. Slice exits
+occur only at safe boundaries. Synchronous execute uses the same storage and runs
+to completion without host-visible slices. Ordinary synchronous reentry joins the
+current root; recursive drive and independent-root start/drive during an activation
+are rejected. Internal checked scope admission remains possible during a handler.
+Candidate entry keeps its existing isolated synchronous activation rules.
+
+Execution, scope and operation IDs contain runtime owner, slot and generation;
+ready notices also identify the relevant execution incarnation. Reused slots
+increment generations; exhausted slots are retired permanently, never wrapped.
+Unknown/stale notices return `Stale` without script execution, foreign owners
+return an API error. Host tokens cannot authorize a different runtime. Invariant
+faults quarantine the runtime and retire all owned executions; script traps affect
+only the execution and its dependency waiters.
+
+### State transitions and retained ownership
+
+| Object/state | Event | Next state and responsibility |
+| --- | --- | --- |
+| Future / Cold | first await | Claimed by one execution; create the script frame or reserve native operation before starting. |
+| Future / Claimed | resume same await | Continue its existing drive; never repeat construction or submission. |
+| Future / Claimed or Terminal | any new await | Script trap, including aliases and same-execution repeated await. |
+| Future / Claimed | completion or failure | Terminal; release input/frame/operation state after moving the result into the caller. |
+| Future / Cold | becomes unreachable | GC releases captured values and code pins; no external work started. |
+| Execution / Queued or Runnable | drive | Running, after identity/cancellation validation. |
+| Execution / Running | safe slice exit or incomplete await | Runnable or Waiting; retain owned stack and iteration leases. |
+| Execution / Waiting | authorized completion or target terminal | Runnable; publication does not enter VM. |
+| Execution / nonterminal | cancellation | Runnable for cleanup, then terminal Cancelled; no remote reply required. |
+| Task / Queued | first drive | Invoke admitted factory once, drive its one returned Future; factory failure is Task failure. |
+| Task / nonterminal | await | Register a checked dependency edge; execution waits without changing Task ownership. |
+| Task / Terminal | await | Copy cached shared value or propagate terminal cause; no frame is recreated. |
+| Task / nonterminal | final script handle dropped | Remains owned by scope; dropping a handle does not cancel. |
+| Operation / Reserved | provider starts | Starting, with endpoint already installed; completion during start is retained. |
+| Operation / Starting or Waiting | first completion | Ready with one owned payload; duplicates are rejected and disposed. |
+| Operation / Ready | owner drive | Claim once, convert under pinned types, retire endpoint, resume. |
+| Operation / nonterminal | start failure or cancellation | Retired; dispose payload and invoke bounded provider cleanup at most once. |
+| Scope / Open | close | Closing, rejects admission and requests cancellation for unfinished tasks. |
+| Scope / Closing | final driver cleanup | Closed; return cleanup acknowledgment independent of report consumption. |
+
+A terminal transition happens once on the owner driver. Cancellation observed
+before result conversion/publication wins over queued readiness; once a Task is
+terminal, later cancellation cannot replace its outcome. Each waiting execution
+has at most one outgoing Task dependency; cycle detection walks these edges before
+registration and rejects self/transitive cycles. Multiple incoming waiters use
+bounded reserved edge slots. Cancelling a waiter detaches its edge only; cancelling
+or failing the target wakes dependents with original target/await provenance.
+A successful business Result::Err remains a value.
+
+Completed Task storage retains only output and terminal metadata, traced from
+reachable Task handles and unconsumed reports. Scope bookkeeping releases completed
+records after reports are consumed and handles disappear; it does not retain all
+historical tasks. Direct Future await adds no separate Task ID.
+
+### Admission, readiness and native endpoints
+
+`SpawnError` has `ScopeClosed`, `CapacityExceeded` and `DispatchUnavailable` variants.
+Cross-runtime/forged capability use, forbidden captures and restricted candidate
+execution are traps or host API errors, not admission values. A caller already
+terminated remains terminated; spawn cannot turn cancellation into an ordinary Err.
+The scope capability is a registered opaque owned handle with runtime/scope
+generation checks, safe to capture within its owning runtime.
+
+Use a durable bounded ready set with one coalescing ready bit per execution slot,
+not a mailbox as result storage. `AsyncCapacity` supplies host-selected positive
+limits for executions, operations, scopes and dependency edges (initial defaults:
+1024 executions, 1024 operations, 64 scopes, 4096 edges). Each admitted execution
+reserves a terminal-report slot and readiness bit until its report is consumed;
+unconsumed reports therefore apply backpressure to new admission. Each operation
+reserves one payload slot before provider submission. Storage allocation failure
+before spawn commitment maps to CapacityExceeded; operation/edge reservation
+failure while executing retains the existing ResourceLimit terminal class. These
+are async bookkeeping/admission capacities, not script heap or execution quotas.
+
+Native registration uses a cold input-capture adapter and a start adapter. Capture
+converts declared inputs into retained values without IO. Start receives owned
+inputs and an already reserved typed completion endpoint, and returns either an
+immediate owned result or an owned bounded cancellation hook. Failure rolls back
+the reservation; no adapter retains NativeContext, frame borrows or raw Values.
+Cross-thread endpoints require Send payloads and only touch synchronized endpoint
+state. Driver-side conversion is the sole path to script heap values. Payload byte
+limits and external request limits belong to the provider's declared admission
+contract; the engine bounds endpoint count, not arbitrary host object sizes.
+
+Publication stores the payload/ready bit before notifying a host wake sink.
+Registering/replacing the sink and draining ready notices recheck the ready set
+under the same synchronization protocol; a coalesced/lost redundant wake cannot
+lose work. A failed wake marks dispatch unavailable, requests cancellation and
+leaves readiness durable for the separate host control/drain path. New admission
+fails until a working dispatcher is installed. A host must service that control
+path or explicitly close and drain; scope/runtime shutdown does not rely on a
+remote reply or the failed mailbox. Admission commits only after capacity and
+scheduling responsibility are reserved; no factory runs during this operation.
+
+Terminal reports contain execution/task identity, optional scope identity, original
+failure class, cancellation cause (explicit, scope close, dependency, owner drop,
+dispatch failure or runtime shutdown), original source task and logical spawn/await
+sites. Source locations are optional; portable function/instruction identity is
+always available. Success outputs are rooted until taken/discarded. Cleanup
+acknowledgment means frames, leases and endpoints have been retired, not that every
+report/result handle has been dropped or remote IO has been rolled back.
+
+### Suspension audit and candidate boundaries
+
+Allowed retained state: owned scalar/managed values, code pins, checked stable IDs,
+closure environments and owned collection iteration leases. Prohibited retained
+state: Rust Ref/RefMut, host scoped borrows/ephemerals, prepared writable paths,
+frame mutation guards and an unfinished synchronous native/reentry activation.
+Frame checks distinguish iteration from mutation even when their lease types match.
+`for` tests must park on a real deferred result, run another execution, force GC,
+and resume without repeating `iter`, `next` or earlier effects. They must cover
+nested/custom/erased iterators and release leases after exit/cancel/trap. The
+existing native structural-write trap is retained while the original loop waits;
+nonstructural replacements remain observable. No snapshot requirement is added.
+
+Cold capture validation follows reachable managed values/cells with cycle detection,
+not just static outer types. Reject ephemeral or scoped host resources at creation
+and revalidate actual reachable mutable state on drive/suspension. Declared owned
+host payloads must expose their traced edges; arbitrary raw host references cannot
+hide in a Future. Source diagnostics reject known-invalid captures, and portable
+verification/runtime checks protect artifacts and later alias writes.
+
+For the first release, candidate initialization rejects Future construction,
+spawn and await, and rejects candidate publication/output graphs containing Future,
+Task or task-scope capabilities, including values hidden behind cells/interfaces.
+This intentionally conservative rule prevents deferred work from escaping through
+mutable aliases. It is checked at runtime/activation as well as in known source
+contexts; no general effect/capability framework is introduced. Compatible reload
+keeps cold and parked code/type/provider generations pinned; new roots see the new
+publication. State replacement remains outside AX scope.
 
 ## Acceptance evidence
 

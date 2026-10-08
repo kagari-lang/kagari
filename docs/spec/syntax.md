@@ -1190,3 +1190,15 @@ Repeat arrays `[value; count]` evaluate the value once and require its type to
 contain no shared mutable objects, including recursively inside Tuple or enum
 members. Use `Vec::from_fn(count, |index| expression)` for per-element
 object initialization. See [the value contract](value-semantics.md#repeat-arrays-and-bulk-replacement).
+
+## Async syntax draft (AX03)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Reserved `async fn`, explicit `async |args| body` / `async || body` and postfix
+`.await` are scheduled. Async calls return cold Future values; ordinary closures
+never infer async. Await is allowed in an async body, including ordinary for-loop
+bodies, but not in a nested ordinary closure. No async block or async iterator
+syntax is introduced.

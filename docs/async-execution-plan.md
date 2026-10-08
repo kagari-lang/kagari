@@ -1,8 +1,8 @@
 # Async execution implementation plan (AX00-AX06)
 
-Status: planned, not activated. The user requested this execution plan after
-agreeing the language direction; no implementation phase has started. The
-[roadmap](implementation-roadmap.md#async-execution-ax00-ax06-planned) owns activation,
+Status: active, authorized on 2026-10-08. The user requested goal execution and
+explicit acceptance for ordinary `for` loops containing `.await`. The
+[roadmap](implementation-roadmap.md#async-execution-ax00-ax06-active) owns activation,
 phase checkboxes, validation evidence and carried failures. This file owns phase
 boundaries, dependencies and acceptance. The [async design](async-execution-design.md)
 and [host task scopes](host-task-scope-design.md) own the agreed behavior.
@@ -115,6 +115,8 @@ them in the owning design/specifications before the relevant code is enabled.
   guards, synchronous reentry, GC/frame leases and candidate initialization.
   Define cold-Future capture/escape and candidate-output validation, including
   shared mutable captures; no HIR-only proof may authorize unsafe artifact input.
+  Ordinary for-body await is required: retain owned iteration leases across waits
+  with existing structural-mutation exclusion, without snapshots or Rust borrows.
 - Record draft additions to syntax/traits, execution/runtime, host/embedding,
   failure/reporting, bytecode/artifact and activation/backend specifications.
   Clearly distinguish scheduled behavior from currently executable support.
@@ -184,6 +186,12 @@ of building a separate source-only coroutine implementation.
 - Enforce async-body await restrictions, cold capture safety and suspension liveness
   including temporaries/implicit guards. Encode proofs that independent validation
   can check; runtime checks still protect actual mutable/host resource state.
+- Support await inside ordinary for bodies, including nested loops, collection
+  adapters/erased Iterator views and custom script iterators. Preserve expression,
+  iter and next evaluation counts, cursor position, item identity and cleanup.
+  Exercise deferred completion, interleaved structural/nonstructural alias writes,
+  break/continue/return, trap and cancellation using the shared async fixture;
+  verify equivalent encoded artifacts and malformed suspension-resource rejection.
 - Complete Future single-drive/alias behavior, cold values retained past creator
   return and GC tracing of captures. Calling a no-await async body remains lazy.
   Update generated native declaration views and incremental signature/body reuse.

@@ -621,16 +621,17 @@ Further optimization/frontend work requires a separately bounded activation.
 Collector replacement, enum unboxing, general collection lease redesign, JIT
 expansion and new numeric APIs remain outside these completed tracks.
 
-### Async execution (AX00-AX06, planned)
+### Async execution (AX00-AX06, active)
 
 The [execution plan](async-execution-plan.md) owns phase scope, dependencies,
 checkpoint policy and focused acceptance. The [async design](async-execution-design.md)
 and [host task scopes](host-task-scope-design.md) own language/lifetime behavior.
-Status: plan prepared; implementation has not been activated or started. The user
-authorized plan authoring, not execution of AX00-AX06. Current specifications
-continue to describe synchronous support until the corresponding phases land.
+Status: active. On 2026-10-08 the user authorized goal execution of AX00-AX06,
+including ordinary `for` traversal with `.await` in the body. Current specifications
+continue to describe synchronous support except for explicitly marked AX drafts;
+implementation and local/CI acceptance are recorded separately below.
 
-- [ ] AX00: Finalize concrete semantic/executable, state, host and verification contracts.
+- [x] AX00: Finalize concrete semantic/executable, state, host and verification contracts (local documentation gate).
 - [ ] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry.
 - [ ] AX02: Prove typed native Future completion and checked source-free wait/resume.
 - [ ] AX03: Implement async functions, explicit async closures and await through source and artifacts.
@@ -686,6 +687,18 @@ No Rust validation was attempted and no newly observed build/test failure is
 carried. Runtime correctness and full async CI acceptance are unrun. Planning
 validation passed: 116 local links/anchors, code-fence/content consistency, CRLF
 preservation and `git diff --check`.
+
+AX00 execution ledger (2026-10-08): activated by the user's goal request.
+Reviewed owned iteration/lease records, frame cleanup, session storage and native
+callbacks. Required ordinary for-body await without snapshot conversion; preserve
+structural-write exclusion through waits and nonstructural replacement visibility.
+Documented semantic roles, factory/resume validation, owned drive state transitions,
+bounded durable readiness/admission, endpoint races, reporting and candidate graphs.
+Added explicitly scheduled specification handoffs. AX01 next owns execution
+lifetime and safe slicing; AX03 must prove real deferred for-body await under
+interleaving/GC and cleanup, including encoded artifacts. Validation passed for
+15 changed Markdown files: 172 local links/anchors, fences, CRLF and
+`git diff --check`. No Rust build/test or CI was run; no carried build failures.
 
 ### Other proposals
 

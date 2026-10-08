@@ -88,3 +88,15 @@ Result value itself must still use a rooted handle. Error trace data uses bounde
 host diagnostic memory outside the script heap-unit accounting. Native backends
 publish logical instruction positions before resource checks; unsupported Result
 operations use the existing interpreter fallback.
+
+## Async terminal reporting draft (AX04-AX05)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Every admitted task reports terminal status even without an awaiter. Reports
+retain execution/task/scope identity, failure class, cancellation cause, original
+source task and logical spawn/await sites. Portable callable/instruction identity
+is available without source. Report/result roots outlive frame cleanup only while
+retained; cleanup acknowledgment is distinct from cancellation request acceptance.

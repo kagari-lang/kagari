@@ -927,3 +927,16 @@ frame unwinding and root-session cleanup release the corresponding guards.
 Custom Iterator/Iterable methods are ordinary static calls. The existing JIT
 uses its normal interpreter fallback for unsupported iterator/control-flow bodies.
 The semantic contract is in [builtins](builtins.md#iteration-protocols).
+
+## Async execution contract draft (AX02-AX03)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Portable metadata identifies checked Future/Task roles, native producers, factory
+and private resume-body signatures, output type and suspension capability. Await
+encodes operand and typed destination; the following PC resumes only after output
+initialization. Independent verification derives initialized live slots and resource
+scopes, rejects direct resume-body calls and non-suspendable resources, and permits
+owned iteration leases. Runtime also checks actual reachable mutable/host state.

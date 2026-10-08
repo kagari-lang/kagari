@@ -261,8 +261,8 @@ an explicit closed/overloaded failure. On later dispatch failure, terminate the
 affected execution or close the scope under a documented host policy. Record this
 for owner-thread cleanup and wake the host control path; a failed mailbox send must
 not be the sole mechanism for requesting cleanup through that same failed mailbox.
-Scope shutdown is the final cleanup backstop. The choice between reserved mailbox
-capacity and a bounded ready set with a coalesced wake signal remains open.
+Scope shutdown is the final cleanup backstop. Use the bounded durable ready set and coalesced wake signal specified by the
+[AX00 contracts](async-execution-design.md#concrete-implementation-contracts-ax00).
 
 Actor restarts create a new scope incarnation. Old jobs, operation completions and
 ready notices cannot target the replacement Actor even when its application ID or
@@ -340,9 +340,9 @@ revalidate conditions or use version-checked host operations.
 
 ## Design gates and acceptance
 
-AX00 resolves exact SpawnError variants, callable/Future capture verification,
-scope capability passing, queue reservation, drive/report APIs, bounded waiter/result
-storage and shutdown ownership before dependent implementation. AX04 owns scope
+The [AX00 contracts](async-execution-design.md#concrete-implementation-contracts-ax00)
+specify SpawnError variants, capture checks, capability identity, bounded storage,
+readiness, drive/report outcomes and shutdown ownership. AX04 owns scope
 admission/Task waiters and AX05 closes lifecycle integration. This companion
 introduces no independent phase ledger or separate implementation activation.
 

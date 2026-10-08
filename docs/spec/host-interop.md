@@ -901,3 +901,16 @@ Incremental implementation order:
 7. concrete generic-instantiation registration
 
 This gives Kagari a practical embedded scripting model early, especially for the "Rust owns the data, Kagari patches the behavior" use case.
+
+## Native async producer draft (AX02)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Native Future registration separates cold typed input capture from an owned start
+adapter. An operation identity and one result slot are reserved before external
+submission. Immediate/deferred completion uses the same checked output type;
+conversion into managed values occurs only under the owning driver. Endpoints
+retain no runtime references, frame borrows or unrooted Values. Cancellation hooks
+are bounded and invoked at most once; duplicate/stale completions are harmless.

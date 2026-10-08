@@ -175,3 +175,15 @@ Module/AOT compilation, physical GC maps and native debugger callbacks need thei
 own explicit contracts and acceptance tests; they are not implicitly provided by
 the current function compiler. Shareable code owners allow separate runtime
 installations, not concurrent entry into one runtime.
+
+## Async backend boundary draft (AX02-AX06)
+
+Scheduled behavior; not yet implemented. The
+[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
+and [execution plan](../async-execution-plan.md) define the handoff.
+
+Native backends must reject unsupported suspension before entry, selecting
+checked interpreter execution without restarting already executed effects.
+Cold factory construction and resume-body execution have distinct contracts.
+JIT suspension is excluded from AX; existing synchronous native execution remains
+covered independently.
