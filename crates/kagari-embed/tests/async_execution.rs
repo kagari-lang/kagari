@@ -16,7 +16,7 @@ use kagari_contract::{
 };
 use kagari_embed::{
     context::ExecutionContext,
-    engine::{EngineConfig, KagariEngine},
+    engine::{EngineConfig, KagariEngine, builder::KagariEngineBuilder},
     error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
     runtime::{KagariRuntime, owned::DriveResult},
@@ -102,6 +102,10 @@ impl Fixture {
     }
 
     fn configured(config: EngineConfig) -> Self {
+        Self::with_provider(config, |_| {})
+    }
+
+    fn with_provider(config: EngineConfig, install: impl FnOnce(&mut KagariEngineBuilder)) -> Self {
         let mut engine = KagariEngine::builder().unwrap();
         engine.config(config);
         let future = engine.declarations().future_type().unwrap();
@@ -140,6 +144,7 @@ impl Fixture {
         let native = native.finish().unwrap();
         let declaration = native.to_declaration().unwrap();
         engine.install(native).unwrap();
+        install(&mut engine);
         let engine = engine.build().unwrap();
         let request = declaration.native_declarations();
         let scalar = Ty::Builtin(BuiltinType::I32);

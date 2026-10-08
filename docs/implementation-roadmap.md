@@ -636,7 +636,7 @@ implementation and local/CI acceptance are recorded separately below.
 - [x] AX02: Prove typed native Future completion and checked source-free wait/resume (local gate).
 - [x] AX03: Implement async functions, explicit async closures and await through source and artifacts (local gate).
 - [x] AX04: Add scope spawn, shared Task results, waiters and directional cancellation (focused local acceptance).
-- [ ] AX05: Complete lifecycle, reload, cleanup and diagnostic integration.
+- [x] AX05: Complete lifecycle, reload, cleanup and diagnostic integration (focused local acceptance).
 - [ ] AX06: Deliver embedding/example products and local integration evidence; record full CI separately.
 
 Dependency order is AX00 through AX06. Each implementation checkpoint must pass
@@ -1202,6 +1202,38 @@ Rust files with no violations/exceptions. Manual review retained explicit import
 existing ownership boundaries and no new re-exports or structural debt. No carried
 local errors or full local suite. AX05 remains open for its final lifecycle audit;
 AX06 products and full GitHub CI acceptance remain outstanding.
+
+AX05 lifecycle acceptance (2026-10-09): audited the existing contract owners rather
+than adding duplicate lifecycle cases. Native completion contracts cover reservation,
+duplicate/stale replies, cross-thread delivery/cancellation races, cancellation-hook
+failure and generation exhaustion. Session identity and async capture graph contracts
+reject foreign/stale state. Source Future/for-await contracts cover cold ownership,
+before-start cancellation, nested cursor cleanup, alias mutation, trap and owner drop.
+Scope/shared-wait/dependency contracts cover rejected admission, dispatcher replacement,
+close/restart, directional cancellation, cached output retirement and shutdown without
+a remote reply. Reload, detached diagnostics and debugger evidence is recorded above.
+
+The remaining output-publication gap is now covered by
+async_output_publication_contract using the shared SDK fixture and an independently
+registered native provider. A worker publishes owned Rust data; conversion runs only
+on the driver. Cancellation before conversion never enters the converter; cancellation
+after allocating the converted collection prevents continuation effects and releases
+temporary roots and the ordinary for-loop lease. A native converter invariant fault
+produces one EngineFault report and preserves quarantine. Successful conversion
+publishes once. Payload drop and cancellation-hook counts distinguish unclaimed
+replies from consumed IO, and late completion is stale. Normal terminal paths leave
+zero GC roots/objects; the fault path leaves zero roots and explicitly rejects GC
+under quarantine. The initial test incorrectly requested GC after quarantine; its
+assertion now checks that restriction rather than bypassing it.
+
+Validation: the focused publication contract and no-default-features
+sdk_owned_native_wait_contract both passed. Focused SDK-test Clippy, fmt and diff
+checks passed; structure checked 977 Rust files with no violations/exceptions.
+Manual review found no new production API, ownership changes, re-exports or structural
+debt. Fixture extension only installs an additional public provider and reuses artifact
+preparation. No carried local error or full local suite. AX05 is locally complete;
+AX06 owns the runnable example, final product/spec updates, source-free acceptance
+and CI wiring. Required full GitHub CI remains unrun and is not implied by this gate.
 
 ### Other proposals
 

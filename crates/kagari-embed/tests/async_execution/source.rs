@@ -27,6 +27,9 @@ mod diagnostics;
 #[path = "debugger.rs"]
 mod debugger;
 
+#[path = "conversion.rs"]
+mod conversion;
+
 impl Fixture {
     fn source(text: &str) -> Self {
         Self::configured_source(text, Default::default())
@@ -34,7 +37,12 @@ impl Fixture {
 
     fn configured_source(text: &str, config: EngineConfig) -> Self {
         let mut fixture = Self::configured(config);
-        let artifact = fixture
+        fixture.load_source(text);
+        fixture
+    }
+
+    fn load_source(&mut self, text: &str) {
+        let artifact = self
             .engine
             .compile_to_artifact(
                 SourceFile::new("async-script.kgr", text),
@@ -42,14 +50,13 @@ impl Fixture {
             )
             .unwrap();
         let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        fixture.program =
+        self.program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
-        fixture.module = fixture
+        self.module = self
             .runtime
-            .load_program(&fixture.program, Default::default())
+            .load_program(&self.program, Default::default())
             .unwrap();
-        fixture
     }
 
     fn invoke(&self, entry: &str, arguments: &[Value]) -> RootedValue {
