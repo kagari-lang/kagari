@@ -904,8 +904,8 @@ This gives Kagari a practical embedded scripting model early, especially for the
 
 ## Native async producers (AX02)
 
-The native producer and owned SDK driver are implemented. Source async syntax and
-Task scopes remain later phases. The
+The native producer, source async callables and owned SDK driver are implemented.
+Task scopes remain AX04 work. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 

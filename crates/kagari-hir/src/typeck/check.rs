@@ -326,6 +326,14 @@ pub(crate) fn check_signatures(
                     .with_span(lowered.source_map.type_span(param.ty)),
                 );
             }
+            if function.is_async && param_type.contains_host_value() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
+                        type_name: display_type_id(&param_type),
+                    })
+                    .with_span(lowered.source_map.type_span(param.ty)),
+                );
+            }
             params.push(TypedParameter {
                 id: param.id,
                 writeability: param.writeability,

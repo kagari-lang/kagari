@@ -82,15 +82,163 @@ impl Fixture {
 }
 
 #[test]
+fn sdk_for_await_iterator_control_contract() {
+    let source = r#"
+use test::async_sdk::request;
+use std::collections;
+struct Calls { var source:i32, var into:i32, var next:i32 }
+struct Range { val calls:Calls }
+struct Counter { val calls:Calls }
+fn calls() -> Calls { Calls { source:0, into:0, next:0 } }
+fn counts(calls:Calls) -> i32 { calls.source*100+calls.into*10+calls.next }
+fn make(calls:Calls) -> Range { calls.source+=1; Range { calls } }
+impl Iterable for Range {
+    type Item=i32;
+    type Iter=Counter;
+    fn iter(self) -> Counter { self.calls.into+=1; Counter { calls:self.calls } }
+}
+impl Iterator for Counter {
+    type Item=i32;
+    fn next(self) -> Option<i32> { self.calls.next+=1; Some(self.calls.next+10) }
+}
+async fn custom(calls:Calls) -> i32 {
+    var total=0;
+    for item in make(calls) {
+        val reply=request(item).await;
+        if item==11 { continue; }
+        total+=reply;
+        break;
+    }
+    total
+}
+fn items() -> Vec<i32> { [10,20,30] }
+fn replace(items:Vec<i32>) { items[1]=99; }
+fn append(items:Vec<i32>) { items.push(40); }
+fn view(items:Vec<i32>) -> Iterator<Item=i32> { collections::map(items, |item| item) }
+async fn nested(items:Vec<i32>) -> i32 {
+    for outer in items {
+        for inner in view(items) {
+            val reply=request(outer+inner).await;
+            if inner==10 { continue; }
+            if outer!=10 { return reply; }
+            break;
+        }
+    }
+    0
+}
+async fn trapping(items:Vec<i32>) -> i32 {
+    for item in items { val zero=request(item).await; val bad=1/zero; }
+    0
+}
+"#;
+    let f = Fixture::source(source);
+    let calls = f.invoke("calls", &[]);
+    let future = f.invoke("custom", &[f.value(&calls)]);
+    let owner = f.start_future(&future);
+    for (input, count) in [(11, 111), (12, 112)] {
+        assert!(matches!(
+            f.runtime.drive(&owner, slice()).unwrap(),
+            DriveResult::Waiting
+        ));
+        assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
+        assert_eq!(
+            f.value(&f.invoke("counts", &[f.value(&calls)])),
+            Value::I32(count)
+        );
+        f.runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(
+            f.sent.lock().unwrap().pop().unwrap().complete(Ok(7)),
+            CompletionStatus::Accepted
+        );
+    }
+    assert_eq!(f.value(&f.complete(&owner)), Value::I32(7));
+    assert_eq!(
+        f.value(&f.invoke("counts", &[f.value(&calls)])),
+        Value::I32(112)
+    );
+
+    let items = f.invoke("items", &[]);
+    let future = f.invoke("nested", &[f.value(&items)]);
+    let owner = f.start_future(&future);
+    for (index, input) in [20, 109, 109, 198].into_iter().enumerate() {
+        assert!(matches!(
+            f.runtime.drive(&owner, slice()).unwrap(),
+            DriveResult::Waiting
+        ));
+        assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
+        let error = f.call("append", &[f.value(&items)]).unwrap_err();
+        assert!(
+            matches!(error, EmbeddingError::Runtime { ref message, .. } if message.contains("iteration")),
+            "{error:?}"
+        );
+        if index == 0 {
+            drop(f.invoke("replace", &[f.value(&items)]));
+        }
+        f.runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(
+            f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
+            CompletionStatus::Accepted
+        );
+    }
+    assert_eq!(f.value(&f.complete(&owner)), Value::I32(42));
+    drop(f.invoke("append", &[f.value(&items)]));
+
+    let future = f.invoke("trapping", &[f.value(&items)]);
+    let owner = f.start_future(&future);
+    assert!(matches!(
+        f.runtime.drive(&owner, slice()).unwrap(),
+        DriveResult::Waiting
+    ));
+    assert_eq!(
+        f.sent.lock().unwrap().pop().unwrap().complete(Ok(0)),
+        CompletionStatus::Accepted
+    );
+    let DriveResult::Complete(Err(error)) = f.runtime.drive(&owner, slice()).unwrap() else {
+        panic!("division trap after resume");
+    };
+    assert!(
+        matches!(
+            error,
+            EmbeddingError::Runtime {
+                kind: RuntimeFailureKind::ScriptTrap,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    let trace = error.error_trace().unwrap();
+    assert!(trace.frames[0].source_uri.ends_with("async-script.kgr"));
+    let expected_line = u32::try_from(
+        source
+            .lines()
+            .position(|line| line.contains("val bad"))
+            .unwrap()
+            + 1,
+    )
+    .unwrap();
+    assert_eq!(trace.frames[0].line, Some(expected_line));
+    drop(f.invoke("append", &[f.value(&items)]));
+    assert_eq!(
+        f.runtime
+            .runtime()
+            .resources()
+            .counters()
+            .current_call_depth,
+        0
+    );
+}
+
+#[test]
 fn sdk_script_future_and_for_await_contract() {
     let f = Fixture::source(
         r#"
 use test::async_sdk::request;
 async fn identity<T>(value: T) -> T { value }
+fn apply<F:Fn(i32)->Future<i32>>(f:F, value:i32) -> Future<i32> { f(value) }
 async fn total(items: Vec<i32>) -> i32 {
     val fetch: fn(i32) -> Future<i32> = async |item| request(identity(item).await).await;
     var sum = 0;
-    for item in items { sum += fetch(item).await; }
+    for item in items { sum += apply(fetch, item).await; }
     sum
 }
 fn items() -> Vec<i32> { [10, 20, 30] }
@@ -98,6 +246,11 @@ fn replace(items: Vec<i32>) { items[1] = 99; }
 fn append(items: Vec<i32>) { items.push(40); }
 fn size(items: Vec<i32>) -> usize { items.len() }
 async fn lazy(items: Vec<i32>) { items.push(50); }
+fn record(events:Vec<i32>, value:i32) -> i32 { events.push(value); value }
+async fn ordered(first:i32, second:i32) -> i32 { first*10+second }
+fn construct(events:Vec<i32>) -> Future<i32> { ordered(record(events,1),record(events,2)) }
+fn empty() -> Vec<i32> { [] }
+fn order(events:Vec<i32>) -> i32 { events[0]*10+events[1] }
 async fn closures() -> i32 {
     var count = 0;
     val next = async || { count += 1; identity(count).await };
@@ -107,8 +260,9 @@ async fn closures() -> i32 {
 }
 async fn nested() -> Future<i32> { identity(7) }
 async fn early() -> Result<i32, i32> {
-    val result: Result<i32, i32> = Err(7);
-    val value = identity(result).await?;
+    val first=request(50).await;
+    val result:Result<i32,i32> = if first<0 { Err(first) } else { Ok(first) };
+    val value=identity(result).await?;
     Ok(request(value).await)
 }
 "#,
@@ -174,7 +328,16 @@ async fn early() -> Result<i32, i32> {
     );
     assert_eq!(f.value(&f.complete(&f.start_future(&inner))), Value::I32(7));
     let early = f.invoke("early", &[]);
-    let result = f.complete(&f.start_future(&early));
+    let owner = f.start_future(&early);
+    assert!(matches!(
+        f.runtime.drive(&owner, slice()).unwrap(),
+        DriveResult::Waiting
+    ));
+    assert_eq!(
+        f.sent.lock().unwrap().pop().unwrap().complete(Ok(-7)),
+        CompletionStatus::Accepted
+    );
+    let result = f.complete(&owner);
     assert!(
         f.runtime
             .runtime()
@@ -183,8 +346,35 @@ async fn early() -> Result<i32, i32> {
     );
     assert_eq!(
         f.starts.load(Ordering::SeqCst),
-        3,
-        "business Err skips native IO"
+        4,
+        "business Err skips the second RPC"
+    );
+    let success = f.invoke("early", &[]);
+    let owner = f.start_future(&success);
+    for (input, reply) in [(50, 21), (21, 42)] {
+        assert!(matches!(
+            f.runtime.drive(&owner, slice()).unwrap(),
+            DriveResult::Waiting
+        ));
+        assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
+        assert_eq!(
+            f.sent.lock().unwrap().pop().unwrap().complete(Ok(reply)),
+            CompletionStatus::Accepted
+        );
+    }
+    let result = f.complete(&owner);
+    assert!(
+        f.runtime
+            .runtime()
+            .result_failure(&f.value(&result))
+            .is_none()
+    );
+    let Value::Enum(id) = f.value(&result) else {
+        panic!("business Result");
+    };
+    assert_eq!(
+        f.runtime.runtime().gc().enum_snapshot(id).unwrap().fields,
+        [Value::I32(42)]
     );
 
     // Both terminal paths must release the cursor lease and retire pending IO.
@@ -215,6 +405,21 @@ async fn early() -> Result<i32, i32> {
         drop(f.invoke("append", &[f.value(&items)]));
     }
     assert_eq!(f.cancels.load(Ordering::SeqCst), 2);
+
+    let events = f.invoke("empty", &[]);
+    let future = f.invoke("construct", &[f.value(&events)]);
+    assert_eq!(
+        f.value(&f.invoke("order", &[f.value(&events)])),
+        Value::I32(12)
+    );
+    assert_eq!(
+        f.value(&f.complete(&f.start_future(&future))),
+        Value::I32(12)
+    );
+    assert_eq!(
+        f.value(&f.invoke("size", &[f.value(&events)])),
+        Value::U64(2)
+    );
 
     let items = f.invoke("items", &[]);
     let future = f.invoke("lazy", &[f.value(&items)]);

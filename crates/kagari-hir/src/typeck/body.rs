@@ -562,6 +562,14 @@ impl<'a> BodyChecker<'a> {
                         TypeId::Unknown
                     };
                     self.type_table.insert_local(param.local, ty.clone());
+                    if *is_async && ty.contains_host_value() {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
+                                type_name: display_type_id(&ty),
+                            })
+                            .with_span(self.lowered.source_map.local_span(param.local)),
+                        );
+                    }
                     closure_env.locals.insert(param.local, ty.clone());
                     param_types.push(ty);
                 }

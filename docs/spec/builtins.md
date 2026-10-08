@@ -101,7 +101,7 @@ The core type set includes:
 - trait/interface value types
 - `Option<T>`
 - `Result<T, E>`
-- `Future<T>` (native producer values and owned driver; source await is scheduled in AX03)
+- `Future<T>` (cold script/native producer values and explicit await through the owned driver)
 
 The numeric type names follow Rust spelling.
 The semantics do not import Rust ownership or borrowing.

@@ -930,13 +930,18 @@ The semantic contract is in [builtins](builtins.md#iteration-protocols).
 
 ## Async execution contract draft (AX02-AX03)
 
-Scheduled behavior; not yet implemented. The
+Future factories and await are implemented; Task roles remain scheduled for AX04. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
-Portable metadata identifies checked Future/Task roles, native producers, factory
+Portable metadata identifies the checked Future role, native producers, factory
 and private resume-body signatures, output type and suspension capability. Await
 encodes operand and typed destination; the following PC resumes only after output
 initialization. Independent verification derives initialized live slots and resource
 scopes, rejects direct resume-body calls and non-suspendable resources, and permits
 owned iteration leases. Runtime also checks actual reachable mutable/host state.
+
+MakeFuture records a local private resume target, all captured arguments and the
+nominal Future type. Verification requires exact physical/semantic capture types,
+the completed output and a suspendable target, with initialized capture registers.
+It allocates cold state without invoking the target. Task metadata follows in AX04.

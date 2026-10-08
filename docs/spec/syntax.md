@@ -1202,8 +1202,7 @@ object initialization. See [the value contract](value-semantics.md#repeat-arrays
 ## Async syntax (AX03)
 
 Parsing, type checking, cold script Future factories and interpreted `.await` are
-implemented. AX03 acceptance remains open for the broader iterator/control-flow
-and cold-capture diagnostic cases recorded in the roadmap. The
+implemented, including ordinary for-body awaits and generic Fn calls. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
@@ -1221,3 +1220,9 @@ flattening of a Future-valued result. `.await` shares postfix precedence with
 calls, fields, indexing and `?`; `read().await?` propagates the awaited result.
 General async trait methods remain unsupported even though parser recovery retains
 the modifier. An inherent async method is an ordinary Future-producing callable.
+
+Async parameters are retained in the cold Future, even when the body has no await.
+Known scoped host parameter types are rejected at the parameter declaration,
+including annotated/contextually typed async closure parameters. Executable checks
+and runtime graph validation remain responsible for concrete generic applications
+and mutable values whose reachable state cannot be proved safe statically.

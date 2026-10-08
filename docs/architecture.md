@@ -1152,5 +1152,5 @@ return cold values, including Future-valued outputs without flattening. Nested
 script awaits push owned resume frames; native waits also work directly as a root
 without an artificial script caller. Real deferred for-body waits retain the same
 cursor and lease, observe later element replacement and reject structural writes.
-Cancellation and owner retirement release the lease. Broader AX03 acceptance and
-AX04 Task scopes remain open in the roadmap.
+Cancellation and owner retirement release the lease. AX03 has passed its focused
+local gate; AX04 Task scopes and full CI acceptance remain open in the roadmap.

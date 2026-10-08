@@ -58,7 +58,8 @@ one invariant output parameter. `std::future` and the prelude re-export that exa
 declaration. It has no public constructor or trait-based await protocol. Typed
 `ModuleBuilder::add_async_function` registration selects this checked storage role;
 ordinary invocation captures values and first await submits the operation. Source
-async syntax remains AX03 work; native wait/resume already works in encoded input.
+async callables construct the same Future role with private script resume state;
+both producers support encoded wait/resume.
 `ModuleBuilder::bind_storage` binds a separately authored local type declaration
 to its Rust storage descriptor, validating exact declaration/layout agreement and
 rejecting duplicate or foreign bindings. Compiler declarations contain no Rust

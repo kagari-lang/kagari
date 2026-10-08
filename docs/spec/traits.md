@@ -892,7 +892,7 @@ indirect closure dispatch. No inlining guarantee is part of this contract.
 
 ## Async callable draft (AX03)
 
-Scheduled behavior; not yet implemented. The
+Implemented for functions and explicit async closures. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 

@@ -426,21 +426,21 @@ the frames and leases. Host control wakers can be registered on the owner token.
 Independent-root entry/drive during an activation is rejected; ordinary checked
 synchronous reentry remains available and shares the active root.
 
-Native Future waits now use this same driver. Source `async`/`.await` and Task
-scopes remain scheduled for AX03-AX04; bytecode wait/resume does not imply source
-support.
+Native and script Future waits use this same driver. Source `async`/`.await` is
+implemented through checked cold factories and resume bodies. Task scopes remain
+scheduled for AX04.
 
 ## Owned async execution draft (AX01-AX04)
 
-The full source async/Task surface is still scheduled; the native wait and owned
-driver subset is implemented below. The
+Source async callables, Future waits and the owned driver are implemented below;
+Task scheduling and sharing remain AX04 work. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
 Runtime-owned execution records survive short driver activations. The driver
 returns Runnable, Waiting or Complete, and completion endpoints only publish
-readiness. Direct Future await drives once in the current execution; Task await
-waits for a scope-owned execution. Owned iteration leases remain in parked frames,
+readiness. Direct Future await drives once in the current execution; the planned
+Task await waits for a scope-owned execution. Owned iteration leases remain in parked frames,
 so ordinary for bodies can await with existing structural-mutation exclusion.
 Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
 

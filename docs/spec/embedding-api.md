@@ -790,7 +790,9 @@ bodies before calling the backend, directing the host to this owned driver.
 Synchronous execute/reentry cannot drive a suspendable body, even if its operation
 would complete immediately. Native calls remain cooperative and may overrun a slice.
 
-Source `async`/`.await` belongs to AX03; scope spawn, Task sharing, bounded scope
+Source `async`/`.await` is implemented. `start_future` queues one cold Future layer
+for owned driving; ordinary calls return the Future without running its body.
+Scope spawn, Task sharing, bounded scope
 admission and terminal task reports belong to AX04. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define those remaining handoffs.

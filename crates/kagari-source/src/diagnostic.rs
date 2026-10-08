@@ -116,6 +116,9 @@ pub enum DiagnosticKind {
     InvalidClosureCapture {
         type_name: String,
     },
+    InvalidAsyncCapture {
+        type_name: String,
+    },
     AwaitOutsideAsync,
     InvalidAwaitOperand {
         type_name: String,
@@ -400,6 +403,7 @@ impl DiagnosticKind {
             Self::InvalidNativeSignature { .. } => "KG_NATIVE_SIGNATURE_INVALID",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidClosureCapture { .. } => "KG_TYPE_INVALID_CLOSURE_CAPTURE",
+            Self::InvalidAsyncCapture { .. } => "KG_TYPE_INVALID_ASYNC_CAPTURE",
             Self::AwaitOutsideAsync => "KG_AWAIT_OUTSIDE_ASYNC",
             Self::InvalidAwaitOperand { .. } => "KG_TYPE_INVALID_AWAIT_OPERAND",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
@@ -568,6 +572,10 @@ impl Display for DiagnosticKind {
             Self::InvalidClosureCapture { type_name } => write!(
                 f,
                 "cannot capture host value of type `{type_name}` in a closure"
+            ),
+            Self::InvalidAsyncCapture { type_name } => write!(
+                f,
+                "async parameter of type `{type_name}` cannot be retained in a cold Future"
             ),
             Self::AwaitOutsideAsync => write!(
                 f,

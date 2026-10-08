@@ -18,6 +18,7 @@ use kagari_types::{
     callable::NativeDefaultApplication,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        type_declaration::{HostTypeDeclaration, HostTypeOwnership},
         value_type::HostValueType,
     },
     scalar::BuiltinType,
@@ -157,6 +158,42 @@ fn plain() -> Future<i32> { (|| identity(1))() }
                 .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.kind.code() == code),
+            "{text}: {:?}",
+            analysis.result().diagnostics()
+        );
+    }
+    let mut host = HostTypeDeclaration::new("host.State");
+    host.ownership = HostTypeOwnership::HostRoot;
+    database.set_host_declarations(
+        HostDeclarations::new(HostInterface {
+            paths: vec![],
+            types: vec![host],
+            functions: vec![],
+        })
+        .unwrap(),
+    );
+    for text in [
+        "async fn bad(value:host::State) {}",
+        "async fn bad(value:(i32,host::State)) {}",
+        "fn bad() { val f=async |value:host::State| {}; }",
+        "fn bad() { val f:fn(host::State)->Future<()> = async |value| {}; }",
+    ] {
+        sources
+            .set("async-types.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = database
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let analysis = snapshot.file(root).unwrap();
+        assert!(
+            analysis
+                .result()
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::InvalidAsyncCapture { .. }
+                )),
             "{text}: {:?}",
             analysis.result().diagnostics()
         );

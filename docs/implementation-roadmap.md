@@ -634,7 +634,7 @@ implementation and local/CI acceptance are recorded separately below.
 - [x] AX00: Finalize concrete semantic/executable, state, host and verification contracts (local documentation gate).
 - [x] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry (local gate).
 - [x] AX02: Prove typed native Future completion and checked source-free wait/resume (local gate).
-- [ ] AX03: Implement async functions, explicit async closures and await through source and artifacts.
+- [x] AX03: Implement async functions, explicit async closures and await through source and artifacts (local gate).
 - [ ] AX04: Add scope spawn, shared Task results, waiters and directional cancellation.
 - [ ] AX05: Complete lifecycle, reload, cleanup and diagnostic integration.
 - [ ] AX06: Deliver embedding/example products and local integration evidence; record full CI separately.
@@ -967,11 +967,26 @@ The test-only path attribute groups the source fixture under its integration-tes
 owner. Structure checked 952 files with no findings/exceptions; formatting and
 documentation/diff checks complete the local checkpoint. Full CI remains unrun.
 
-AX03 stays open: complete the nested/custom/erased/adapter
-iterator and break/continue/return/trap cases, two-RPC early-Err flow, source-origin
-and cold-parameter diagnostic review. The real deferred Vec for-await case now
-exists, but is not acceptance of the entire AX03 matrix. AX04-AX06 and full CI
-acceptance remain outstanding.
+AX03 local acceptance (2026-10-08): `sdk_for_await_iterator_control_contract` adds
+custom source/iter/next counts and nested adapter/erased Iterator traversal across
+real native waits. Interleaved replacement remains visible; structural writes trap
+while parked. Continue, break, return and post-resume division failure preserve
+cursor progress and release all loop leases. The trap retains its original source
+URI/line after bytecode encoding. The existing source contract now also proves
+generic Fn dispatch of async closures, two-RPC success/early business Err, and
+left-to-right once-only argument effects before drive.
+
+Known scoped host async parameters now report KG_TYPE_INVALID_ASYNC_CAPTURE at
+their declaration, including tuple and annotated/contextual closure parameters.
+Generic/mutable graph safety retains independent executable/runtime enforcement.
+The expanded `async_callable_typing_contract` and both SDK `source::` contracts
+passed. The initial source-line assertion needed usize-to-u32 conversion in the
+Rust fixture; it is fixed with no carried failure. HIR library and SDK test Clippy,
+structure (952 files, no findings/exceptions), formatting and local documentation
+link/diff checks passed. Manual review found no new ownership/import/LOC debt.
+Current specifications now describe source async as implemented. AX03 is complete
+locally; next is AX04 scope spawn, shared Tasks and directional cancellation.
+AX04-AX06 and full GitHub CI acceptance remain outstanding.
 
 ### Other proposals
 
