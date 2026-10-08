@@ -73,7 +73,7 @@ def run() -> None:
         if name in {"source", "codegen", "mir", "codegen-cranelift"}:
             options.append('optional = true')
         lines.append(f'kagari-{name} = {{ {", ".join(options)} }}')
-    targets = ["artifact_features"]
+    targets = ["artifact_features", "async_execution"]
     for target in targets:
         lines += ['[[test]]', f'name = "{target}"',
                   f'path = {json.dumps(str(ROOT / "crates/kagari-embed/tests" / f"{target}.rs"))}']

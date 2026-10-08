@@ -50,6 +50,7 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
         "Vec" => module("alloc", "vec"),
         "Option" => module("core", "option"),
         "Result" => module("core", "result"),
+        "Future" => module("core", "future"),
         "Ordering" => module("core", "cmp"),
         "Infallible" => module("core", "convert"),
         "ParseError" | "TryFromIntError" => module("core", "num"),

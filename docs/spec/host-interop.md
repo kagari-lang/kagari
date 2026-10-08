@@ -902,9 +902,10 @@ Incremental implementation order:
 
 This gives Kagari a practical embedded scripting model early, especially for the "Rust owns the data, Kagari patches the behavior" use case.
 
-## Native async producer draft (AX02)
+## Native async producers (AX02)
 
-The complete producer/SDK surface is still in progress. The
+The native producer and owned SDK driver are implemented. Source async syntax and
+Task scopes remain later phases. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
@@ -915,7 +916,7 @@ conversion into managed values occurs only under the owning driver. Endpoints
 retain no runtime references, frame borrows or unrooted Values. Cancellation hooks
 are bounded and invoked at most once; duplicate/stale completions are harmless.
 
-### Completion transport foundation (AX02 in progress)
+### Completion transport foundation (AX02)
 
 `native::completion::CompletionRegistry` provides bounded operation reservations
 with opaque registry/slot/generation identities. Reserve before submitting external
@@ -932,13 +933,14 @@ reported as EngineFault. Exhausted generations never wrap or become reusable.
 The producer endpoint keeps only a weak reference to result storage, so retained
 late endpoints cannot keep completed payloads or reservations alive.
 
-### Registered cold producers and VM waits (AX02 in progress)
+### Registered cold producers and VM waits (AX02)
 
 `ModuleBuilder::add_async_function<A, R>` declares `fn(A) -> Future<R>` using the
 catalog's unique checked `NativeStorageLayout::Future` role. `NativeStorage::future`
 provides sealed runtime payload storage with exactly one invariant output parameter.
-The foundation export and SDK surface are still pending; backend contract fixtures
-currently supply this declaration explicitly.
+The foundation installs `core::future::Future<T>` and exposes it through the
+prelude and `std::future`. Application producers use the engine's installed
+declaration catalog. SDK owned driving works without source/native features.
 
 Calling a producer captures traced script values without invoking its Rust callback.
 The first await removes the cold state, roots the captured values, reserves bounded
@@ -957,5 +959,5 @@ MIR lowering, encoded bytecode `Await` and VM Waiting are implemented. Independe
 bounded MIR/bytecode flow checks reject uninitialized resume reads, inconsistent
 iteration stacks and statically visible host capabilities live across an await.
 Runtime checks remain mandatory for actual values and active native/host resources.
-Foundation publication and SDK integration still belong to AX02; source async
-syntax belongs to AX03.
+The SDK exposes start/drive, rooted terminal values, owner wakers and explicit
+retirement draining. Source async syntax belongs to AX03.

@@ -756,24 +756,41 @@ one. Full-file and per-function queries share this implementation. Repeating an
 unchanged query uses its cached snapshot; source movement rebases query positions
 without changing the results retained by an earlier snapshot.
 
-## Owned driver and scopes draft (AX01-AX04)
+## Owned execution and native waits (AX01-AX02)
 
-Scheduled behavior; not yet implemented. The
+`KagariRuntime::{start, drive, drain_retired_executions}` exposes runtime-owned
+execution with or without SDK source/native features. Start validates a pinned
+entry, retains owned arguments and queues it without executing script. It returns
+`kagari_runtime::session::owned::OwnedExecution`, with no Runtime borrow in the
+handle. Drive takes a `NonZeroUsize` instruction slice and returns
+`kagari_embed::runtime::owned::DriveResult`:
+
+- `Runnable`: a safe slice exit; the host should schedule another turn.
+- `Waiting`: an incomplete operation; the host should wait for readiness.
+- `Complete(RunResult<RootedValue>)`: a terminal value or script/cancellation error,
+  after execution cleanup. Driver API errors are the outer `RunResult`.
+
+`OwnedExecution::set_waker` registers a host scheduling notification and rechecks
+durable readiness. `is_ready` observes that coalesced state; a wake never enters the
+runtime. Typed `ModuleBuilder::add_async_function` producers return cold
+`core::future::Future<T>` values, receive owned input/completion endpoints on first
+await, and convert results on the driver. Completion can arrive before registration,
+during submission or from another thread without executing a continuation there.
+
+Owner cancellation affects only that execution. The context's cancellation token
+can cancel all executions started with that context, including while waiting;
+owner cancellation does not propagate back into this shared token. Drop requests
+retirement. Explicit drain, another start/drive or runtime destruction releases
+abandoned frames, leases and pending operations. Cancellation of a retained owner
+completes through its next drive; requesting cancellation alone is not cleanup.
+
+The owned driver uses the interpreter and requires `JitPolicy::Disabled`, like
+ordinary baseline execution. `prepare_native` returns Unsupported for resume
+bodies before calling the backend, directing the host to this owned driver.
+Synchronous execute/reentry cannot drive a suspendable body, even if its operation
+would complete immediately. Native calls remain cooperative and may overrun a slice.
+
+Source `async`/`.await` belongs to AX03; scope spawn, Task sharing, bounded scope
+admission and terminal task reports belong to AX04. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
-
-The planned start/drive API returns an owned execution token, accepts a positive
-instruction slice, and produces rooted terminal results. Scope spawn reserves
-capacity/readiness/report storage before invoking any factory. A durable ready
-set and coalesced wake sink handle completion; dispatch failure requests cleanup
-through the host control/drain path. Owner drop requests retirement; explicit
-drain or the next drive completes cleanup. Runtime destruction is the backstop.
-
-### AX01 VM API availability
-
-`kagari_vm::vm::Vm::{start, drive}` and
-`kagari_runtime::session::owned::OwnedExecution` provide the current synchronous
-owned-drive foundation. Results use `kagari_vm::vm::owned::DriveResult` with
-Runnable/Complete variants. The SDK async registration, external waits, scope
-admission and durable ready set described above remain scheduled; this checkpoint
-does not advertise those APIs as implemented.
+and [execution plan](../async-execution-plan.md) define those remaining handoffs.

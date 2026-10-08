@@ -90,6 +90,15 @@ impl KagariRuntime {
             backend: configuration.backend.clone(),
             diagnostics: vec![message],
         };
+        if module.bytecode.functions[function.index()]
+            .metadata
+            .effects
+            .may_suspend
+        {
+            return Ok(unsupported(
+                "resume bodies require the owned interpreter driver".into(),
+            ));
+        }
         if let Err(error) = self.runtime().resources().ensure_execution_allowed() {
             return Ok(unsupported(format!(
                 "JIT disabled by runtime policy: {error}"

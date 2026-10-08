@@ -24,6 +24,7 @@ pub(crate) struct ExecutionOwner {
     finished: AtomicBool,
     cancellation: CancellationToken,
     cancellation_wake: OnceLock<CancellationSubscription>,
+    external_cancellation: OnceLock<CancellationSubscription>,
     wake: Mutex<Option<Arc<Waker>>>,
 }
 
@@ -67,6 +68,16 @@ impl Wake for ExecutionWake {
     }
 }
 
+struct ExternalCancellation(Weak<ExecutionOwner>);
+
+impl Wake for ExternalCancellation {
+    fn wake(self: Arc<Self>) {
+        if let Some(owner) = self.0.upgrade() {
+            owner.cancellation.cancel();
+        }
+    }
+}
+
 /// An exclusive execution owner, independent of the runtime's Rust address.
 /// Drop requests retirement; the owner thread must drain or drive the runtime.
 #[must_use = "drive this execution or drop it and drain retired executions"]
@@ -77,6 +88,8 @@ pub struct OwnedExecution {
 }
 
 impl OwnedExecution {
+    /// Request termination of this execution only. The host-supplied token may
+    /// cancel several executions, but local cancellation never propagates to it.
     pub fn cancel(&self) {
         self.owner.cancellation.cancel();
     }
@@ -156,6 +169,11 @@ impl Runtime {
                 "invalid owned execution arguments",
             ));
         }
+        let external_cancellation = options.cancellation;
+        let options = ExecutionOptions {
+            cancellation: CancellationToken::default(),
+            ..options
+        };
         let session = self.begin_execution(module, options)?;
         self.attach_execution_observer()?;
         let id = session.id;
@@ -165,12 +183,21 @@ impl Runtime {
             finished: AtomicBool::new(false),
             cancellation: session.state().options.cancellation.clone(),
             cancellation_wake: OnceLock::new(),
+            external_cancellation: OnceLock::new(),
             wake: Mutex::new(None),
         });
         owner
             .cancellation_wake
             .set(owner.cancellation.subscribe(owner.waker()))
             .expect("new cancellation wake registration");
+        owner
+            .external_cancellation
+            .set(
+                external_cancellation.subscribe(Waker::from(Arc::new(ExternalCancellation(
+                    Arc::downgrade(&owner),
+                )))),
+            )
+            .expect("new external cancellation registration");
         let stack = ExecutionStack::new(session)?;
         *self
             .resources()

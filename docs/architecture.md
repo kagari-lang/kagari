@@ -1135,5 +1135,8 @@ iteration-stack joins and host capabilities at suspension points. Sealed bytecod
 retains computed await liveness, which physical allocation maps to retained managed
 locations. The runtime discards dead slots before its resource check, preserving
 live aliases and debugger-visible locals. These facts are rebuilt after decoding,
-never trusted from an artifact flag. AX02 still owns foundation exports and SDK
-integration; AX03/AX04 add source async and Task scopes.
+never trusted from an artifact flag. The foundation owns `core::future::Future<T>`;
+the SDK's `runtime::owned` maps drive results to embedding errors while reusing the
+runtime owner, readiness and cleanup path. Per-execution cancellation is separate
+from the host's shared context signal. Native preparation rejects resume bodies
+before invoking a backend. AX03/AX04 add source async and Task scopes.

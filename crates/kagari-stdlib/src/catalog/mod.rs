@@ -7,6 +7,7 @@ mod contracts;
 mod defaults;
 mod documentation;
 mod enums;
+mod future;
 mod key;
 mod list_methods;
 mod partition;
@@ -27,6 +28,7 @@ fn assembly_identity() -> ModuleIdentity {
 pub fn declarations() -> Vec<ModuleDecl> {
     let mut module = ModuleDecl::new(assembly_identity());
     contracts::declare(&mut module);
+    future::declare(&mut module);
     construction::declare(&mut module);
     collections::declare(&mut module);
     list_methods::declare(&mut module);

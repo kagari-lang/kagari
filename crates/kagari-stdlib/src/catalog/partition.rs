@@ -215,6 +215,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         ("Vec", DefinitionKind::AssociatedType),
         ("Option", DefinitionKind::Enum),
         ("Result", DefinitionKind::Enum),
+        ("Future", DefinitionKind::AssociatedType),
     ] {
         prelude.exports.insert(
             ExportName::new(NameNamespace::Type, name),

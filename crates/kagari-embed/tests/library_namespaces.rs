@@ -75,6 +75,7 @@ fn explicit_prelude_requires_imports_and_local_names_shadow_defaults() {
     }
     for source in [
         "fn identity(value: Vec<i32>) -> Option<Vec<i32>> { Some(value) }",
+        "fn future(value: Future<i32>) -> std::future::Future<i32> { val core: core::future::Future<i32> = value; core }",
         "struct Vec { val value: i32 } fn main() -> i32 { Vec { value: 42 }.value }",
         "use std::ops::Add; fn plus<T: Add<T>>(a: T, b: T) -> T::Output { a + b }",
         "use std::iter::Iterable; fn source<T: Iterable>(value: T) -> T::Iter { value.iter() }",

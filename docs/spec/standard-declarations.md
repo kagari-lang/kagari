@@ -20,7 +20,7 @@ owns sequencing and acceptance.
 The installed `core`/`alloc`/`std` foundation contains complete language contracts:
 operators, comparisons, hashing, Index, Fn, iteration, collection interfaces,
 formatting and error conversion. It also declares Option/Result/Ordering/Bound,
-range forms and the default Vec/HashMap/HashSet types. The SDK installs their basic native operations by default. Array literals
+range forms, cold Future values and the default Vec/HashMap/HashSet types. The SDK installs their basic native operations by default. Array literals
 construct Vec. Explicit registrations declare the core traits; validated language
 roles select their semantic duties. Installation remains independent of syntax/HIR.
 Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
@@ -52,6 +52,17 @@ providers to application ModuleBuilders. Duplicate module identities, conflictin
 bindings, missing dependencies and declaration mismatches are rejected. A finished module contains
 both portable declarations and runtime-local Rust entries/storage descriptors.
 Compiler-only consumers can read the same declarations without a runtime.
+
+`core::future::Future<T>` is the canonical single-drive native storage type, with
+one invariant output parameter. `std::future` and the prelude re-export that exact
+declaration. It has no public constructor or trait-based await protocol. Typed
+`ModuleBuilder::add_async_function` registration selects this checked storage role;
+ordinary invocation captures values and first await submits the operation. Source
+async syntax remains AX03 work; native wait/resume already works in encoded input.
+`ModuleBuilder::bind_storage` binds a separately authored local type declaration
+to its Rust storage descriptor, validating exact declaration/layout agreement and
+rejecting duplicate or foreign bindings. Compiler declarations contain no Rust
+factory, payload or completion endpoint.
 
 List/MutableList declare common algorithms directly. The bundled
 `std::collections` module supplies lazy map as an ordinary function:

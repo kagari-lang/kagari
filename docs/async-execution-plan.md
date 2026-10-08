@@ -279,15 +279,15 @@ contract, not one regression test per edited function. Use a small shared fake
 provider/dispatcher fixture with manual completion ordering; test loops are finite.
 
 The following are selected phase checks, not cumulative commands to run after every
-edit. Proposed `async_*` test names/targets do not exist at this planning checkpoint;
-create them at their owning phase, or map to an existing contract owner and record
+edit. AX01/AX02 contract targets are implemented; later proposed `async_*` names
+must be created at their owning phase, or mapped to an existing contract owner. Record
 the exact replacement filter. A command selecting zero tests is not a passing gate.
 
 | Phase | Suggested focused local commands / evidence |
 | --- | --- |
 | AX00 | Local link/anchor/content checks and `git diff --check`; contract transition-table review. |
 | AX01 | `cargo test -p kagari-vm --lib async_owned_drive_contract`; `cargo test -p kagari-vm --lib host_reentry_cannot_swallow_root_termination_and_releases_borrows`. |
-| AX02 | `cargo test -p kagari-vm --lib async_native_completion_contract`; `cargo test -p kagari-bytecode --lib async_artifact_validation_contract`. |
+| AX02 | Native completion and MIR/bytecode flow contracts; `cargo test -p kagari-embed --no-default-features --test async_execution sdk_owned_native_wait_contract`; `cargo test -p kagari-embed --test async_execution sdk_native_preparation_declines_resume_before_entry`. |
 | AX03 | `cargo test -p kagari-hir --lib async_callable_contract`; `cargo test -p kagari-embed --test async_execution source_future_contract`. |
 | AX04 | `cargo test -p kagari-embed --test async_execution scoped_task_contract` (admission, sharing, directional cancellation and cycles). |
 | AX05 | `cargo test -p kagari-embed --test async_execution lifecycle_reload_contract`; select one existing affected synchronous boundary if implementation changed it. |

@@ -270,6 +270,9 @@ pub(super) fn complete(module: &mut ModuleDecl) {
             "Hash contracts used by key-based collections. Equal keys must hash equally, and key lookup blocks recursive structural mutation."
         }
         "fmt" => "Diagnostic and display formatting through declared interfaces.",
+        "future" => {
+            "Cold asynchronous operations. Creation captures inputs without starting work; first await drives the operation once. Aliases share that single-drive state."
+        }
         "convert" => {
             "Explicit infallible and checked conversions, including reverse adapters and error conversion."
         }
@@ -305,6 +308,7 @@ pub(super) fn complete(module: &mut ModuleDecl) {
         "cmp" => trait_docs("PartialEq").1,
         "hash" => trait_docs("Hash").1,
         "fmt" => trait_docs("Debug").1,
+        "future" => "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
         "convert" => trait_docs("From").1,
         "num" | "str" => trait_docs("FromStr").1,
         "string" => "fn clean(text: String) -> String { text.trim() }",
@@ -356,6 +360,10 @@ pub(super) fn complete(module: &mut ModuleDecl) {
         };
         let id = module.definition(kind, &ty.name);
         let (description, code) = match ty.name.as_str() {
+            "Future" => (
+                "A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.",
+                "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
+            ),
             "Vec" => (
                 "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and iteration guards.",
                 "fn append(values: Vec<i32>) -> usize { values.push(3); values.len() }",

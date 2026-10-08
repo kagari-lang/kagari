@@ -32,18 +32,19 @@ constructors and tooling navigation.
 | `core::str` | FromStr |
 | `core::num` | ParseError, TryFromIntError and numeric native implementations |
 | `core::option`, `core::result` | Option and Result |
+| `core::future` | Cold single-drive Future |
 | `alloc::string`, `alloc::vec` | String and Vec |
 | `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap, HashSet and map |
 
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
-`std::iter`, `std::str`, `std::num`, `std::option`, `std::result`, `std::string`
+`std::iter`, `std::str`, `std::num`, `std::option`, `std::result`, `std::future`, `std::string`
 and `std::vec` expose the canonical declarations through checked re-exports.
 The package/module spelling does not change Kagari's GC or shared-object semantics.
 There is no installed `core::language` module or ArrayList declaration.
 
 `std::prelude` explicitly exports Iterator, Iterable, FromIterator, PartialEq,
 Eq, PartialOrd, Ord, From, Into, TryFrom, TryInto, Fn, Option, Result, Some, None,
-Ok, Err, String and Vec. Iterable is a retained Kagari extension. Local declarations
+Ok, Err, String, Vec and Future. Iterable is a retained Kagari extension. Local declarations
 and explicit imports take precedence over these implicit imports.
 Operators use their checked language roles independently of name imports; writing
 an explicit operator trait bound or implementation requires that name in scope.
@@ -100,6 +101,7 @@ The core type set includes:
 - trait/interface value types
 - `Option<T>`
 - `Result<T, E>`
+- `Future<T>` (native producer values and owned driver; source await is scheduled in AX03)
 
 The numeric type names follow Rust spelling.
 The semantics do not import Rust ownership or borrowing.

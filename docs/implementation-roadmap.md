@@ -628,12 +628,12 @@ checkpoint policy and focused acceptance. The [async design](async-execution-des
 and [host task scopes](host-task-scope-design.md) own language/lifetime behavior.
 Status: active. On 2026-10-08 the user authorized goal execution of AX00-AX06,
 including ordinary `for` traversal with `.await` in the body. Current specifications
-continue to describe synchronous support except for explicitly marked AX drafts;
-implementation and local/CI acceptance are recorded separately below.
+distinguish implemented owned native waits from scheduled source async and Task
+support; implementation and local/CI acceptance are recorded separately below.
 
 - [x] AX00: Finalize concrete semantic/executable, state, host and verification contracts (local documentation gate).
 - [x] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry (local gate).
-- [ ] AX02: Prove typed native Future completion and checked source-free wait/resume.
+- [x] AX02: Prove typed native Future completion and checked source-free wait/resume (local gate).
 - [ ] AX03: Implement async functions, explicit async closures and await through source and artifacts.
 - [ ] AX04: Add scope spawn, shared Task results, waiters and directional cancellation.
 - [ ] AX05: Complete lifecycle, reload, cleanup and diagnostic integration.
@@ -849,6 +849,59 @@ next publish the canonical `core::future`/prelude declaration, connect SDK owned
 driving and verify pre-entry native fallback through that surface. AX03 still owns
 source async functions/closures and the required ordinary for-body await matrix;
 AX04 owns Task scopes. No format/ABI number bump or historical artifact reader.
+
+AX02 SDK/foundation exit checkpoint (2026-10-08): published the canonical
+`core::future::Future<T>` declaration/storage, identity-preserving `std::future`
+and prelude exports, and generated documentation. Separately authored native types
+can bind storage through `ModuleBuilder::bind_storage`; exact local declaration,
+layout, parameter and duplicate checks remain mandatory.
+
+Added SDK `start`, `drive` and explicit retirement drain over the existing runtime
+owner/VM implementation. These APIs work without source or native compilation
+features, retain no Runtime borrow across waits, and map terminal errors to the
+SDK error taxonomy. Native preparation returns Unsupported for resume bodies before
+calling a backend; synchronous entry still rejects them without submitting IO.
+Added the async contract target to the existing standalone CI feature consumer;
+the complete consumer matrix was not run locally.
+
+Integration review found a concrete cancellation leak: cancelling one owner also
+cancelled other executions sharing its host ExecutionContext token. A failing SDK
+case reproduced this. Each execution now has its own cancellation token and a weak
+subscription forwarding the external host signal inward. Local cancellation never
+propagates back to that shared signal; external cancellation still wakes pending
+executions. The corrected case covers two simultaneous waits and independent results.
+
+Focused validation passed:
+
+- `cargo test -p kagari-embed --no-default-features --test async_execution sdk_owned_native_wait_contract`:
+  encoded source-free input, canonical Future binding, cold creation, delayed and
+  immediate completion, completion during start, durable host wakeups, duplicate and
+  stale publication, interleaved roots/GC, external and owner-local cancellation,
+  owner-drop drain, terminal SDK errors and stale owner rejection.
+- `cargo test -p kagari-embed --test async_execution sdk_native_preparation_declines_resume_before_entry`:
+  no compiler invocation or IO before the explicit owned interpreter route, followed
+  by a real wait/resume. This is a selected native boundary, not a backend matrix.
+- `cargo test -p kagari-embed --test library_namespaces explicit_prelude_requires_imports_and_local_names_shadow_defaults`
+  and `cargo test -p kagari-stdlib --test documentation standard_documentation_covers_the_registered_api_and_examples_analyze`:
+  canonical aliases/prelude and generated standard examples passed.
+- `cargo test -p kagari-runtime --test native_builder declaration_storage_binding_preserves_local_contract`:
+  rejects missing, mismatched, duplicate and foreign storage bindings.
+- `cargo test -p kagari-vm --lib async_owned_drive_contract`: both owned execution
+  contracts passed after the cancellation change, including iteration and reentry.
+  `cargo test -p kagari-compiler --lib async_mir_suspension_contract` passed with
+  the new standard declaration installed.
+- `cargo clippy -p kagari-embed --lib --test async_execution -- -D warnings`,
+  structure (947 Rust files, zero findings/exceptions), formatting and diff/content
+  checks passed. Manual review retained separate registration, runtime lifetime and
+  SDK orchestration owners; no re-exports, forwarding modules or exceptions added.
+
+The initial SDK fixture omitted required parameter names and a constant-pool entry;
+both were corrected before its passing run. No compilation/test errors are carried.
+The local AX02 exit is satisfied together with its preceding transport, VM and MIR
+checkpoints. Full CI acceptance remains unrun. Next is AX03: source async functions,
+explicit async closures, script Future factories/await and the ordinary for-body
+await contract, including real deferred interleaving and cleanup. Task/scope capacity,
+sharing and reports remain AX04, lifecycle integration AX05 and final products/CI AX06.
 
 ### Other proposals
 

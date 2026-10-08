@@ -18,6 +18,7 @@ use kagari_runtime::{
         context::CallContext,
         module::NativeModule,
         scalar::NativeScalar,
+        storage::NativeStorage,
     },
     value::Value,
 };
@@ -144,7 +145,11 @@ fn build_module(
         );
     }
     let collections_module = declaration.identity == namespaces::module("std", "collections");
+    let future_module = declaration.identity == namespaces::module("core", "future");
     let mut builder = ModuleBuilder::from_declaration(declaration, &catalog, bindings);
+    if future_module {
+        builder.bind_storage(&catalog.future_type()?, NativeStorage::future())?;
+    }
     if collections_module {
         collections::register(&mut builder, language)?;
     }

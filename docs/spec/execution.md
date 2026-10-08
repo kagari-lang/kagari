@@ -444,7 +444,7 @@ waits for a scope-owned execution. Owned iteration leases remain in parked frame
 so ordinary for bodies can await with existing structural-mutation exclusion.
 Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
 
-### Owned readiness and cancellation notifications (AX02 in progress)
+### Owned readiness and cancellation notifications (AX02)
 
 Owned execution readiness is a durable coalescing bit. Host wakers only request
 scheduling; registering a waker rechecks existing readiness. Activation claims the
@@ -475,7 +475,10 @@ await; owned iteration resources can. The bytecode verifier derives bounded,
 non-serializable await liveness. Runtime preparation maps it through physical slot
 reuse, preserving a location if any logical alias is live. Dead managed slots are
 discarded before the runtime resource check so unused values cannot falsely prevent
-suspension or retain heap objects. Foundation publication and SDK integration remain
-pending in AX02.
+suspension or retain heap objects. The foundation publishes `core::future::Future<T>`
+and the SDK exposes this driver with or without source/native features. Each owned
+execution has its own cancellation token. Cancelling the owner terminates only that
+execution; the host-supplied context token forwards cancellation to all executions
+started with it, without receiving local cancellation requests back.
 These transitions do not add polling loops, thread preemption or cancellation of
 another execution merely because it is being observed.

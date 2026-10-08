@@ -148,6 +148,48 @@ fn sequence_len(_cx: &mut CallContext<'_>, values: SequenceHandle<'_>) -> Native
 }
 
 #[test]
+fn declaration_storage_binding_preserves_local_contract() {
+    let language = StandardDeclarations::default();
+    let catalog = language.catalog().unwrap();
+    let future = catalog.future_type().unwrap();
+    let declaration = language
+        .declarations()
+        .iter()
+        .find(|declaration| declaration.identity == future.id().module)
+        .unwrap()
+        .as_ref()
+        .clone();
+    let builder =
+        || ModuleBuilder::from_declaration(declaration.clone(), &catalog, Default::default());
+    assert!(
+        builder().finish().is_err(),
+        "declarations alone cannot install payloads"
+    );
+    let mut module = builder();
+    assert!(
+        module
+            .bind_storage(&future, NativeStorage::payload::<EmptyPayload>())
+            .is_err()
+    );
+    module
+        .bind_storage(&future, NativeStorage::future())
+        .unwrap();
+    assert!(
+        module
+            .bind_storage(&future, NativeStorage::future())
+            .is_err()
+    );
+    module.finish().unwrap();
+    let mut foreign = ModuleBuilder::new("example::foreign_storage", &catalog);
+    assert!(
+        foreign
+            .bind_storage(&future, NativeStorage::future())
+            .is_err()
+    );
+    foreign.finish().unwrap();
+}
+
+#[test]
 fn sequence_conversion_rejects_opaque_storage_at_registration() {
     let mut module = ModuleBuilder::new(
         "example::opaque",

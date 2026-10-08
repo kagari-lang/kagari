@@ -25,6 +25,32 @@ pub struct TypeBuilder<'module> {
     storage: Option<NativeStorage>,
 }
 
+impl ModuleBuilder {
+    /// Install storage for a local native type authored in a portable declaration.
+    /// The complete declaration and layout must match; provider types cannot be rebound.
+    pub fn bind_storage(&mut self, ty: &TypeRef, storage: NativeStorage) -> NativeResult<()> {
+        if ty.id.module != self.declaration.identity
+            || self
+                .declaration
+                .types
+                .iter()
+                .find(|item| item.name == ty.declaration.name)
+                != Some(ty.declaration.as_ref())
+            || ty.declaration.kind != TypeDefKind::NativeStorage(storage.layout())
+            || !storage
+                .layout()
+                .valid_parameters(ty.declaration.generic_params.len())
+            || self.storage.contains_key(&ty.id)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "native storage binding differs from its local declaration",
+            ));
+        }
+        self.storage.insert(ty.id.clone(), storage);
+        Ok(())
+    }
+}
+
 impl<'module> TypeBuilder<'module> {
     pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> Self {
         let id = module
