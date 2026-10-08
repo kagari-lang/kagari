@@ -32,6 +32,8 @@ use kagari_types::{
 };
 use std::{collections::HashSet, iter};
 
+#[cfg(test)]
+mod async_tests;
 mod operation;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

@@ -403,12 +403,12 @@ This order keeps the interpreter as the semantic foundation while preserving JIT
 
 ## Owned interpreter driving (AX01)
 
-The VM exposes `start` and `drive` for verified synchronous entries. Start validates
-and retains arguments without executing script. An `OwnedExecution` token contains
+The VM exposes `start` and `drive` for verified script entries, including native-wait
+resume bodies. Start validates and retains arguments without executing script. An `OwnedExecution` token contains
 a checked session identity and retirement/cancellation notification state, not a
 Runtime borrow. `drive` borrows the runtime for one exclusive activation and returns
-`Runnable` or `Complete(Result<RootedValue, VmError>)`. Its nonzero instruction slice
-is a scheduling interval; native calls remain cooperative and a slice may overrun
+`Runnable`, `Waiting` or `Complete(Result<RootedValue, VmError>)`. Its nonzero
+instruction slice is a scheduling interval; native calls remain cooperative and a slice may overrun
 until all transient resources have left. Synchronous execute/reentry uses the same
 frame store and interpreter without host-visible slice exits.
 
@@ -426,12 +426,14 @@ the frames and leases. Host control wakers can be registered on the owner token.
 Independent-root entry/drive during an activation is rejected; ordinary checked
 synchronous reentry remains available and shares the active root.
 
-This is the owned execution foundation, not external async support. `Waiting`,
-Future/Task, source `async` and `.await` remain scheduled for AX02-AX04.
+Native Future waits now use this same driver. Source `async`/`.await` and Task
+scopes remain scheduled for AX03-AX04; bytecode wait/resume does not imply source
+support.
 
 ## Owned async execution draft (AX01-AX04)
 
-Scheduled behavior; not yet implemented. The
+The full source async/Task surface is still scheduled; the native wait and owned
+driver subset is implemented below. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
@@ -452,6 +454,19 @@ subscriptions. Owned execution registers such a subscription, so cancelling the
 original host-supplied token wakes the control path as well as cancellation through
 the owner handle. Registrations do not keep completed execution owners alive.
 
-These notifications prepare the external-wait path; Waiting and `.await` are not
-yet enabled. They do not add polling loops, thread preemption or cancellation of
+A bytecode Await stores the continuation destination in the session and advances
+the PC once. A pending poll parks without republishing runnable readiness; an
+already racing completion/cancellation wake remains durable. Subsequent driver
+activations poll the existing operation, never claim the Future or submit again.
+Successful conversion writes the checked destination and resumes at the saved PC.
+Cancellation is checked before accepting or publishing the result.
+
+Portable Await requires the Future storage role, matching semantic input/output
+slots and `EffectSet::may_suspend`. This flag marks a resume body, not a suspension
+safety proof: the runtime also checks the complete active resource chain before
+starting any await, including immediately completing operations. Ordinary calls
+and ordinary closure construction cannot select a resume body; synchronous frame
+entry and native backend installation reject it before entering its body. Owned
+entry can drive it. MIR/CFG suspension proofs and the SDK surface are still pending.
+These transitions do not add polling loops, thread preemption or cancellation of
 another execution merely because it is being observed.

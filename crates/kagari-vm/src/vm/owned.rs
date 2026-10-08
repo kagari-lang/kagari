@@ -1,7 +1,7 @@
 //! Host-driven execution uses the same interpreter and runtime-owned frame store.
 use crate::{
     error::VmError,
-    executor::Executor,
+    executor::{DriveOutcome, Executor},
     vm::{Vm, find_function_ref},
 };
 use kagari_runtime::{
@@ -16,6 +16,7 @@ use std::num::NonZeroUsize;
 #[derive(Debug)]
 pub enum DriveResult {
     Runnable,
+    Waiting,
     Complete(Result<RootedValue, VmError>),
 }
 
@@ -43,8 +44,9 @@ impl Vm {
         let executor = Executor::resume(&self.runtime, owner)?;
         let outcome = executor.run_slice(slice);
         let result = match outcome {
-            Ok(None) => return Ok(DriveResult::Runnable),
-            Ok(Some(value)) => self.runtime.root_value(value).ok_or_else(|| {
+            Ok(DriveOutcome::Runnable) => return Ok(DriveResult::Runnable),
+            Ok(DriveOutcome::Waiting) => return Ok(DriveResult::Waiting),
+            Ok(DriveOutcome::Complete(value)) => self.runtime.root_value(value).ok_or_else(|| {
                 VmError::RuntimeError(RuntimeError::module_validation(
                     "owned execution result root",
                 ))

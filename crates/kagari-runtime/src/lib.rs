@@ -23,13 +23,13 @@ use crate::{
         staging::StagedProgram,
     },
     native::{
-        callable::PreparedClosure, function_handle::cache::FunctionCache,
-        interfaces::binding::InterfaceCache, objects::cache::BindingCache,
-        registry::NativeRegistry,
+        callable::PreparedClosure, completion::CompletionRegistry,
+        function_handle::cache::FunctionCache, interfaces::binding::InterfaceCache,
+        objects::cache::BindingCache, registry::NativeRegistry,
     },
     objects::method::BoundReceiver,
     reflection::ReflectionError,
-    resource::{ResourceState, RuntimeLimits},
+    resource::{AsyncLimits, ResourceState, RuntimeLimits},
     session::{
         CandidateSession, ExecutionEntry, ExecutionObserver, ExecutionOptions, ExecutionPhase,
         ExecutionSession,
@@ -40,7 +40,7 @@ use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_types::host_interface::path::HostPathDeclaration;
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::OnceLock};
 
 pub mod error_trace;
 #[cfg(test)]
@@ -109,6 +109,7 @@ pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
 
     pub limits: RuntimeLimits,
+    pub async_limits: AsyncLimits,
 }
 
 /// An exclusively driven script runtime. Move ownership between threads outside
@@ -121,6 +122,8 @@ pub struct RuntimeConfig {
 /// ```
 #[derive(Debug)]
 pub struct Runtime {
+    operations: OnceLock<Result<CompletionRegistry, RuntimeError>>,
+    async_limits: AsyncLimits,
     gc: GcHeap,
     types: TypeRegistry,
     host: HostRegistry,
@@ -154,6 +157,8 @@ impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = ResourceState::new(config.limits);
         Self {
+            operations: OnceLock::new(),
+            async_limits: config.async_limits,
             gc: GcHeap::new(config.gc, resources),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),

@@ -5,6 +5,7 @@ use std::iter;
 
 pub(super) fn reads(instruction: &BytecodeInstruction<DefinitionId>) -> Vec<Register> {
     match instruction {
+        BytecodeInstruction::Await { value, .. } => vec![*value],
         BytecodeInstruction::Convert { src, .. } => vec![*src],
         BytecodeInstruction::Numeric { lhs, rhs, .. } => {
             iter::once(*lhs).chain(rhs.iter().copied()).collect()
@@ -123,6 +124,7 @@ pub(super) fn writes(instruction: &BytecodeInstruction<DefinitionId>) -> Option<
         | BytecodeInstruction::MakeCell { dst, .. }
         | BytecodeInstruction::ReadCell { dst, .. }
         | BytecodeInstruction::MakeStruct { dst, .. }
+        | BytecodeInstruction::Await { dst, .. }
         | BytecodeInstruction::Convert { dst, .. }
         | BytecodeInstruction::Numeric { dst, .. }
         | BytecodeInstruction::Iter { dst, .. }

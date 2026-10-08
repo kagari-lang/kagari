@@ -1,4 +1,4 @@
-//! Explicit declarations, checked Rust bindings and synchronous native execution.
+//! Explicit declarations, checked Rust bindings and cold native producers.
 pub mod arguments;
 pub mod binding;
 pub mod builder;
@@ -13,6 +13,7 @@ pub mod declarations;
 pub mod enums;
 pub mod function_handle;
 pub mod functions;
+pub mod future;
 pub(crate) mod hash_storage;
 pub(crate) mod hashed;
 pub mod interfaces;

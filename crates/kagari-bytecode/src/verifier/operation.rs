@@ -11,10 +11,17 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
-    contracts, contracts::RuntimeHelperKind, operations, operations::UnaryOp as MirUnaryOp,
-    representation::semantic_representation, types::PublicItem,
+    contracts,
+    contracts::RuntimeHelperKind,
+    operations,
+    operations::UnaryOp as MirUnaryOp,
+    representation::semantic_representation,
+    types::{PublicItem, type_contract},
 };
-use kagari_types::{declaration::verify::types_in_scope, ty::Ty};
+use kagari_types::{
+    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
+    ty::Ty,
+};
 
 pub(super) fn verify_instruction(
     module: &BytecodeModule,
@@ -40,6 +47,46 @@ pub(super) fn verify_instruction(
         });
     }
     match instruction {
+        BytecodeInstruction::Await { dst, value, future } => {
+            let invalid = || BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "invalid Future await contract",
+            };
+            let Ty::NativeObject(nominal) = future else {
+                return Err(invalid());
+            };
+            let owner = if nominal.declaration.module == module.identity {
+                Some(module)
+            } else {
+                program.and_then(|program| {
+                    program
+                        .modules
+                        .iter()
+                        .find(|owner| owner.identity == nominal.declaration.module)
+                })
+            };
+            let declaration = owner.and_then(|owner| {
+                type_contract(&owner.identity, &owner.public_items, &nominal.declaration)
+            });
+            if declaration
+                .is_none_or(|ty| ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future))
+                || nominal.arguments.len() != 1
+                || !nominal.associated_types.is_empty()
+                || !function.metadata.effects.may_suspend
+                || function.metadata.semantic.registers.get(&value.index()) != Some(future)
+                || function.metadata.semantic.registers.get(&dst.index())
+                    != nominal.arguments.first()
+            {
+                return Err(invalid());
+            }
+            expect_register_ty(function, *value, ValueType::HeapObject, "await Future")?;
+            expect_register_ty(
+                function,
+                *dst,
+                semantic_representation(&nominal.arguments[0]),
+                "await output",
+            )?;
+        }
         BytecodeInstruction::LoadConst { dst, constant } => {
             if !module.constants.contains(constant) {
                 return Err(BytecodeVerificationError::MissingConstant {
@@ -214,6 +261,12 @@ pub(super) fn verify_instruction(
                     target: *target,
                 },
             )?;
+            if callee.metadata.effects.may_suspend {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "resume body cannot be an ordinary closure",
+                });
+            }
             if captures.len() > callee.metadata.params.len() {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -737,6 +790,12 @@ pub(super) fn verify_call(
                 });
             }
             let record = &module.function_table[target.index()];
+            if record.effects.may_suspend {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "resume body cannot be called synchronously",
+                });
+            }
             if module.functions[target.index()]
                 .metadata
                 .semantic

@@ -124,6 +124,18 @@ impl ModuleBuilder {
         catalog.merge(&DeclarationCatalog::declared([&self.declaration])?)?;
         let parameters = A::argument_types(&catalog)?;
         let result = R::kagari_type(&catalog)?;
+        let binding = NativeBinding::typed(&catalog, entry)?;
+        self.add_prepared_function(spec, parameters, result, binding, &catalog)
+    }
+
+    pub(crate) fn add_prepared_function(
+        &mut self,
+        spec: FunctionSpec,
+        parameters: Vec<Type>,
+        result: Type,
+        binding: NativeBinding,
+        catalog: &DeclarationCatalog,
+    ) -> NativeResult<FunctionRef> {
         let declaration = spec.declaration(parameters.clone(), result.clone())?;
         let produces = (declaration.result != result).then_some(result.clone());
         if produces.is_some() && !matches!(declaration.result.abi(), Ty::Trait(_)) {
@@ -131,13 +143,12 @@ impl ModuleBuilder {
                 "typed function return differs from its declaration",
             ));
         }
-        let binding = NativeBinding::typed(&catalog, entry)?;
         binding.check(
             &Signature {
                 params: parameters.into_iter().map(|ty| ty.0).collect(),
                 result: result.0,
             },
-            &catalog,
+            catalog,
         )?;
         let mut candidate = self.declaration.clone();
         let id = candidate.definition(DefinitionKind::Function, &declaration.name);

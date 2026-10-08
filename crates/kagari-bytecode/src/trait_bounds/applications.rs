@@ -129,7 +129,8 @@ pub(super) fn validate(
                 | BytecodeInstruction::RepeatArray { element, .. } => {
                     validator.validate_type(element)?
                 }
-                BytecodeInstruction::Iter { ty, .. }
+                BytecodeInstruction::Await { future: ty, .. }
+                | BytecodeInstruction::Iter { ty, .. }
                 | BytecodeInstruction::MakeRange { ty, .. } => validator.validate_type(ty)?,
                 BytecodeInstruction::RangeBound { range, bound, .. } => {
                     validator.types([range, bound])?

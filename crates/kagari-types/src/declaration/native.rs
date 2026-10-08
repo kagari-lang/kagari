@@ -11,16 +11,28 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NativeStorageLayout {
     Opaque,
-    Sequence { element: usize },
-    Map { key: usize, value: usize },
-    Set { element: usize },
-    Iterator { item: usize },
+    Sequence {
+        element: usize,
+    },
+    Map {
+        key: usize,
+        value: usize,
+    },
+    Set {
+        element: usize,
+    },
+    Iterator {
+        item: usize,
+    },
+    /// One invariant completed-output parameter; only the runtime supplies storage.
+    Future,
 }
 
 impl NativeStorageLayout {
     pub fn valid_parameters(self, arity: usize) -> bool {
         match self {
             Self::Opaque => true,
+            Self::Future => arity == 1,
             Self::Sequence { element } | Self::Set { element } => element < arity,
             Self::Iterator { item } => item < arity,
             Self::Map { key, value } => key < arity && value < arity && key != value,

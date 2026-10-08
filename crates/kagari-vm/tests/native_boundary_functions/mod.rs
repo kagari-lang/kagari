@@ -42,6 +42,7 @@ pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, Loade
         limits: RuntimeLimits {
             max_call_depth: Some(16),
         },
+        ..Default::default()
     });
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     if let Some(module) = module {

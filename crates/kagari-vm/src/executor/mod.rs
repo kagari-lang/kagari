@@ -20,6 +20,7 @@ use kagari_runtime::{
 use std::{
     cell::{Ref, RefMut},
     num::NonZeroUsize,
+    task::Poll,
 };
 
 use crate::{error::VmError, executor::loop_body::LoopExit};
@@ -27,6 +28,12 @@ use crate::{error::VmError, executor::loop_body::LoopExit};
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
     stack: ExecutionStack<'a>,
+}
+
+pub(crate) enum DriveOutcome {
+    Runnable,
+    Waiting,
+    Complete(Value),
 }
 
 impl<'a> Executor<'a> {
@@ -63,7 +70,12 @@ impl<'a> Executor<'a> {
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
         self.run_inner(None)
-            .map(|value| value.expect("unbounded execution completes"))
+            .and_then(|outcome| match outcome {
+                DriveOutcome::Complete(value) => Ok(value),
+                _ => Err(VmError::UnsupportedInstruction(
+                    "synchronous entry cannot suspend",
+                )),
+            })
             .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))
     }
 
@@ -74,21 +86,30 @@ impl<'a> Executor<'a> {
         })
     }
 
-    pub(crate) fn run_slice(mut self, slice: NonZeroUsize) -> Result<Option<Value>, VmError> {
+    pub(crate) fn run_slice(mut self, slice: NonZeroUsize) -> Result<DriveOutcome, VmError> {
         let value = self
             .run_inner(Some(slice.get()))
             .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))?;
-        if value.is_none() {
-            self.stack.park(self.runtime)?;
+        match &value {
+            DriveOutcome::Runnable => self.stack.park(self.runtime)?,
+            DriveOutcome::Waiting => self.stack.park_waiting(self.runtime)?,
+            DriveOutcome::Complete(_) => {}
         }
         Ok(value)
     }
 
-    fn run_inner(&mut self, mut remaining: Option<usize>) -> Result<Option<Value>, VmError> {
+    fn run_inner(&mut self, mut remaining: Option<usize>) -> Result<DriveOutcome, VmError> {
         loop {
             self.runtime.resources().poll_execution()?;
+            let resumed = self
+                .stack
+                .poll_await(self.runtime)
+                .map_err(VmError::RuntimeError);
+            if self.report_operation(resumed)? == Poll::Pending {
+                return Ok(DriveOutcome::Waiting);
+            }
             if remaining == Some(0) && self.stack.can_park(self.runtime)? {
-                return Ok(None);
+                return Ok(DriveOutcome::Runnable);
             }
             let native_return = self.current_frame()?.native_return(self.runtime)?;
             if let Some(value) = native_return {
@@ -96,7 +117,7 @@ impl<'a> Executor<'a> {
                     .stack
                     .finish_return(self.runtime, ReturnValue::general(value));
                 if let Some(value) = self.report_operation(result.map_err(VmError::RuntimeError))? {
-                    return Ok(Some(value));
+                    return Ok(DriveOutcome::Complete(value));
                 }
                 continue;
             }
@@ -127,7 +148,7 @@ impl<'a> Executor<'a> {
                     if let Some(value) =
                         self.report_operation(result.map_err(VmError::RuntimeError))?
                     {
-                        return Ok(Some(value));
+                        return Ok(DriveOutcome::Complete(value));
                     }
                 }
                 LoopExit::Boundary => {
@@ -167,8 +188,17 @@ impl<'a> Executor<'a> {
                         if let Some(value) =
                             self.report_operation(result.map_err(VmError::RuntimeError))?
                         {
-                            return Ok(Some(value));
+                            return Ok(DriveOutcome::Complete(value));
                         }
+                        continue;
+                    }
+                    if let BytecodeInstruction::Await { dst, value, future } = instruction {
+                        let value = self.current_frame()?.read_register(self.runtime, *value)?;
+                        let result = self
+                            .stack
+                            .begin_await(self.runtime, value, *dst, future)
+                            .map_err(VmError::RuntimeError);
+                        self.report_operation(result)?;
                         continue;
                     }
                     let result = self.dispatch_instruction(instruction);

@@ -101,6 +101,7 @@ fn async_owned_drive_contract() {
             }
             match vm.drive(owner, slice).unwrap() {
                 DriveResult::Runnable => {}
+                DriveResult::Waiting => panic!("synchronous loop cannot wait"),
                 DriveResult::Complete(result) => {
                     let value = result.unwrap();
                     let Value::Array(id) = value.value(vm.runtime().gc()).unwrap() else {

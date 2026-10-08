@@ -15,6 +15,8 @@ pub struct EffectSet {
     pub calls: bool,
     pub touches_runtime: bool,
     pub may_trap: bool,
+    /// Resume bodies require an owned driver; ordinary calls cannot enter them.
+    pub may_suspend: bool,
 }
 
 impl EffectSet {
@@ -45,6 +47,7 @@ impl EffectSet {
             calls: self.calls || other.calls,
             touches_runtime: self.touches_runtime || other.touches_runtime,
             may_trap: self.may_trap || other.may_trap,
+            may_suspend: self.may_suspend || other.may_suspend,
         }
     }
 

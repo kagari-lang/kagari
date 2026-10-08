@@ -242,6 +242,11 @@ pub enum BinaryOp {
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
 pub enum BytecodeInstruction<I = DefinitionPath> {
+    Await {
+        dst: Register,
+        value: Register,
+        future: Ty<I>,
+    },
     Convert {
         dst: Register,
         src: Register,

@@ -37,6 +37,7 @@ mod shared;
 pub mod transfer;
 pub mod types;
 pub(crate) mod values;
+pub(crate) mod waiting;
 
 /// An execution scope over the root session's shared frame stack.
 /// Dropping it unwinds only the frames entered by this scope.
@@ -378,6 +379,18 @@ impl<'runtime> ExecutionStack<'runtime> {
         if !args.all_managed(runtime, |value| runtime.gc.validate_candidate_value(value))? {
             return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate call arguments",
+            ));
+        }
+        if let CallableTarget::Script(function) = target
+            && loaded
+                .bytecode
+                .functions
+                .get(function.index())
+                .is_some_and(|function| function.metadata.effects.may_suspend)
+            && (self.session.state().owner.borrow().is_none() || !self.frames()?.is_empty())
+        {
+            return Err(RuntimeError::module_validation(
+                "resume body requires an owned driver entry",
             ));
         }
         let mut frames = self

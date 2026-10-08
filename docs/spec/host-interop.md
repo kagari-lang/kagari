@@ -904,7 +904,7 @@ This gives Kagari a practical embedded scripting model early, especially for the
 
 ## Native async producer draft (AX02)
 
-Scheduled behavior; not yet implemented. The
+The complete producer/SDK surface is still in progress. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
@@ -932,7 +932,27 @@ reported as EngineFault. Exhausted generations never wrap or become reusable.
 The producer endpoint keeps only a weak reference to result storage, so retained
 late endpoints cannot keep completed payloads or reservations alive.
 
-This transport does not yet implement a registered Future producer, script await,
-VM Waiting or SDK async driving. AX02 still requires those integrations and its
-source-free/malformed-artifact acceptance gate. Consumers must perform runtime
-ownership checks and typed script conversion on the owner thread when integrated.
+### Registered cold producers and VM waits (AX02 in progress)
+
+`ModuleBuilder::add_async_function<A, R>` declares `fn(A) -> Future<R>` using the
+catalog's unique checked `NativeStorageLayout::Future` role. `NativeStorage::future`
+provides sealed runtime payload storage with exactly one invariant output parameter.
+The foundation export and SDK surface are still pending; backend contract fixtures
+currently supply this declaration explicitly.
+
+Calling a producer captures traced script values without invoking its Rust callback.
+The first await removes the cold state, roots the captured values, reserves bounded
+operation capacity, converts owned arguments and invokes the callback once. It
+receives `A` and `Completion<R>`, returning `NativeStart::Ready(R)` or
+`NativeStart::Pending` with optional bounded cancellation. Submission failure
+retires its reserved endpoint, including any result published during submission.
+Custom result conversion runs only in the exclusive driver. Both the Future's
+nominal type and the resumed output are checked against the waiting frame's scope.
+
+`RuntimeConfig::async_limits.max_pending_operations` defaults to 1024 and must be
+nonzero. A pending wait belongs to the owned execution session. Cancellation,
+owner retirement and runtime destruction release it; provider cleanup panic
+quarantines the runtime. Late endpoints cannot restart or retain the execution.
+Encoded bytecode `Await` and VM Waiting are implemented. MIR lowering, suspension
+flow proofs, foundation publication and SDK integration still belong to AX02;
+source async syntax belongs to AX03.

@@ -25,6 +25,7 @@ fn runtime() -> Runtime {
         limits: RuntimeLimits {
             ..Default::default()
         },
+        ..Default::default()
     })
 }
 

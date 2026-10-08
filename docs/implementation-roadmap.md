@@ -752,26 +752,55 @@ terminal/session destruction invalidates it. Host wakers execute outside locks;
 notifications only request scheduling. Extended the existing owned-driver contract
 for external-token wakeup and runtime-destruction retirement.
 
-AX02 remains unchecked. This is a transport/readiness foundation, not the phase's
-native Future source-free exit gate. Next integrate the registry/reservations with
-runtime-owned pending waits and typed native Future producers, then checked
-semantic/MIR/bytecode Await, interpreter Waiting/resumption and SDK entry. Inspect
-`NativeStorageLayout`, `CallContext::allocate_result_payload`, typed argument/result
-conversion and independent bytecode access/resource validation for those changes.
-Future/Task source syntax and actual for-body await remain AX03/AX04. No language
-restriction, async callback inference or user-defined awaitable was introduced.
+AX02 native wait checkpoint (2026-10-08): connected the transport to sealed traced
+Future storage, `ModuleBuilder::add_async_function`, per-runtime operation capacity,
+session-owned pending consumers and bytecode Await. Cold calls retain script
+arguments and exact type provenance without converting/submitting; first await
+claims once, roots captures and reserves before submission. Conversion and
+continuation publication occur only on the driver. VM drive now returns Waiting;
+pending activations poll without resubmission or a busy runnable state. Completion,
+cancellation, owner retirement and shutdown release operation state. Cleanup panic
+quarantines the runtime. Ordinary entry/native installation reject resume bodies
+before their body executes.
 
-Focused validation: runtime `--lib async_native_completion_contract` passed 3
-transport contracts (reservation, immediate publication, duplicates/stale generations,
-queued-payload cancellation, cross-thread publication/registration/cancellation races,
-cleanup fault and generation exhaustion); these are not a substitute for the planned
-VM end-to-end test. Common `--lib cancellation_subscription_covers_registration_order_and_retirement`
-passed 1 contract. VM `--lib async_owned_drive_contract` passed 2 contracts,
-including encoded loop/lease behavior. Structure checked 934 Rust files with zero
-findings/exceptions. No full suite or GitHub CI run; no carried compilation/test
-failure. `cargo clippy -p kagari-vm --lib -- -D warnings`, formatting, diff,
-CRLF and 59 local Markdown link/anchor checks passed. No re-export whitelist or
-structure exception was added.
+Portable validation checks the Future storage role, invariant output/input semantic
+slots, physical representations and resume-body capability. Identity mapping,
+artifact round trips and register allocation consume the new instruction. Direct
+ordinary calls/closures cannot enter resume bodies. Runtime checks the actual
+nominal Future/output and active resource chain even for immediate completions;
+`may_suspend` is not accepted as a resource-safety proof. The fixture deliberately
+supplies a native Future declaration while foundation export is pending.
+
+Focused validation passed:
+
+- `cargo test -p kagari-vm --lib async_native_completion_contract`: 3 contracts.
+  Encoded source-free loading; cold discard/captures across GC; deferred cross-thread
+  result; immediate and completion-during-start results; single await/alias rejection;
+  capacity before submission; submission/provider failure; queued-result cancellation; owner
+  drop/runtime destruction; stale endpoints and cleanup quarantine.
+- `cargo test -p kagari-bytecode --lib async_artifact_validation_contract`: 1 contract.
+  Encoded round trip plus forged storage role, missing resume capability/input type,
+  incompatible managed output/input and synchronous resume-body call rejection.
+- `cargo test -p kagari-vm --lib async_owned_drive_contract`: 2 contracts, preserving
+  interleaved execution, reentry, cancellation and encoded iteration lease behavior.
+- `cargo clippy -p kagari-vm --lib -- -D warnings`, structure (940 Rust files,
+  zero findings/exceptions), formatting and diff checks passed. Manual review kept
+  producer/GC claim/pending-session/VM responsibilities separate and added no
+  re-export whitelist or structural exceptions. CRLF is preserved.
+
+Initial test compilation exposed an explicit RuntimeConfig literal missing the
+new async limits, and a stale compiled dependency while the wait API was being
+updated. The callers and dependency were rebuilt; no compilation/test failure is
+carried. No full suite or GitHub CI run. Tracked artifact regeneration remains at
+the plan's coherent acceptance checkpoint; no unpublished format number bump.
+
+AX02 remains unchecked. Next finish the portable MIR Await producer/lowering and
+independent CFG initialization/resource proofs, publish core::future and its prelude
+entry, connect SDK owned driving, and exercise pre-entry backend fallback through
+that surface. The completed VM/bytecode focused gates prove the native wait path,
+not the entire AX02 checklist. Source async functions/closures and actual deferred
+`for { ... .await }` remain AX03; Task scopes remain AX04. No extra collection rule,
+implicit async callback or user-defined awaitable was introduced.
 
 ### Other proposals
 

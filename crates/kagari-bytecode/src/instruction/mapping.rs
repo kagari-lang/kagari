@@ -149,6 +149,11 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 lhs: *(lhs),
                 rhs: *(rhs),
             },
+            Self::Await { dst, value, future } => BytecodeInstruction::Await {
+                dst: *dst,
+                value: *value,
+                future: future.map_identities(mapper)?,
+            },
             Self::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
                 dst: *(dst),
                 value: *(value),
@@ -454,6 +459,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 lhs: _,
                 rhs: _,
             } => {}
+            Self::Await { future, .. } => future.visit_definitions(visit, cancel)?,
             Self::Iter {
                 dst: _,
                 value: _,

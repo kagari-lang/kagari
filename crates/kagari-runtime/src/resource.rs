@@ -12,7 +12,21 @@ use std::sync::{Arc, Weak};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     mem,
+    num::NonZeroUsize,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AsyncLimits {
+    pub max_pending_operations: NonZeroUsize,
+}
+
+impl Default for AsyncLimits {
+    fn default() -> Self {
+        Self {
+            max_pending_operations: NonZeroUsize::new(1024).expect("positive default"),
+        }
+    }
+}
 
 /// Runtime-wide protection against accidental recursion. No execution metering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

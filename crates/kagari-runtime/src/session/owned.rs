@@ -172,7 +172,6 @@ impl Runtime {
             .set(owner.cancellation.subscribe(owner.waker()))
             .expect("new cancellation wake registration");
         let stack = ExecutionStack::new(session)?;
-        stack.push(self, module.slot(), entry, args, None)?;
         *self
             .resources()
             .sessions
@@ -181,6 +180,11 @@ impl Runtime {
             .owner
             .borrow_mut() = Some(owner.clone());
         let handle = OwnedExecution { id, owner };
+        if let Err(error) = stack.push(self, module.slot(), entry, args, None) {
+            drop(stack);
+            self.finish_owned_execution(&handle)?;
+            return Err(error);
+        }
         if let Err(error) = stack.park(self) {
             self.finish_owned_execution(&handle)?;
             return Err(error);
@@ -255,13 +259,21 @@ impl Runtime {
     }
 
     fn retire_execution(&self, id: SessionId) -> Result<(), RuntimeError> {
-        let (state, frames) = self.resources().sessions.remove(id).ok_or_else(|| {
+        let (mut state, frames) = self.resources().sessions.remove(id).ok_or_else(|| {
             RuntimeError::module_validation("foreign, retired or borrowed execution")
         })?;
+        let cleanup = state
+            .pending
+            .get_mut()
+            .take()
+            .map(|mut wait| wait.cancel())
+            .transpose();
         for frame in frames {
             frame.release_values(self.resources());
         }
         drop(state);
-        Ok(())
+        cleanup
+            .map(|_| ())
+            .map_err(|_| self.quarantine_execution_invariant("native operation cleanup failed"))
     }
 }

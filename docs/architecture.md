@@ -1125,5 +1125,9 @@ VM `vm::owned` supplies start/drive orchestration over the existing executor. Th
 cursor yields after the requested instruction interval; the executor defers the
 exit through non-suspendable synchronous operations. Native bodies cannot be forcibly
 preempted. Completion roots its output and releases frames; a wake requests host
-attention without entering script. This checkpoint supports Runnable/Complete for
-synchronous programs only; AX02-AX04 add external waits, async syntax and Task scopes.
+attention without entering script. `native::future` and `frame::waiting` connect
+typed cold producers to durable completion reservations. A session owns its pending consumer/destination; the VM
+returns Waiting and resumes the same PC after checked driver-side conversion.
+Heap Future state is claimed once, so aliases cannot repeat submission. Ordinary
+entry and native installation reject resume bodies. AX02 still owns MIR/flow proofs,
+foundation exports and SDK integration; AX03/AX04 add source async and Task scopes.

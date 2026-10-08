@@ -490,7 +490,8 @@ impl<'a> Executor<'a> {
                     Value::HostPathView(Arc::new(view)),
                 )?;
             }
-            BytecodeInstruction::Return(_)
+            BytecodeInstruction::Await { .. }
+            | BytecodeInstruction::Return(_)
             | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. } => {
                 return Err(VmError::UnsupportedInstruction(

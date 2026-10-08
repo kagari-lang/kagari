@@ -34,6 +34,7 @@ use std::{
 };
 
 mod arrays;
+mod future;
 mod maps_sets;
 mod native;
 

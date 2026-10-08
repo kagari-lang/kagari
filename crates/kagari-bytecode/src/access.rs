@@ -437,6 +437,17 @@ pub(super) fn verify(
                     }
                 }
 
+                I::Await { dst, value, future } => {
+                    if let Some(value) = get(*value)
+                        && !flows(&value, future)
+                    {
+                        return Err(invalid());
+                    }
+                    let Ty::NativeObject(nominal) = future else {
+                        return Err(invalid());
+                    };
+                    produced = Some((*dst, Fact::typed(nominal.arguments[0].clone())));
+                }
                 I::Iter { dst, value, ty, op } => {
                     if let Some(value) = value.and_then(get)
                         && !flows(&value, ty)

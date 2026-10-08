@@ -193,6 +193,11 @@ fn validate_product(
         .get(artifact.function.index())
         .filter(|function| function.id == artifact.function)
         .ok_or_else(|| unsupported("native function is absent from the verified module"))?;
+    if function.metadata.effects.may_suspend {
+        return Err(unsupported(
+            "native suspension is not supported; use the owned interpreter driver",
+        ));
+    }
     if !matches!(artifact.code.entry, ExecutableEntryPoint::Native { address, .. } if address != 0)
     {
         return Err(unsupported("native product has no resolved entry"));
