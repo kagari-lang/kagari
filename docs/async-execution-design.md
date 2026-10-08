@@ -49,8 +49,9 @@ the host owns networking, external resources and application scheduling.
 
 ## First release scope
 
-The proposed release supports named async script functions, typed awaitable native
-operations, nested async script calls, explicit host driving and cancellation.
+The proposed release supports named async script functions, explicitly marked
+async closures, typed awaitable native operations, nested async script calls,
+explicit host driving and cancellation.
 Multiple independent host-started executions may wait in one runtime, but only one
 may execute script at a time. This is cooperative interleaving, not parallel heap
 access. A root has one active await chain. A host-provided scope creates a separate
@@ -60,8 +61,8 @@ waiter, cancellation and result-retention contracts still requiring review.
 
 Do not include script threads, a mandatory Rust async executor, implicit blocking,
 detached background jobs, async generators or general async trait methods
-in the first release. Closure-based spawn is in scope, but its suspension typing
-is not settled. Parallel combinators, streams, general user-defined awaitable
+in the first release. Closure-based spawn uses the Future-producing callable
+contract below. Parallel combinators, streams, general user-defined awaitable
 protocols and migration or serialization of suspended executions are later work.
 Ordinary synchronous functions and standard-library callbacks retain their semantics.
 
@@ -136,45 +137,151 @@ Keeping a completed Task reachable must not retain its entire execution stack.
 Neither Future nor Task is a cross-runtime value, serialized continuation or
 state-replacement payload. Publication must not silently retarget retained code.
 
-### Closure expression and callable typing (open)
+### Async closure syntax and evaluation
 
-Reuse existing `|| expression`, `|| { ... }` and `|arg| { ... }` closure forms where
-possible. No `async { ... }`, trailing-lambda syntax or `async ||` form has been
-approved. The following illustrates the desired spawn experience, not settled
-closure typing or admission error handling:
+Use an explicit `async` modifier on the existing closure expression:
 
 ```kagari
-ctx.tasks.spawn(|| {
+val load = async |id: i64| load_profile(id).await;
+val work = async || {
+    val profile = load_profile(id).await?;
+    player.apply_profile(id, profile);
+    Ok(())
+};
+```
+
+The proposed grammar is `async_closure_expr ::= "async" closure_expr`, reusing
+the current pipe-delimited parameters and expression/block body. Zero parameters
+use `async ||`; parameter annotations and contextual parameter inference follow
+ordinary closure rules. There is no new `async { ... }` block, trailing-lambda form
+or `move` modifier. The current syntax specification remains unchanged until
+implementation; these examples specify the proposed extension.
+
+An ordinary closure remains synchronous even inside an async function or when
+passed to spawn. Its own body cannot contain `.await`; a nested async closure is
+a separate body and can. Neither an expected type nor the presence of an await
+silently inserts `async`. Conversely, an explicitly async closure stays async even
+when its body contains no await. `return` and `?` inside it target its completed
+output, not an enclosing function or the Future factory's return type.
+
+Async closure evaluation has three distinct stages:
+
+1. Evaluating `async |args| body` creates the callable and captures its environment
+   under ordinary closure rules. It does not execute `body` or create a scheduled task.
+2. Calling that callable evaluates receiver/arguments once, left to right, and
+   creates a fresh cold Future retaining the arguments, environment and code.
+   None of `body`, including statements before its first await, executes yet.
+3. Driving the Future enters `body`. Each call has separate parameters, local
+   variables, resume positions and completion state. A dropped unstarted Future
+   never executes the body; capture and allocation effects are not rolled back.
+
+Creating or calling an async closure is allowed from synchronous code; driving it
+with `.await` requires an async body or the host execution driver. Creation/call
+can fail checked allocation or capture validation without running the body.
+
+### Callable types and generic calls
+
+Use the existing function-value and `Fn` protocol for the synchronous Future
+factory. An async closure with parameters `A` and completed output `T` has callable
+type `fn(A) -> Future<T>` and implements `Fn(A) -> Future<T>`. Named async functions
+have the same callable contract. No new `AsyncFn`, `FnOnce`, ownership syntax or
+`async fn(...) -> T` function-type notation is needed for this first design.
+
+For example, with the Result-returning `load_profile` above:
+
+```kagari
+val load: fn(i64) -> Future<Result<Profile, RpcError>> =
+    async |id| load_profile(id).await;
+val pending = load(42);
+```
+
+The expected function type supplies parameter types and its `Future<T>` result
+supplies the async body's completed output `T`. Without context, existing rules
+still require parameter annotations where types cannot be supplied; the body
+determines the completed output. An expected `fn(A) -> T` does not implicitly
+await a Future or convert a synchronous body into an async one.
+
+The factory invocation itself does not suspend, so existing generic
+`F: Fn(A) -> Future<T>` consumers can call it through the ordinary protocol.
+Suspension belongs to the separately checked Future body/resume contract. This
+does not make synchronous `Fn::call` or standard callbacks suspendable, and does
+not enable general user-defined async trait methods. A synchronous comparator
+expecting `fn(A, A) -> Ordering` rejects a Future-producing closure.
+
+An ordinary `|| load_profile(id)` and `async || load_profile(id).await` can have
+the same callable type. The former executes its ordinary body during invocation
+and returns a Future; the latter creates a Future without running its async body.
+Function type equality does not promise purity or identical effect timing.
+`async || load_profile(id)` instead returns `Future<Future<Result<Profile, RpcError>>>`:
+omitting the inner await does not flatten the returned Future.
+
+### Captures, repeated calls and cleanup
+
+Async closures reuse ordinary lexical capture semantics. Copied scalar captures
+remain values; shared objects remain shared; captures classified as writable
+bindings retain their shared environment slots. Each produced Future independently
+retains the necessary environment, so dropping the closure value or returning from
+its creating handler cannot invalidate that Future. Calls do not deep-copy objects,
+snapshot shared slots or keep a temporary borrow of the closure alive across await.
+Captured values must obey the Future retention and suspension restrictions above.
+
+Repeated calls create distinct Futures but share the captured environment:
+
+```kagari
+var count = 0;
+val next = async || { count += 1; count };
+val first = next();
+val second = next();
+// count is still 0; each body runs only when its Future is driven.
+```
+
+If first and second are driven sequentially, their outputs are 1 and 2. Multiple
+scope tasks may also drive separate Futures from the same closure; script execution
+remains serialized, while shared data may change at suspension/scheduling points.
+Separate invocation state does not imply isolated captures or a transaction.
+
+Capturing an already-created Future is different from creating one per call:
+`async || pending.await` retains the same pending Future on every invocation.
+The new outer Futures do not clone/reset that inner Future; its execution-binding
+checks still apply. Share a Task result when multiple executions need one result,
+or create a fresh Future in the body when each call should do independent work.
+
+Completed/cancelled execution frames release their capture references exactly once.
+Other closures, unstarted Futures or retained outputs can still keep shared objects
+alive. Cancellation of one invocation must not invalidate another invocation's
+environment; runtime shutdown invalidates all runtime-owned execution identities.
+
+### Spawn input contract
+
+Spawn accepts a zero-argument Future-producing callable: `F: Fn() -> Future<T>`.
+After successful admission it exposes `Task<T>` (with the admission wrapper still
+to be finalized). Both forms are supported without name-based compiler behavior:
+
+```kagari
+ctx.tasks.spawn(|| load_profile(id));
+ctx.tasks.spawn(async || {
     val profile = load_profile(id).await?;
     player.apply_profile(id, profile);
     Ok(())
 });
 ```
 
-Distinguish an ordinary synchronous closure `|| load_profile(id)`, which returns
-a `Future<Result<Profile, RpcError>>`, from a closure whose body itself contains
-`.await`. The latter needs an explicit suspension-capable callable contract even
-if its expression syntax is unchanged. Decide contextual typing versus body-based
-inference, standalone closure annotations, invocation/capture timing and generic
-callable representation. Existing synchronous `Fn` and `sort_by` contracts must
-not silently acquire suspension effects.
+Admission retains the callable without invoking it. When the host first drives
+the new execution, it invokes the factory once under that execution's controls,
+validates the returned Future and drives it there. Factory failure terminates
+the accepted task, rather than retroactively changing admission to a failure.
+A factory returning an already-bound Future cannot bypass ownership checks.
 
-In particular, decide whether spawn accepts a suspending callable, an ordinary
-callable returning Future, or a precisely defined adaptation between them. Do not
-silently flatten arbitrary Future/Task-valued results. Callable and native metadata
-must encode the selected contract; no special behavior may be inferred from the
-spelling `spawn`, a provider name, function ID or runtime value shape.
+Spawn drives exactly the returned Future, not arbitrary nested Future/Task values.
+For example, `spawn(async || load_profile(id))` yields a task whose output is itself
+a Future. A bare Future argument and a synchronous closure returning Unit do not
+satisfy this callable contract; use `async || { synchronous_work(); }` for the
+latter. Direct-Future overloads and automatic wrapping are outside this design.
+Dropping or awaiting the Task never reinvokes its factory.
 
-Discussion alternatives are contextual suspension typing supplied by the receiving
-API, body inference from `.await` in the closure's own body (excluding nested
-callable bodies), or an explicit async modifier. Context-only typing must explain
-standalone stored closures; body inference must define whether invoking the
-closure creates a lazy Future and how its result type is exposed. An explicit
-modifier would extend syntax and requires revisiting the preference above.
-An ordinary `fn(...) -> Future<T>` producer remains a distinct useful case under
-every option; it needs no suspension during the producer call itself. Whether
-async callables can use that existing synchronous `Fn` shape through a Future
-factory lowering, or need an additional callable protocol, remains open.
+Callable and native metadata must encode these types and effects. Frontend-free
+verification validates the factory call and Future resume contract independently;
+no special behavior may be inferred from `spawn`, a provider name or a value shape.
 
 ## Native registration boundary
 
@@ -418,8 +525,9 @@ a reason to reintroduce Engine-versus-Host method lists or privileged RPC paths.
 This is a queued design. Re-audit the implementation and resolve these gates
 before activating async work:
 
-- Resolve closure suspension expression/typing, standalone inference and annotations,
-  generic callable contracts, and the precise spawn input/adaptation contract.
+- Lower the selected explicit async-closure/Future-factory contract through source
+  declarations, generic `Fn` metadata and source-free callable/resume verification;
+  finalize the native registration adapter without adding an async trait system.
 - Specify Future same-execution repeat-await and terminal states; Task multi-waiter,
   cached-output and error-observation lifetimes; cancellation between waiters,
   targets and nested spawns; and self/transitive await-cycle handling.
@@ -442,7 +550,8 @@ Suggested vertical implementation order:
    through the generic provider path and an owned, cancellable execution handle.
 3. Implement async functions and await through HIR, MIR and bytecode; validate
    encoded artifacts and run a two-RPC script with normal Result propagation.
-   Include a synchronous handler spawning that flow into a host-owned scope.
+   Include explicit async closures and a synchronous handler spawning that flow
+   through the Future-producing `Fn` contract into a host-owned scope.
 4. Complete independent parked roots, Task waiters, GC, borrow restrictions, reload,
    debugger origins and all cleanup/race cases before claiming supported async.
 5. Validate an external embedding consumer, publish examples and run the final
@@ -460,6 +569,15 @@ servers or timing sleeps. Required cases include:
 
 - A two-request script returns correct results and propagates the first business
   error without issuing the second request; creation/await evaluation occurs once.
+- Explicit async closures work with zero/typed/contextual parameters, expression
+  and block bodies, generic `Fn` calls, and return/propagation boundaries. Await in
+  an ordinary nested closure is rejected; no-await async bodies remain lazy.
+- Closure construction, factory call and Future drive preserve their separate
+  effect timing. Repeated calls have separate frames with ordinary shared captures;
+  Futures survive closure drop/handler return and reject unsafe retained borrows.
+- Spawn invokes both ordinary Future factories and async-closure factories once,
+  only after admission and caller activation exit. Wrong return types are rejected;
+  nested Futures are not implicitly flattened and captured Futures are not reset.
 - Cold Futures do not run when discarded and survive creator-handler return when
   retained. Future aliases cannot restart work or drive a bound Future from another
   execution. Foreign-runtime access and invalid wait cycles are rejected.

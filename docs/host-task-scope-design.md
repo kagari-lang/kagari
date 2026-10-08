@@ -16,8 +16,9 @@ Both documents remain design-only work built on current
 [execution control](spec/execution.md). The [roadmap](implementation-roadmap.md)
 owns activation; the async proposal owns implementation sequencing.
 The selected script names are `spawn`, `Future<T>` and `Task<T>`, with explicit
-postfix `.await`. Closure typing, admission/result types and concrete host APIs
-remain open; examples are illustrative, not implemented interfaces.
+postfix `.await`. Explicit `async |args| body` closures produce Futures through
+ordinary callable types. Admission/result wrappers and concrete host APIs remain
+open; examples are illustrative, not implemented interfaces.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns the Send runtime and centralized retention model. Scope/Actor ownership stays
@@ -32,15 +33,15 @@ lifetime and ownership checks, not another boolean permission matrix.
 ## Intended script experience
 
 Ordinary handlers remain synchronous. They explicitly spawn independent business
-work into a host-owned scope. Prefer the existing closure expression syntax;
-the parent proposal's closure section owns the still-open suspension typing.
+work into a host-owned scope. Add `async` to the existing closure expression when
+its body needs to suspend; the parent proposal owns its evaluation/capture rules.
 The Result wrapper below is the recommended admission API, not a final signature.
 
 ```kagari
 fn on_message(ctx: PlayerContext, req: QueryRequest) {
     validate(req);
     val player_id = ctx.player_id;
-    match ctx.tasks.spawn(|| query_and_apply(player_id, req).await) {
+    match ctx.tasks.spawn(async || query_and_apply(player_id, req).await) {
         Ok(task) => ctx.record_task(task),
         Err(error) => ctx.reject_spawn(error),
     }
@@ -57,9 +58,10 @@ async fn query_and_apply(
 }
 ```
 
-Successful spawn queues work without executing the closure body in the handler.
-In this example, the call to `query_and_apply` happens later inside the task; it
-creates a Future, which the explicit `.await` drives in that execution. By contrast,
+Successful spawn retains a Future-producing callable without invoking it in the
+handler. First drive invokes the factory once and drives its returned Future.
+In this example, the call to `query_and_apply` happens later inside the async body;
+it creates a Future, which the explicit `.await` drives in that execution. By contrast,
 creating a Future before constructing the closure evaluates that call's arguments
 in the handler. Captures retain the existing shared-object and shared-`var` rules;
 spawn does not implicitly snapshot a captured object.
@@ -118,8 +120,9 @@ not by itself specify a parent/child cancellation tree or a local join scope.
 Spawn does not re-resolve captured callable/Future targets against the latest code.
 If a target is no longer permitted by the scope's deployment policy, admission or
 use fails rather than silently switching versions. Reusing a callable for another
-spawn creates another execution; it does not restart Futures captured by that
-callable. Exact callable invocation and capture typing remain design gates.
+spawn creates another execution and invokes the factory once there; it does not
+restart Futures captured by that callable. Repeated calls of an async closure
+create separate outer Futures sharing the ordinary captured environment.
 
 Successfully admitted tasks survive a later handler trap: spawn is an already
 completed effect, not a transaction. Actor shutdown or explicit scope cancellation
@@ -142,7 +145,12 @@ registry.register(spawn_contract, |cx, scope, callable| {
 
 `spawn_contract` declares concrete checked parameter/output types and effects
 through the common provider system. Task handles and admission are generic
-engine capabilities, not per-provider or per-method compiler branches. Existing
+engine capabilities, not per-provider or per-method compiler branches. Its input
+is `F: Fn() -> Future<T>`; the admitted execution's output is `T`. An ordinary
+Future-producing closure and an explicit async closure both satisfy that contract.
+Spawn does not accept a bare Future, silently wrap a Unit-returning callable or
+recursively flatten Future/Task-valued outputs. A synchronous body can be explicitly
+deferred with `async || { ... }`, even when it contains no await. Existing
 host generic-registration restrictions still apply; a concrete task-output binding
 can prove the first vertical path, but generic script-facing `spawn` needs an
 explicit checked registration contract before general acceptance. Adding another
@@ -169,7 +177,7 @@ initialization and other contexts that disallow externally scheduled work.
 Admission is a bounded synchronous operation; it cannot wait for mailbox capacity
 or start the task body reentrantly.
 
-1. Validate the scope, callable and capture contracts, permitted
+1. Validate the scope, Future-producing callable and capture contracts, permitted
    execution phase and installed binding.
 2. Reserve execution/root storage, unfinished-job and initial dispatch capacity,
    and establish cancellation/call-depth controls. Spawn cannot bypass a terminated
@@ -183,6 +191,11 @@ roll back admission completely, leaving no hidden runnable task after a spawn Er
 The concrete reservation protocol is an SDK design gate. No task body can run until
 the current activation ends, so rollback never needs to undo child script effects.
 Argument evaluation and other completed handler effects are not rolled back.
+
+Once admitted, first drive invokes the factory once under the task's cancellation,
+call-depth and generation controls. Validate the Future's runtime and binding state
+before driving it. A factory trap/allocation failure is a task outcome, not a failed
+admission. Subsequent drive turns resume saved state rather than invoking it again.
 
 ## Actor drive protocol
 
@@ -314,7 +327,7 @@ revalidate conditions or use version-checked host operations.
 
 ## Design gates and acceptance
 
-Resolve exact admission/result types, callable/Future capture validation, scope
+Resolve exact admission/result wrappers, callable/Future capture verification, scope
 capability passing, queue reservation, drive outcomes, Task waiter/result lifetimes
 and shutdown ownership under the parent async proposal before implementation. This companion introduces
 no independent phase ledger or new current implementation requirement.
@@ -323,6 +336,9 @@ Acceptance must demonstrate:
 
 - A synchronous handler spawns a task and returns before the task body starts;
   GC after handler return preserves the admitted task's captures.
+- Ordinary `Fn() -> Future<T>` factories and explicit async closures are invoked
+  once on first drive, never during admission. Body/capture effects preserve their
+  specified timing; factory failures are reported and never leave orphan tasks.
 - While its RPC waits, another message handler runs; completion cannot run script
   until the Actor processes its ready work.
 - A cold Future retained past its creating handler is usable in the new execution;
