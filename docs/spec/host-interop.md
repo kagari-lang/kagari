@@ -541,7 +541,7 @@ This distinction matters because script mistakes are user-facing errors, while p
 
 ## Suspension Boundaries
 
-If Kagari later supports `yield`, `await`, coroutines, or other suspension points, borrowed host values are explicitly non-suspendable.
+Borrowed host values are explicitly non-suspendable across `.await`.
 
 Rule:
 
@@ -905,7 +905,8 @@ This gives Kagari a practical embedded scripting model early, especially for the
 ## Native async producers (AX02)
 
 The native producer, source async callables and owned SDK driver are implemented.
-Task scopes remain AX04 work. The
+Host Task scopes and shared waits are implemented; generic script spawn remains
+AX04 work. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
@@ -965,3 +966,26 @@ the first drive claims it and runs exactly one layer. Calling a source async
 function returns a cold value through the ordinary entry path. Future-valued
 outputs are not implicitly flattened. Cancelling a queued owner before its first
 drive releases that owner's root without claiming the cold Future.
+
+### Shared Task waits (AX04)
+
+The host creates a TaskScope, admits a deferred factory with Runtime::spawn_task,
+and drives scope-owned Tasks explicitly. Awaiting a Task never drives its producer.
+Successful and failed outcomes are cached in the sealed Task payload; consuming a
+host report retires the scheduling slot without invalidating retained Task handles.
+Completion detaches registrations before waking waiting executions. Wakes only
+publish readiness; the host still owns continuation execution.
+
+`RuntimeConfig::async_limits.max_task_waiters` is a nonzero runtime-wide bound,
+defaulting to 4096. It counts unresolved Task waits, including independent owned
+Future roots. A wait exceeding this limit terminates its execution with resource
+exhaustion. Completion, cancellation and execution retirement release registrations.
+Self and transitive cycles trap before registering or parking; a queued target is
+not driven implicitly to resolve a cycle. Waiter cancellation never cancels a target,
+including a target owned by another scope. Target cancellation/failure terminates
+dependent waiters with the original error class and originating Task identity.
+
+TaskFailure reports distinguish local cancellation causes from Dependency. The
+RuntimeError and EmbeddingError task_origin accessors retain the original Task ID
+and its original cancellation cause through any number of waiting executions.
+Business Err remains a successful Task output and participates in ordinary `?`.

@@ -120,7 +120,7 @@ pub(super) fn verify(
         Instruction::Await { dst, value, future } => {
             let invalid = || {
                 contract(ContractError::InvalidOperation {
-                    reason: "invalid Future await contract",
+                    reason: "invalid Future or Task await contract",
                 })
             };
             let Ty::NativeObject(nominal) = future else {
@@ -140,13 +140,18 @@ pub(super) fn verify(
                     &nominal.declaration,
                 );
                 if ty.is_none_or(|ty| {
-                    ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future)
+                    !matches!(
+                        ty.kind,
+                        TypeDefKind::NativeStorage(
+                            NativeStorageLayout::Future | NativeStorageLayout::Task
+                        )
+                    )
                 }) {
                     return Err(invalid());
                 }
             }
             // Imported roles are checked in the complete program dependency closure.
-            context.expect(value.ty, ValueType::HeapObject, "await Future")?;
+            context.expect(value.ty, ValueType::HeapObject, "awaitable")?;
             context.expect(
                 dst.ty,
                 semantic_representation(&nominal.arguments[0]),

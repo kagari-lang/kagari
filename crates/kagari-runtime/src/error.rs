@@ -1,4 +1,4 @@
-use crate::error_trace::ErrorTrace;
+use crate::{error_trace::ErrorTrace, task::TaskFailureOrigin};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +50,7 @@ pub struct RuntimeError {
     kind: RuntimeErrorKind,
     message: String,
     trace: Option<Arc<ErrorTrace>>,
+    task_origin: Option<TaskFailureOrigin>,
 }
 
 impl RuntimeError {
@@ -58,6 +59,7 @@ impl RuntimeError {
             kind,
             message: message.into(),
             trace: None,
+            task_origin: None,
         }
     }
 
@@ -140,6 +142,15 @@ impl RuntimeError {
 
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
         self.trace.as_ref()
+    }
+
+    pub fn task_origin(&self) -> Option<TaskFailureOrigin> {
+        self.task_origin
+    }
+
+    pub(crate) fn with_task_origin(mut self, origin: TaskFailureOrigin) -> Self {
+        self.task_origin.get_or_insert(origin);
+        self
     }
 
     pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {

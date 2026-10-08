@@ -1212,6 +1212,12 @@ never infer async. Await is allowed in an async body, including ordinary for-loo
 bodies, but not in a nested ordinary closure. No async block or async iterator
 syntax is introduced.
 
+`.await` accepts the installed `Future<T>` and `Task<T>` storage roles and returns
+`T`. Future is single-drive; Task observes an independently scheduled execution
+and permits repeated and multiple awaits of its cached outcome. Expected types
+constrain the completed output without forcing the operand to be a Future.
+Aliases retain their declared role; a similarly named user type is not awaitable.
+
 The written result of `async fn f(...) -> T` is the completed body result; its
 ordinary callable signature returns the installed `Future<T>`. An explicit async
 closure follows the same rule and implements ordinary `Fn(A) -> Future<T>`. Return

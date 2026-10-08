@@ -1,4 +1,4 @@
-//! A pending native wait is an owned session resource, not a native call frame.
+//! A pending native or Task wait is an owned session resource, not a call frame.
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -9,20 +9,30 @@ use crate::{
         completion::CompletionRegistry,
         future::{ColdFuture, PendingNative},
     },
+    task::waiting::TaskWait,
     value::Value,
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget};
 use kagari_common::identity::table::DefinitionId;
-use kagari_types::ty::Ty;
+use kagari_types::{
+    declaration::{TypeDefKind, native::NativeStorageLayout},
+    ty::Ty,
+};
 use std::{slice, task::Poll};
 
 #[derive(Debug)]
 pub(crate) struct PendingWait {
     destination: Option<Register>,
-    pending: Box<dyn PendingNative>,
+    pending: PendingOperation,
     output: TypeArgument,
-    // Keep the Future's exact code/type provenance alive through conversion.
-    _future: RootedValue,
+    // Keep the awaitable's exact code/type provenance and cached result alive.
+    awaitable: RootedValue,
+}
+
+#[derive(Debug)]
+enum PendingOperation {
+    Native(Box<dyn PendingNative>),
+    Task(TaskWait),
 }
 
 #[derive(Debug)]
@@ -33,7 +43,26 @@ pub(crate) struct QueuedFuture {
 
 impl PendingWait {
     pub(crate) fn cancel(&mut self) -> NativeResult<()> {
-        self.pending.cancel()
+        match &mut self.pending {
+            PendingOperation::Native(pending) => pending.cancel(),
+            PendingOperation::Task(pending) => {
+                pending.cancel();
+                Ok(())
+            }
+        }
+    }
+
+    fn poll(&mut self, runtime: &Runtime) -> NativeResult<Poll<Value>> {
+        match &mut self.pending {
+            PendingOperation::Native(pending) => pending.poll(runtime),
+            PendingOperation::Task(pending) => {
+                let value = self
+                    .awaitable
+                    .value(runtime.gc())
+                    .ok_or_else(|| RuntimeError::module_validation("Task wait root"))?;
+                pending.poll(runtime, &value)
+            }
+        }
     }
 }
 
@@ -70,20 +99,35 @@ impl ExecutionStack<'_> {
             ));
         }
         runtime.resources().poll_execution()?;
-        let output = {
+        let (output, role) = {
             let frame = self.current()?;
             let applied = frame
                 .type_arguments(runtime, slice::from_ref(future))?
                 .pop()
                 .ok_or_else(|| RuntimeError::module_validation("await type scope"))?;
             if !applied.matches(runtime, &value, frame.loaded()) {
-                return Err(RuntimeError::module_validation(
-                    "await Future type mismatch",
-                ));
+                return Err(RuntimeError::module_validation("awaitable type mismatch"));
             }
-            applied.parameter(runtime, frame.loaded(), 0)?
+            let Ty::NativeObject(nominal) = applied.ty() else {
+                return Err(RuntimeError::module_validation("awaitable storage type"));
+            };
+            let role = runtime
+                .native_entries
+                .catalog
+                .types
+                .get_id(nominal.declaration)
+                .map(|ty| ty.kind);
+            let Some(TypeDefKind::NativeStorage(
+                role @ (NativeStorageLayout::Future | NativeStorageLayout::Task),
+            )) = role
+            else {
+                return Err(RuntimeError::module_validation(
+                    "unsupported awaitable storage",
+                ));
+            };
+            (applied.parameter(runtime, frame.loaded(), 0)?, role)
         };
-        self.start_await(runtime, value, Some(destination), output)
+        self.start_await(runtime, value, Some(destination), output, role)
     }
 
     fn start_await(
@@ -92,13 +136,16 @@ impl ExecutionStack<'_> {
         value: Value,
         destination: Option<Register>,
         output: TypeArgument,
+        role: NativeStorageLayout,
     ) -> NativeResult<()> {
         let Value::GcHandle(id) = value else {
-            return Err(RuntimeError::module_validation("await requires a Future"));
+            return Err(RuntimeError::module_validation(
+                "await requires a Future or Task",
+            ));
         };
         let root = runtime
             .root_value(value)
-            .ok_or_else(|| RuntimeError::module_validation("Future await root"))?;
+            .ok_or_else(|| RuntimeError::module_validation("awaitable root"))?;
         runtime
             .gc()
             .validate_async_values(slice::from_ref(&Value::GcHandle(id)))?;
@@ -110,6 +157,16 @@ impl ExecutionStack<'_> {
             .as_ref()
             .expect("owned activation")
             .waker();
+        if role == NativeStorageLayout::Task {
+            let pending = runtime.begin_task_wait(&Value::GcHandle(id), self.session.id, wake)?;
+            *self.session.state().pending.borrow_mut() = Some(PendingWait {
+                destination,
+                pending: PendingOperation::Task(pending),
+                output,
+                awaitable: root,
+            });
+            return Ok(());
+        }
         let cold = runtime.gc().take_cold_future(id)?;
         // Claim removed the GC edges. Root them before converters or submission.
         let _captures = runtime
@@ -130,9 +187,9 @@ impl ExecutionStack<'_> {
         let pending = started?;
         *self.session.state().pending.borrow_mut() = Some(PendingWait {
             destination,
-            pending,
+            pending: PendingOperation::Native(pending),
             output,
-            _future: root,
+            awaitable: root,
         });
         Ok(())
     }
@@ -178,13 +235,19 @@ impl ExecutionStack<'_> {
                 .value
                 .value(runtime.gc())
                 .ok_or_else(|| RuntimeError::module_validation("queued Future root"))?;
-            self.start_await(runtime, value, None, queued.output)?;
+            self.start_await(
+                runtime,
+                value,
+                None,
+                queued.output,
+                NativeStorageLayout::Future,
+            )?;
         }
         let pending = self.session.state().pending.borrow_mut().take();
         let Some(mut wait) = pending else {
             return Ok(Poll::Ready(None));
         };
-        let polled = wait.pending.poll(runtime);
+        let polled = wait.poll(runtime);
         if polled.is_err() {
             wait.cancel().map_err(|_| {
                 runtime.quarantine_execution_invariant("native operation cleanup failed")

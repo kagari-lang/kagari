@@ -928,13 +928,13 @@ Custom Iterator/Iterable methods are ordinary static calls. The existing JIT
 uses its normal interpreter fallback for unsupported iterator/control-flow bodies.
 The semantic contract is in [builtins](builtins.md#iteration-protocols).
 
-## Async execution contract draft (AX02-AX03)
+## Async execution contract (AX02-AX04)
 
-Future factories and await are implemented; Task roles remain scheduled for AX04. The
+Future factories and Future/Task await are implemented; generic script spawn remains AX04 work. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
-Portable metadata identifies the checked Future role, native producers, factory
+Portable metadata identifies the checked Future and Task roles, native producers, factory
 and private resume-body signatures, output type and suspension capability. Await
 encodes operand and typed destination; the following PC resumes only after output
 initialization. Independent verification derives initialized live slots and resource
@@ -944,4 +944,8 @@ owned iteration leases. Runtime also checks actual reachable mutable/host state.
 MakeFuture records a local private resume target, all captured arguments and the
 nominal Future type. Verification requires exact physical/semantic capture types,
 the completed output and a suspendable target, with initialized capture registers.
-It allocates cold state without invoking the target. Task metadata follows in AX04.
+It allocates cold state without invoking the target. A Task role is valid for Await
+but never MakeFuture. Both awaitable roles require exactly one output parameter,
+exact operand and destination semantic types, and a suspendable caller. The same
+checked liveness and resource facts apply to both; accepting Task cannot bypass
+scoped-host or mutation-guard checks.

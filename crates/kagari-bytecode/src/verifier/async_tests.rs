@@ -277,57 +277,63 @@ fn async_flow_validation_contract() {
 
 #[test]
 fn async_artifact_validation_contract() {
-    let valid = program();
-    let artifact = KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    decoded.validate_for_loader(&Default::default()).unwrap();
-    // Every case keeps the physical heap-object representation unchanged.
-    for mutation in 0..6 {
-        let mut invalid = valid.clone();
-        let module = &mut invalid.modules[0];
-        let function = &mut module.functions[0];
-        match mutation {
-            0 => {
-                let PublicItem::Type(ty) = &mut module.public_items[0] else {
-                    unreachable!()
-                };
-                ty.kind = TypeDefKind::NativeStorage(NativeStorageLayout::Opaque);
+    for layout in [NativeStorageLayout::Future, NativeStorageLayout::Task] {
+        let mut valid = program();
+        let PublicItem::Type(ty) = &mut valid.modules[0].public_items[0] else {
+            unreachable!()
+        };
+        ty.kind = TypeDefKind::NativeStorage(layout);
+        let artifact = KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        decoded.validate_for_loader(&Default::default()).unwrap();
+        // Every case keeps the physical heap-object representation unchanged.
+        for mutation in 0..6 {
+            let mut invalid = valid.clone();
+            let module = &mut invalid.modules[0];
+            let function = &mut module.functions[0];
+            match mutation {
+                0 => {
+                    let PublicItem::Type(ty) = &mut module.public_items[0] else {
+                        unreachable!()
+                    };
+                    ty.kind = TypeDefKind::NativeStorage(NativeStorageLayout::Opaque);
+                }
+                1 => {
+                    function.metadata.effects.may_suspend = false;
+                    module.function_table[0].effects.may_suspend = false;
+                }
+                2 => {
+                    function.metadata.semantic.registers.remove(&0);
+                }
+                3 => {
+                    function.metadata.semantic.registers.insert(
+                        1,
+                        Ty::Array(
+                            Box::new(Ty::Builtin(BuiltinType::I32)),
+                            CollectionAccess::ReadOnly,
+                        ),
+                    );
+                }
+                4 => {
+                    let I::Await { value, .. } = &mut function.instructions[1] else {
+                        unreachable!()
+                    };
+                    *value = Register::new(1);
+                }
+                5 => {
+                    function.instructions[1] = I::Call {
+                        dst: Some(Register::new(1)),
+                        callee: CallTarget::Function(FunctionRef::new(0)),
+                        args: vec![Register::new(0)],
+                    };
+                }
+                _ => unreachable!(),
             }
-            1 => {
-                function.metadata.effects.may_suspend = false;
-                module.function_table[0].effects.may_suspend = false;
-            }
-            2 => {
-                function.metadata.semantic.registers.remove(&0);
-            }
-            3 => {
-                function.metadata.semantic.registers.insert(
-                    1,
-                    Ty::Array(
-                        Box::new(Ty::Builtin(BuiltinType::I32)),
-                        CollectionAccess::ReadOnly,
-                    ),
-                );
-            }
-            4 => {
-                let I::Await { value, .. } = &mut function.instructions[1] else {
-                    unreachable!()
-                };
-                *value = Register::new(1);
-            }
-            5 => {
-                function.instructions[1] = I::Call {
-                    dst: Some(Register::new(1)),
-                    callee: CallTarget::Function(FunctionRef::new(0)),
-                    args: vec![Register::new(0)],
-                };
-            }
-            _ => unreachable!(),
+            assert!(
+                verify_program(&invalid).is_err(),
+                "invalid {layout:?} await contract {mutation}"
+            );
         }
-        assert!(
-            verify_program(&invalid).is_err(),
-            "invalid await contract {mutation}"
-        );
     }
 }
 
@@ -366,10 +372,15 @@ fn async_factory_artifact_contract() {
         .unwrap()
         .validate_for_loader(&Default::default())
         .unwrap();
-    for mutation in 0..5 {
+    for mutation in 0..6 {
         let mut invalid = valid.clone();
         let factory = &mut invalid.modules[0].functions[1];
-        if mutation == 4 {
+        if mutation == 5 {
+            let PublicItem::Type(ty) = &mut invalid.modules[0].public_items[0] else {
+                unreachable!()
+            };
+            ty.kind = TypeDefKind::NativeStorage(NativeStorageLayout::Task);
+        } else if mutation == 4 {
             factory.instructions.remove(0);
         } else {
             let I::MakeFuture {

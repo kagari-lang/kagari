@@ -4,10 +4,17 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::roots::RootedValue,
     native::binding::NativeResult,
-    task::{TaskFailure, TaskId, TaskReport, control::TaskScopeOwner, store::TaskState},
+    task::{
+        CancellationCause, TaskFailure, TaskFailureOrigin, TaskId, TaskReport,
+        control::TaskScopeOwner, store::TaskState,
+    },
     value::Value,
 };
-use std::{slice, sync::atomic::Ordering};
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind},
+    slice,
+    sync::atomic::Ordering,
+};
 
 impl Runtime {
     pub(crate) fn publish_task_result(
@@ -44,12 +51,21 @@ impl Runtime {
             })(),
             Err(error) => Err(error.clone()),
         };
-        let result = checked.map_err(|error| TaskFailure {
-            cancellation: (error.kind() == RuntimeErrorKind::Cancelled)
-                .then(|| signal.cause())
-                .flatten(),
-            error,
-            source_task: task,
+        let result = checked.map_err(|error| {
+            let cancelled = error.kind() == RuntimeErrorKind::Cancelled;
+            let origin = error.task_origin().unwrap_or(TaskFailureOrigin {
+                task,
+                cancellation: cancelled.then(|| signal.cause()).flatten(),
+            });
+            TaskFailure {
+                cancellation: if cancelled && origin.task != task {
+                    Some(CancellationCause::Dependency)
+                } else {
+                    origin.cancellation
+                },
+                error: error.with_task_origin(origin),
+                source_task: origin.task,
+            }
         });
         // Reserve the report's own root before publishing completion. Report
         // consumption then remains a transfer after an unrelated quarantine.
@@ -72,10 +88,20 @@ impl Runtime {
             .expect("completing task")
             .state = TaskState::Terminal(report);
         self.acknowledge_task_scopes();
+        let dependencies = self.tasks.borrow().dependencies.clone();
+        let mut failure = None;
+        for wake in dependencies.complete(task) {
+            if catch_unwind(AssertUnwindSafe(|| wake.wake())).is_err() {
+                failure = Some(self.quarantine_execution_invariant("Task waiter wake failed"));
+            }
+        }
         if let Some(scope) = signal.scope.upgrade() {
             let _ = scope.notify(Some(task));
         }
-        Ok(())
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     /// Taking the bounded report releases its admission slot. Script Task handles

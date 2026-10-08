@@ -122,9 +122,10 @@ requires a host-owned transaction; Kagari does not infer or emulate one.
 - A trap during nested host reentry clears all execution resources exactly once.
 - Reentry shares the outer version, cancellation state and call-depth limit.
 
-## Async outcomes draft (AX02-AX05)
+## Async outcomes (AX02-AX05)
 
-Scheduled behavior; not yet implemented. The
+Future/Task waiting, directional cancellation and Task failure provenance are
+implemented. Cross-boundary lifecycle acceptance remains AX05 work. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
@@ -134,3 +135,10 @@ with their original class and provenance. Cancelling a waiter detaches it withou
 cancelling its target; a target termination propagates to its waiters. Task
 self/transitive dependency cycles trap before parking. One driver terminal
 transition decides cancellation versus completion; queued payload is not success.
+
+Task reports identify the reported task separately from the originating failed task.
+Dependent cancellation reports use Dependency while task_origin retains the initial
+task's cause. Ordinary owned-root SDK errors also expose task_origin when awaiting a
+failed Task. Traces preserve the original failure snapshot. A host waiter-wake panic
+quarantines the runtime after terminal publication; it cannot rewrite a committed
+producer outcome or restore its already retired execution.

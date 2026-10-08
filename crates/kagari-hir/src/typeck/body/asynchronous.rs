@@ -13,7 +13,7 @@ impl BodyChecker<'_> {
         site: ExprId,
         operand: ExprId,
         env: &mut BodyTypeEnv,
-        expected: Option<&TypeId>,
+        _expected: Option<&TypeId>,
     ) -> TypeId {
         if !self.async_body {
             self.diagnostics.push(
@@ -21,13 +21,13 @@ impl BodyChecker<'_> {
                     .with_span(self.lowered.source_map.expr_span(site)),
             );
         }
-        let expected_future =
-            expected.and_then(|ty| asynchronous::future_type(self.declarations, ty.clone()));
-        let operand_type = self.infer_expr_type_expected(operand, env, expected_future.as_ref());
+        // The outer expectation constrains the completed output; imposing
+        // Future<T> on the operand would incorrectly reject a Task<T>.
+        let operand_type = self.infer_expr_type_expected(operand, env, None);
         if operand_type.is_never() {
             return operand_type;
         }
-        if let Some(output) = asynchronous::future_output(self.declarations, &operand_type) {
+        if let Some(output) = asynchronous::await_output(self.declarations, &operand_type) {
             return output.clone();
         }
         if !operand_type.is_unresolved() {

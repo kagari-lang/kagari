@@ -2,7 +2,8 @@
 
 Status: active AX04 implementation. Host-created scopes, transactional host admission,
 bounded task driving, GC-traced terminal caches and reports are implemented and
-locally verified. Script `spawn`, Task await and shared waiters remain pending.
+locally verified. Task await supports cached shared results, bounded waiters, cycle
+rejection and directional cancellation. Generic script `spawn` remains pending.
 This document defines how a
 synchronous script handler can spawn an async business flow, return immediately,
 and have every later execution segment dispatched by its owning host scope. An

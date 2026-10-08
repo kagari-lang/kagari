@@ -582,7 +582,10 @@ impl Display for DiagnosticKind {
                 "`.await` requires an async function or an explicitly async closure"
             ),
             Self::InvalidAwaitOperand { type_name } => {
-                write!(f, "value of type `{type_name}` is not an awaitable Future")
+                write!(
+                    f,
+                    "value of type `{type_name}` is not an awaitable Future or Task"
+                )
             }
             Self::InvalidValueTarget { name } => write!(f, "`{name}` is not a value expression"),
             Self::InvalidTraitReference { trait_name, reason } => {

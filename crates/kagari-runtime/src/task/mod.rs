@@ -2,10 +2,12 @@
 mod admission;
 mod cleanup;
 pub mod control;
+mod dependencies;
 pub mod drive;
 mod outcome;
 pub(crate) mod payload;
 pub(crate) mod store;
+pub(crate) mod waiting;
 
 use crate::{error::RuntimeError, gc::roots::RootedValue};
 
@@ -37,6 +39,12 @@ pub enum CancellationCause {
 pub struct TaskFailure {
     pub error: RuntimeError,
     pub source_task: TaskId,
+    pub cancellation: Option<CancellationCause>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskFailureOrigin {
+    pub task: TaskId,
     pub cancellation: Option<CancellationCause>,
 }
 

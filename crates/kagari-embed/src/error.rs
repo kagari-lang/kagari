@@ -6,6 +6,7 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     reload::ReloadValidationError as RuntimeReloadValidationError,
+    task::TaskFailureOrigin,
 };
 #[cfg(feature = "source")]
 use kagari_source::{
@@ -145,6 +146,7 @@ pub enum EmbeddingError {
         kind: RuntimeFailureKind,
         message: String,
         trace: Option<Arc<ErrorTrace>>,
+        task_origin: Option<TaskFailureOrigin>,
     },
     ReloadValidation {
         code: String,
@@ -153,6 +155,14 @@ pub enum EmbeddingError {
 }
 
 impl EmbeddingError {
+    pub fn task_origin(&self) -> Option<TaskFailureOrigin> {
+        match self {
+            Self::Runtime { task_origin, .. } => *task_origin,
+            Self::Load { error } => error.task_origin(),
+            _ => None,
+        }
+    }
+
     pub fn error_trace(&self) -> Option<&ErrorTrace> {
         match self {
             Self::Runtime { trace, .. } => trace.as_deref(),
@@ -231,6 +241,7 @@ impl EmbeddingError {
             kind,
             message: message.into(),
             trace: None,
+            task_origin: None,
         }
     }
 
@@ -244,6 +255,10 @@ impl EmbeddingError {
 
     pub(crate) fn vm(error: VmError) -> Self {
         let trace = error.trace().cloned();
+        let task_origin = match error.cause() {
+            VmError::RuntimeError(error) => error.task_origin(),
+            _ => None,
+        };
         let kind = match error.cause() {
             VmError::Traced { .. } => unreachable!("unwrapped error"),
             VmError::HostError(_) => RuntimeFailureKind::HostCallFailure,
@@ -291,6 +306,7 @@ impl EmbeddingError {
                 other => format!("{other:?}"),
             },
             trace,
+            task_origin,
         }
     }
 }

@@ -1061,6 +1061,45 @@ reject dependency cycles and preserve originating-task provenance through waiter
 The current script `.await` still accepts Future only. AX05/AX06 and full GitHub CI
 acceptance remain pending. No local full suite or feature/backend matrix was run.
 
+AX04 shared-wait checkpoint (2026-10-08): source `.await` now accepts the installed
+Task<T> role as well as Future<T>. MIR and independently verified bytecode check
+the exact nominal role, arity and semantic input/output types. MakeFuture remains
+Future-only. Expected result types constrain await output without forcing a Future
+operand; generic Future inference and nested Future-valued output remain intact.
+
+A bounded runtime dependency registry associates scope tasks with their owned
+sessions and tracks unresolved waits, including ordinary owned Future roots. Wait
+leases detach on completion/cancellation/retirement without cancelling the target.
+Self and transitive cycles trap before insertion, including cycles reaching a task
+that was queued when earlier edges were registered. Completion removes incoming
+registrations before waking; cached Task payloads remain usable after report and
+slot retirement. No waiter retains a borrowed Runtime, frame or native call.
+The new max_task_waiters bound defaults to 4096 and has checked identity exhaustion.
+
+Task reports retain reported-task versus source-task identity. RuntimeError and
+EmbeddingError carry TaskFailureOrigin through propagation, retaining the initial
+cancellation cause while dependent task reports use Dependency. Business Err is an
+ordinary output. Host wake panics quarantine the runtime after publication, and
+activation unwind cannot overwrite a committed terminal report with retired state.
+
+Focused SDK `scoped_task_shared_wait_contract` and
+`scoped_task_dependency_failure_contract` passed through encoded artifacts. Coverage
+includes multiple/repeated Task awaits inside for, one-instruction slices plus GC,
+mutation guard retention/release, waiter capacity/reuse, report consumption and task
+slot reuse before resumption, local/owned-root/cross-scope cancellation, multi-hop
+failure identity, cached SDK errors, 1/2/3-task cycles and wake-panic cleanup. Nested
+Future outputs remain cold and preserve single-drive alias behavior. Existing HIR
+`async_callable_typing_contract` and bytecode `async_artifact_validation_contract` /
+`async_factory_artifact_contract` also passed, including Task role validation and
+rejection of Task as a cold Future factory role. No local full suite was run.
+
+Focused SDK-test Clippy and structure checks passed (969 Rust files, no violations
+or exceptions). Manual review kept Task dependency policy in task/frame owners,
+outside generic VM instruction loops; no new re-exports or structural debt. The
+current checkpoint has no carried errors. AX04 remains open for generic registered
+script spawn and cancellation methods plus the synchronous-handler workflow; host
+admission alone is not that acceptance. AX05/AX06 and full GitHub CI remain pending.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and

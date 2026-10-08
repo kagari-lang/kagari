@@ -697,7 +697,7 @@ The runtime uses epochs for:
 
 ## Suspension and Ephemerality
 
-If Kagari adds suspension points such as `yield` or `await`, the runtime distinguishes:
+At `.await` suspension points, the runtime distinguishes:
 
 - suspendable values
 - non-suspendable ephemeral values

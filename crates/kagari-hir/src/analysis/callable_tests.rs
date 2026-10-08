@@ -29,6 +29,10 @@ fn async_callable_typing_contract() {
     let text = r#"
 async fn identity<T>(value: T) -> T { return value; }
 async fn nested() -> Future<i32> { identity(1) }
+async fn task_result<T>(task: Task<T>) -> T { task.await }
+async fn nested_task(task: Task<Future<i32>>) -> Future<i32> { task.await }
+async fn empty<T>() -> Vec<T> { [] }
+async fn inferred_future() -> Vec<i32> { empty().await }
 async fn diverging() -> i32 { (loop {}).await }
 async fn business(value: Result<i32, i32>) -> Result<i32, i32> {
     Ok(identity(value?).await)

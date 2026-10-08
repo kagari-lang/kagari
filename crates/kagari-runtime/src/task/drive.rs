@@ -75,6 +75,9 @@ impl Drop for TaskActivation<'_> {
                     .tasks
                     .get_mut(self.task.0)
                     .expect("active task record");
+                if matches!(record.state, TaskState::Terminal(_)) {
+                    return;
+                }
                 record.state = TaskState::Owned(execution);
                 record.signal.clone()
             };
@@ -157,6 +160,12 @@ impl Runtime {
                 };
                 match result {
                     Ok(execution) => {
+                        let dependencies = self.tasks.borrow().dependencies.clone();
+                        if let Err(error) = dependencies.attach(task, execution.id) {
+                            self.finish_owned_execution(&execution)?;
+                            self.publish_task_result(task, Err(error))?;
+                            return Ok(TaskAcquisition::Inactive(TaskDriveResult::Complete));
+                        }
                         execution.set_waker(&Waker::from(signal.clone()));
                         // Registration observes the new execution's initial
                         // readiness. This activation consumes it; no script or

@@ -12,6 +12,9 @@ use std::num::NonZeroUsize;
 #[path = "tasks.rs"]
 mod tasks;
 
+#[path = "task_waiters.rs"]
+mod task_waiters;
+
 impl Fixture {
     fn source(text: &str) -> Self {
         Self::configured_source(text, Default::default())

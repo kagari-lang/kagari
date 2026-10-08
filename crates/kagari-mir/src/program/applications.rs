@@ -71,9 +71,14 @@ pub(super) fn validate<'a>(
                     let Ty::NativeObject(future) = future else {
                         return Err(TypeTransformError::InvalidContract);
                     };
-                    if nominal(&future.declaration)
-                        != Some((TypeDefKind::NativeStorage(NativeStorageLayout::Future), 1))
-                    {
+                    let valid = match nominal(&future.declaration) {
+                        Some((TypeDefKind::NativeStorage(NativeStorageLayout::Future), 1)) => true,
+                        Some((TypeDefKind::NativeStorage(NativeStorageLayout::Task), 1)) => {
+                            matches!(instruction, Instruction::Await { .. })
+                        }
+                        _ => false,
+                    };
+                    if !valid {
                         return Err(TypeTransformError::InvalidContract);
                     }
                 }

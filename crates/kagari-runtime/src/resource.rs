@@ -20,6 +20,7 @@ pub struct AsyncLimits {
     pub max_pending_operations: NonZeroUsize,
     pub max_tasks: NonZeroUsize,
     pub max_task_scopes: NonZeroUsize,
+    pub max_task_waiters: NonZeroUsize,
 }
 
 impl Default for AsyncLimits {
@@ -28,6 +29,7 @@ impl Default for AsyncLimits {
             max_pending_operations: NonZeroUsize::new(1024).expect("positive default"),
             max_tasks: NonZeroUsize::new(1024).expect("positive default"),
             max_task_scopes: NonZeroUsize::new(64).expect("positive default"),
+            max_task_waiters: NonZeroUsize::new(4096).expect("positive default"),
         }
     }
 }

@@ -111,7 +111,7 @@ pub(super) fn verify_instruction(
         BytecodeInstruction::Await { dst, value, future } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {
                 function: function.id,
-                reason: "invalid Future await contract",
+                reason: "invalid Future or Task await contract",
             };
             let Ty::NativeObject(nominal) = future else {
                 return Err(invalid());
@@ -129,9 +129,14 @@ pub(super) fn verify_instruction(
             let declaration = owner.and_then(|owner| {
                 type_contract(&owner.identity, &owner.public_items, &nominal.declaration)
             });
-            if declaration
-                .is_none_or(|ty| ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future))
-                || nominal.arguments.len() != 1
+            if declaration.is_none_or(|ty| {
+                !matches!(
+                    ty.kind,
+                    TypeDefKind::NativeStorage(
+                        NativeStorageLayout::Future | NativeStorageLayout::Task
+                    )
+                )
+            }) || nominal.arguments.len() != 1
                 || !nominal.associated_types.is_empty()
                 || !function.metadata.effects.may_suspend
                 || function.metadata.semantic.registers.get(&value.index()) != Some(future)
@@ -140,7 +145,7 @@ pub(super) fn verify_instruction(
             {
                 return Err(invalid());
             }
-            expect_register_ty(function, *value, ValueType::HeapObject, "await Future")?;
+            expect_register_ty(function, *value, ValueType::HeapObject, "awaitable")?;
             expect_register_ty(
                 function,
                 *dst,
