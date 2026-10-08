@@ -15,6 +15,7 @@ use {
 use {kagari_hir::typeck::const_budget::ConstLimits, kagari_syntax::parser::ParseLimits};
 
 use kagari_embed::engine::KagariEngine;
+use kagari_types::declaration::names::NameNamespace;
 
 fn main() -> kagari_embed::CompileResult<()> {
     let engine = KagariEngine::default();
@@ -57,7 +58,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     );
     println!(
         "module name lookup: {:?}",
-        header.names().items.lookup("Point")
+        header.names().items.lookup("Point", NameNamespace::Type)
     );
     let signatures = engine.signatures(engine.source_snapshot(), &Default::default())?;
     let signature = signatures.file(file).expect("source signatures");

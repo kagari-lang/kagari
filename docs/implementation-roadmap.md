@@ -245,14 +245,26 @@ structure (928 Rust files, zero findings), formatting, local documentation links
 and `git diff --check` passed. Earlier successful NR03/NR04 contract evidence is
 retained above, not replaced by the measurement fixture.
 
-CI status: **pending, no final-commit CI run exists because this work was not
-pushed**. Reviewed `.github/workflows/ci.yml`: structure/self-test, formatting,
+CI status: **pending rerun after the user-reported example compilation failure
+described below**. The original local checkpoints were not pushed by the agent. Reviewed `.github/workflows/ci.yml`: structure/self-test, formatting,
 strict workspace/all-target Clippy, workspace tests, SDK feature consumers and CLI
 JIT are configured there. Its workspace tests own the complete backend/artifact
 matrices; none was run locally or simulated with split package commands. Local
 NR05 is complete; full architecture acceptance requires those CI jobs on the
 final implementation. This remaining acceptance item does not activate SA1/SA9
 or authorize a remote push.
+
+NR05 CI follow-up: the user supplied E0061 from
+`crates/kagari-embed/examples/source_queries.rs`: its `NameTable::lookup("Point")`
+call was missed in the category migration. The earlier focused HIR and SDK test
+targets did not compile this example. The example now explicitly selects
+`NameNamespace::Type`; no compatibility overload or new regression test was added.
+A source/documentation scan found no remaining one-argument string-literal lookup
+calls. Focused verification passed:
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo clippy -p kagari-embed
+--example source_queries -- -D warnings`, structure (928 files, zero findings),
+formatting and `git diff --check`. This resolves the reported compile error locally;
+full CI still requires a rerun. No workflow or remote branch was changed.
 
 ### Explicit native default bodies
 
