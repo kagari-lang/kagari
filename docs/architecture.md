@@ -1110,3 +1110,20 @@ containers/traits, general downcast, async/permission redesign, blanket standard
 replacement, stable external ABI or compatibility reader is authorized here.
 Performance effects are unmeasured. A future kagari-ffi C adapter belongs over
 kagari-embed; internal helper ABI stays separate, and no placeholder crate is needed.
+
+## Owned interpreter activation (AX01)
+
+Runtime session storage owns both synchronous and independently parked frame stacks.
+An owned execution token requests cancellation/retirement without keeping a Runtime
+borrow. `session::owned` validates entry/activation identity and drains abandoned
+records; `frame::owned` admits only safe slice exits, retaining owned iteration
+leases while excluding mutation/host/native borrows. Call depth is parked/restored
+per root. Operand windows can be released out of order and compact their backing
+banks without changing live generational identities.
+
+VM `vm::owned` supplies start/drive orchestration over the existing executor. The
+cursor yields after the requested instruction interval; the executor defers the
+exit through non-suspendable synchronous operations. Native bodies cannot be forcibly
+preempted. Completion roots its output and releases frames; a wake requests host
+attention without entering script. This checkpoint supports Runnable/Complete for
+synchronous programs only; AX02-AX04 add external waits, async syntax and Task scopes.

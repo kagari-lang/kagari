@@ -171,10 +171,14 @@ impl ExecutionValues {
         self.next_generation = generation;
         let slots = FrameSlots {
             owner: self.owner,
-            index: self.windows.len(),
+            index: self
+                .windows
+                .iter()
+                .position(Option::is_none)
+                .unwrap_or(self.windows.len()),
             generation,
         };
-        self.windows.push(Some(Window {
+        let window = Some(Window {
             generation,
             ranges: WindowRanges {
                 scalars: scalar_start..scalar_start + scalar_count,
@@ -183,7 +187,12 @@ impl ExecutionValues {
             program,
             environment,
             registers,
-        }));
+        });
+        if slots.index == self.windows.len() {
+            self.windows.push(window);
+        } else {
+            self.windows[slots.index] = window;
+        }
         if let Some((source, operands)) = arguments.window() {
             for (index, register) in operands.iter().enumerate() {
                 // Resolve after both banks grow; caller/callee remain disjoint.
@@ -380,18 +389,26 @@ impl ExecutionValues {
 
     pub(crate) fn release(&mut self, slots: FrameSlots) -> Option<()> {
         let ranges = self.window(slots)?.ranges.clone();
-        self.values[ranges.managed].fill(Value::Unit);
-        self.initialized[ranges.scalars].fill(false);
+        // Independent roots can finish in any order. Compact the banks while
+        // retaining generational window identities; no cursor may be borrowed
+        // during release. Leaving interior holes would grow with historical work.
+        self.values.drain(ranges.managed.clone());
+        self.payloads.drain(ranges.scalars.clone());
+        self.initialized.drain(ranges.scalars.clone());
         self.windows[slots.index] = None;
+        for window in self.windows.iter_mut().flatten() {
+            if window.ranges.managed.start >= ranges.managed.end {
+                window.ranges.managed.start -= ranges.managed.len();
+                window.ranges.managed.end -= ranges.managed.len();
+            }
+            if window.ranges.scalars.start >= ranges.scalars.end {
+                window.ranges.scalars.start -= ranges.scalars.len();
+                window.ranges.scalars.end -= ranges.scalars.len();
+            }
+        }
         while self.windows.last().is_some_and(Option::is_none) {
             self.windows.pop();
         }
-        let window = self.windows.last().and_then(Option::as_ref);
-        self.values
-            .truncate(window.map_or(0, |w| w.ranges.managed.end));
-        let end = window.map_or(0, |w| w.ranges.scalars.end);
-        self.payloads.truncate(end);
-        self.initialized.truncate(end);
         Some(())
     }
 

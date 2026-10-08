@@ -768,3 +768,12 @@ capacity/readiness/report storage before invoking any factory. A durable ready
 set and coalesced wake sink handle completion; dispatch failure requests cleanup
 through the host control/drain path. Owner drop requests retirement; explicit
 drain or the next drive completes cleanup. Runtime destruction is the backstop.
+
+### AX01 VM API availability
+
+`kagari_vm::vm::Vm::{start, drive}` and
+`kagari_runtime::session::owned::OwnedExecution` provide the current synchronous
+owned-drive foundation. Results use `kagari_vm::vm::owned::DriveResult` with
+Runnable/Complete variants. The SDK async registration, external waits, scope
+admission and durable ready set described above remain scheduled; this checkpoint
+does not advertise those APIs as implemented.

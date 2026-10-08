@@ -53,6 +53,23 @@ impl Default for SessionStore {
 }
 
 impl SessionStore {
+    pub(crate) fn retired_owners(&self, quarantined: bool) -> Vec<SessionId> {
+        self.records
+            .borrow()
+            .slots
+            .iter()
+            .filter_map(|slot| {
+                let state = slot.state.as_ref()?;
+                let owner = state.owner.borrow();
+                (state.scopes.get() == 0
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| quarantined || owner.abandoned()))
+                .then_some(state.id)
+            })
+            .collect()
+    }
+
     pub(crate) fn insert(
         &self,
         root: LoadedModule,

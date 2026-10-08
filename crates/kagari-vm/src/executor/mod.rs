@@ -14,10 +14,13 @@ use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
     frame::{ExecutionFrame, ExecutionStack, transfer::ReturnValue},
     module::LoadedModule,
-    session::ExecutionEvent,
+    session::{ExecutionEvent, owned::OwnedExecution},
     value::Value,
 };
-use std::cell::{Ref, RefMut};
+use std::{
+    cell::{Ref, RefMut},
+    num::NonZeroUsize,
+};
 
 use crate::{error::VmError, executor::loop_body::LoopExit};
 
@@ -59,23 +62,48 @@ impl<'a> Executor<'a> {
     }
 
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
-        self.run_inner()
+        self.run_inner(None)
+            .map(|value| value.expect("unbounded execution completes"))
             .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))
     }
 
-    fn run_inner(&mut self) -> Result<Value, VmError> {
+    pub(crate) fn resume(runtime: &'a Runtime, owner: &OwnedExecution) -> Result<Self, VmError> {
+        Ok(Self {
+            runtime,
+            stack: runtime.resume_owned_execution(owner)?,
+        })
+    }
+
+    pub(crate) fn run_slice(mut self, slice: NonZeroUsize) -> Result<Option<Value>, VmError> {
+        let value = self
+            .run_inner(Some(slice.get()))
+            .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))?;
+        if value.is_none() {
+            self.stack.park(self.runtime)?;
+        }
+        Ok(value)
+    }
+
+    fn run_inner(&mut self, mut remaining: Option<usize>) -> Result<Option<Value>, VmError> {
         loop {
+            self.runtime.resources().poll_execution()?;
+            if remaining == Some(0) && self.stack.can_park(self.runtime)? {
+                return Ok(None);
+            }
             let native_return = self.current_frame()?.native_return(self.runtime)?;
             if let Some(value) = native_return {
                 let result = self
                     .stack
                     .finish_return(self.runtime, ReturnValue::general(value));
                 if let Some(value) = self.report_operation(result.map_err(VmError::RuntimeError))? {
-                    return Ok(value);
+                    return Ok(Some(value));
                 }
                 continue;
             }
             if self.current_frame()?.has_pending_native_entry() {
+                if let Some(remaining) = &mut remaining {
+                    *remaining = remaining.saturating_sub(1);
+                }
                 self.runtime.gc_safepoint()?;
                 self.runtime
                     .observe_execution(ExecutionEvent::BeforeInstruction)?;
@@ -91,15 +119,15 @@ impl<'a> Executor<'a> {
             self.runtime
                 .observe_execution(ExecutionEvent::BeforeInstruction)?;
 
-            let result = self.run_cursor();
+            let result = self.run_cursor(&mut remaining);
             match self.report_operation(result)? {
-                LoopExit::Safepoint => continue,
+                LoopExit::Safepoint | LoopExit::Slice => continue,
                 LoopExit::Return(value) => {
                     let result = self.stack.finish_return(self.runtime, value);
                     if let Some(value) =
                         self.report_operation(result.map_err(VmError::RuntimeError))?
                     {
-                        return Ok(value);
+                        return Ok(Some(value));
                     }
                 }
                 LoopExit::Boundary => {
@@ -139,7 +167,7 @@ impl<'a> Executor<'a> {
                         if let Some(value) =
                             self.report_operation(result.map_err(VmError::RuntimeError))?
                         {
-                            return Ok(value);
+                            return Ok(Some(value));
                         }
                         continue;
                     }

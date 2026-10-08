@@ -8,6 +8,7 @@ mod installed_access;
 mod jit;
 mod mutation_resources;
 mod numeric;
+mod owned_drive;
 mod reentry_debug;
 mod sessions;
 mod source_programs;

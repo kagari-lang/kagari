@@ -32,6 +32,7 @@ mod arguments;
 pub mod cursor;
 mod layouts;
 mod native;
+mod owned;
 mod shared;
 pub mod transfer;
 pub mod types;
@@ -43,6 +44,7 @@ pub struct ExecutionStack<'runtime> {
     session: ExecutionSession<'runtime>,
     base: usize,
     id: u64,
+    parked: bool,
 }
 
 impl<'runtime> ExecutionStack<'runtime> {
@@ -66,7 +68,12 @@ impl<'runtime> ExecutionStack<'runtime> {
         })?);
         state.frame_scopes.borrow_mut().push(id);
         drop(state);
-        Ok(Self { session, base, id })
+        Ok(Self {
+            session,
+            base,
+            id,
+            parked: false,
+        })
     }
 
     fn validate_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
@@ -443,6 +450,9 @@ impl Drop for ExecutionStack<'_> {
                 .quarantine("frame scopes dropped out of order");
         }
         scopes.truncate(position);
+        if self.parked {
+            return;
+        }
         let Some(mut frames) = self.session.resources.sessions.frames_mut(self.session.id) else {
             self.session
                 .resources

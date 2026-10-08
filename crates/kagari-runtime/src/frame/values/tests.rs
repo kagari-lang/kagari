@@ -67,7 +67,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
             1,
             0,
             &FrameArguments::plain(&[Value::I32(2)]),
-            module,
+            module.clone(),
             None,
             None,
         )
@@ -76,7 +76,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
     assert_eq!(values.get(second).unwrap(), &[Value::I32(2)]);
     let mut roots = Vec::new();
     values.append_values(&mut roots);
-    assert_eq!(roots, [Value::Unit, Value::I32(2)]);
+    assert_eq!(roots, [Value::I32(2)]);
     let mut metadata = Vec::new();
     values.append_metadata(&mut metadata);
     assert_eq!(metadata.len(), 1);
@@ -87,6 +87,47 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
     values.append_metadata(&mut metadata);
     assert!(roots.is_empty());
     assert!(metadata.is_empty());
+
+    // Keep one root parked while successively retiring older roots. Both banks
+    // must stay proportional to live frames, even when slot order is reused.
+    let args = [
+        Value::U64(17),
+        Value::F64(-0.0),
+        Value::I32(-7),
+        Value::Str("kept".into()),
+    ];
+    let mut previous = values
+        .allocate(
+            4,
+            0,
+            &FrameArguments::plain(&args),
+            module.clone(),
+            None,
+            Some(scalar_layout()),
+        )
+        .unwrap();
+    for _ in 0..16 {
+        let next = values
+            .allocate(
+                4,
+                0,
+                &FrameArguments::plain(&args),
+                module.clone(),
+                None,
+                Some(scalar_layout()),
+            )
+            .unwrap();
+        values.release(previous).unwrap();
+        assert!(values.get(previous).is_none());
+        assert_eq!(values.get(next).unwrap(), args);
+        assert_eq!(values.payloads.len(), 3);
+        assert_eq!(values.values.len(), 1);
+        assert!(values.windows.len() <= 2);
+        previous = next;
+    }
+    values.release(previous).unwrap();
+    assert!(values.values.is_empty());
+    assert!(values.payloads.is_empty());
 }
 
 #[test]

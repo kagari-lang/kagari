@@ -632,7 +632,7 @@ continue to describe synchronous support except for explicitly marked AX drafts;
 implementation and local/CI acceptance are recorded separately below.
 
 - [x] AX00: Finalize concrete semantic/executable, state, host and verification contracts (local documentation gate).
-- [ ] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry.
+- [x] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry (local gate).
 - [ ] AX02: Prove typed native Future completion and checked source-free wait/resume.
 - [ ] AX03: Implement async functions, explicit async closures and await through source and artifacts.
 - [ ] AX04: Add scope spawn, shared Task results, waiters and directional cancellation.
@@ -699,6 +699,43 @@ lifetime and safe slicing; AX03 must prove real deferred for-body await under
 interleaving/GC and cleanup, including encoded artifacts. Validation passed for
 15 changed Markdown files: 172 local links/anchors, fences, CRLF and
 `git diff --check`. No Rust build/test or CI was run; no carried build failures.
+
+AX01 execution ledger (2026-10-08): implemented owned runtime session tokens,
+short frame activation, VM start/drive and safe instruction slices on the existing
+interpreter/store. Queued start executes no script. Owned drop/cancel signals a
+host waker; explicit drain or owned start/drive completes retirement. Parked roots
+retain GC windows, pins and iteration leases, with independent restored call depth.
+Synchronous callbacks/reentry finish before a slice exit; frame mutation guards,
+scoped host values and borrows defer slicing. Independent/recursive driver entry
+rejects, while checked synchronous reentry shares its root.
+
+Independent roots exposed a concrete storage gap: tail-only operand-window release
+could retain historical holes during alternating completions. Reuse retired window
+slots and compact backing banks while retaining checked live identities; expanded
+the existing out-of-order window contract rather than adding a duplicate test.
+No unrelated collector/lease redesign or performance claim was made. Manual review
+found no new forwarding/re-export surface, deep paths or mixed module ownership.
+
+AX01 validation passed:
+- `cargo check -p kagari-vm` (initial producer/consumer build).
+- `cargo test -p kagari-runtime --lib frame::values::tests`: 5 affected storage
+  contracts, including alternating retirement, scalar bits and stale identities.
+- `cargo test -p kagari-vm --lib async_owned_drive_contract`: 2 contracts; interleaved
+  roots/GC, once-only effects, queued/running cancellation, owner drop, synchronous
+  reentry and call-depth preservation; encoded for-loop lease retention, another
+  handler during a slice, structural-write rejection/nonstructural visibility and
+  normal/cancel/drop cleanup. Repeated only after changing their affected code.
+- `cargo test -p kagari-vm --lib host_reentry_cannot_swallow_root_termination_and_releases_borrows`:
+  1 existing cancellation/cleanup boundary contract passed.
+- `cargo clippy -p kagari-vm --lib -- -D warnings`, structure (932 files, zero
+  findings/exceptions), formatting and diff checks passed. CRLF preserved.
+
+An intermediate test compile reported E0599 for the test's `ResourceLimit` spelling;
+corrected it to existing `ResourceLimitExceeded` and reran the selected contract.
+No build/test failure is carried. Full suites, feature/backend matrices and GitHub
+CI were not run. External Waiting/Future completion remains AX02; source async and
+actual deferred `for { ... .await }` remain AX03. The successful slice tests do not
+claim those later capabilities are implemented. AX02 is the next unfinished phase.
 
 ### Other proposals
 

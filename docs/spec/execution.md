@@ -401,6 +401,34 @@ The incremental implementation order is:
 
 This order keeps the interpreter as the semantic foundation while preserving JIT as an optional backend path.
 
+## Owned interpreter driving (AX01)
+
+The VM exposes `start` and `drive` for verified synchronous entries. Start validates
+and retains arguments without executing script. An `OwnedExecution` token contains
+a checked session identity and retirement/cancellation notification state, not a
+Runtime borrow. `drive` borrows the runtime for one exclusive activation and returns
+`Runnable` or `Complete(Result<RootedValue, VmError>)`. Its nonzero instruction slice
+is a scheduling interval; native calls remain cooperative and a slice may overrun
+until all transient resources have left. Synchronous execute/reentry uses the same
+frame store and interpreter without host-visible slice exits.
+
+Independent roots retain their own frames, cancellation, code pins and call-depth
+state. Runtime current call depth is restored for the selected root and is zero
+between activations; changing slices cannot bypass its limit. Runtime-owned operand
+windows reuse retired identities with generation checks. Out-of-order frame cleanup
+compacts their banks while preserving live window identities and roots.
+
+Owned collection iteration leases stay in parked frames, preserving cursor progress
+and structural-write exclusion. Mutation guards, live scoped host values, native
+borrows and synchronous reentry prevent a slice exit. Drop requests retirement;
+`drain_retired_executions`, the next owned start/drive or runtime destruction releases
+the frames and leases. Host control wakers can be registered on the owner token.
+Independent-root entry/drive during an activation is rejected; ordinary checked
+synchronous reentry remains available and shares the active root.
+
+This is the owned execution foundation, not external async support. `Waiting`,
+Future/Task, source `async` and `.await` remain scheduled for AX02-AX04.
+
 ## Owned async execution draft (AX01-AX04)
 
 Scheduled behavior; not yet implemented. The

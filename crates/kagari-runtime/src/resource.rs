@@ -7,9 +7,12 @@ use crate::{
         store::{SessionId, SessionStore},
     },
 };
-use std::cell::{Cell, Ref, RefCell, RefMut};
 #[cfg(test)]
 use std::sync::{Arc, Weak};
+use std::{
+    cell::{Cell, Ref, RefCell, RefMut},
+    mem,
+};
 
 /// Runtime-wide protection against accidental recursion. No execution metering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,6 +192,14 @@ impl ResourceState {
 
     pub fn counters(&self) -> ResourceCounters {
         *self.counters.borrow()
+    }
+
+    pub(crate) fn park_call_depth(&self) -> u32 {
+        mem::take(&mut self.counters.borrow_mut().current_call_depth)
+    }
+
+    pub(crate) fn restore_call_depth(&self, depth: u32) {
+        self.counters.borrow_mut().current_call_depth = depth;
     }
 
     pub(crate) fn enter_call(&self) -> Result<(), RuntimeError> {

@@ -331,7 +331,7 @@ fn collection_during_an_instruction_cursor_quarantines_without_further_writes() 
             .is_err()
     );
     assert!(cursor.read_register(Register::new(0)).is_err());
-    assert!(cursor.execute_region().is_err());
+    assert!(cursor.execute_region(&mut None).is_err());
     drop(cursor);
     drop(stack);
     assert_eq!(runtime.gc().active_roots(), 0);

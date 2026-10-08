@@ -333,7 +333,11 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             Value::I32(expected)
         );
     }
-    let RegionExit::Return(value) = stack.cursor(&runtime).unwrap().execute_region().unwrap()
+    let RegionExit::Return(value) = stack
+        .cursor(&runtime)
+        .unwrap()
+        .execute_region(&mut None)
+        .unwrap()
     else {
         panic!("concrete scalar callee must remain in its prepared region");
     };
@@ -363,8 +367,11 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             stack
                 .push_registers(&runtime, module, callee, black_box(arguments), destination)
                 .unwrap();
-            let RegionExit::Return(value) =
-                stack.cursor(&runtime).unwrap().execute_region().unwrap()
+            let RegionExit::Return(value) = stack
+                .cursor(&runtime)
+                .unwrap()
+                .execute_region(&mut None)
+                .unwrap()
             else {
                 panic!("scalar return");
             };

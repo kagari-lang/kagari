@@ -16,11 +16,13 @@ use std::{
     cell::{Cell, Ref, RefCell},
     collections::HashSet,
     fmt::Debug,
+    sync::Arc,
     time::Instant,
 };
 
 use kagari_bytecode::artifact::ArtifactFingerprint;
 
+pub mod owned;
 pub(crate) mod store;
 
 /// Only checked callable handles authorize entering a retained program outside
@@ -165,6 +167,8 @@ pub trait ExecutionObserver: Any + Debug + Send {
 #[derive(Debug)]
 pub(crate) struct SessionState {
     pub id: SessionId,
+    pub owner: RefCell<Option<Arc<owned::ExecutionOwner>>>,
+    pub parked_depth: Cell<u32>,
     pub leases: LeaseScope,
     pub host_scopes: RefCell<HashSet<HostFrameId>>,
     pub observer_attached: Cell<bool>,
@@ -193,6 +197,8 @@ impl SessionState {
     ) -> Self {
         Self {
             id,
+            owner: RefCell::new(None),
+            parked_depth: Cell::new(0),
             leases: LeaseScope::default(),
             host_scopes: RefCell::new(HashSet::new()),
             observer_attached: Cell::new(false),
@@ -359,6 +365,16 @@ impl Drop for ExecutionSession<'_> {
         let scopes = state.scopes.get();
         state.scopes.set(scopes - 1);
         if scopes == 1 {
+            if state.owner.borrow().is_some() {
+                if !state.frame_scopes.borrow().is_empty() || !state.host_scopes.borrow().is_empty()
+                {
+                    self.resources
+                        .quarantine("owned activation ended with active scopes");
+                }
+                state.parked_depth.set(self.resources.park_call_depth());
+                self.resources.end_execution(self.id);
+                return;
+            }
             if self
                 .resources
                 .sessions

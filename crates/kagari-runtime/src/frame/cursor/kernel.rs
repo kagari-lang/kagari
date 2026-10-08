@@ -6,6 +6,7 @@ use crate::{
 };
 
 pub enum RegionExit {
+    Slice,
     Safepoint,
     Boundary,
     Return(ReturnValue),
@@ -22,7 +23,10 @@ impl ExecutionCursor<'_> {
     /// has already polled and observed the first PC; subsequent logical PCs keep
     /// the same cancellation, collection and observation boundaries. No caller
     /// supplies values or callbacks while authority is reused.
-    pub fn execute_region(&mut self) -> Result<RegionExit, RuntimeError> {
+    pub fn execute_region(
+        &mut self,
+        remaining: &mut Option<usize>,
+    ) -> Result<RegionExit, RuntimeError> {
         self.runtime
             .resources()
             .ensure_cursor_allowed(&self.session)?;
@@ -34,10 +38,16 @@ impl ExecutionCursor<'_> {
         let collection_due = self.runtime.gc().collection_due();
         let mut first = true;
         loop {
+            if !first && *remaining == Some(0) {
+                return Ok(RegionExit::Slice);
+            }
             if !first && self.prepare_instruction(collection_due)? {
                 return Ok(RegionExit::Safepoint);
             }
             first = false;
+            if let Some(remaining) = remaining {
+                *remaining = remaining.saturating_sub(1);
+            }
             match self.execute_next()? {
                 CursorProgress::Continue => {}
                 CursorProgress::Boundary => return Ok(RegionExit::Boundary),
