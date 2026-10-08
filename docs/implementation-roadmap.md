@@ -633,8 +633,8 @@ not prerequisites to replay.
 | [Host API](host-api-refactor.md) — HA00-HA05 | Preparation/load/reload facade and logical entry policy; reuse GO typed calls/roots and RI value extensions. Package identity and update compatibility must be frozen before affected phases, without requiring both entire tracks first. |
 | [Packages](package-design.md) — PK00-PK04 | Cargo-style manifests, exact dependency graphs and source/module identities. First source kinds, single-selection policy and defaults remain review choices. |
 | [Update model](update-model-design.md) — UP00-UP05 | Compatible publication versus explicit state replacement. GO supplies calls/roots, RI value extensions, PK identities and HA the facade; lower-level cutover belongs to UP. |
-| [Async execution](async-execution-design.md) | `async fn` and explicit `async` closures produce cold runtime-owned `Future<T>`; explicit `.await` and scope-owned `Task<T>`. Future terminal states and Task completion/cancellation contracts remain open. |
-| [Host task scopes](host-task-scope-design.md) | `spawn` accepts `Fn() -> Future<T>` with scope-owned lifetime, host/Actor dispatch and bounded driving. Admission wrappers/native registration remain open; no Actor/Tokio policy inside the VM. |
+| [Async execution](async-execution-design.md) | `async fn`/closures produce once-driven `Future<T>`; `.await` returns T and propagates cancellation/traps as termination. Scope-owned Tasks share retained results. Concrete state/verification/completion APIs remain open. |
+| [Host task scopes](host-task-scope-design.md) | `spawn` accepts `Fn() -> Future<T>` and returns `Result<Task<T>, SpawnError>`. Scope-owned lifetime and bounded host driving; exact errors/native registration/dispatch APIs remain open. |
 
 Async design checkpoint (2026-10-08): selected explicit `.await` over implicit
 waiting. Calling an async function creates a cold Future, not a scheduled Task;
@@ -648,9 +648,18 @@ captures retain ordinary value/shared-slot semantics across repeated calls. Call
 types and generic bounds reuse `fn(A) -> Future<T>` and `Fn(A) -> Future<T>`;
 no separate AsyncFn protocol or async function-type syntax is introduced. Spawn
 accepts `Fn() -> Future<T>`, invokes it once on first drive and drives one Future
-layer, without implicit wrapping/flattening. Task multi-waiter/result/error lifetimes,
-cancellation between tasks, admission failure, wait cycles and host completion
-APIs must be specified.
+layer, without implicit wrapping/flattening. Futures are driven once; repeated
+await through any alias traps. Tasks retain completed results/terminal metadata
+for reachable handles without retaining execution frames. Spawn reports admission
+through `Result<Task<T>, SpawnError>`. Both awaits return T, with business Result
+unchanged: cancellation/traps terminate execution, not an outer Result wrapper.
+Cancelling waiter A leaves target B running; cancelling B terminates dependent A
+with source-task provenance. Nested spawns belong to the selected scope; scope
+close cancels unfinished work. Host reports identify task/scope/cause and distinguish
+cancel request acceptance from completed cleanup. Wait cycles are rejected.
+Local structured scopes, parent-child task trees, supervisor modes and script-level
+async cleanup remain deferred. Remaining gates are concrete error/report APIs,
+bounded state/storage, native registration, dispatch races and executable verification.
 Updated both proposals without activating implementation or changing current specs.
 Documentation validation passed: 58 local links/anchors, content review and
 `git diff --check`; CRLF line endings are preserved. No Rust

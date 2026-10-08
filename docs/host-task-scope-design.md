@@ -17,8 +17,8 @@ Both documents remain design-only work built on current
 owns activation; the async proposal owns implementation sequencing.
 The selected script names are `spawn`, `Future<T>` and `Task<T>`, with explicit
 postfix `.await`. Explicit `async |args| body` closures produce Futures through
-ordinary callable types. Admission/result wrappers and concrete host APIs remain
-open; examples are illustrative, not implemented interfaces.
+ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; exact rejection
+variants and concrete host APIs remain open. Examples are not implemented interfaces.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns the Send runtime and centralized retention model. Scope/Actor ownership stays
@@ -35,7 +35,7 @@ lifetime and ownership checks, not another boolean permission matrix.
 Ordinary handlers remain synchronous. They explicitly spawn independent business
 work into a host-owned scope. Add `async` to the existing closure expression when
 its body needs to suspend; the parent proposal owns its evaluation/capture rules.
-The Result wrapper below is the recommended admission API, not a final signature.
+The Result wrapper reports admission only, not the eventual Task outcome.
 
 ```kagari
 fn on_message(ctx: PlayerContext, req: QueryRequest) {
@@ -112,10 +112,11 @@ checks at actual use remain necessary for mutable capture graphs; capturing a
 value is not evidence that its later state is safe.
 
 Task handles can be captured and awaited in other executions in the same runtime;
-that does not transfer task ownership. Multiple-waiter/result retention contracts
-belong to the parent proposal. Decide cancellation of waiting versus target tasks
-and nested spawns explicitly. Using the same host scope inside another task does
-not by itself specify a parent/child cancellation tree or a local join scope.
+that does not transfer task ownership. Cancelling a waiter removes its wait without
+cancelling the target; a cancelled target terminates its waiters with dependency
+cancellation. Task await returns T on success, without an outer Result wrapper.
+Nested spawns belong to their explicitly selected scope, not the spawning task.
+Local structured scopes and implicit parent-child cancellation are deferred.
 
 Spawn does not re-resolve captured callable/Future targets against the latest code.
 If a target is no longer permitted by the scope's deployment policy, admission or
@@ -297,8 +298,19 @@ resource termination and engine fault remain distinct. Outcome reporting itself 
 bounded and cannot synchronously reenter the VM. Retaining a heap output in host
 state requires an explicit root or conversion, not copying a raw Value. Completed
 Task results need independently retained storage for later/multiple awaits; do not
-keep completed frames and waiting resources alive with the result handle. Exact
-failure observation and completed-result release policies remain open.
+keep completed frames and waiting resources alive with the result handle. Retained
+results/terminal metadata follow reachable Task handles and explicit host roots;
+scope bookkeeping must not permanently retain completed tasks. Await propagates
+target cancellation/traps as execution termination, preserving failure class and
+source identity. Business Err remains a normal output value.
+
+Terminal reports include task/scope identity and cancellation cause even when no
+script awaits the task. Dependency failures retain the source task and original
+origin plus the waiter's await location. Report types and bounded storage remain
+host API work. Cancellation request acceptance is distinct from completed cleanup
+on the owning thread; close/drain must observe the latter before state replacement.
+Completion or cancellation wins one terminal transition, and late messages cannot
+revive tasks. Scope close cancels all its unfinished work, not completed results.
 
 The installed runtime surface authorizes API use; there is no child permission
 intersection. The host supplies each admitted job's cancellation and call-depth
@@ -327,10 +339,11 @@ revalidate conditions or use version-checked host operations.
 
 ## Design gates and acceptance
 
-Resolve exact admission/result wrappers, callable/Future capture verification, scope
-capability passing, queue reservation, drive outcomes, Task waiter/result lifetimes
-and shutdown ownership under the parent async proposal before implementation. This companion introduces
-no independent phase ledger or new current implementation requirement.
+Resolve exact SpawnError variants, callable/Future capture verification, scope
+capability passing, queue reservation, drive/report APIs, bounded waiter/result
+storage and shutdown ownership under the parent async proposal before implementation.
+This companion introduces no independent phase ledger or new current implementation
+requirement.
 
 Acceptance must demonstrate:
 
@@ -352,6 +365,9 @@ Acceptance must demonstrate:
 - Task drop preserves scope ownership; cancel and shutdown release execution roots,
   waiting endpoints and execution-owned generation retention without remote-result
   dependencies. Retained results and unstarted Futures keep only necessary roots.
+- Waiter cancellation leaves its target running; target cancellation terminates
+  dependent waiters and records the originating Task. Cancellation reports are
+  observable without await, and scope shutdown can confirm completed cleanup.
 - Interleaved roots retain independent cancellation controls; resume turns do not
   reset cancellation or call-depth limits, nested Future awaits share them, and
   scope spawn obeys host admission limits without introducing execution charging.

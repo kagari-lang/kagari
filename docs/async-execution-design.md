@@ -56,8 +56,8 @@ Multiple independent host-started executions may wait in one runtime, but only o
 may execute script at a time. This is cooperative interleaving, not parallel heap
 access. A root has one active await chain. A host-provided scope creates a separate
 managed execution through `spawn`; unrestricted global spawning is deferred.
-Task result sharing across executions is part of the chosen direction, with exact
-waiter, cancellation and result-retention contracts still requiring review.
+Task result sharing across executions follows the cancellation and result-retention
+rules below; concrete waiter storage and host completion APIs remain to be specified.
 
 Do not include script threads, a mandatory Rust async executor, implicit blocking,
 detached background jobs, async generators or general async trait methods
@@ -91,9 +91,9 @@ allocation can fail, and argument evaluation can have effects.
 `scope.spawn(...)` creates a separate scope-owned execution and exposes a
 `Task<T>` handle after successful admission. Use this single task API rather than
 separate `launch` and `async` methods. `Task<()>` covers Unit-producing work.
-The exact admission wrapper is still open; `Result<Task<T>, SpawnError>` is the
-current recommendation, not a finalized signature. Spawn enqueues work without
-executing its body inside the caller's activation. Discarding the returned handle
+The admission result is `Result<Task<T>, SpawnError>`; exact rejection variants
+remain to be specified. Spawn enqueues work without executing its body inside
+the caller's activation. Discarding the returned handle
 does not cancel accepted work.
 
 | Expression | Meaning |
@@ -124,16 +124,21 @@ state checks enforce this without introducing Rust ownership syntax. Storing an
 unstarted Future inside a closure or another Future is not itself forbidden:
 it can be driven later by a spawned execution. Capturing a Future does not start
 or recursively bind it. Actual use must still validate its state, including when
-shared mutable captures have changed. Same-execution repeat-await after completion,
-terminal Future aliases and wait-cycle detection remain explicit design gates;
-there must never be an accidental restart or concurrent drive.
+shared mutable captures have changed. A Future is driven once: a second await,
+including through an alias after completion in the same execution, is an invalid
+state and traps. Resuming its one active await after a host wait is not a second
+await. Terminal aliases cannot restart execution or retrieve a cached result;
+use Task for shared/repeated result observation.
 
 Task handles represent scope-owned work, not cold computations. The selected
 direction permits same-runtime sharing and waiting across executions, including
 multiple waiters and cached completed results. Waiting never reparents the target.
-Reference-valued results keep ordinary shared-object semantics. Specify cancellation
-propagation, terminal error observation and result retention before implementation.
-Keeping a completed Task reachable must not retain its entire execution stack.
+Reference-valued results keep ordinary shared-object semantics. Completed output
+and terminal metadata remain available while the Task is reachable; GC can release
+them when no handles or explicit host roots retain them. Scope bookkeeping must
+not retain all completed tasks indefinitely. Keeping a completed Task reachable
+must not retain its entire execution stack. Await cancellation/failure follows
+the terminal-execution rules below, without adding an outer Result to the output.
 Neither Future nor Task is a cross-runtime value, serialized continuation or
 state-replacement payload. Publication must not silently retarget retained code.
 
@@ -254,8 +259,8 @@ environment; runtime shutdown invalidates all runtime-owned execution identities
 ### Spawn input contract
 
 Spawn accepts a zero-argument Future-producing callable: `F: Fn() -> Future<T>`.
-After successful admission it exposes `Task<T>` (with the admission wrapper still
-to be finalized). Both forms are supported without name-based compiler behavior:
+Admission returns `Result<Task<T>, SpawnError>`. Both forms are supported without
+name-based compiler behavior:
 
 ```kagari
 ctx.tasks.spawn(|| load_profile(id));
@@ -400,6 +405,69 @@ ordinary declared Result values. Script traps, cancellation, resource exhaustion
 and engine faults retain their separate classifications across await boundaries.
 Original error origins and the logical async call chain remain available.
 
+### Await output and terminal propagation
+
+Both `Future<T>.await` and `Task<T>.await` produce `T` on successful execution.
+There is no implicit `Result<T, TaskError>` layer and no script-catchable cancellation
+exception. If `T` is `Result<U, E>`, a business Err remains that ordinary value;
+await does not unwrap it or terminate the waiter. Existing `?` handles propagation.
+Cancellation and traps return no value from await and do not run the continuation.
+
+For an execution A awaiting a scope-owned Task B:
+
+| Event | Required outcome |
+| --- | --- |
+| A is cancelled | Terminate A and detach its wait registration; B continues unless separately cancelled |
+| B is cancelled | Terminate A as cancelled due to dependency B; do not continue after await |
+| B traps or reaches another execution termination | Terminate A with the corresponding failure class and retain B's original failure provenance |
+| B completes with a business Err | Return that Err as part of T; A may handle it normally |
+| The owning scope closes | Cancel its unfinished tasks, irrespective of their wait relationships |
+
+Await never reparents B. Cancelling A must not cancel B simply because A needs its
+result, including when other executions also await B. When B is cancelled, its
+registered waiters are scheduled for terminal cleanup, not resumed in script;
+later awaits observe the same terminal outcome. Failure propagation can terminate
+dependent waiters but does not cancel unrelated tasks in the scope. A caller that
+is itself cancelled cannot use a completed target result to continue execution.
+
+A directly awaited Future runs in A rather than as an independent task, so its
+active native waits and frames are terminated with A. Nested `scope.spawn` calls
+create tasks in the explicitly selected host scope, not implicit children of A.
+Local structured scopes, parent-child Job trees, supervisor modes and script-level
+async cleanup/non-cancellable regions are outside this release.
+
+Reject self-waits and any new Task wait edge that would form a dependency cycle
+before parking. Invalid Future reentry is likewise rejected. The exact diagnostics
+and bounded dependency tracking are implementation contracts, not permission to
+leave impossible waits pending forever.
+
+### Cancellation delivery and reporting
+
+Cancellation is a request until the runtime's exclusive driver has completed
+cleanup. Queued work must not start after cancellation is observed; running work
+observes it at execution checkpoints; waiting work must have a wake/cleanup path
+that does not depend on the remote operation returning. Native code must cooperate
+through bounded work/checkpoints; cancellation does not promise Rust preemption.
+Only the driver accesses parked frames or the script heap. Cleanup must not invoke
+arbitrary script code, and a failed dispatch must not strand cancellation forever.
+
+Cancellation and successful completion have one terminal transition. Cancelling an
+already completed Task does not replace its cached result; cancellation observed
+before terminal completion prevents publishing a later success. A completion
+payload queued by a provider is not by itself successful completion of the Task.
+Late/duplicate completion cannot revive a cancelled execution. Define the exact
+atomic publication/driver protocol before implementation and test both race orders.
+
+The host receives a terminal report even when no script awaits the Task. Reports
+identify the task and scope with generation-checked identities and distinguish
+explicit cancellation, scope closure and dependency cancellation. Dependency
+failure reports retain the source Task identity and original origin plus the
+waiter's await location; propagating failure must not replace its provenance.
+Use existing code/source identities when available, without requiring source text
+for executable operation. The host API must distinguish request acceptance from
+completed cleanup so shutdown/state replacement can wait for quiescence. Exact
+report structures and bounded reporting storage remain implementation work.
+
 Root cancellation is sticky across all nested async calls and native operations.
 It prevents further script execution, invalidates completion endpoints and releases
 frames, roots, native state and retained code. Cancellation must wake a waiting
@@ -430,7 +498,7 @@ native state participate in explicit GC retention. Waiting alone does not keep a
 Root release must be exactly once on every terminal path, including an abandoned
 Future, conversion failure, shutdown and a race with completion. Terminal execution
 cleanup releases its frames and waiting resources independently of retained Task
-outputs; the precise completed-result lifetime is a design gate.
+outputs, whose lifetime follows the reachable result handles and explicit roots.
 
 No borrowed host handle, runtime/table borrow, host lease or prepared commit action
 may survive a suspension boundary. Compiler liveness checks cover locals and
@@ -528,12 +596,11 @@ before activating async work:
 - Lower the selected explicit async-closure/Future-factory contract through source
   declarations, generic `Fn` metadata and source-free callable/resume verification;
   finalize the native registration adapter without adding an async trait system.
-- Specify Future same-execution repeat-await and terminal states; Task multi-waiter,
-  cached-output and error-observation lifetimes; cancellation between waiters,
-  targets and nested spawns; and self/transitive await-cycle handling.
-- Finalize spawn admission/result types and the companion's dispatch contracts.
-  Decide whether local structured scopes are deferred; do not infer task parenting
-  merely from lexical nesting of spawn calls using a host scope.
+- Specify bounded storage/state transitions for once-driven Futures, Task waiters,
+  retained results, terminal propagation and wait-cycle detection under the selected
+  semantics above; do not add a second script-visible error wrapper.
+- Finalize SpawnError variants and the companion's admission/dispatch contracts.
+  Local structured scopes and implicit parent-child task relationships are deferred.
 - Specify source grammar, offline declaration encoding, exact suspension effects,
   ephemeral-value analysis, candidate-output restrictions and artifact verification rules.
 - Specify owned execution APIs, activation/reentry rules, completion ownership,
@@ -586,7 +653,15 @@ servers or timing sleeps. Required cases include:
   A captured unstarted Future can first be driven in the admitted execution.
 - Task waiters across executions observe one completion without duplicate work;
   retained results survive GC while completed execution frames are released.
-  Waiter/target cancellation and terminal errors follow the finalized contracts.
+  Re-awaiting a Future traps even in its original execution; repeated Task awaits
+  observe its retained result/terminal metadata without re-running the factory.
+- Cancelling a waiter detaches it without cancelling the target; cancelling a
+  target terminates its waiters without script continuation. Business Err stays a
+  value, while traps retain their source Task and await provenance. No-waiter tasks
+  still report terminal outcomes to the host. Scope close covers all its tasks.
+- Cancellation/completion races establish one terminal outcome; cleanup completion
+  is distinguishable from request acceptance. Task wait cycles are rejected before
+  parking. No script-level cleanup or terminal-error recovery is introduced.
 - Immediate and deferred completions agree; completion-before-wait and wakeup races
   lose no result; duplicate/late/stale-slot events cannot resume another operation.
 - A waiting execution consumes no drive loop; another root runs with independent
