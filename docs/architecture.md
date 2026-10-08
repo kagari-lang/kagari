@@ -1152,5 +1152,27 @@ return cold values, including Future-valued outputs without flattening. Nested
 script awaits push owned resume frames; native waits also work directly as a root
 without an artificial script caller. Real deferred for-body waits retain the same
 cursor and lease, observe later element replacement and reject structural writes.
-Cancellation and owner retirement release the lease. AX03 has passed its focused
-local gate; AX04 Task scopes and full CI acceptance remain open in the roadmap.
+Cancellation and owner retirement release the lease. Source, Task scope and
+lifecycle integration have passed focused local gates; the roadmap distinguishes
+these results from full GitHub CI acceptance.
+
+`task` owns bounded scope admission, generation-checked identities, readiness,
+dependencies and terminal reports. `spawn` queues a checked callable without
+invoking it; the first owned activation calls that factory and drives its Future.
+Task payloads trace a cached result independently of execution/report records.
+Waiters only observe that cache and subscribe to readiness; they never drive the
+target. A waiter cancellation removes its dependency, while target cancellation
+propagates the original failure identity. Scope close requests cancellation, and
+the serialized driver drains cleanup even when IO or its dispatcher never replies.
+
+Waiting frames and cold factories retain their original executable/type environment
+through compatible reload. New roots resolve the new publication. Detached bounded
+Spawn/Await origins preserve portable task, scope and code identities without
+retaining GC or version leases. Debug snapshots identify their root execution;
+independent parked roots do not become synchronous reentry frames or consume each
+other's single-step requests. Observers can be replaced between bounded drives.
+
+The [async_tasks host](../crates/kagari-embed/examples/async_tasks/main.rs) and its
+source-free artifact consumer exercise two independently registered providers and
+a non-Actor dispatcher. No Tokio runtime, JIT suspension or script threads are
+required. Native preparation declines resume bodies before backend entry.

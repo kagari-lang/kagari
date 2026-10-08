@@ -32,6 +32,14 @@ Type-parameterized associated declarations and definitions, including their
 input/output bounds and qualified member arguments, have an executable witness
 in [generic-associated-types.kgr](../examples/syntax/generic-associated-types.kgr).
 
+Async function/closure and postfix-await grammar has a parse witness in
+[async.kgr](../examples/syntax/async.kgr). Executable acceptance belongs to the SDK
+async contracts: explicit closure inference, ordinary-closure rejection, nested
+calls, generic Fn coercion and ordinary for-body suspension. The
+[async_tasks script](../crates/kagari-embed/examples/async_tasks/script.kgr) also runs
+as a decoded artifact in a standalone consumer without source compilation. No async
+block, async iterator or custom awaitable grammar is implied by this coverage.
+
 All inventoried EBNF rules and top-level alternatives have parse-clean
 witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)

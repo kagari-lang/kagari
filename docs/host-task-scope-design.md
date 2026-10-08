@@ -1,10 +1,12 @@
 # Host Task Scopes and Actor Dispatch Design
 
-Status: AX04 implemented and locally verified. Host-created scopes, transactional admission,
+Status: AX04/AX05 implemented and locally verified. Host-created scopes, transactional admission,
 bounded task driving, GC-traced terminal caches and reports are implemented and
 locally verified. Task await supports cached shared results, bounded waiters, cycle
 rejection and directional cancellation. Script `TaskScope.spawn` and `Task.cancel`
-are ordinary registered methods. AX05 lifecycle integration and AX06 acceptance remain open.
+are ordinary registered methods. Lifecycle/reload, detached diagnostics and debugger
+integration have focused local acceptance. AX06 products and full GitHub CI status
+are tracked separately in the roadmap.
 This document defines how a
 synchronous script handler can spawn an async business flow, return immediately,
 and have every later execution segment dispatched by its owning host scope. An
@@ -391,5 +393,6 @@ Acceptance must demonstrate:
 
 Use a deterministic fake dispatcher and fake RPC provider, not live services or
 sleep-based ordering assertions. Follow the parent async proposal's source/artifact,
-GC, failure, reload and feature matrix. These are future acceptance requirements,
-not a claim that implementation or tests already exist.
+GC, failure, reload and feature matrix. The roadmap maps these requirements to
+implemented contract owners and their focused local evidence; full feature/backend
+acceptance remains a separate GitHub CI gate.

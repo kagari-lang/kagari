@@ -1,7 +1,7 @@
 # Async Script and Native Execution Design
 
-Status: active implementation under AX00-AX06; the roadmap records which contracts
-are implemented and locally verified. The first release lets scripts await host-owned RPC,
+Status: AX00-AX05 implemented with focused local acceptance; AX06 product and full
+GitHub CI status is recorded in the roadmap. The implementation lets scripts await host-owned RPC,
 database and timer operations without blocking the VM thread or exposing completion
 callbacks to script authors. Rust remains responsible for IO and scheduling.
 
@@ -49,7 +49,7 @@ the host owns networking, external resources and application scheduling.
 
 ## First release scope
 
-The proposed release supports named async script functions, explicitly marked
+The interpreter supports named async script functions, explicitly marked
 async closures, typed awaitable native operations, nested async script calls,
 explicit host driving and cancellation.
 Multiple independent host-started executions may wait in one runtime, but only one
@@ -68,7 +68,10 @@ Ordinary synchronous functions and standard-library callbacks retain their seman
 
 ## Script surface and evaluation
 
-Proposed syntax, not an executable repository example:
+The following application-specific types illustrate the supported syntax. See the
+[runnable host example](../crates/kagari-embed/examples/async_tasks/main.rs) for a
+self-contained two-provider flow and [its script](../crates/kagari-embed/examples/async_tasks/script.kgr)
+for ordinary `for` traversal with `.await`:
 
 ```kagari
 pub async fn load_profile(id: i64) -> Result<Profile, RpcError> {

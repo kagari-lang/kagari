@@ -431,10 +431,11 @@ implemented through checked cold factories and resume bodies. Host Task scopes
 and shared waits use the same driver. Script `scope.spawn(factory)` and `task.cancel()`
 are ordinary registered methods using transactional admission and cooperative cancellation.
 
-## Owned async execution draft (AX01-AX04)
+## Owned async execution
 
 Source async callables, Future/Task waits, script spawn and host scope driving are implemented
-below. Cross-boundary lifecycle acceptance remains AX05/AX06 work. The
+below. Lifecycle, reload, cancellation and diagnostic integration have focused
+local acceptance; full GitHub CI status is recorded separately in the roadmap. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 

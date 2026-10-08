@@ -34,6 +34,10 @@ kagari-codegen-cranelift.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 
 [[example]]
+name = "async_tasks"
+required-features = ["source"]
+
+[[example]]
 name = "regenerate_feature_artifact"
 required-features = ["source"]
 

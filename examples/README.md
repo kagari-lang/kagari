@@ -81,3 +81,30 @@ The [syntax coverage audit](../docs/syntax-coverage.md) compares these witnesses
 with EBNF rules and records forms that are still missing or unverified.
 
 - `syntax/callables.kgr`: unified `Fn` bounds, contextual closure inference, and stateful callable objects used as callbacks.
+
+## Host-driven async tasks
+
+Run the deterministic [async_tasks host](../crates/kagari-embed/examples/async_tasks/main.rs):
+
+```text
+cargo run -p kagari-embed --example async_tasks --no-default-features --features source
+```
+
+Its [script](../crates/kagari-embed/examples/async_tasks/script.kgr) uses a synchronous
+handler to admit an async closure, then returns before IO starts. Each ordinary
+`for` iteration awaits an RPC and a database request. Two public native providers
+share the typed completion protocol. The host drives bounded slices and can run
+another handler while the Task waits. Notifications record readiness without
+executing script. A successful report returns `300`; a second Task is cancelled by
+scope close, cleanup completes without a remote reply, and a late reply is stale.
+The demo needs no network, timed sleeps, Actor framework or Tokio executor.
+
+To emit the same portable artifact and verify the standalone source-free host:
+
+```text
+cargo run -p kagari-embed --example async_tasks --no-default-features --features source -- target/fixtures/async_tasks.kbc
+uv run python scripts/check_features.py --async-only
+```
+
+The focused command checks only the artifact-only async consumer and its dependency
+graph. The complete feature/backend matrix remains a GitHub CI responsibility.

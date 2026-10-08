@@ -626,10 +626,11 @@ expansion and new numeric APIs remain outside these completed tracks.
 The [execution plan](async-execution-plan.md) owns phase scope, dependencies,
 checkpoint policy and focused acceptance. The [async design](async-execution-design.md)
 and [host task scopes](host-task-scope-design.md) own language/lifetime behavior.
-Status: active. On 2026-10-08 the user authorized goal execution of AX00-AX06,
+Status: implementation and focused local acceptance complete; full GitHub CI is
+pending. On 2026-10-08 the user authorized goal execution of AX00-AX06,
 including ordinary `for` traversal with `.await` in the body. Current specifications
-distinguish implemented owned native/script waits from scheduled Task support;
-implementation and local/CI acceptance are recorded separately below.
+cover owned native/script waits and scope-owned Tasks; implementation and local/CI
+acceptance are recorded separately below.
 
 - [x] AX00: Finalize concrete semantic/executable, state, host and verification contracts (local documentation gate).
 - [x] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry (local gate).
@@ -637,7 +638,7 @@ implementation and local/CI acceptance are recorded separately below.
 - [x] AX03: Implement async functions, explicit async closures and await through source and artifacts (local gate).
 - [x] AX04: Add scope spawn, shared Task results, waiters and directional cancellation (focused local acceptance).
 - [x] AX05: Complete lifecycle, reload, cleanup and diagnostic integration (focused local acceptance).
-- [ ] AX06: Deliver embedding/example products and local integration evidence; record full CI separately.
+- [x] AX06: Deliver embedding/example products and local integration evidence (focused local acceptance; full CI unrun).
 
 Dependency order is AX00 through AX06. Each implementation checkpoint must pass
 its focused checks without carrying known compilation/test failures; unsupported
@@ -1234,6 +1235,56 @@ debt. Fixture extension only installs an additional public provider and reuses a
 preparation. No carried local error or full local suite. AX05 is locally complete;
 AX06 owns the runnable example, final product/spec updates, source-free acceptance
 and CI wiring. Required full GitHub CI remains unrun and is not implied by this gate.
+
+AX06 product/local acceptance (2026-10-09): the runnable `async_tasks` example
+installs independent RPC/database providers through the same typed native API.
+A synchronous handler admits a scope-owned async closure and returns before IO.
+Its ordinary for loop preserves progress across four deferred requests; another
+handler runs during each wait. A non-Actor notification counter never drives code.
+The host uses bounded slices, consumes success/cancellation reports, closes the
+scope without a remote reply and rejects late completion, with no remaining roots
+or objects. An optional output path emits the exact portable artifact under target.
+
+The source-free artifact contract shares the example's provider and host modules
+through documented cross-target test paths. `scripts/check_features.py --async-only`
+checks a standalone artifact-only consumer and its production dependency graph;
+the default CI invocation still runs all feature lanes. The async artifact is
+generated before those lanes, and GitHub CI also runs the source-enabled example.
+Current architecture, embedding/execution specifications, grammar coverage and
+example documentation now describe the implemented async behavior. No ABI/format
+version change, compatibility reader, Actor framework or async JIT was added.
+
+Focused validation passed:
+
+- `cargo run -p kagari-embed --example async_tasks --no-default-features --features source`;
+  optional artifact emission also passed. Initial example compile errors concerned
+  the SDK diagnostic's lack of std::error::Error and script module-call spelling;
+  explicit diagnostic rendering and `module::request` resolved them.
+- `cargo test -p kagari-embed --no-default-features --test artifact_features source_free_async_execution_contract`.
+- `uv run python scripts/check_features.py --async-only`: one standalone async
+  contract passed, all 13 production crate boundary checks passed, and the host
+  dependency graph excluded source analysis and compilation crates.
+- `cargo test -p kagari-embed --test async_execution sdk_native_preparation_declines_resume_before_entry`:
+  unsupported suspension rejects before backend entry/IO; explicit interpreter
+  driving then waits and completes without repeating effects.
+- `cargo test -p kagari-embed --test artifact_features real_cranelift_compiles_portable_artifact_without_source`:
+  existing synchronous actual-native execution remains supported; its source-enabled
+  setup refreshed the existing disposable feature fixture.
+- Targeted example/artifact-test Clippy, formatting, local documentation links and
+  diff checks passed. Structure checked 981 Rust files with no violations/exceptions.
+
+Manual review retained ordinary module boundaries, explicit imports, small example
+responsibilities and justified shared test sources; no new structural debt or
+re-exports. The final requirement audit maps syntax/cold factories/single drive to
+AX03 callable and source contracts; suspension liveness/guards to AX02 independent
+MIR/bytecode and runtime contracts; for-await evaluation, cursor and mutation behavior
+to source iterator controls; admission/sharing/cancellation/cycles to AX04 scope and
+waiter contracts; reload/cleanup/provenance/debugging to AX05; and public embedding,
+source-free products and pre-entry fallback to the AX06 evidence above. There are
+no carried local errors or omitted implementation phases. No full local suite or
+complete backend/feature matrix was run. Full workspace/all-target Clippy, complete
+tests and the entire feature/backend matrix remain unrun GitHub CI acceptance;
+no passing remote run or remote publication is claimed.
 
 ### Other proposals
 

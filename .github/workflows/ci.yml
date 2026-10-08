@@ -57,6 +57,9 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+      - name: Run host-driven async example
+        run: cargo run --locked -p kagari-embed --no-default-features --features source --example async_tasks
+
       - name: Check standalone SDK feature consumers
         run: uv run python scripts/check_features.py
 

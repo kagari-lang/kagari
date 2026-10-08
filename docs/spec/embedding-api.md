@@ -792,7 +792,22 @@ would complete immediately. Native calls remain cooperative and may overrun a sl
 
 Source `async`/`.await` is implemented. `start_future` queues one cold Future layer
 for owned driving; ordinary calls return the Future without running its body.
-Scope spawn, Task sharing, bounded scope
-admission and terminal task reports belong to AX04. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define those remaining handoffs.
+`create_task_scope` installs a host-owned scheduling capability. Script
+`scope.spawn(factory)` and `Runtime::spawn_task` admit an independently driven Task
+without calling its factory. `drive_task` uses bounded interpreter activations;
+`ready_tasks` provides the scope's durable ready set. A dispatcher receives
+identity-only notices and must arrange exclusive host driving. It can use a mailbox,
+an event loop or a simple coalesced wake; it is not required to be an Actor.
+
+`take_task_report` transfers a terminal result/failure and retires its admission
+slot. Retained script Task handles still cache their result for multiple awaits.
+Reports preserve task/scope and original failure identity, including bounded detached
+spawn/await sites. `TaskScopeOwner::close` requests cancellation; the host calls
+`drain_cancelled_tasks` until cleanup is acknowledged by `is_closed`. No remote IO
+reply is required. Dropping a Task handle does not cancel the scope-owned job.
+
+The [async_tasks example](../../crates/kagari-embed/examples/async_tasks/main.rs)
+demonstrates this public API with two native providers, ordinary for-loop awaits,
+terminal reporting and scope shutdown. Its decoded artifact also executes without
+SDK source/native features. See the [execution plan](../async-execution-plan.md)
+and roadmap for focused local evidence and separate full GitHub CI acceptance.

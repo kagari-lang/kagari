@@ -29,6 +29,9 @@ mod try_carrier;
 #[path = "native_provider_reset/contracts.rs"]
 mod contracts;
 
+#[path = "artifact_features/async_tasks.rs"]
+mod async_tasks;
+
 fn engine(config: EngineConfig, drops: Arc<AtomicUsize>) -> KagariEngine {
     {
         let mut builder = KagariEngine::builder().unwrap();
