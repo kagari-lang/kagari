@@ -18,9 +18,9 @@ current exclusive driver, not permanent OS-thread affinity. This async proposal
 still owns suspension and completion protocols; GO alone does not implement them.
 
 The [host task scope design](host-task-scope-design.md) defines synchronous handlers
-launching Actor-owned async work, scope admission and mailbox-driven resumption.
-It refines the original root-bound task proposal without introducing script threads
-or a mandatory Actor/Tokio dependency.
+spawning scope-owned work, admission and mailbox-driven resumption. Cold Futures
+and scheduled Tasks have distinct lifetimes; neither requires script threads or
+a mandatory Actor/Tokio dependency.
 
 The execution contract owns the current access/protection model: installation
 authorizes API use, root cancellation and a call-depth limit control execution, and the host
@@ -53,12 +53,15 @@ The proposed release supports named async script functions, typed awaitable nati
 operations, nested async script calls, explicit host driving and cancellation.
 Multiple independent host-started executions may wait in one runtime, but only one
 may execute script at a time. This is cooperative interleaving, not parallel heap
-access. A root has one active await chain. A host-provided scope may admit a cold
-task as another managed execution; unrestricted global spawning is deferred.
+access. A root has one active await chain. A host-provided scope creates a separate
+managed execution through `spawn`; unrestricted global spawning is deferred.
+Task result sharing across executions is part of the chosen direction, with exact
+waiter, cancellation and result-retention contracts still requiring review.
 
 Do not include script threads, a mandatory Rust async executor, implicit blocking,
-detached background jobs, async generators, async closures or async trait methods
-in the first release. Parallel combinators, streams, general user-defined awaitable
+detached background jobs, async generators or general async trait methods
+in the first release. Closure-based spawn is in scope, but its suspension typing
+is not settled. Parallel combinators, streams, general user-defined awaitable
 protocols and migration or serialization of suspended executions are later work.
 Ordinary synchronous functions and standard-library callbacks retain their semantics.
 
@@ -74,44 +77,104 @@ pub async fn load_profile(id: i64) -> Result<Profile, RpcError> {
 }
 ```
 
-An async declaration's written return type is its completed output. Calling
-`async fn f(...) -> T` produces a `Task<T>`; awaiting it produces `T`.
-`await` is permitted only in an async body. Result and Option propagation keep
-their existing meaning: `request().await?` first awaits a Result/Option, then
+### Selected direction (2026-10-08)
+
+`async` is a reserved keyword. An async declaration's written return type is its
+completed output. Calling `async fn f(...) -> T` produces a cold `Future<T>`;
+`f(...).await` drives it in the current execution and produces `T`. A call without
+await does not implicitly wait or create a separately scheduled execution.
+Receiver and arguments are evaluated once, left to right, when the Future is
+created; the async body or native operation starts only when driven. Capture and
+allocation can fail, and argument evaluation can have effects.
+
+`scope.spawn(...)` creates a separate scope-owned execution and exposes a
+`Task<T>` handle after successful admission. Use this single task API rather than
+separate `launch` and `async` methods. `Task<()>` covers Unit-producing work.
+The exact admission wrapper is still open; `Result<Task<T>, SpawnError>` is the
+current recommendation, not a finalized signature. Spawn enqueues work without
+executing its body inside the caller's activation. Discarding the returned handle
+does not cancel accepted work.
+
+| Expression | Meaning |
+| --- | --- |
+| `f(...)` for `async fn f(...) -> T` | Create an unstarted `Future<T>` |
+| `future.await` | Drive the Future in the current execution and obtain `T` |
+| `scope.spawn(...)` | Admit a separate scope-owned execution and return its Task handle |
+| `task.await` | Wait for an already scheduled execution's result |
+
+Both Future and Task use explicit postfix `.await`, not an `await()` method.
+Await is legal only in a suspension-capable body. Result and Option propagation
+retain their existing meaning: `request().await?` awaits a Result/Option and then
 propagates its business value. Traps and execution termination are not Results.
+An unused cold Future should produce a diagnostic; dropping it without driving
+it performs no body execution or IO.
 
-Recommended initial task policy, to be ratified before implementation:
+### Future ownership and Task results
 
-- Tasks are cold: receiver and arguments are evaluated once, left to right, at
-  task creation, but the async body or native operation starts only when driven
-  after first await or explicit host-scope launch.
-  Capture and task allocation can fail; argument evaluation can have effects.
-- Tasks use shared reference identity, not Rust ownership semantics. Re-awaiting a
-  completed task in its owning root returns its cached output without restarting
-  IO; reference-valued outputs retain ordinary shared-object semantics.
-- Creation captures the checked target, owned arguments and pinned implementation
-  generation. Await or scope admission validates installed bindings, ownership and
-  execution protection before work.
-  Creating several cold tasks does not start concurrent requests.
-- An unstarted discarded task performs no IO. Unused task expressions should
-  produce a diagnostic, so forgetting `.await` is visible.
-- Awaiting an already running ancestor task is rejected as an await cycle, not
-  allowed to deadlock. Multiple concurrent waiters are outside the first release.
-- Cold tasks belong to one runtime and retain their creating context until started.
-  Await binds one to the current async root; explicit scope admission binds it to a
-  new scope-owned execution before the creating handler ends. Started tasks cannot
-  be transferred or launched again. Scope admission retains captures independently
-  of the old handler; it does not switch the captured code version or runtime.
-- Tasks are not durable values, reload migration payloads or cross-root join handles.
-  Stored aliases do not extend an execution's lifetime; awaiting a started task from
-  another root or after its execution ends fails validation. Root cleanup releases
-  its owned resources even when stale handles remain reachable. Successfully
-  launched work is instead owned by the host scope until completion or cancellation.
+A cold Future belongs to one runtime and independently retains its checked target,
+owned arguments, rooted captures and pinned implementation generation. It does
+not belong to the creating handler's execution and does not expire when that
+handler returns. Temporary Rust references, host leases and unrooted values cannot
+be retained in it. This replaces the earlier creator-root-bound cold Task model.
 
-Named async functions may call each other and ordinary synchronous helpers.
-Callable metadata must distinguish a callback returning `T` from one returning
-`Task<T>`; `sort_by` does not implicitly await an async comparator. Awaitable behavior
-must not be inferred from a provider name, function ID or a runtime value shape.
+First driving binds a Future to one execution. Shared aliases observe that state;
+another execution cannot drive the same started Future. Runtime identity and
+state checks enforce this without introducing Rust ownership syntax. Storing an
+unstarted Future inside a closure or another Future is not itself forbidden:
+it can be driven later by a spawned execution. Capturing a Future does not start
+or recursively bind it. Actual use must still validate its state, including when
+shared mutable captures have changed. Same-execution repeat-await after completion,
+terminal Future aliases and wait-cycle detection remain explicit design gates;
+there must never be an accidental restart or concurrent drive.
+
+Task handles represent scope-owned work, not cold computations. The selected
+direction permits same-runtime sharing and waiting across executions, including
+multiple waiters and cached completed results. Waiting never reparents the target.
+Reference-valued results keep ordinary shared-object semantics. Specify cancellation
+propagation, terminal error observation and result retention before implementation.
+Keeping a completed Task reachable must not retain its entire execution stack.
+Neither Future nor Task is a cross-runtime value, serialized continuation or
+state-replacement payload. Publication must not silently retarget retained code.
+
+### Closure expression and callable typing (open)
+
+Reuse existing `|| expression`, `|| { ... }` and `|arg| { ... }` closure forms where
+possible. No `async { ... }`, trailing-lambda syntax or `async ||` form has been
+approved. The following illustrates the desired spawn experience, not settled
+closure typing or admission error handling:
+
+```kagari
+ctx.tasks.spawn(|| {
+    val profile = load_profile(id).await?;
+    player.apply_profile(id, profile);
+    Ok(())
+});
+```
+
+Distinguish an ordinary synchronous closure `|| load_profile(id)`, which returns
+a `Future<Result<Profile, RpcError>>`, from a closure whose body itself contains
+`.await`. The latter needs an explicit suspension-capable callable contract even
+if its expression syntax is unchanged. Decide contextual typing versus body-based
+inference, standalone closure annotations, invocation/capture timing and generic
+callable representation. Existing synchronous `Fn` and `sort_by` contracts must
+not silently acquire suspension effects.
+
+In particular, decide whether spawn accepts a suspending callable, an ordinary
+callable returning Future, or a precisely defined adaptation between them. Do not
+silently flatten arbitrary Future/Task-valued results. Callable and native metadata
+must encode the selected contract; no special behavior may be inferred from the
+spelling `spawn`, a provider name, function ID or runtime value shape.
+
+Discussion alternatives are contextual suspension typing supplied by the receiving
+API, body inference from `.await` in the closure's own body (excluding nested
+callable bodies), or an explicit async modifier. Context-only typing must explain
+standalone stored closures; body inference must define whether invoking the
+closure creates a lazy Future and how its result type is exposed. An explicit
+modifier would extend syntax and requires revisiting the preference above.
+An ordinary `fn(...) -> Future<T>` producer remains a distinct useful case under
+every option; it needs no suspension during the producer call itself. Whether
+async callables can use that existing synchronous `Fn` shape through a Future
+factory lowering, or need an additional callable protocol, remains open.
 
 ## Native registration boundary
 
@@ -127,7 +190,7 @@ Separate three capabilities:
 | --- | --- |
 | Direct native entry | Returns during the current call; may support checked synchronous reentry |
 | Resumable native callback entry | Retains algorithm state while the VM executes a supplied script callable |
-| Awaitable native operation | Starts external work when an awaited or launched task is driven, then completes immediately or waits for a host event |
+| Awaitable native operation | Creates a cold Future; starts external work when that Future is driven, then completes immediately or waits for a host event |
 
 A simple RPC does not require a handwritten native algorithm state machine. Its
 start adapter submits a request and hands ownership of completion to the runtime.
@@ -145,8 +208,8 @@ registry.register_async(contract, move |start, owned_request| {
 });
 ```
 
-The adapter runs when the awaited or launched task is first driven, not when the
-cold task is allocated or merely enqueued by launch. It also has
+The adapter runs when the native Future is first driven, not when the
+Future is allocated or a containing callable is enqueued by spawn. It also has
 an immediate-completion path. `reserve_completion` illustrates an ownership and
 race requirement: install the wait identity before an operation can complete.
 Its reservation rolls back on start failure; a late completion cannot reach a
@@ -181,8 +244,8 @@ is performed by the execution protocol.
 
 Existing synchronous `execute` and synchronous host reentry do not acquire hidden
 `block_on` behavior. They reject entry into an async target before starting it.
-Synchronous script helpers may construct cold tasks, but cannot await them.
-They may call a registered scope-launch method that enqueues a separate execution
+Synchronous script helpers may construct cold Futures, but cannot await them.
+They may call a registered scope-spawn method that enqueues a separate execution
 without entering its async body. This is not suspension of the synchronous caller.
 Synchronous callback/reentry boundaries remain non-suspendable; async does not
 silently make existing native callbacks suspendable.
@@ -235,8 +298,8 @@ It prevents further script execution, invalidates completion endpoints and relea
 frames, roots, native state and retained code. Cancellation must wake a waiting
 host driver; it cannot depend on the remote service eventually answering.
 Dropping the host's execution owner requests cancellation and deterministic runtime
-cleanup. For admitted jobs, that owner belongs to the host scope, not the launching
-handler or a script Job handle. Closing the scope cancels its jobs; dropping a Job
+cleanup. For admitted tasks, that owner belongs to the host scope, not the spawning
+handler or a script Task handle. Closing the scope cancels its tasks; dropping a Task
 does not. Runtime shutdown cancels all parked executions before releasing the heap.
 
 Cancellation requests host-owned external cleanup without waiting for it or running
@@ -255,10 +318,12 @@ runtime and retires all its executions, not just the currently driven one.
 
 ## Values and resources across await
 
-Parked frames, task captures, cached outputs, callback captures and native state
-are explicit GC root sources. Waiting alone does not keep a raw `Value` alive.
+Cold Futures, parked frames, task captures, cached outputs, callback captures and
+native state participate in explicit GC retention. Waiting alone does not keep a raw `Value` alive.
 Root release must be exactly once on every terminal path, including an abandoned
-task, conversion failure, shutdown and a race with completion.
+Future, conversion failure, shutdown and a race with completion. Terminal execution
+cleanup releases its frames and waiting resources independently of retained Task
+outputs; the precise completed-result lifetime is a design gate.
 
 No borrowed host handle, runtime/table borrow, host lease or prepared commit action
 may survive a suspension boundary. Compiler liveness checks cover locals and
@@ -293,6 +358,8 @@ No task/continuation is serialized into the new runtime. Late completion identit
 remain tied to the old scope/runtime and cannot mutate restored state. Cancelling
 local work does not undo remote RPC effects or resurrect jobs if replacement aborts.
 
+Cold Futures and callable captures retain their resolved code before execution;
+spawn or first await must not resolve them again against the latest publication.
 An execution pins its dependency program and native implementation owners through
 all waits, following [module activation](spec/module-activation.md). Publication
 affects new roots, not the continuation of old ones. Results are converted using
@@ -306,13 +373,15 @@ not silently cancel them. Cancellation still does not roll back external effects
 The installed surface remains the access boundary. Completion cannot install APIs,
 change execution ownership or reset its cancellation state. Candidate initialization
 rejects async entries and external waits in the first release; do not park a staged
-reload session or bypass its restrictions by returning an async task.
+reload session or bypass its restrictions by exporting deferred external work.
+The new independently retained Future model requires an explicit candidate-output
+rule before implementation; creating a Future is not the same as starting IO.
 
 ## Compiler and runtime responsibilities
 
 | Layer | Proposed responsibility |
 | --- | --- |
-| Syntax and HIR | Async declarations, await expressions, completed-output typing, task types, diagnostics and source-level suspension restrictions |
+| Syntax and HIR | Async declarations, await expressions, Future/Task types, callable suspension contracts, diagnostics and source-level suspension restrictions |
 | Compiler and MIR | Explicit await control flow, captured/live values, effects, source origins and verified resume points; no RPC-specific lowering |
 | ABI and bytecode | Portable async call contracts and bounded validation of task/result types, resume destinations, initialization, roots and non-suspendable resources |
 | Runtime | Owned execution/task state, provider operations, completion identities, GC retention, runtime limits, cancellation and pinned generations |
@@ -349,11 +418,16 @@ a reason to reintroduce Engine-versus-Host method lists or privileged RPC paths.
 This is a queued design. Re-audit the implementation and resolve these gates
 before activating async work:
 
-- Ratify cold task creation, cached repeat-await, scope admission, execution
-  ownership, escaping stale handles and task-type interactions with ordinary
-  callable/generic APIs, including the companion's launch and dispatch contracts.
+- Resolve closure suspension expression/typing, standalone inference and annotations,
+  generic callable contracts, and the precise spawn input/adaptation contract.
+- Specify Future same-execution repeat-await and terminal states; Task multi-waiter,
+  cached-output and error-observation lifetimes; cancellation between waiters,
+  targets and nested spawns; and self/transitive await-cycle handling.
+- Finalize spawn admission/result types and the companion's dispatch contracts.
+  Decide whether local structured scopes are deferred; do not infer task parenting
+  merely from lexical nesting of spawn calls using a host scope.
 - Specify source grammar, offline declaration encoding, exact suspension effects,
-  ephemeral-value analysis and artifact verification rules.
+  ephemeral-value analysis, candidate-output restrictions and artifact verification rules.
 - Specify owned execution APIs, activation/reentry rules, completion ownership,
   cancellation races, overload behavior and host lifetime/shutdown requirements.
 - Define scheduling slices, host deadline cancellation,
@@ -368,8 +442,8 @@ Suggested vertical implementation order:
    through the generic provider path and an owned, cancellable execution handle.
 3. Implement async functions and await through HIR, MIR and bytecode; validate
    encoded artifacts and run a two-RPC script with normal Result propagation.
-   Include a synchronous handler launching that flow into a host-owned scope.
-4. Complete independent parked roots, accounting, GC, borrow restrictions, reload,
+   Include a synchronous handler spawning that flow into a host-owned scope.
+4. Complete independent parked roots, Task waiters, GC, borrow restrictions, reload,
    debugger origins and all cleanup/race cases before claiming supported async.
 5. Validate an external embedding consumer, publish examples and run the final
    feature matrix. Convenience Future adapters may follow the executor-neutral API.
@@ -386,23 +460,30 @@ servers or timing sleeps. Required cases include:
 
 - A two-request script returns correct results and propagates the first business
   error without issuing the second request; creation/await evaluation occurs once.
-- Cold tasks do not start when discarded; repeated await never repeats IO; recursive,
-  foreign-runtime, cross-root and expired task awaits fail correctly.
-- Scope-admitted work outlives its launching handler, resumes only through its
-  dispatcher, and cannot be launched twice; scope close cancels all admitted jobs.
+- Cold Futures do not run when discarded and survive creator-handler return when
+  retained. Future aliases cannot restart work or drive a bound Future from another
+  execution. Foreign-runtime access and invalid wait cycles are rejected.
+- Scope-admitted work outlives its spawning handler, resumes only through its
+  dispatcher, and executes once per admission; scope close cancels admitted tasks.
+  A captured unstarted Future can first be driven in the admitted execution.
+- Task waiters across executions observe one completion without duplicate work;
+  retained results survive GC while completed execution frames are released.
+  Waiter/target cancellation and terminal errors follow the finalized contracts.
 - Immediate and deferred completions agree; completion-before-wait and wakeup races
   lose no result; duplicate/late/stale-slot events cannot resume another operation.
 - A waiting execution consumes no drive loop; another root runs with independent
   cancellation state and pinned versions under the same installation. Host drive
   slices preserve call-depth and lifetime checks rather than resetting them.
 - Cancellation before start, while waiting, after readiness and before conversion,
-  plus owner drop and runtime shutdown, leave no retained frames, roots or leases.
+  plus owner drop and runtime shutdown, release execution-owned frames, roots and
+  leases; only explicitly retained outputs/cold Futures keep their necessary roots.
 - GC during every wait and completion conversion preserves captures and results;
   memory and queue limits fail without leaking or waiting indefinitely.
 - Await through host borrows, prepared writes, guarded iteration and synchronous
   reentry is rejected; valid owned data survives and accesses are revalidated.
 - Reload while RPC is pending resumes old code/contracts; new roots use the new
-  publication; candidate execution cannot suspend or launch external work.
+  publication; retained cold Futures keep their original target; candidate
+  execution cannot suspend, spawn external work or export forbidden deferred work.
 - Source and artifact paths, malformed async artifacts, source-disabled SDK use,
   synchronous API rejection and JIT pre-entry fallback satisfy the same semantics.
 - A separate host consumer adds a second RPC by changing only its declaration,
@@ -411,7 +492,8 @@ servers or timing sleeps. Required cases include:
 Reuse existing [session tests](../crates/kagari-vm/src/tests/sessions.rs),
 [native boundary tests](../crates/kagari-vm/tests/native_boundary.rs)
 and [host interface tests](../crates/kagari-embed/tests/host_interfaces.rs), extending
-their meaningful behavioral coverage. Final implementation acceptance includes the
+their meaningful behavioral coverage. GitHub CI owns full implementation acceptance:
 repository structure, formatting, clippy, workspace-test and diff checks, plus the
-source-free/native feature and dependency matrix. Measure runtime/parked memory,
+source-free/native feature and dependency matrix. Local iteration uses focused
+checks under repository policy. Measure runtime/parked memory,
 allocation counts and drive overhead before making performance claims.
