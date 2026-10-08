@@ -4,24 +4,27 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionStack,
     module::LoadedModule,
-    session::{ExecutionOptions, ExecutionPhase, ExecutionSession, store::SessionId},
+    session::{ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState, store::SessionId},
     value::Value,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
 use kagari_contract::ids::FunctionRef;
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
     },
-    task::Waker,
+    task::{Wake, Waker},
 };
 
 #[derive(Debug)]
 pub(crate) struct ExecutionOwner {
     abandoned: AtomicBool,
+    ready: AtomicBool,
+    finished: AtomicBool,
     cancellation: CancellationToken,
-    wake: Mutex<Option<Waker>>,
+    cancellation_wake: OnceLock<CancellationSubscription>,
+    wake: Mutex<Option<Arc<Waker>>>,
 }
 
 impl ExecutionOwner {
@@ -32,7 +35,34 @@ impl ExecutionOwner {
     fn notify(&self) {
         let wake = self.wake.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(wake) = wake {
-            wake.wake();
+            wake.wake_by_ref();
+        }
+    }
+
+    pub(crate) fn mark_ready(&self) {
+        if !self.finished.load(Ordering::Acquire) && !self.ready.swap(true, Ordering::AcqRel) {
+            self.notify();
+        }
+    }
+
+    pub(crate) fn finish(&self) {
+        self.finished.store(true, Ordering::Release);
+        self.ready.store(false, Ordering::Release);
+        let wake = self.wake.lock().unwrap_or_else(|e| e.into_inner()).take();
+        drop(wake);
+    }
+
+    pub(crate) fn waker(self: &Arc<Self>) -> Waker {
+        Waker::from(Arc::new(ExecutionWake(Arc::downgrade(self))))
+    }
+}
+
+struct ExecutionWake(Weak<ExecutionOwner>);
+
+impl Wake for ExecutionWake {
+    fn wake(self: Arc<Self>) {
+        if let Some(owner) = self.0.upgrade() {
+            owner.mark_ready();
         }
     }
 }
@@ -49,13 +79,27 @@ pub struct OwnedExecution {
 impl OwnedExecution {
     pub fn cancel(&self) {
         self.owner.cancellation.cancel();
-        self.owner.notify();
+    }
+
+    /// Readiness is durable and coalesced. A wake is only a scheduling hint.
+    pub fn is_ready(&self) -> bool {
+        !self.owner.finished.load(Ordering::Acquire)
+            && (self.owner.ready.load(Ordering::Acquire)
+                || self.owner.cancellation.check().is_err())
     }
 
     /// Register a host control wakeup without allowing it to enter the runtime.
     pub fn set_waker(&self, wake: &Waker) {
-        *self.owner.wake.lock().unwrap_or_else(|e| e.into_inner()) = Some(wake.clone());
-        if self.owner.cancellation.check().is_err() {
+        let wake = Arc::new(wake.clone());
+        let previous = {
+            let mut target = self.owner.wake.lock().unwrap_or_else(|e| e.into_inner());
+            if self.owner.finished.load(Ordering::Acquire) {
+                return;
+            }
+            target.replace(wake)
+        };
+        drop(previous);
+        if self.is_ready() {
             self.owner.notify();
         }
     }
@@ -64,7 +108,15 @@ impl OwnedExecution {
 impl Drop for OwnedExecution {
     fn drop(&mut self) {
         self.owner.abandoned.store(true, Ordering::Release);
-        self.owner.notify();
+        self.owner.mark_ready();
+    }
+}
+
+impl Drop for SessionState {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.get_mut().as_ref() {
+            owner.finish();
+        }
     }
 }
 
@@ -109,9 +161,16 @@ impl Runtime {
         let id = session.id;
         let owner = Arc::new(ExecutionOwner {
             abandoned: AtomicBool::new(false),
+            ready: AtomicBool::new(true),
+            finished: AtomicBool::new(false),
             cancellation: session.state().options.cancellation.clone(),
+            cancellation_wake: OnceLock::new(),
             wake: Mutex::new(None),
         });
+        owner
+            .cancellation_wake
+            .set(owner.cancellation.subscribe(owner.waker()))
+            .expect("new cancellation wake registration");
         let stack = ExecutionStack::new(session)?;
         stack.push(self, module.slot(), entry, args, None)?;
         *self
@@ -153,6 +212,7 @@ impl Runtime {
             ));
         }
         state.scopes.set(1);
+        owner.owner.ready.store(false, Ordering::Release);
         self.resources().start_execution(owner.id);
         self.resources()
             .restore_call_depth(state.parked_depth.replace(0));

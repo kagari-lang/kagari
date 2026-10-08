@@ -914,3 +914,25 @@ submission. Immediate/deferred completion uses the same checked output type;
 conversion into managed values occurs only under the owning driver. Endpoints
 retain no runtime references, frame borrows or unrooted Values. Cancellation hooks
 are bounded and invoked at most once; duplicate/stale completions are harmless.
+
+### Completion transport foundation (AX02 in progress)
+
+`native::completion::CompletionRegistry` provides bounded operation reservations
+with opaque registry/slot/generation identities. Reserve before submitting external
+work; pass the typed `Completion<T>` endpoint to the provider and retain the single
+`Operation<T>` consumer on the owning driver. Publication stores one owned payload
+and then wakes; Accepted, Duplicate and Stale distinguish the outcomes without
+executing script. Registering a waker rechecks already published data under the
+same lock. Wakes are hints; the payload remains durable until claim or retirement.
+
+The consumer polls Pending/Ready/Retired. Claim disarms the cancellation hook and
+releases capacity; cancel/drop discards queued payload and invokes a bounded hook
+at most once. A cleanup panic faults the registry, prevents new admission and is
+reported as EngineFault. Exhausted generations never wrap or become reusable.
+The producer endpoint keeps only a weak reference to result storage, so retained
+late endpoints cannot keep completed payloads or reservations alive.
+
+This transport does not yet implement a registered Future producer, script await,
+VM Waiting or SDK async driving. AX02 still requires those integrations and its
+source-free/malformed-artifact acceptance gate. Consumers must perform runtime
+ownership checks and typed script conversion on the owner thread when integrated.

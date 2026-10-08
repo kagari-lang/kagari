@@ -441,3 +441,17 @@ readiness. Direct Future await drives once in the current execution; Task await
 waits for a scope-owned execution. Owned iteration leases remain in parked frames,
 so ordinary for bodies can await with existing structural-mutation exclusion.
 Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
+
+### Owned readiness and cancellation notifications (AX02 in progress)
+
+Owned execution readiness is a durable coalescing bit. Host wakers only request
+scheduling; registering a waker rechecks existing readiness. Activation claims the
+bit, a runnable slice republishes it, and terminal retirement/runtime destruction
+invalidates it. The common cancellation token supports scoped weak wake
+subscriptions. Owned execution registers such a subscription, so cancelling the
+original host-supplied token wakes the control path as well as cancellation through
+the owner handle. Registrations do not keep completed execution owners alive.
+
+These notifications prepare the external-wait path; Waiting and `.await` are not
+yet enabled. They do not add polling loops, thread preemption or cancellation of
+another execution merely because it is being observed.

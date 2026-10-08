@@ -737,6 +737,42 @@ CI were not run. External Waiting/Future completion remains AX02; source async a
 actual deferred `for { ... .await }` remain AX03. The successful slice tests do not
 claim those later capabilities are implemented. AX02 is the next unfinished phase.
 
+AX02 progress ledger (2026-10-08, completion transport checkpoint): added
+`native::completion` bounded typed reservations, durable one-result publication,
+registration/publication wake handshake, duplicate/stale status and generational
+slot reuse. Consumer poll transfers owned host data; it does not run script or
+convert GC values. Cancel/drop discards queued payload and invokes provider cleanup
+at most once; cleanup panic faults admission, and exhausted generations retire.
+Producer endpoints hold weak state and cannot retain old result payloads/capacity.
+
+Added scoped weak wake subscriptions to the existing CancellationToken and connected
+them to owned execution readiness. Cancelling the host-supplied token now wakes the
+same control path as owner cancellation; slice exits republish readiness and
+terminal/session destruction invalidates it. Host wakers execute outside locks;
+notifications only request scheduling. Extended the existing owned-driver contract
+for external-token wakeup and runtime-destruction retirement.
+
+AX02 remains unchecked. This is a transport/readiness foundation, not the phase's
+native Future source-free exit gate. Next integrate the registry/reservations with
+runtime-owned pending waits and typed native Future producers, then checked
+semantic/MIR/bytecode Await, interpreter Waiting/resumption and SDK entry. Inspect
+`NativeStorageLayout`, `CallContext::allocate_result_payload`, typed argument/result
+conversion and independent bytecode access/resource validation for those changes.
+Future/Task source syntax and actual for-body await remain AX03/AX04. No language
+restriction, async callback inference or user-defined awaitable was introduced.
+
+Focused validation: runtime `--lib async_native_completion_contract` passed 3
+transport contracts (reservation, immediate publication, duplicates/stale generations,
+queued-payload cancellation, cross-thread publication/registration/cancellation races,
+cleanup fault and generation exhaustion); these are not a substitute for the planned
+VM end-to-end test. Common `--lib cancellation_subscription_covers_registration_order_and_retirement`
+passed 1 contract. VM `--lib async_owned_drive_contract` passed 2 contracts,
+including encoded loop/lease behavior. Structure checked 934 Rust files with zero
+findings/exceptions. No full suite or GitHub CI run; no carried compilation/test
+failure. `cargo clippy -p kagari-vm --lib -- -D warnings`, formatting, diff,
+CRLF and 59 local Markdown link/anchor checks passed. No re-export whitelist or
+structure exception was added.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and

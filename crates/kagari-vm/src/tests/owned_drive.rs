@@ -5,6 +5,7 @@ use crate::{
     vm::{Vm, owned::DriveResult},
 };
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, resource::RuntimeLimits,
     session::ExecutionOptions, value::Value,
@@ -12,8 +13,21 @@ use kagari_runtime::{
 use kagari_types::host_interface::standard_log;
 use std::{
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    task::{Wake, Waker},
 };
+
+#[derive(Default)]
+struct WakeCount(AtomicUsize);
+
+impl Wake for WakeCount {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 #[test]
 fn async_owned_drive_contract() {
@@ -129,14 +143,39 @@ fn async_owned_drive_contract() {
     };
     assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
 
+    let cancellation = CancellationToken::default();
     let queued = vm
-        .start(&loaded, "main", &[], ExecutionOptions::default())
+        .start(
+            &loaded,
+            "main",
+            &[],
+            ExecutionOptions {
+                cancellation: cancellation.clone(),
+                ..Default::default()
+            },
+        )
         .unwrap();
-    queued.cancel();
+    let wakes = Arc::new(WakeCount::default());
+    queued.set_waker(&Waker::from(wakes.clone()));
+    assert!(queued.is_ready());
+    let activation = vm.runtime().resume_owned_execution(&queued).unwrap();
+    assert!(!queued.is_ready());
+    let before = wakes.0.load(Ordering::Relaxed);
+    cancellation.cancel();
+    assert!(queued.is_ready());
+    assert!(
+        wakes.0.load(Ordering::Relaxed) > before,
+        "external token must wake the owned execution"
+    );
+    activation.park(vm.runtime()).unwrap();
     assert!(matches!(
         vm.drive(&queued, slice).unwrap(),
         DriveResult::Complete(Err(_))
     ));
+    assert!(
+        !queued.is_ready(),
+        "terminal execution must not be scheduled again"
+    );
     assert_eq!(events.lock().unwrap().len(), 6);
 
     let recursive = vm
@@ -176,6 +215,15 @@ fn async_owned_drive_contract() {
     assert_eq!(
         result.return_value.value(vm.runtime().gc()).unwrap(),
         Value::I32(7)
+    );
+    let shutdown = vm
+        .start(&loaded, "spin", &[], ExecutionOptions::default())
+        .unwrap();
+    assert!(shutdown.is_ready());
+    drop(vm);
+    assert!(
+        !shutdown.is_ready(),
+        "runtime destruction retires outstanding readiness"
     );
 }
 

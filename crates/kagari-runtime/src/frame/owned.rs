@@ -62,6 +62,13 @@ impl<'runtime> ExecutionStack<'runtime> {
             ));
         }
         self.parked = true;
+        self.session
+            .state()
+            .owner
+            .borrow()
+            .as_ref()
+            .expect("owned activation")
+            .mark_ready();
         Ok(())
     }
 }
