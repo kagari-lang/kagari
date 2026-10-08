@@ -1,10 +1,12 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
+pub mod asynchronous;
 
 use crate::{
-    Runtime, error::RuntimeError, frame::ExecutionFrame, module::LoadedModule,
-    resource::ResourceState, session::store::SessionId, value::Value, value_semantics,
+    Runtime, error::RuntimeError, error_trace::asynchronous::AsyncBoundary, frame::ExecutionFrame,
+    module::LoadedModule, resource::ResourceState, session::store::SessionId, value::Value,
+    value_semantics,
 };
-use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget};
+use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget, program::ModuleRef};
 use kagari_common::span::Span;
 use std::{
     fmt,
@@ -19,6 +21,8 @@ const MAX_LABEL_BYTES: usize = 4096;
 pub struct ErrorFrame {
     pub epoch: u64,
     pub code_fingerprint: ArtifactFingerprint,
+    /// Module slot in the fingerprinted program; target indices are module-local.
+    pub module: ModuleRef,
     pub target: CallableTarget,
     pub function_name: String,
     pub source_uri: String,
@@ -35,6 +39,9 @@ pub struct ErrorTrace {
     pub frames: Vec<ErrorFrame>,
     pub omitted_frames: usize,
     pub incomplete: bool,
+    /// Detached causal boundaries, from the original failure toward its observers.
+    pub async_boundaries: Vec<AsyncBoundary>,
+    pub omitted_async_boundaries: usize,
 }
 
 impl ErrorTrace {
@@ -89,6 +96,7 @@ impl ErrorTrace {
                 trace.frames.push(ErrorFrame {
                     epoch: frame.loaded().epoch.0,
                     code_fingerprint: frame.loaded().program_fingerprint(),
+                    module: frame.loaded().slot(),
                     target: frame.target(),
                     function_name,
                     source_uri,
@@ -128,6 +136,7 @@ impl ErrorTrace {
             trace.frames.push(ErrorFrame {
                 epoch: loaded.epoch.0,
                 code_fingerprint: loaded.program_fingerprint(),
+                module: frame.loaded().slot(),
                 target: frame.target(),
                 function_name,
                 source_uri,
@@ -167,6 +176,16 @@ impl Display for ErrorTrace {
         }
         if self.omitted_frames > 0 {
             write!(f, "\n  ... {} frames omitted", self.omitted_frames)?;
+        }
+        for boundary in &self.async_boundaries {
+            write!(f, "\n  {boundary}")?;
+        }
+        if self.omitted_async_boundaries > 0 {
+            write!(
+                f,
+                "\n  ... {} async boundaries omitted",
+                self.omitted_async_boundaries
+            )?;
         }
         if self.incomplete {
             write!(f, "\n  [error trace incomplete or unavailable]")?;

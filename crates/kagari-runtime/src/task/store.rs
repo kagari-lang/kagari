@@ -1,5 +1,6 @@
 //! Bounded generational records. Terminal handles keep their cache in the heap.
 use crate::{
+    error_trace::asynchronous::SpawnOrigin,
     frame::{factory::QueuedFactory, types::arguments::TypeArgument},
     gc::roots::RootedValue,
     module::LoadedModule,
@@ -146,6 +147,7 @@ pub(crate) enum TaskState {
 
 #[derive(Debug)]
 pub(crate) struct TaskRecord {
+    pub origin: SpawnOrigin,
     pub scope: ScopeId,
     pub signal: Arc<TaskSignal>,
     pub value: RootedValue,

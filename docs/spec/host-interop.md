@@ -997,3 +997,10 @@ TaskFailure reports distinguish local cancellation causes from Dependency. The
 RuntimeError and EmbeddingError task_origin accessors retain the original Task ID
 and its original cancellation cause through any number of waiting executions.
 Business Err remains a successful Task output and participates in ordinary `?`.
+
+TaskReport.origin exposes detached factory identity and the script spawn site when
+available. RuntimeError/EmbeddingError traces carry bounded logical Spawn/Await
+boundaries alongside the original failure stack. Module/function/instruction
+identity remains usable without source maps; snapshots own no roots or executable
+version leases. [Error reporting](error-reporting.md#async-terminal-reporting-ax04-ax05)
+defines the ordering and truncation contract.

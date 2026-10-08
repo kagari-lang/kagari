@@ -3,12 +3,14 @@ use crate::{
     Runtime,
     closure::ClosureTarget,
     error::RuntimeError,
+    error_trace::asynchronous::CallableOrigin,
     frame::{ExecutionStack, types::arguments::TypeArgument, waiting::QueuedFuture},
     gc::roots::RootedValue,
     module::LoadedModule,
     native::binding::NativeResult,
     value::Value,
 };
+use kagari_bytecode::module::CallableTarget;
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
@@ -17,6 +19,7 @@ use std::slice;
 
 #[derive(Debug)]
 pub(crate) struct QueuedFactory {
+    pub origin: CallableOrigin,
     pub owner: LoadedModule,
     pub value: RootedValue,
     pub future: TypeArgument,
@@ -52,6 +55,15 @@ impl Runtime {
             return Err(invalid());
         }
         Ok(QueuedFactory {
+            origin: CallableOrigin {
+                epoch: closure.implementation.epoch.0,
+                code_fingerprint: closure.implementation.program_fingerprint(),
+                module: closure.implementation.slot(),
+                target: match closure.target {
+                    ClosureTarget::Script(function) => CallableTarget::Script(function),
+                    ClosureTarget::Native(ref native) => CallableTarget::Native(native.import),
+                },
+            },
             owner: closure.implementation.clone(),
             value: self.root_value(value.clone()).ok_or_else(invalid)?,
             future: signature.result.clone(),

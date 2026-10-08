@@ -9,7 +9,7 @@ pub(crate) mod payload;
 pub(crate) mod store;
 pub(crate) mod waiting;
 
-use crate::{error::RuntimeError, gc::roots::RootedValue};
+use crate::{error::RuntimeError, error_trace::asynchronous::SpawnOrigin, gc::roots::RootedValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(pub(crate) store::Identity);
@@ -50,6 +50,7 @@ pub struct TaskFailureOrigin {
 
 #[derive(Debug)]
 pub struct TaskReport {
+    pub origin: SpawnOrigin,
     pub task: TaskId,
     pub scope: ScopeId,
     pub outcome: Result<RootedValue, TaskFailure>,

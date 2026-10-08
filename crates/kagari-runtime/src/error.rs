@@ -1,4 +1,7 @@
-use crate::{error_trace::ErrorTrace, task::TaskFailureOrigin};
+use crate::{
+    error_trace::{ErrorTrace, asynchronous::AsyncBoundary},
+    task::TaskFailureOrigin,
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,7 +156,25 @@ impl RuntimeError {
         self
     }
 
+    pub(crate) fn with_async_boundary(mut self, boundary: AsyncBoundary) -> Self {
+        let trace = self
+            .trace
+            .get_or_insert_with(|| Arc::new(ErrorTrace::default()));
+        Arc::make_mut(trace).append_async(boundary);
+        self
+    }
+
     pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {
+        if let Some(previous) = &mut self.trace
+            && previous.frames.is_empty()
+            && !previous.async_boundaries.is_empty()
+        {
+            let previous = Arc::make_mut(previous);
+            previous.frames = trace.frames.clone();
+            previous.omitted_frames = trace.omitted_frames;
+            previous.incomplete |= trace.incomplete;
+            return self;
+        }
         if self
             .trace
             .as_ref()

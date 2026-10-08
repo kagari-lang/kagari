@@ -2,6 +2,7 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    error_trace::asynchronous::AsyncBoundary,
     gc::roots::RootedValue,
     native::binding::NativeResult,
     task::{
@@ -22,7 +23,7 @@ impl Runtime {
         task: TaskId,
         result: NativeResult<RootedValue>,
     ) -> NativeResult<()> {
-        let (handle, signal, owner, output) = {
+        let (handle, signal, owner, output, spawn_origin, scope) = {
             let tasks = self.tasks.borrow();
             let record = tasks
                 .tasks
@@ -36,6 +37,8 @@ impl Runtime {
                 record.signal.clone(),
                 record.owner.clone(),
                 record.output.clone(),
+                record.origin.clone(),
+                record.scope,
             )
         };
         let checked = match &result {
@@ -63,7 +66,13 @@ impl Runtime {
                 } else {
                     origin.cancellation
                 },
-                error: error.with_task_origin(origin),
+                error: error
+                    .with_task_origin(origin)
+                    .with_async_boundary(AsyncBoundary::Spawn {
+                        task,
+                        scope,
+                        origin: spawn_origin,
+                    }),
                 source_task: origin.task,
             }
         });
@@ -128,9 +137,14 @@ impl Runtime {
             };
             outcome.clone()
         };
-        let record = self.tasks.borrow_mut().tasks.remove(task.0);
-        drop(record);
+        let record = self
+            .tasks
+            .borrow_mut()
+            .tasks
+            .remove(task.0)
+            .expect("reported Task");
         Ok(Some(TaskReport {
+            origin: record.origin,
             task,
             scope: scope.id(),
             outcome,

@@ -76,7 +76,7 @@ incomplete flag. Function names, source URIs and payload previews are limited to
 4096 UTF-8 bytes each (a preview may append a truncation marker). Unavailable
 frames/locations are explicit and do not replace the original failure.
 
-Each frame copies the code fingerprint, module epoch, function identity/name,
+Each frame copies the code fingerprint, module slot and epoch, function identity/name,
 logical instruction offset and available source range/position. Locations use
 one-based lines and UTF-8 byte columns, including CRLF and non-ASCII source.
 Source URIs and line tables survive artifact loading without optional debugger
@@ -89,9 +89,9 @@ host diagnostic memory outside the script heap-unit accounting. Native backends
 publish logical instruction positions before resource checks; unsupported Result
 operations use the existing interpreter fallback.
 
-## Async terminal reporting draft (AX04-AX05)
+## Async terminal reporting (AX04-AX05)
 
-Scheduled behavior; not yet implemented. The
+Task reports and bounded logical spawn/await provenance are implemented. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
@@ -100,3 +100,25 @@ retain execution/task/scope identity, failure class, cancellation cause, origina
 source task and logical spawn/await sites. Portable callable/instruction identity
 is available without source. Report/result roots outlive frame cleanup only while
 retained; cleanup acknowledgment is distinct from cancellation request acceptance.
+
+Every TaskReport includes a detached SpawnOrigin: its factory's program fingerprint,
+module slot, epoch and checked callable target, plus the script spawn site when
+available. Direct host admission has no script spawn frame. A stripped source map
+does not remove portable module/function/instruction identity.
+
+Task execution failures retain their original stack and append causal boundaries
+in ErrorTrace.async_boundaries. A Spawn boundary identifies the reported Task and
+scope and its admission origin. Awaiting a failed Task adds an Await boundary for
+that observer's wait site without changing the target's cached failure or sibling
+observers' traces. A dependent Task then adds its own Spawn boundary. The
+RuntimeError/EmbeddingError task_origin accessors continue identifying the first
+failed Task and original cancellation cause. Cancellation before first drive still
+has spawn provenance; adding a later waiter's stack cannot erase it.
+
+At most 32 async boundaries are retained, nearest the original failure first.
+Further boundaries increment omitted_async_boundaries and set incomplete; they do
+not replace the original cause or discard its first sites. The existing 128-frame
+and 4096-byte label limits remain independent. Snapshots contain no script values,
+roots or version leases and remain readable after report slots and handles retire.
+Successful reports carry admission provenance without becoming errors. Business
+Err remains an ordinary value and follows the Result propagation rules above.

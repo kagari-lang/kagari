@@ -2,6 +2,7 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    error_trace::asynchronous::SpawnOrigin,
     gc::roots::RootedValue,
     module::LoadedModule,
     native::binding::NativeResult,
@@ -149,9 +150,14 @@ impl Runtime {
         let retained = self
             .root_value(value.value(self.gc()).expect("new Task root"))
             .expect("new Task retention root");
+        let origin = SpawnOrigin {
+            factory: prepared.origin,
+            site: self.capture_async_site(),
+        };
         self.tasks.borrow_mut().tasks.insert(
             id.0,
             TaskRecord {
+                origin,
                 scope: control.id,
                 signal: signal.clone(),
                 value: retained,

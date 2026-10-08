@@ -21,6 +21,9 @@ mod task_handlers;
 #[path = "lifecycle.rs"]
 mod lifecycle;
 
+#[path = "diagnostics.rs"]
+mod diagnostics;
+
 impl Fixture {
     fn source(text: &str) -> Self {
         Self::configured_source(text, Default::default())

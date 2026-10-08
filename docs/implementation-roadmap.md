@@ -1154,6 +1154,32 @@ logical spawn/await diagnostic sites and debugger driving integration; Task fail
 identity alone does not fulfill logical-site provenance. AX06 and full GitHub CI
 acceptance remain outstanding. No local full suite or backend matrix was run.
 
+AX05 diagnostic checkpoint (2026-10-09): TaskReport now carries detached SpawnOrigin
+for success and failure, including a portable factory target even for direct host
+admission. Script admission records its call site; failed Task waits append their
+own sites without mutating the cached failure or sibling observers. ErrorTrace
+retains the original stack and at most 32 causal Spawn/Await boundaries, with
+explicit truncation counts. A queued cancellation has admission provenance before
+any body frame exists; later stack capture preserves that earlier provenance.
+ErrorFrame and factory origins include the module slot because function indices
+alone are not unique within a multi-module fingerprinted program. No source lookup,
+script objects, roots, program handles or execution-version leases enter snapshots.
+
+The encoded-artifact async_failure_provenance_contract passed with retained and
+stripped source maps: native deferred failure, two independent waiters, exact
+portable await instruction locations, consumed report slots, SDK propagation,
+before-start cancellation, bounded deep chains and host-created success reports.
+The retained reports/errors also survive final GC with zero roots, script objects
+and runtime-value version leases. Existing scoped_task_dependency_failure_contract
+and VM host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin
+passed. Focused SDK-test Clippy, fmt and diff checks passed; structure checked 975
+Rust files with no violations/exceptions. Manual ownership/import review kept
+diagnostic snapshots separate from GC/execution records with no widened visibility,
+new re-exports or structural debt. ErrorFrame/TaskReport gain public fields, an
+unpublished internal API replacement without an ABI/format number bump. No carried
+errors or full local suite. AX05 remains open for lifecycle audit and debugger
+driving integration; AX06 and full GitHub CI acceptance remain outstanding.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and
