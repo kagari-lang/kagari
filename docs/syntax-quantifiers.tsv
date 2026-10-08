@@ -20,10 +20,11 @@ use_tree	1	?	use_alias
 use_tree_group	1	?	use_tree_list
 use_tree_list	1	*	("," use_tree)
 use_tree_list	2	?	(",")
-function_decl	1	?	generic_param_clause
-function_decl	2	?	param_list
-function_decl	3	?	return_type
-function_decl	4	?	where_clause
+function_decl	1	?	("async")
+function_decl	2	?	generic_param_clause
+function_decl	3	?	param_list
+function_decl	4	?	return_type
+function_decl	5	?	where_clause
 generic_param_clause	1	*	("," generic_param)
 generic_param_clause	2	?	(",")
 generic_param	1	?	(":" type_bound_list)
@@ -48,10 +49,11 @@ trait_member	1	*	attribute
 associated_type_decl	1	?	generic_param_clause
 associated_type_decl	2	?	(":" type_bound_list)
 associated_type_decl	3	?	where_clause
-method_sig	1	?	generic_param_clause
-method_sig	2	?	method_param_list
-method_sig	3	?	return_type
-method_sig	4	?	where_clause
+method_sig	1	?	("async")
+method_sig	2	?	generic_param_clause
+method_sig	3	?	method_param_list
+method_sig	4	?	return_type
+method_sig	5	?	where_clause
 type_list	1	*	("," type)
 type_list	2	?	(",")
 type	1	?	generic_args
@@ -109,7 +111,8 @@ struct_expr	1	?	generic_args
 struct_expr	2	?	field_init_list
 field_init_list	1	*	("," field_init)
 field_init_list	2	?	(",")
-closure_expr	1	?	closure_param_list
+closure_expr	1	?	("async")
+closure_expr	2	?	closure_param_list
 closure_param_list	1	*	("," closure_param)
 closure_param_list	2	?	(",")
 closure_param	1	?	(":" type)

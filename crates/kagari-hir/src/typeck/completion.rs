@@ -346,6 +346,7 @@ impl<'a> Completion<'a> {
                                 continue;
                             }
                             ExprKind::FormatPart { expr, .. }
+                            | ExprKind::Await { expr }
                             | ExprKind::Propagate { expr }
                             | ExprKind::Cast { expr, .. }
                             | ExprKind::Prefix { expr, .. }

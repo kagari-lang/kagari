@@ -25,6 +25,10 @@ pub enum TokenKind {
     ForKw,
     /// The `in` keyword.
     InKw,
+    /// The `async` keyword.
+    AsyncKw,
+    /// The `await` keyword.
+    AwaitKw,
     /// The `fn` keyword.
     FnKw,
     /// The `impl` keyword.
@@ -217,6 +221,8 @@ impl TokenKind {
             Self::CrateKw => SyntaxKind::CrateKw,
             Self::ForKw => SyntaxKind::ForKw,
             Self::InKw => SyntaxKind::InKw,
+            Self::AsyncKw => SyntaxKind::AsyncKw,
+            Self::AwaitKw => SyntaxKind::AwaitKw,
             Self::FnKw => SyntaxKind::FnKw,
             Self::ImplKw => SyntaxKind::ImplKw,
             Self::ModKw => SyntaxKind::ModKw,

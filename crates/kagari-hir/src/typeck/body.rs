@@ -12,7 +12,8 @@ use crate::{
     lower::LoweredModule,
     resolver::resolved::{ResolvedName, ResolvedNames},
     typeck::{
-        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, applications, completion,
+        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, applications,
+        asynchronous as async_types, completion,
         scalar::ScalarValue,
         solver::Solver,
         table::TypeTable,
@@ -32,6 +33,7 @@ use std::{
     mem,
 };
 
+mod asynchronous;
 mod calls;
 mod constructors;
 mod host_access;
@@ -95,6 +97,7 @@ pub(crate) struct BodyChecker<'a> {
     function_name: &'a str,
     /// Result contract of the currently checked callable context.
     expected_return: TypeId,
+    async_body: bool,
     loop_depth: usize,
     /// Nested loop result expectations and observed `break` value types.
     loop_results: Vec<LoopResult>,
@@ -138,6 +141,7 @@ impl<'a> BodyChecker<'a> {
             type_table,
             function_name,
             expected_return,
+            async_body: false,
             loop_depth: 0,
             loop_results: Vec::new(),
             inference_depth: 0,
@@ -149,6 +153,10 @@ impl<'a> BodyChecker<'a> {
             used_explicit_arguments: Default::default(),
             propagation_defaults: Vec::new(),
         }
+    }
+
+    pub(crate) fn set_async(&mut self, is_async: bool) {
+        self.async_body = is_async;
     }
 
     pub(crate) fn infer_block_types(&mut self, block_id: BlockId, env: &mut BodyTypeEnv) -> TypeId {
@@ -372,6 +380,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 TypeId::Builtin(BuiltinType::String)
             }
+            ExprKind::Await { expr } => self.infer_await(expr_id, *expr, env, expected),
             ExprKind::Propagate { expr } => self.infer_propagation(expr_id, *expr, env, expected),
             ExprKind::Cast { expr, target } => {
                 let input = self.infer_expr_type(*expr, env);
@@ -489,7 +498,11 @@ impl<'a> BodyChecker<'a> {
                     self.infer_function_call_type(expr_id, *callee, args, env, expected)
                 }
             }
-            ExprKind::Closure { params, body } => {
+            ExprKind::Closure {
+                params,
+                body,
+                is_async,
+            } => {
                 for capture in self.names.closure_captures(expr_id) {
                     let captured = match capture {
                         ResolvedName::Local(id) => env.locals.get(id),
@@ -514,6 +527,11 @@ impl<'a> BodyChecker<'a> {
                 let expected_result = match expected {
                     Some(TypeId::Function { result, .. }) => Some(result.as_ref()),
                     _ => None,
+                };
+                let expected_result = if *is_async {
+                    expected_result.and_then(|ty| async_types::future_output(self.declarations, ty))
+                } else {
+                    expected_result
                 };
                 let mut closure_env = env.clone();
                 let mut param_types = Vec::with_capacity(params.len());
@@ -547,6 +565,7 @@ impl<'a> BodyChecker<'a> {
                     closure_env.locals.insert(param.local, ty.clone());
                     param_types.push(ty);
                 }
+                let old_async = mem::replace(&mut self.async_body, *is_async);
                 let old_return = mem::replace(
                     &mut self.expected_return,
                     expected_result.cloned().unwrap_or(TypeId::Unknown),
@@ -595,10 +614,23 @@ impl<'a> BodyChecker<'a> {
                         result.recover_from(&returned);
                     }
                 }
+                self.async_body = old_async;
                 self.function_name = old_name;
                 self.expected_return = old_return;
                 self.loop_depth = old_loop_depth;
                 self.loop_results = old_loop_results;
+                if *is_async {
+                    result =
+                        async_types::future_type(self.declarations, result).unwrap_or_else(|| {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                                    feature: "async requires one installed Future storage declaration",
+                                })
+                                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                            );
+                            TypeId::Error
+                        });
+                }
                 TypeId::Function {
                     params: param_types,
                     result: Box::new(result),

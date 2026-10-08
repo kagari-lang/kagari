@@ -35,7 +35,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
-            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
             Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
@@ -66,7 +66,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
-            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
@@ -84,7 +84,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
-            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
@@ -107,7 +107,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
-            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
@@ -402,6 +402,9 @@ impl<'a> Parser<'a> {
         self.parse_attributes();
         self.bump_trivia();
         self.parse_visibility();
+        if self.at(TokenKind::AsyncKw) {
+            self.bump();
+        }
         self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         self.parse_name();
         self.bump_trivia();
@@ -940,6 +943,9 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         if allow_visibility {
             self.parse_visibility();
+        }
+        if self.at(TokenKind::AsyncKw) {
+            self.bump();
         }
         self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         self.parse_name();

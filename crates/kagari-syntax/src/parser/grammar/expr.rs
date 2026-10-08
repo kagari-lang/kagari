@@ -38,6 +38,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Bang
                     | TokenKind::Pipe
                     | TokenKind::PipePipe
+                    | TokenKind::AsyncKw
                     | TokenKind::DotDot
                     | TokenKind::DotDotEq
                     | TokenKind::LBrace
@@ -338,6 +339,13 @@ impl<'a> Parser<'a> {
                     self.start_node_at(checkpoint, SyntaxKind::CallExpr);
                     self.finish_node();
                 }
+                Some(TokenKind::Dot) if self.nth_nontrivia_kind(1) == Some(TokenKind::AwaitKw) => {
+                    self.bump();
+                    self.bump_trivia();
+                    self.bump();
+                    self.start_node_at(checkpoint, SyntaxKind::AwaitExpr);
+                    self.finish_node();
+                }
                 Some(TokenKind::Dot) => {
                     self.parse_field_suffix();
                     self.start_node_at(checkpoint, SyntaxKind::FieldExpr);
@@ -383,7 +391,9 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LParen) => self.parse_paren_or_tuple_expr(),
             Some(TokenKind::LBracket) => self.parse_array_expr(),
             Some(TokenKind::LBrace) => self.parse_block(),
-            Some(TokenKind::Pipe | TokenKind::PipePipe) => self.parse_closure_expr(),
+            Some(TokenKind::AsyncKw | TokenKind::Pipe | TokenKind::PipePipe) => {
+                self.parse_closure_expr();
+            }
             _ => self.error_here(DiagnosticKind::ExpectedExpression),
         }
     }
@@ -416,6 +426,15 @@ impl<'a> Parser<'a> {
 
     fn parse_closure_expr(&mut self) {
         self.start_node(SyntaxKind::ClosureExpr);
+        if self.at(TokenKind::AsyncKw) {
+            self.bump();
+            self.bump_trivia();
+            if !self.at_any(&[TokenKind::Pipe, TokenKind::PipePipe]) {
+                self.error_here(DiagnosticKind::ExpectedExpression);
+                self.finish_node();
+                return;
+            }
+        }
         if self.at(TokenKind::PipePipe) {
             self.bump();
         } else {

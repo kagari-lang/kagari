@@ -45,6 +45,7 @@ use smallvec::SmallVec;
 pub(crate) mod applications;
 pub(crate) mod associated;
 pub(crate) mod associated_consts;
+mod asynchronous;
 mod body;
 pub(crate) mod check;
 mod completion;

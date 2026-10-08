@@ -20,7 +20,7 @@ use crate::{
     typeck::{
         BodyInputs, BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex,
         TypeIndexes, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
-        TypedParameterBuffer, associated, associated_consts,
+        TypedParameterBuffer, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
             constants::validate_const_initializers, native_defaults::NativeDefaultCheck,
@@ -361,6 +361,27 @@ pub(crate) fn check_signatures(
             None => TypeId::Builtin(BuiltinType::Unit),
         };
 
+        let return_type = if function.is_async {
+            if function.kind == FunctionKind::TraitMethod {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                        feature: "async trait methods",
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+            }
+            asynchronous::future_type(declarations, return_type).unwrap_or_else(|| {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                        feature: "async requires one installed Future storage declaration",
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+                TypeId::Error
+            })
+        } else {
+            return_type
+        };
         let typed_function = TypedFunction {
             implementation,
             bounds,
@@ -636,6 +657,13 @@ pub(crate) fn check_bodies_controlled(
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }
+                let body_output = if function.is_async {
+                    asynchronous::future_output(declarations, &typed_function.return_type)
+                        .cloned()
+                        .unwrap_or(TypeId::Error)
+                } else {
+                    typed_function.return_type.clone()
+                };
                 let mut checker = BodyChecker::new(
                     lowered,
                     names,
@@ -651,9 +679,10 @@ pub(crate) fn check_bodies_controlled(
                     &mut diagnostics,
                     &mut type_table,
                     &typed_function.name,
-                    typed_function.return_type.clone(),
+                    body_output.clone(),
                 );
-                let body_ty = checker.solve_body(body, &mut env, Some(&typed_function.return_type));
+                checker.set_async(function.is_async);
+                let body_ty = checker.solve_body(body, &mut env, Some(&body_output));
                 let Ok(completes) = completion::block_can_complete(
                     &lowered.module,
                     names,
@@ -663,11 +692,11 @@ pub(crate) fn check_bodies_controlled(
                 ) else {
                     break;
                 };
-                if completes && body_ty.conflicts_with(&typed_function.return_type) {
+                if completes && body_ty.conflicts_with(&body_output) {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                             function_name: typed_function.name.clone(),
-                            expected: display_type_id(&typed_function.return_type),
+                            expected: display_type_id(&body_output),
                             found: display_type_id(&body_ty),
                         })
                         .with_span(lowered.source_map.function_span(function.id)),

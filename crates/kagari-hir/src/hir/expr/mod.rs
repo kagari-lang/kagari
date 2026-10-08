@@ -96,6 +96,11 @@ pub enum ExprKind {
     },
     /// A literal spelling and lexical category; scalar interpretation happens later.
     Literal(Literal),
+    /// Explicit postfix suspension; semantic checking selects the Future output.
+    Await {
+        /// Expression producing the awaitable.
+        expr: ExprId,
+    },
     /// Postfix `value?`, before Try/FromResidual protocol selection.
     Propagate {
         /// Expression producing the value to branch or propagate.
@@ -172,6 +177,8 @@ pub enum ExprKind {
     },
     /// A closure such as `|x| x + 1`.
     Closure {
+        /// Whether this closure explicitly carries the `async` modifier.
+        is_async: bool,
         /// Inline parameters whose identities are local bindings.
         params: Vec<ClosureParam>,
         /// Expression body; a braced body is an `ExprKind::Block`.

@@ -603,6 +603,13 @@ impl<I: DefinitionReference> Declarations<I> {
         &self.definitions
     }
 
+    /// Iterates installed local and imported representations without name lookup.
+    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind<I>> {
+        self.native_types
+            .values()
+            .chain(self.imported_types.native_types())
+    }
+
     /// Clones the installed representation for a local opaque type, if registered.
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind<I>> {
         self.native_types.get(&id).cloned()

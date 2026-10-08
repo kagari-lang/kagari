@@ -388,6 +388,7 @@ impl Lowerer {
         let result = Function {
             id,
             kind,
+            is_async: method.is_async(),
             visibility: lower_visibility(method.visibility()),
             name: method.name_text().unwrap_or_default(),
             generic_params,
@@ -471,6 +472,7 @@ impl Lowerer {
         let result = Function {
             id,
             kind: FunctionKind::User,
+            is_async: function.is_async(),
             visibility: lower_visibility(function.visibility()),
             name: function.name_text().unwrap_or_default(),
             generic_params: function

@@ -147,6 +147,12 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr());
             }
+            Expr::AwaitExpr(node) => ExprKind::Await {
+                expr: node
+                    .expr()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+            },
             Expr::PropagateExpr(node) => ExprKind::Propagate {
                 expr: node
                     .expr()
@@ -341,6 +347,7 @@ impl Lowerer {
                     }),
             },
             Expr::ClosureExpr(closure) => ExprKind::Closure {
+                is_async: closure.is_async(),
                 params: closure
                     .params()
                     .map(|param| ClosureParam {

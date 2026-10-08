@@ -903,6 +903,35 @@ explicit async closures, script Future factories/await and the ordinary for-body
 await contract, including real deferred interleaving and cleanup. Task/scope capacity,
 sharing and reports remain AX04, lifecycle integration AX05 and final products/CI AX06.
 
+AX03 frontend checkpoint (2026-10-08): reserved `async`/`await`, retained explicit
+async markers in callable syntax/HIR and added postfix Await nodes. Parsing reuses
+ordinary closure parameters/bodies and postfix precedence; async blocks remain
+invalid. Checked signatures expose the installed nominal `Future<T>` independently
+of a local type named Future. Async bodies check their completed T, including
+`return`, `?`, generic Fn contexts and unflattened nested Future outputs. Ordinary
+closures reset the async context, so synchronous retain callbacks reject await.
+The lexer/parser, EBNF inventories, syntax specification and syntax witness agree.
+
+Local evidence: `async_callable_syntax_contract` (kagari-syntax) and
+`async_callable_typing_contract` (kagari-hir) passed. The latter includes ordinary
+for-body await, contextual/direct generic Fn closures, business Result propagation,
+shadowed Future spelling, call-signature queries and signature invalidation after
+removing async. Grammar inventory checks passed after grouping the optional async
+terminal to match the inventory parser. `async_mir_suspension_contract`
+(kagari-compiler), structure (949 files, no findings/exceptions), formatting,
+diff checks and 74 local documentation links/anchors passed. Focused Clippy for
+compiler/HIR/syntax libraries passed; initial unnecessary string conversions were
+removed. Manual review retained parser, HIR role/context checking and compiler
+lowering boundaries with explicit imports and no new re-exports. No build/test
+failures are carried.
+
+AX03 remains open. Executable script Future factories/resume bodies are the next
+unit; source lowering currently returns explicit unsupported errors for those
+forms rather than executing their bodies eagerly. Complete cold-argument capture
+safety, runtime/artifact lowering, source origins and the real deferred for-await
+interleaving/cleanup cases in AX03. The frontend for-await test is not a runtime
+acceptance claim. AX04-AX06 and full CI acceptance remain outstanding.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and

@@ -1,0 +1,17 @@
+// AX03 syntax/type-checking witness. Script Future execution is still in progress.
+async fn read(value: i32) -> i32 {
+    value
+}
+
+async fn total(items: Vec<i32>) -> i32 {
+    val request: fn(i32) -> Future<i32> = async |item| read(item).await;
+    var result = 0;
+    for item in items {
+        result += request(item).await;
+    }
+    result
+}
+
+fn work() -> fn() -> Future<i32> {
+    async || total([1, 2, 3]).await
+}

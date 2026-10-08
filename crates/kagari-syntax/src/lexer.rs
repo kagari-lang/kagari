@@ -530,6 +530,8 @@ pub fn lex_with_cancellation(
                     "crate" => TokenKind::CrateKw,
                     "for" => TokenKind::ForKw,
                     "in" => TokenKind::InKw,
+                    "async" => TokenKind::AsyncKw,
+                    "await" => TokenKind::AwaitKw,
                     "fn" => TokenKind::FnKw,
                     "impl" => TokenKind::ImplKw,
                     "mod" => TokenKind::ModKw,

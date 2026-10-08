@@ -180,3 +180,4 @@ shift_expr	covered	examples/syntax/bitwise.kgr	-
 cast_expr	covered	examples/syntax/numeric-conversions.kgr	-
 trait_arguments	covered	examples/syntax/callables.kgr	-
 callable_arguments	covered	examples/syntax/callables.kgr	-
+await_suffix	covered	examples/syntax/async.kgr	-

@@ -31,7 +31,7 @@ This document does not define:
 - full pattern matching semantics
 - trait system and trait impls
 - macro systems
-- async or coroutine syntax
+- async scheduling and coroutine runtime behavior
 - full generic constraints
 - module resolution semantics
 - the final const evaluation rules
@@ -105,6 +105,8 @@ parser must never slice through a code point during recovery.
 The following keywords are reserved:
 
 - `as`
+- `async`
+- `await`
 - `break`
 - `const`
 - `continue`
@@ -270,7 +272,7 @@ Notes:
 ### Functions
 
 ```ebnf
-function_decl   ::= "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
+function_decl   ::= ("async")? "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
 
 generic_param_clause
                 ::= "<" generic_param ("," generic_param)* (",")? ">" ;
@@ -379,7 +381,7 @@ supertrait_clause ::= ":" type_bound_list ;
 trait_member    ::= attribute* method_sig (";" | block) | associated_type_decl ;
 associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
 
-method_sig      ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
+method_sig      ::= ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
 
 Notes:
@@ -827,7 +829,9 @@ postfix_expr    ::= primary_expr postfix_op* ;
 
 postfix_op      ::= call_suffix
                   | field_suffix
-                  | index_suffix ;
+                  | index_suffix
+                  | propagation_suffix
+                  | await_suffix ;
 
 call_suffix     ::= ("::" generic_args)? "(" arg_list? ")" ;
 
@@ -838,6 +842,10 @@ arg             ::= expr ;
 field_suffix    ::= "." IDENT ;
 
 index_suffix    ::= "[" expr "]" ;
+
+propagation_suffix ::= "?" ;
+
+await_suffix    ::= "." "await" ;
 
 primary_expr    ::= literal
                   | path
@@ -872,7 +880,7 @@ field_init_list ::= field_init ("," field_init)* (",")? ;
 field_init      ::= IDENT
                   | IDENT ":" expr ;
 
-closure_expr    ::= "|" closure_param_list? "|" closure_body ;
+closure_expr    ::= ("async")? "|" closure_param_list? "|" closure_body ;
 
 closure_param_list
                 ::= closure_param ("," closure_param)* (",")? ;
@@ -1191,14 +1199,25 @@ contain no shared mutable objects, including recursively inside Tuple or enum
 members. Use `Vec::from_fn(count, |index| expression)` for per-element
 object initialization. See [the value contract](value-semantics.md#repeat-arrays-and-bulk-replacement).
 
-## Async syntax draft (AX03)
+## Async syntax (AX03)
 
-Scheduled behavior; not yet implemented. The
+Parsing and type checking are implemented. Script Future construction and execution
+remain in progress under AX03; successful analysis does not yet imply executable
+async code. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 
 Reserved `async fn`, explicit `async |args| body` / `async || body` and postfix
-`.await` are scheduled. Async calls return cold Future values; ordinary closures
+`.await` are explicit source forms. Async calls return cold Future values; ordinary closures
 never infer async. Await is allowed in an async body, including ordinary for-loop
 bodies, but not in a nested ordinary closure. No async block or async iterator
 syntax is introduced.
+
+The written result of `async fn f(...) -> T` is the completed body result; its
+ordinary callable signature returns the installed `Future<T>`. An explicit async
+closure follows the same rule and implements ordinary `Fn(A) -> Future<T>`. Return
+and `?` check the nearest callable body's completed result, with no automatic
+flattening of a Future-valued result. `.await` shares postfix precedence with
+calls, fields, indexing and `?`; `read().await?` propagates the awaited result.
+General async trait methods remain unsupported even though parser recovery retains
+the modifier. An inherent async method is an ordinary Future-producing callable.

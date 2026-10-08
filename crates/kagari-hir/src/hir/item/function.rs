@@ -28,6 +28,8 @@ pub struct Function {
     pub id: FunctionId,
     /// Free function, trait method or implementation method origin.
     pub kind: FunctionKind,
+    /// Explicit async factory; the written return type describes its completed body.
+    pub is_async: bool,
     /// Declared source visibility, enforced by later lookup.
     pub visibility: Visibility,
     /// Declared name; may be empty in recovered syntax.

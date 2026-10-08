@@ -24,6 +24,146 @@ use kagari_types::{
 };
 
 #[test]
+fn async_callable_typing_contract() {
+    let text = r#"
+async fn identity<T>(value: T) -> T { return value; }
+async fn nested() -> Future<i32> { identity(1) }
+async fn diverging() -> i32 { (loop {}).await }
+async fn business(value: Result<i32, i32>) -> Result<i32, i32> {
+    Ok(identity(value?).await)
+}
+fn accept<F: Fn(i32) -> Future<i32>>(callback: F) -> Future<i32> { callback(1) }
+fn factory() -> Future<i32> {
+    val callback: fn(i32) -> Future<i32> = async |x| identity(x).await;
+    val fallible: fn(Result<i32, i32>) -> Future<Result<i32, i32>> = async |x| { return Ok(identity(x?).await); };
+    accept(async |x| identity(x).await);
+    accept(callback)
+}
+async fn looping(items: Vec<i32>) -> i32 {
+    var total = 0;
+    for item in items { total += identity(item).await; }
+    total
+}
+fn plain() -> Future<i32> { (|| identity(1))() }
+"#;
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("async-types.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut database = test_analysis();
+    let snapshot = database
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let analysis = snapshot.file(root).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let facts = analysis.result().facts();
+    let nested = facts
+        .typed
+        .functions
+        .iter()
+        .find(|f| f.name == "nested")
+        .unwrap();
+    let TypeId::NativeObject(outer) = &nested.return_type else {
+        panic!("cold Future");
+    };
+    let TypeId::NativeObject(inner) = &outer.arguments[0] else {
+        panic!("nested Future");
+    };
+    assert_eq!(outer.declaration, inner.declaration);
+    assert_eq!(inner.arguments, [TypeId::Builtin(BuiltinType::I32)]);
+
+    sources.set("async-types.kgr", "struct Future<T> { val value: T } async fn value() -> i32 { 1 } fn get() -> core::future::Future<i32> { value() }".into(), SourceLayer::Base).unwrap();
+    let snapshot = database
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        snapshot
+            .file(root)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty(),
+        "{:?}",
+        snapshot.file(root).unwrap().result().diagnostics()
+    );
+
+    // Reusing a body edit must retain the factory signature; removing the
+    // modifier must invalidate it even when the completed body is unchanged.
+    for (text, valid) in [
+        (
+            "async fn value() -> i32 { 1 } fn get() -> Future<i32> { value() }",
+            true,
+        ),
+        (
+            "async fn value() -> i32 { 2 } fn get() -> Future<i32> { value() }",
+            true,
+        ),
+        (
+            "fn value() -> i32 { 2 } fn get() -> Future<i32> { value() }",
+            false,
+        ),
+    ] {
+        sources
+            .set("async-types.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = database
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let analysis = snapshot.file(root).unwrap();
+        assert_eq!(
+            analysis.result().diagnostics().is_empty(),
+            valid,
+            "{:?}",
+            analysis.result().diagnostics()
+        );
+        let signature = analysis
+            .call_signature_at(text.rfind("value()").unwrap())
+            .unwrap();
+        assert_eq!(matches!(signature.result, TypeId::NativeObject(_)), valid);
+    }
+
+    for (text, code) in [
+        (
+            "async fn value() -> i32 { 1 } fn bad() -> i32 { value().await }",
+            "KG_AWAIT_OUTSIDE_ASYNC",
+        ),
+        (
+            "async fn value() -> i32 { 1 } async fn bad(items: Vec<i32>) { items.retain(|x| value().await == x); }",
+            "KG_AWAIT_OUTSIDE_ASYNC",
+        ),
+        (
+            "async fn bad() -> i32 { 1.await }",
+            "KG_TYPE_INVALID_AWAIT_OPERAND",
+        ),
+        (
+            "trait Bad { async fn value() -> i32; }",
+            "KG_SYNTAX_UNSUPPORTED",
+        ),
+    ] {
+        sources
+            .set("async-types.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = database
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let analysis = snapshot.file(root).unwrap();
+        assert!(
+            analysis
+                .result()
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.kind.code() == code),
+            "{text}: {:?}",
+            analysis.result().diagnostics()
+        );
+    }
+}
+
+#[test]
 fn native_generic_scalar_calls_keep_their_exact_declared_types() {
     let text = "use demo::native::{echo, choose}; fn narrow() { echo(1i8); choose(1i8, 2i8, 3i8); } fn wide() { echo(1u64); choose(1u64, 2u64, 3u64); }";
     let mut sources = SourceDatabase::default();

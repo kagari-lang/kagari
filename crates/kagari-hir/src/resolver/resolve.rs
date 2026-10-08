@@ -246,6 +246,7 @@ impl<'a> BodyResolver<'a> {
             }
             ExprKind::Literal(_) => {}
             ExprKind::FormatPart { expr, .. }
+            | ExprKind::Await { expr }
             | ExprKind::Propagate { expr }
             | ExprKind::Cast { expr, .. }
             | ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
@@ -319,7 +320,7 @@ impl<'a> BodyResolver<'a> {
             }
             ExprKind::Block(block) => self.resolve_block(*block),
             ExprKind::Loop { body } => self.resolve_block(*body),
-            ExprKind::Closure { params, body } => {
+            ExprKind::Closure { params, body, .. } => {
                 let outer = self
                     .scopes
                     .iter()

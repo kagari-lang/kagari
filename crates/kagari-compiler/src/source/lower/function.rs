@@ -303,6 +303,11 @@ pub(crate) fn lower_function<'a>(
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
+    if function.is_async {
+        return Err(MirLoweringError::UnsupportedExpr(
+            "async script factory lowering",
+        ));
+    }
     let typed = module
         .typed
         .functions
@@ -334,9 +339,19 @@ pub(crate) fn lower_closure<'a>(
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
-    let ExprKind::Closure { params, body } = &module.lowered.module.expr(closure).kind else {
+    let ExprKind::Closure {
+        params,
+        body,
+        is_async,
+    } = &module.lowered.module.expr(closure).kind
+    else {
         return Err(MirLoweringError::MissingBinding("closure body"));
     };
+    if *is_async {
+        return Err(MirLoweringError::UnsupportedExpr(
+            "async closure factory lowering",
+        ));
+    }
     let TypeId::Function { result, .. } = module
         .typed
         .type_table

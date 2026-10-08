@@ -317,6 +317,13 @@ impl<I: DefinitionReference> Default for ImportedTypes<I> {
 mod mapping;
 
 impl<I: DefinitionReference> ImportedTypes<I> {
+    /// Iterates canonical imported native representations, independent of aliases.
+    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind<I>> {
+        self.resolutions
+            .values()
+            .filter_map(|ty| ty.native_type.as_ref())
+    }
+
     pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration<I>> {
         match name {
             ResolvedName::Source(source) => self.variants.get(&source),

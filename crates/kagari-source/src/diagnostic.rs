@@ -116,6 +116,10 @@ pub enum DiagnosticKind {
     InvalidClosureCapture {
         type_name: String,
     },
+    AwaitOutsideAsync,
+    InvalidAwaitOperand {
+        type_name: String,
+    },
     InvalidValueTarget {
         name: String,
     },
@@ -396,6 +400,8 @@ impl DiagnosticKind {
             Self::InvalidNativeSignature { .. } => "KG_NATIVE_SIGNATURE_INVALID",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidClosureCapture { .. } => "KG_TYPE_INVALID_CLOSURE_CAPTURE",
+            Self::AwaitOutsideAsync => "KG_AWAIT_OUTSIDE_ASYNC",
+            Self::InvalidAwaitOperand { .. } => "KG_TYPE_INVALID_AWAIT_OPERAND",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
             Self::InvalidTraitReference { .. } => "KG_TYPE_INVALID_TRAIT_REFERENCE",
             Self::InvalidAssociatedType { .. } => "KG_TYPE_INVALID_ASSOCIATED_TYPE",
@@ -563,6 +569,13 @@ impl Display for DiagnosticKind {
                 f,
                 "cannot capture host value of type `{type_name}` in a closure"
             ),
+            Self::AwaitOutsideAsync => write!(
+                f,
+                "`.await` requires an async function or an explicitly async closure"
+            ),
+            Self::InvalidAwaitOperand { type_name } => {
+                write!(f, "value of type `{type_name}` is not an awaitable Future")
+            }
             Self::InvalidValueTarget { name } => write!(f, "`{name}` is not a value expression"),
             Self::InvalidTraitReference { trait_name, reason } => {
                 write!(f, "invalid trait reference `{trait_name}`: {reason}")

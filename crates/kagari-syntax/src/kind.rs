@@ -47,6 +47,10 @@ pub enum SyntaxKind {
     ForKw,
     /// The `in` keyword.
     InKw,
+    /// The `async` keyword.
+    AsyncKw,
+    /// The `await` keyword.
+    AwaitKw,
     /// The `fn` keyword.
     FnKw,
     /// The `impl` keyword.
@@ -309,6 +313,8 @@ pub enum SyntaxKind {
     CastExpr,
     /// A postfix `?` expression; propagation semantics are checked in HIR. See [`PropagateExpr`](crate::ast::expr::PropagateExpr).
     PropagateExpr,
+    /// A postfix `.await` expression. See [`AwaitExpr`](crate::ast::expr::AwaitExpr).
+    AwaitExpr,
     /// Two operands joined by an arithmetic, comparison, bitwise or logical operator. See [`BinaryExpr`](crate::ast::expr::BinaryExpr).
     BinaryExpr,
     /// An exclusive `..` or inclusive `..=` range with optional endpoints. See [`RangeExpr`](crate::ast::expr::RangeExpr).

@@ -127,3 +127,4 @@ range_expr	2	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr? "..=" logic_o
 range_expr	3	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr
 trait_arguments	1	witnessed	examples/syntax/callables.kgr	-	generic_args
 trait_arguments	2	witnessed	examples/syntax/callables.kgr	-	callable_arguments
+postfix_op	5	witnessed	examples/syntax/async.kgr	-	await_suffix

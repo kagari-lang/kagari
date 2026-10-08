@@ -1000,6 +1000,13 @@ impl ImplBlock {
 }
 
 impl MethodDef {
+    /// Whether this callable explicitly carries the `async` modifier.
+    pub fn is_async(&self) -> bool {
+        self.syntax()
+            .children_with_tokens()
+            .any(|child| child.kind() == SyntaxKind::AsyncKw)
+    }
+
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
     /// A direct `super` token with `pub` produces `PublicSuper`.
     pub fn visibility(&self) -> Visibility {
@@ -1074,6 +1081,13 @@ impl SourceFile {
 }
 
 impl FnDef {
+    /// Whether this callable explicitly carries the `async` modifier.
+    pub fn is_async(&self) -> bool {
+        self.syntax()
+            .children_with_tokens()
+            .any(|child| child.kind() == SyntaxKind::AsyncKw)
+    }
+
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
     /// A direct `super` token with `pub` produces `PublicSuper`.
     pub fn visibility(&self) -> Visibility {

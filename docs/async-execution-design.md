@@ -1,16 +1,15 @@
 # Async Script and Native Execution Design
 
-Status: proposal only; no async syntax or runtime API described here is implemented
-by this document. The proposed first release lets scripts await host-owned RPC,
+Status: active implementation under AX00-AX06; the roadmap records which contracts
+are implemented and locally verified. The first release lets scripts await host-owned RPC,
 database and timer operations without blocking the VM thread or exposing completion
 callbacks to script authors. Rust remains responsible for IO and scheduling.
 
 This design builds on current [native registration](spec/standard-declarations.md)
-and [execution control](spec/execution.md). Implementation requires separate
-activation through the [roadmap](implementation-roadmap.md) and the staged
-[AX00-AX06 execution plan](async-execution-plan.md). AX00 finalizes the concrete
-contracts below before their implementation. Existing specifications remain
-authoritative until implementation updates them.
+and [execution control](spec/execution.md). The [roadmap](implementation-roadmap.md)
+and staged [AX00-AX06 execution plan](async-execution-plan.md) own implementation
+progress. AX00 finalized the concrete contracts below. Existing specifications
+remain authoritative until implementation updates them.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns centralized stores, automatic retention and movement of an exclusively driven
@@ -28,9 +27,9 @@ authorizes API use, root cancellation and a call-depth limit control execution, 
 owns deadlines/service limits. Per-task permission matrices, precise allocation
 attribution and hierarchical budget delegation are not async requirements.
 
-## Current baseline
+## Baseline before AX00 activation
 
-The [syntax specification](spec/syntax.md) excludes async and coroutine syntax.
+Before activation, the [syntax specification](spec/syntax.md) excluded async syntax.
 [Host interoperability](spec/host-interop.md#suspension-boundaries) and
 [runtime semantics](spec/runtime.md#suspension-and-ephemerality) anticipate suspension
 but only establish restrictions on borrowed and ephemeral values. A `may_suspend`

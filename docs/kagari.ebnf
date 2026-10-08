@@ -66,7 +66,7 @@ use_tree_list       ::= use_tree ("," use_tree)* (",")? ;
 
 use_alias           ::= "as" IDENT ;
 
-function_decl       ::= "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
+function_decl       ::= ("async")? "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
 
 generic_param_clause ::= "<" generic_param ("," generic_param)* (",")? ">" ;
 
@@ -110,7 +110,7 @@ associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list
 
 trait_method        ::= method_sig (";" | block) ;
 
-method_sig          ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
+method_sig          ::= ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 
 type_list           ::= type ("," type)* (",")? ;
 
@@ -273,7 +273,8 @@ postfix_expr        ::= primary_expr postfix_op* ;
 postfix_op          ::= call_suffix
                       | field_suffix
                       | index_suffix
-                      | propagation_suffix ;
+                      | propagation_suffix
+                      | await_suffix ;
 
 call_suffix         ::= ("::" generic_args)? "(" arg_list? ")" ;
 
@@ -285,6 +286,8 @@ index_suffix        ::= "[" expr "]" ;
 
 (* Built-in Option/Result only; exits the nearest function or closure. *)
 propagation_suffix  ::= "?" ;
+
+await_suffix        ::= "." "await" ;
 
 primary_expr        ::= literal
                       | path
@@ -322,7 +325,7 @@ field_init          ::= IDENT
 
 (* Closures are runtime values with lexical captures. Persisting closure values
    across process restarts is outside the current runtime contract. *)
-closure_expr        ::= "|" closure_param_list? "|" closure_body ;
+closure_expr        ::= ("async")? "|" closure_param_list? "|" closure_body ;
 
 closure_param_list  ::= closure_param ("," closure_param)* (",")? ;
 

@@ -169,6 +169,15 @@ ast_node!(
 );
 
 ast_node!(
+    /// A postfix `.await` expression retaining its operand as a direct child.
+    ///
+    /// `read().await` contains a `CallExpr`, a dot and the `await` keyword.
+    /// Semantic checking determines the permitted context and result type.
+    AwaitExpr,
+    AwaitExpr
+);
+
+ast_node!(
     /// A postfix `?` expression; propagation semantics are checked in HIR.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
@@ -923,6 +932,8 @@ pub enum Expr {
     CastExpr(CastExpr),
     /// The [`PropagateExpr`] view; see its node diagram.
     PropagateExpr(PropagateExpr),
+    /// The [`AwaitExpr`] view; see its node shape.
+    AwaitExpr(AwaitExpr),
     /// The [`BinaryExpr`] view; see its node diagram.
     BinaryExpr(BinaryExpr),
     /// The [`RangeExpr`] view; see its node diagram.
@@ -959,6 +970,7 @@ impl AstNode for Expr {
                 | SyntaxKind::PathExpr
                 | SyntaxKind::Literal
                 | SyntaxKind::ParenExpr
+                | SyntaxKind::AwaitExpr
                 | SyntaxKind::PropagateExpr
                 | SyntaxKind::CastExpr
                 | SyntaxKind::PrefixExpr
@@ -984,6 +996,7 @@ impl AstNode for Expr {
             SyntaxKind::PathExpr => PathExpr::cast(syntax).map(Self::PathExpr),
             SyntaxKind::Literal => Literal::cast(syntax).map(Self::Literal),
             SyntaxKind::ParenExpr => ParenExpr::cast(syntax).map(Self::ParenExpr),
+            SyntaxKind::AwaitExpr => AwaitExpr::cast(syntax).map(Self::AwaitExpr),
             SyntaxKind::PropagateExpr => PropagateExpr::cast(syntax).map(Self::PropagateExpr),
             SyntaxKind::CastExpr => CastExpr::cast(syntax).map(Self::CastExpr),
             SyntaxKind::PrefixExpr => PrefixExpr::cast(syntax).map(Self::PrefixExpr),
@@ -1013,6 +1026,7 @@ impl AstNode for Expr {
             Self::Literal(node) => node.syntax(),
             Self::ParenExpr(node) => node.syntax(),
             Self::PropagateExpr(node) => node.syntax(),
+            Self::AwaitExpr(node) => node.syntax(),
             Self::CastExpr(node) => node.syntax(),
             Self::PrefixExpr(node) => node.syntax(),
             Self::BinaryExpr(node) => node.syntax(),
@@ -1108,6 +1122,13 @@ impl Literal {
 impl ParenExpr {
     /// Returns the contained expression: the first direct `Expr` child after filtering.
     /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+}
+
+impl AwaitExpr {
+    /// Returns the operand, or `None` during recovery.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
@@ -1408,6 +1429,13 @@ impl LoopExpr {
 }
 
 impl ClosureExpr {
+    /// Whether this callable explicitly carries the `async` modifier.
+    pub fn is_async(&self) -> bool {
+        self.syntax()
+            .children_with_tokens()
+            .any(|child| child.kind() == SyntaxKind::AsyncKw)
+    }
+
     /// Iterates parameters inside direct parameter-list nodes in source order.
     /// The `||` form has no list and yields no parameters.
     pub fn params(&self) -> impl Iterator<Item = ClosureParam> {
