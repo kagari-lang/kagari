@@ -18,6 +18,9 @@ mod task_waiters;
 #[path = "task_handlers.rs"]
 mod task_handlers;
 
+#[path = "lifecycle.rs"]
+mod lifecycle;
+
 impl Fixture {
     fn source(text: &str) -> Self {
         Self::configured_source(text, Default::default())

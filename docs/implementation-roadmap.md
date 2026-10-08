@@ -1128,6 +1128,32 @@ new re-exports or structural debt. No carried errors. AX04 local workflow accept
 complete; AX05 lifecycle/reload/diagnostics, AX06 products and full GitHub CI remain
 pending. No full local workspace suite was run.
 
+AX05 reload checkpoint (2026-10-09): the encoded-artifact
+`lifecycle_reload_contract` now exercises compatible publication while an old Task
+is parked at its first native request. Its second request, generic retained object
+method and final result continue using the old generation. A queued factory with
+an already-created Future, a retained callable creating a Future after publication,
+and a cold owned Future preserve the same pins. Fresh root resolution uses the new
+generation. One-instruction slices and allocation/explicit GC stress retained
+captures; terminal report consumption and handle retirement release all test roots
+and old runtime-value leases. Publication and ready notifications do not run jobs.
+
+The same contract enters staged candidate initialization while ordinary Tasks are
+parked. Script/native cold construction and scope admission reject with
+ExecutionPhaseViolation before submission, leave the ready set intact and do not
+quarantine unrelated work. Existing production generation/phase checks required no
+changes. The initial cleanup assertion exposed a test-local shadowed root; explicit
+factory-handle drop fixed the test without weakening the zero-root assertion.
+
+Validation: `cargo test -p kagari-embed --test async_execution lifecycle_reload_contract`
+passed. Focused SDK-test Clippy, formatting and diff checks passed; structure checked
+973 Rust files with no violations/exceptions. Manual review retained test-only
+module boundaries and explicit imports; no production ownership changes or new
+structural debt. AX05 remains open for the remaining lifecycle audit, detached
+logical spawn/await diagnostic sites and debugger driving integration; Task failure
+identity alone does not fulfill logical-site provenance. AX06 and full GitHub CI
+acceptance remain outstanding. No local full suite or backend matrix was run.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and
