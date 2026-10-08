@@ -166,6 +166,7 @@ impl ExecutionStack<'_> {
     pub fn poll_await(&self, runtime: &Runtime) -> NativeResult<Poll<Option<Value>>> {
         self.validate_runtime(runtime)?;
         runtime.resources().poll_execution()?;
+        self.start_queued_factory(runtime)?;
         let queued = self.session.state().queued_future.borrow_mut().take();
         if let Some(queued) = queued {
             if !self.can_park(runtime)? || !self.frames()?.is_empty() {

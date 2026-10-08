@@ -129,9 +129,10 @@ impl ExecutionStack<'_> {
             if let Some(destination) = destination {
                 self.pop()?;
                 if self.is_empty()? {
-                    return packet.materialize().map(Some).ok_or_else(|| {
+                    let value = packet.materialize().ok_or_else(|| {
                         RuntimeError::module_validation("scalar return representation")
-                    });
+                    })?;
+                    return self.finish_factory_result(runtime, value);
                 }
                 if let ReturnDestination::Register(Some(register)) = destination {
                     runtime.gc.ensure_execution_allowed()?;
@@ -183,7 +184,7 @@ impl ExecutionStack<'_> {
         };
         self.pop()?;
         if self.is_empty()? {
-            return Ok(Some(value));
+            return self.finish_factory_result(runtime, value);
         }
         match destination {
             ReturnDestination::Register(Some(destination)) => {

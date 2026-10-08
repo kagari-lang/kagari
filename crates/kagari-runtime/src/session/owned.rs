@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::{ExecutionStack, waiting::QueuedFuture},
+    frame::{ExecutionStack, factory::QueuedFactory, waiting::QueuedFuture},
     module::LoadedModule,
     session::{ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState, store::SessionId},
     value::Value,
@@ -21,6 +21,7 @@ use std::{
 enum OwnedStart<'a> {
     Function(FunctionRef, &'a [Value]),
     Future(QueuedFuture),
+    Factory(QueuedFactory),
 }
 
 #[derive(Debug)]
@@ -215,6 +216,25 @@ impl Runtime {
         self.create_owned_execution(&owner, options, OwnedStart::Future(queued))
     }
 
+    /// Queue a zero-argument Future factory. Its ordinary body and exactly one
+    /// returned Future layer run in this same execution on subsequent drives.
+    pub fn start_owned_factory(
+        &self,
+        value: &Value,
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.require_idle_driver()?;
+        self.drain_retired_executions()?;
+        if options.phase != ExecutionPhase::Ordinary {
+            return Err(RuntimeError::execution_phase_violation(
+                "owned candidate factory",
+            ));
+        }
+        let queued = self.prepare_future_factory(value)?;
+        let owner = queued.owner.clone();
+        self.create_owned_execution(&owner, options, OwnedStart::Factory(queued))
+    }
+
     fn create_owned_execution(
         &self,
         module: &LoadedModule,
@@ -270,6 +290,16 @@ impl Runtime {
                     .get(id)
                     .expect("new session")
                     .queued_future
+                    .borrow_mut() = Some(queued);
+                Ok(())
+            }
+            OwnedStart::Factory(queued) => {
+                *self
+                    .resources()
+                    .sessions
+                    .get(id)
+                    .expect("new session")
+                    .queued_factory
                     .borrow_mut() = Some(queued);
                 Ok(())
             }

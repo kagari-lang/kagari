@@ -1,6 +1,7 @@
 # Host Task Scopes and Actor Dispatch Design
 
-Status: conceptual proposal, not an implemented API. This document defines how a
+Status: active AX04 implementation; scope admission and shared Tasks remain pending.
+The runtime factory driver is implemented. This document defines how a
 synchronous script handler can spawn an async business flow, return immediately,
 and have every later execution segment dispatched by its owning host scope. An
 Actor mailbox is the motivating integration, not a language or VM dependency.
@@ -11,15 +12,16 @@ scope admission, spawn, scheduling notifications and the host drive protocol.
 The selected model separates independently retained cold `Future<T>` values from
 scope-owned scheduled executions observed through `Task<T>` handles.
 
-Both documents remain design-only work built on current
+These contracts build on current
 [native registration](spec/standard-declarations.md) and
 [execution control](spec/execution.md). The [roadmap](implementation-roadmap.md)
 owns activation and progress; the [AX00-AX06 execution plan](async-execution-plan.md)
 owns implementation sequencing. The async proposal owns observable semantics.
 The selected script names are `spawn`, `Future<T>` and `Task<T>`, with explicit
 postfix `.await`. Explicit `async |args| body` closures produce Futures through
-ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; exact rejection
-variants and concrete host APIs remain open. Examples are not implemented interfaces.
+ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; AX00 fixes
+ScopeClosed, CapacityExceeded and DispatchUnavailable rejection variants. Concrete
+scope APIs below remain target examples, not implemented interfaces.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns the Send runtime and centralized retention model. Scope/Actor ownership stays
@@ -72,7 +74,7 @@ driving returns to the mailbox loop. Completion makes work runnable but cannot
 execute script itself. Spawn's admission result is distinct from the eventual
 business result; Task is its observation/result/cancellation handle. There is no
 separate script `launch`/`async` method or Job type in this direction. Exact failure
-types, result reporting and generic registration remain pre-implementation gates.
+types and result reporting follow AX00; generic registration is part of AX04.
 
 ## Ownership model
 

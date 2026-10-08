@@ -988,6 +988,31 @@ Current specifications now describe source async as implemented. AX03 is complet
 locally; next is AX04 scope spawn, shared Tasks and directional cancellation.
 AX04-AX06 and full GitHub CI acceptance remain outstanding.
 
+AX04 factory-driver checkpoint (2026-10-08): Runtime start_owned_factory validates
+a zero-argument synchronous Future-producing closure and queues it without running
+its body. First drive invokes it once, then drives exactly one returned Future
+layer in the same owned session. Capture roots, closed output types, cancellation
+and call-depth accounting share the established path. Private resume bodies cannot
+be admitted as ordinary factories. There is no new instruction or ABI change.
+
+The focused `sdk_owned_future_factory_contract` passed ordinary/explicit factories,
+slice-by-slice GC after dropping the host factory root, cancellation before start,
+factory trap, invalid output shape, repeated use of a captured single-drive Future
+and unflattened Future-valued output. A new retain-reentry case first failed:
+callback-local stack completion incorrectly consumed the factory continuation.
+The return handoff now checks the complete session stack, and the case passes.
+Synchronous callbacks still return to their native caller without suspension.
+
+AX04 remains open. Next wire bounded scope admission/dispatch and canonical Task
+storage into this factory driver, with cached outputs traced from Task values,
+reserved reports, waiter dependencies and directional cancellation. This checkpoint
+does not expose script spawn or claim Task/scope support. The existing VM
+`host_reentry_cannot_swallow_root_termination_and_releases_borrows` contract also
+passed. Focused SDK test Clippy, structure (953 Rust files, no findings/exceptions),
+formatting and local documentation/diff checks passed. Manual review kept factory
+handoff in the frame owner, with no feature policy added to VM instruction loops,
+no new re-exports or structural debt, and no carried errors. Full CI remains pending.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and

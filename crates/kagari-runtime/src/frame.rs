@@ -30,6 +30,7 @@ use std::{
 
 mod arguments;
 pub mod cursor;
+pub(crate) mod factory;
 mod future;
 mod layouts;
 mod native;
