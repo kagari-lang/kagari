@@ -24,6 +24,9 @@ mod lifecycle;
 #[path = "diagnostics.rs"]
 mod diagnostics;
 
+#[path = "debugger.rs"]
+mod debugger;
+
 impl Fixture {
     fn source(text: &str) -> Self {
         Self::configured_source(text, Default::default())

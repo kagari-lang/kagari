@@ -152,6 +152,10 @@ pub enum ExecutionEvent {
     Trap,
 }
 
+/// Detached root identity for diagnostics and debugger selection, not entry authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ExecutionId(pub(crate) SessionId);
+
 /// Observers inspect the complete root stack between instructions. They must not
 /// drive script execution while the frame view is borrowed.
 /// Runtime exclusively owns their state; transfer requires Send, not Sync.

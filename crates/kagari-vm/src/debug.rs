@@ -11,7 +11,7 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     gc::roots::RootSet,
     module::{LoadedModule, ModuleId},
-    session::{ExecutionEvent, ExecutionObserver},
+    session::{ExecutionEvent, ExecutionId, ExecutionObserver},
     value::Value,
 };
 
@@ -77,6 +77,7 @@ pub enum DebugPauseReason {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DebugPause {
+    pub execution: ExecutionId,
     pub reason: DebugPauseReason,
     pub frames: Vec<DebugFrame>,
 }
@@ -148,9 +149,17 @@ pub enum DebugWatch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StepMode {
     Continue,
-    PauseNext,
-    StepOver { depth: usize },
-    StepOut { depth: usize },
+    PauseNext {
+        execution: Option<ExecutionId>,
+    },
+    StepOver {
+        execution: Option<ExecutionId>,
+        depth: usize,
+    },
+    StepOut {
+        execution: Option<ExecutionId>,
+        depth: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -205,7 +214,7 @@ impl DebugSession {
     }
 
     pub fn pause(&mut self) -> Result<(), VmError> {
-        self.mode = StepMode::PauseNext;
+        self.mode = StepMode::PauseNext { execution: None };
         Ok(())
     }
 
@@ -215,12 +224,15 @@ impl DebugSession {
     }
 
     pub fn step_into(&mut self) -> Result<(), VmError> {
-        self.mode = StepMode::PauseNext;
+        self.mode = StepMode::PauseNext {
+            execution: self.pauses.last().map(|pause| pause.execution),
+        };
         Ok(())
     }
 
     pub fn step_over(&mut self, current_depth: usize) -> Result<(), VmError> {
         self.mode = StepMode::StepOver {
+            execution: self.pauses.last().map(|pause| pause.execution),
             depth: current_depth,
         };
         Ok(())
@@ -228,6 +240,7 @@ impl DebugSession {
 
     pub fn step_out(&mut self, current_depth: usize) -> Result<(), VmError> {
         self.mode = StepMode::StepOut {
+            execution: self.pauses.last().map(|pause| pause.execution),
             depth: current_depth,
         };
         Ok(())
@@ -330,7 +343,7 @@ impl DebugSession {
                     .map_err(VmError::RuntimeError)?;
                 Some(DebugPauseReason::Breakpoint(id))
             }
-            None => self.step_reason(frames.len()),
+            None => self.step_reason(runtime.execution_id(), frames.len()),
         };
 
         if let Some(reason) = reason {
@@ -363,18 +376,34 @@ impl DebugSession {
         self.record_pause(runtime, DebugPauseReason::Trap, frames)
     }
 
-    fn step_reason(&mut self, depth: usize) -> Option<DebugPauseReason> {
+    fn step_reason(
+        &mut self,
+        current: Option<ExecutionId>,
+        depth: usize,
+    ) -> Option<DebugPauseReason> {
+        let execution = match &mut self.mode {
+            StepMode::Continue => return None,
+            StepMode::PauseNext { execution }
+            | StepMode::StepOver { execution, .. }
+            | StepMode::StepOut { execution, .. } => execution,
+        };
+        if execution.is_none() {
+            *execution = current;
+        }
+        if *execution != current {
+            return None;
+        }
         match self.mode {
             StepMode::Continue => None,
-            StepMode::PauseNext => {
+            StepMode::PauseNext { .. } => {
                 self.mode = StepMode::Continue;
                 Some(DebugPauseReason::Step)
             }
-            StepMode::StepOver { depth: target } if depth <= target => {
+            StepMode::StepOver { depth: target, .. } if depth <= target => {
                 self.mode = StepMode::Continue;
                 Some(DebugPauseReason::Step)
             }
-            StepMode::StepOut { depth: target } if depth < target => {
+            StepMode::StepOut { depth: target, .. } if depth < target => {
                 self.mode = StepMode::Continue;
                 Some(DebugPauseReason::Step)
             }
@@ -393,6 +422,11 @@ impl DebugSession {
             .ensure_execution_allowed()
             .map_err(VmError::RuntimeError)?;
         let pause = DebugPause {
+            execution: runtime.execution_id().ok_or_else(|| {
+                VmError::RuntimeError(RuntimeError::module_validation(
+                    "debug snapshot requires an active execution",
+                ))
+            })?,
             reason,
             frames: frames
                 .iter()

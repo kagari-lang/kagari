@@ -8,10 +8,18 @@ use std::{
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    session::{ExecutionEvent, ExecutionObserver},
+    session::{ExecutionEvent, ExecutionId, ExecutionObserver},
 };
 
 impl Runtime {
+    /// Identity of the currently activated root, shared by synchronous reentry.
+    /// No root is active between bounded drive calls, even if executions are parked.
+    pub fn execution_id(&self) -> Option<ExecutionId> {
+        self.resources()
+            .active_session()
+            .map(|session| ExecutionId(session.id))
+    }
+
     /// Replace the exclusively owned observer while no execution session is active.
     /// Its state may be Send without Sync, and moves and drops with this runtime.
     pub fn set_execution_observer(
@@ -42,6 +50,7 @@ impl Runtime {
                 .map_err(|_| RuntimeError::module_validation("execution observer is borrowed"))?;
             mem::replace(&mut *slot, observer)
         };
+        self.resources().sessions.detach_observers();
         drop(previous);
         Ok(())
     }
@@ -61,8 +70,17 @@ impl Runtime {
         .ok()
     }
 
-    /// Activate the installed observer once for the root. Nested drivers inherit it.
+    /// Activate the installed observer once per attachment for the root.
+    /// Nested synchronous drivers inherit it; replacing an observer resets attachment.
     pub fn attach_execution_observer(&self) -> Result<bool, RuntimeError> {
+        self.attach_observer(false)
+    }
+
+    pub(crate) fn resume_execution_observer(&self) -> Result<bool, RuntimeError> {
+        self.attach_observer(true)
+    }
+
+    fn attach_observer(&self, resumed: bool) -> Result<bool, RuntimeError> {
         self.resources().ensure_execution_allowed()?;
         let session = self.resources().active_session().ok_or_else(|| {
             RuntimeError::module_validation("execution observer requires an active session")
@@ -78,7 +96,7 @@ impl Runtime {
                 self.resources()
                     .quarantine("observer installation encountered a borrowed stack")
             })?;
-        if !frames.is_empty() {
+        if !frames.is_empty() && !resumed {
             return Err(RuntimeError::module_validation(
                 "cannot attach an observer during frame execution",
             ));

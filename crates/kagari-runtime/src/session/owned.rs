@@ -4,7 +4,10 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionStack, factory::QueuedFactory, waiting::QueuedFuture},
     module::LoadedModule,
-    session::{ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState, store::SessionId},
+    session::{
+        ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState,
+        store::SessionId,
+    },
     value::Value,
 };
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
@@ -95,6 +98,11 @@ pub struct OwnedExecution {
 }
 
 impl OwnedExecution {
+    /// Detached identity for correlation across drive calls; grants no entry authority.
+    pub fn execution_id(&self) -> ExecutionId {
+        ExecutionId(self.id)
+    }
+
     /// Request termination of this execution only. The host-supplied token may
     /// cancel several executions, but local cancellation never propagates to it.
     pub fn cancel(&self) {
@@ -349,6 +357,7 @@ impl Runtime {
             id: owner.id,
             resources: self.resources(),
         };
+        self.resume_execution_observer()?;
         ExecutionStack::resume(session)
     }
 

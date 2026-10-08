@@ -77,6 +77,21 @@ Native code follows the debug-metadata fallback policy. Lexical visibility and
 stable frame identity across snapshots remain debugger requirements; snapshot
 rooting alone does not establish them.
 
+Owned async roots have distinct generational `ExecutionId` values. The identity
+survives bounded drive calls and waits; synchronous reentry shares its root's
+identity. `DebugPause.execution` identifies the observed root. Its stack contains
+only that execution's frames, never other parked roots. Step-into, step-over and
+step-out requests follow the most recent snapshot's execution; another root may
+hit its own breakpoint without consuming that request. A request before any
+snapshot binds to the first observed root. Manual pause remains isolate-wide.
+
+The host may remove or replace the observer between drive calls. Parked roots
+forget the old attachment, and each activates the replacement and resolves its
+pinned program on its next drive. Completion notices only mark readiness; they
+neither enter the debugger nor execute script. The current observer records
+snapshots synchronously and does not block the host driver waiting for a debugger
+command. An interactive transport/pause scheduler is outside the async integration.
+
 A debug session is created by the host.
 
 The session records:

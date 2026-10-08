@@ -1180,6 +1180,29 @@ unpublished internal API replacement without an ABI/format number bump. No carri
 errors or full local suite. AX05 remains open for lifecycle audit and debugger
 driving integration; AX06 and full GitHub CI acceptance remain outstanding.
 
+AX05 debugger checkpoint (2026-10-09): independent owned roots now expose detached
+generational ExecutionId values, and DebugPause identifies its observed execution.
+Step requests bind to the most recent snapshot's root instead of being consumed by
+another interleaved execution. Synchronous host reentry keeps the same identity and
+complete stack. Removing/replacing an observer between bounded drives clears parked
+attachment flags; the replacement resolves each retained program on its next drive.
+No blocking debugger transport, second execution driver or additional GC owner was
+introduced. The public DebugPause field is an unpublished API change without an
+ABI/format identifier bump.
+
+The encoded-artifact async_debugger_drive_contract passed: two parked roots,
+isolated breakpoint stacks, root-specific stepping, GC between instruction slices,
+readiness without execution, detach/reattach while waiting and cancellation after
+reattachment with stale late completion and zero remaining roots. The initial
+breakpoint test used an unnormalized filename; using the loaded source identity
+fixed its setup without changing breakpoint matching. Existing VM
+nested_breakpoints_and_traps_include_the_suspended_host_caller also passed.
+Focused SDK-test Clippy, formatting and diff checks passed; structure checked 976
+Rust files with no violations/exceptions. Manual review retained explicit imports,
+existing ownership boundaries and no new re-exports or structural debt. No carried
+local errors or full local suite. AX05 remains open for its final lifecycle audit;
+AX06 products and full GitHub CI acceptance remain outstanding.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and

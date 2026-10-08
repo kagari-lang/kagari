@@ -53,6 +53,14 @@ impl Default for SessionStore {
 }
 
 impl SessionStore {
+    pub(crate) fn detach_observers(&self) {
+        for slot in &self.records.borrow().slots {
+            if let Some(state) = &slot.state {
+                state.observer_attached.set(false);
+            }
+        }
+    }
+
     pub(crate) fn retired_owners(&self, quarantined: bool) -> Vec<SessionId> {
         self.records
             .borrow()
