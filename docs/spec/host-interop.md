@@ -905,10 +905,18 @@ This gives Kagari a practical embedded scripting model early, especially for the
 ## Native async producers (AX02)
 
 The native producer, source async callables and owned SDK driver are implemented.
-Host Task scopes and shared waits are implemented; generic script spawn remains
-AX04 work. The
+Host Task scopes, shared waits and generic script spawn are implemented. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
+
+`TaskScope.spawn<T>(fn() -> Future<T>) -> Result<Task<T>, SpawnError>` uses ordinary
+registered declaration/binding metadata and checked callable coercions, including
+generic `F: Fn() -> Future<T>` forwarding. Admission does not invoke the factory.
+`Task<T>.cancel()` requests cooperative cancellation without driving script.
+Native `CallContext` exposes these admission/control operations without exposing
+an independent task driver. `SpawnError` is the canonical `core::task` enum with
+ScopeClosed, CapacityExceeded and DispatchUnavailable variants; it describes only
+failed admission, not later execution or business failures.
 
 Native Future registration separates cold typed input capture from an owned start
 adapter. An operation identity and one result slot are reserved before external

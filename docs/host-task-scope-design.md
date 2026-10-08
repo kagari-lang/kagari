@@ -1,9 +1,10 @@
 # Host Task Scopes and Actor Dispatch Design
 
-Status: active AX04 implementation. Host-created scopes, transactional host admission,
+Status: AX04 implemented and locally verified. Host-created scopes, transactional admission,
 bounded task driving, GC-traced terminal caches and reports are implemented and
 locally verified. Task await supports cached shared results, bounded waiters, cycle
-rejection and directional cancellation. Generic script `spawn` remains pending.
+rejection and directional cancellation. Script `TaskScope.spawn` and `Task.cancel`
+are ordinary registered methods. AX05 lifecycle integration and AX06 acceptance remain open.
 This document defines how a
 synchronous script handler can spawn an async business flow, return immediately,
 and have every later execution segment dispatched by its owning host scope. An
@@ -24,7 +25,9 @@ The selected script names are `spawn`, `Future<T>` and `Task<T>`, with explicit
 postfix `.await`. Explicit `async |args| body` closures produce Futures through
 ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; AX00 fixes
 ScopeClosed, CapacityExceeded and DispatchUnavailable rejection variants. Concrete
-script scope APIs below remain target examples. The current host API uses
+script scope methods are installed under `core::task`, with `Task`, `TaskScope` and
+`SpawnError` in the prelude. Application-specific Actor/RPC APIs below are examples.
+The current host API uses
 `create_task_scope`, `Runtime::spawn_task`, `drive_task`, `ready_tasks`,
 `take_task_report` and `drain_cancelled_tasks`; the roadmap records their coverage.
 
@@ -79,7 +82,11 @@ driving returns to the mailbox loop. Completion makes work runnable but cannot
 execute script itself. Spawn's admission result is distinct from the eventual
 business result; Task is its observation/result/cancellation handle. There is no
 separate script `launch`/`async` method or Job type in this direction. Exact failure
-types and result reporting follow AX00; generic registration is part of AX04.
+types and result reporting follow AX00. Registration uses a generic output `T` and
+an ordinary `fn() -> Future<T>` parameter. Existing checked callable coercions accept
+closures, explicit async closures, user implementations of `Fn` and generic
+`F: Fn() -> Future<T>` forwarding without additional syntax or a spawn-specific
+compiler intrinsic.
 
 ## Ownership model
 

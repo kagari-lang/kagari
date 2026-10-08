@@ -428,12 +428,13 @@ synchronous reentry remains available and shares the active root.
 
 Native and script Future waits use this same driver. Source `async`/`.await` is
 implemented through checked cold factories and resume bodies. Host Task scopes
-and shared waits use the same driver; generic script spawn remains AX04 work.
+and shared waits use the same driver. Script `scope.spawn(factory)` and `task.cancel()`
+are ordinary registered methods using transactional admission and cooperative cancellation.
 
 ## Owned async execution draft (AX01-AX04)
 
-Source async callables, Future/Task waits and host scope driving are implemented
-below; generic script spawn remains AX04 work. The
+Source async callables, Future/Task waits, script spawn and host scope driving are implemented
+below. Cross-boundary lifecycle acceptance remains AX05/AX06 work. The
 [AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
 and [execution plan](../async-execution-plan.md) define the handoff.
 

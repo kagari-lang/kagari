@@ -15,6 +15,9 @@ mod tasks;
 #[path = "task_waiters.rs"]
 mod task_waiters;
 
+#[path = "task_handlers.rs"]
+mod task_handlers;
+
 impl Fixture {
     fn source(text: &str) -> Self {
         Self::configured_source(text, Default::default())

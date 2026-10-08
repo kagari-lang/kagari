@@ -30,6 +30,9 @@ fn entry<'a>(
 }
 
 fn function_owner(name: &str) -> ModuleIdentity {
+    if name.starts_with("$foundation_task_") {
+        return namespaces::type_owner("Task");
+    }
     if let Some(name) = name.strip_prefix("$foundation_propagation_") {
         let carrier = name.split('_').next().expect("propagation carrier binding");
         return namespaces::type_owner(carrier);
@@ -78,7 +81,9 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
     let mut counts = BTreeMap::<ModuleIdentity, u32>::new();
     for (index, implementation) in assembly.implementations.iter().enumerate() {
         let owner = match &implementation.for_type {
-            Ty::Enum(nominal) if nominal.declaration.module == assembly.identity => {
+            Ty::Enum(nominal) | Ty::NativeObject(nominal)
+                if nominal.declaration.module == assembly.identity =>
+            {
                 namespaces::type_owner(&nominal.declaration.path[0].name)
             }
             receiver => namespaces::receiver_owner(receiver).expect("foundation receiver owner"),
@@ -218,6 +223,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         ("Future", DefinitionKind::AssociatedType),
         ("Task", DefinitionKind::AssociatedType),
         ("TaskScope", DefinitionKind::AssociatedType),
+        ("SpawnError", DefinitionKind::Enum),
     ] {
         prelude.exports.insert(
             ExportName::new(NameNamespace::Type, name),

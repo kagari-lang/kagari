@@ -191,6 +191,7 @@ impl Solver {
                 _ => {
                     let same_shape = match (&left, &right) {
                         (TypeId::Struct(a), TypeId::Struct(b))
+                        | (TypeId::NativeObject(a), TypeId::NativeObject(b))
                         | (TypeId::Enum(a), TypeId::Enum(b))
                         | (TypeId::Trait(a), TypeId::Trait(b)) => {
                             a.declaration == b.declaration

@@ -1,6 +1,7 @@
 //! Synchronous native access borrows stable, already rooted caller slots.
 mod enums;
 pub mod operations;
+mod tasks;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,

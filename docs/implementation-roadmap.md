@@ -635,7 +635,7 @@ implementation and local/CI acceptance are recorded separately below.
 - [x] AX01: Introduce owned execution lifetime and bounded driving, preserving synchronous reentry (local gate).
 - [x] AX02: Prove typed native Future completion and checked source-free wait/resume (local gate).
 - [x] AX03: Implement async functions, explicit async closures and await through source and artifacts (local gate).
-- [ ] AX04: Add scope spawn, shared Task results, waiters and directional cancellation.
+- [x] AX04: Add scope spawn, shared Task results, waiters and directional cancellation (focused local acceptance).
 - [ ] AX05: Complete lifecycle, reload, cleanup and diagnostic integration.
 - [ ] AX06: Deliver embedding/example products and local integration evidence; record full CI separately.
 
@@ -1099,6 +1099,34 @@ outside generic VM instruction loops; no new re-exports or structural debt. The
 current checkpoint has no carried errors. AX04 remains open for generic registered
 script spawn and cancellation methods plus the synchronous-handler workflow; host
 admission alone is not that acceptance. AX05/AX06 and full GitHub CI remain pending.
+
+AX04 script-handler checkpoint (2026-10-09): installed ordinary generic
+TaskScope.spawn and Task.cancel methods, plus the canonical core::task SpawnError
+enum and prelude/std exports. Spawn accepts fn() -> Future<T>; existing checked
+callable coercion covers generic F: Fn() -> Future<T>, closures and user Fn objects.
+No syntax, provider-specific VM branch or alternate admission implementation was
+added. CallContext exposes scoped admission/cancellation without driver authority.
+Native construction roots both accepted Task handles and rejected enum payloads.
+
+The encoded-artifact synchronous-handler contract passed: the handler returns
+before its ordinary factory and IO start; an independent handler runs while its
+for loop awaits; structural mutation traps and a later replacement is observed.
+An async factory captures an existing Task, waits and cancels without cancelling
+the producer. Generic Fn objects run once on first drive. Task<Future<T>> stays
+cold at its inner layer. Capacity, scope closure and failed dispatch produce exact
+SpawnError cases without admitted work; a trap after successful spawn preserves
+the admitted task. Existing callable inference was missing NativeObject structural
+constraints; correcting that nominal case enables nested Future<T> output inference
+without weakening type identity or bound checks.
+
+Validation: scoped_task_handler_contract and async_callable_typing_contract passed,
+including rejection of bare Futures and Unit-returning factories. All standard-library
+registered documentation examples analyzed. Focused SDK-test Clippy, fmt, diff and
+structure checks passed (972 Rust files, no violations or exceptions). Manual review
+confirmed ordinary native registration, explicit imports/module ownership and no
+new re-exports or structural debt. No carried errors. AX04 local workflow acceptance is now
+complete; AX05 lifecycle/reload/diagnostics, AX06 products and full GitHub CI remain
+pending. No full local workspace suite was run.
 
 ### Other proposals
 

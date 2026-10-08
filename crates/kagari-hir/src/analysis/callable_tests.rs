@@ -38,6 +38,9 @@ async fn business(value: Result<i32, i32>) -> Result<i32, i32> {
     Ok(identity(value?).await)
 }
 fn accept<F: Fn(i32) -> Future<i32>>(callback: F) -> Future<i32> { callback(1) }
+fn submit<T, F: Fn() -> Future<T>>(scope: TaskScope, factory: F) -> Result<Task<T>, SpawnError> { scope.spawn(factory) }
+fn inferred_task(scope: TaskScope) -> Result<Task<i32>, SpawnError> { submit(scope, async || 42) }
+fn stop<T>(task: Task<T>) { task.cancel(); }
 fn factory() -> Future<i32> {
     val callback: fn(i32) -> Future<i32> = async |x| identity(x).await;
     val fallible: fn(Result<i32, i32>) -> Future<Result<i32, i32>> = async |x| { return Ok(identity(x?).await); };
@@ -143,6 +146,14 @@ fn plain() -> Future<i32> { (|| identity(1))() }
         (
             "async fn bad() -> i32 { 1.await }",
             "KG_TYPE_INVALID_AWAIT_OPERAND",
+        ),
+        (
+            "async fn value() -> i32 { 1 } fn bad(scope: TaskScope) { scope.spawn(value()); }",
+            "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
+        ),
+        (
+            "fn bad(scope: TaskScope) { scope.spawn(|| {}); }",
+            "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
         ),
         (
             "trait Bad { async fn value() -> i32; }",

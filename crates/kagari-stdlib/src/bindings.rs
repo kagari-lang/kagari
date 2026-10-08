@@ -6,6 +6,7 @@ mod hash;
 mod lists;
 mod propagation;
 mod strings;
+mod tasks;
 mod vectors;
 use crate::{catalog, collections, declarations::StandardDeclarations, namespaces};
 use kagari_contract::operations::IterOp;
@@ -72,6 +73,8 @@ fn build_module(
             continue;
         }
         let entry: Entry = match name {
+            "$foundation_task_spawn" => tasks::spawn,
+            "$foundation_task_cancel" => tasks::cancel,
             "$foundation_propagation_Option_branch" => propagation::option_branch,
             "$foundation_propagation_Result_branch" => propagation::result_branch,
             "$foundation_propagation_ControlFlow_branch" => propagation::control_flow_branch,

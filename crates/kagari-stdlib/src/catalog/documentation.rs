@@ -364,6 +364,10 @@ pub(super) fn complete(module: &mut ModuleDecl) {
         };
         let id = module.definition(kind, &ty.name);
         let (description, code) = match ty.name.as_str() {
+            "SpawnError" => (
+                "A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.",
+                "fn closed() -> SpawnError { SpawnError::ScopeClosed }",
+            ),
             "Task" => (
                 "A scope-owned execution handle. Dropping a handle does not cancel the task. Completed values are retained by live handles and pending host reports.",
                 "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
