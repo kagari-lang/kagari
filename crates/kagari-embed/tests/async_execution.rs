@@ -16,7 +16,7 @@ use kagari_contract::{
 };
 use kagari_embed::{
     context::ExecutionContext,
-    engine::KagariEngine,
+    engine::{EngineConfig, KagariEngine},
     error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
     runtime::{KagariRuntime, owned::DriveResult},
@@ -98,7 +98,12 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::configured(Default::default())
+    }
+
+    fn configured(config: EngineConfig) -> Self {
         let mut engine = KagariEngine::builder().unwrap();
+        engine.config(config);
         let future = engine.declarations().future_type().unwrap();
         let owner = future.id().module.clone();
         let future = future.apply([Type::i32()]).unwrap().abi().clone();

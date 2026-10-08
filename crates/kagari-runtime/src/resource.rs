@@ -18,12 +18,16 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AsyncLimits {
     pub max_pending_operations: NonZeroUsize,
+    pub max_tasks: NonZeroUsize,
+    pub max_task_scopes: NonZeroUsize,
 }
 
 impl Default for AsyncLimits {
     fn default() -> Self {
         Self {
             max_pending_operations: NonZeroUsize::new(1024).expect("positive default"),
+            max_tasks: NonZeroUsize::new(1024).expect("positive default"),
+            max_task_scopes: NonZeroUsize::new(64).expect("positive default"),
         }
     }
 }

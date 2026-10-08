@@ -26,13 +26,18 @@ pub enum NativeStorageLayout {
     },
     /// One invariant completed-output parameter; only the runtime supplies storage.
     Future,
+    /// Cached shared output, independent of the retired execution frames.
+    Task,
+    /// Runtime-local admission authority; only the host creates scopes.
+    TaskScope,
 }
 
 impl NativeStorageLayout {
     pub fn valid_parameters(self, arity: usize) -> bool {
         match self {
             Self::Opaque => true,
-            Self::Future => arity == 1,
+            Self::Future | Self::Task => arity == 1,
+            Self::TaskScope => arity == 0,
             Self::Sequence { element } | Self::Set { element } => element < arity,
             Self::Iterator { item } => item < arity,
             Self::Map { key, value } => key < arity && value < arity && key != value,

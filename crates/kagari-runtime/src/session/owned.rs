@@ -372,7 +372,7 @@ impl Runtime {
         Ok(count)
     }
 
-    fn require_idle_driver(&self) -> Result<(), RuntimeError> {
+    pub(crate) fn require_idle_driver(&self) -> Result<(), RuntimeError> {
         if self.resources().active_session().is_some() {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,

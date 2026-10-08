@@ -1,5 +1,6 @@
 pub mod native;
 pub mod owned;
+mod tasks;
 mod typed;
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},

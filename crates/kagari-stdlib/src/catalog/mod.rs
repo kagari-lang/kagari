@@ -14,6 +14,7 @@ mod partition;
 mod propagation;
 mod roles;
 mod strings;
+mod tasks;
 use crate::namespaces;
 use kagari_common::identity::ModuleIdentity;
 use kagari_types::declaration::module::ModuleDecl;
@@ -29,6 +30,7 @@ pub fn declarations() -> Vec<ModuleDecl> {
     let mut module = ModuleDecl::new(assembly_identity());
     contracts::declare(&mut module);
     future::declare(&mut module);
+    tasks::declare(&mut module);
     construction::declare(&mut module);
     collections::declare(&mut module);
     list_methods::declare(&mut module);

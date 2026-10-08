@@ -1,5 +1,6 @@
 //! Host-facing runtime linking and execution orchestration.
 pub mod owned;
+mod tasks;
 mod typed;
 use crate::{
     LoadResult, ReloadResult, RunResult,

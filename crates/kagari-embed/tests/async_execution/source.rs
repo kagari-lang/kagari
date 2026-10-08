@@ -2,15 +2,23 @@
 use super::{CompletionStatus, DriveResult, Fixture, Ordering, PreparedProgram, Value, slice};
 use kagari_embed::{
     BytecodeArtifact, RunResult,
+    engine::EngineConfig,
     error::{EmbeddingError, RuntimeFailureKind},
 };
 use kagari_runtime::{gc::roots::RootedValue, session::owned::OwnedExecution};
 use kagari_source::source::SourceFile;
 use std::num::NonZeroUsize;
 
+#[path = "tasks.rs"]
+mod tasks;
+
 impl Fixture {
     fn source(text: &str) -> Self {
-        let mut fixture = Self::new();
+        Self::configured_source(text, Default::default())
+    }
+
+    fn configured_source(text: &str, config: EngineConfig) -> Self {
+        let mut fixture = Self::configured(config);
         let artifact = fixture
             .engine
             .compile_to_artifact(

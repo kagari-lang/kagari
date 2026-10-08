@@ -1,7 +1,9 @@
 # Host Task Scopes and Actor Dispatch Design
 
-Status: active AX04 implementation; scope admission and shared Tasks remain pending.
-The runtime factory driver is implemented. This document defines how a
+Status: active AX04 implementation. Host-created scopes, transactional host admission,
+bounded task driving, GC-traced terminal caches and reports are implemented and
+locally verified. Script `spawn`, Task await and shared waiters remain pending.
+This document defines how a
 synchronous script handler can spawn an async business flow, return immediately,
 and have every later execution segment dispatched by its owning host scope. An
 Actor mailbox is the motivating integration, not a language or VM dependency.
@@ -21,7 +23,9 @@ The selected script names are `spawn`, `Future<T>` and `Task<T>`, with explicit
 postfix `.await`. Explicit `async |args| body` closures produce Futures through
 ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; AX00 fixes
 ScopeClosed, CapacityExceeded and DispatchUnavailable rejection variants. Concrete
-scope APIs below remain target examples, not implemented interfaces.
+script scope APIs below remain target examples. The current host API uses
+`create_task_scope`, `Runtime::spawn_task`, `drive_task`, `ready_tasks`,
+`take_task_report` and `drain_cancelled_tasks`; the roadmap records their coverage.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns the Send runtime and centralized retention model. Scope/Actor ownership stays

@@ -51,6 +51,7 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
         "Option" => module("core", "option"),
         "Result" => module("core", "result"),
         "Future" => module("core", "future"),
+        "Task" | "TaskScope" => module("core", "task"),
         "Ordering" => module("core", "cmp"),
         "Infallible" => module("core", "convert"),
         "ParseError" | "TryFromIntError" => module("core", "num"),

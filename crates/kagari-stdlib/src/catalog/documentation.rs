@@ -273,6 +273,9 @@ pub(super) fn complete(module: &mut ModuleDecl) {
         "future" => {
             "Cold asynchronous operations. Creation captures inputs without starting work; first await drives the operation once. Aliases share that single-drive state."
         }
+        "task" => {
+            "Scope-owned asynchronous jobs with retained terminal results and host-controlled scheduling."
+        }
         "convert" => {
             "Explicit infallible and checked conversions, including reverse adapters and error conversion."
         }
@@ -309,6 +312,7 @@ pub(super) fn complete(module: &mut ModuleDecl) {
         "hash" => trait_docs("Hash").1,
         "fmt" => trait_docs("Debug").1,
         "future" => "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
+        "task" => "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
         "convert" => trait_docs("From").1,
         "num" | "str" => trait_docs("FromStr").1,
         "string" => "fn clean(text: String) -> String { text.trim() }",
@@ -360,6 +364,14 @@ pub(super) fn complete(module: &mut ModuleDecl) {
         };
         let id = module.definition(kind, &ty.name);
         let (description, code) = match ty.name.as_str() {
+            "Task" => (
+                "A scope-owned execution handle. Dropping a handle does not cancel the task. Completed values are retained by live handles and pending host reports.",
+                "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
+            ),
+            "TaskScope" => (
+                "A host-created capability for admitting independent tasks into one host-owned scope. Only the host owner controls driving and scope closure.",
+                "fn retain(value: TaskScope) -> core::task::TaskScope { value }",
+            ),
             "Future" => (
                 "A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.",
                 "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",

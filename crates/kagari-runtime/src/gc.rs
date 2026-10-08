@@ -37,6 +37,7 @@ mod arrays;
 mod future;
 mod maps_sets;
 mod native;
+mod task;
 
 #[cfg(test)]
 use kagari_types::collection::CollectionAccess;

@@ -1013,6 +1013,54 @@ formatting and local documentation/diff checks passed. Manual review kept factor
 handoff in the frame owner, with no feature policy added to VM instruction loops,
 no new re-exports or structural debt, and no carried errors. Full CI remains pending.
 
+AX04 host-scope checkpoint (2026-10-08): canonical core::task Task<T>/TaskScope
+storage roles and prelude names now support host-created scopes. Bounded generational
+registries reserve each task's terminal report at admission; unclaimed reports retain
+capacity. Runtime spawn_task validates and roots a factory without running it, rolls
+back failed publication, and returns the agreed admission errors. SDK create_task_scope
+and drive_task use the same owned factory/session and bounded VM interpreter. An
+activation guard restores ownership on unwind; script execution remains serialized.
+
+Ready notices contain only scope/task identities. Coalesced ready bits remain durable
+when a dispatcher fails. First activation consumes initial waker registration so a
+subsequent provider wake cannot be lost. Replacing a dispatcher replays readiness;
+a late failure from the previous dispatcher generation cannot poison the replacement.
+Closed scopes refuse admission. Explicit cancellation, owner drop, dispatcher failure,
+quarantine and Runtime drop clean up through the owning runtime without resuming script.
+Close acknowledgement follows cleanup, and failure reports retain task/scope identity,
+failure class, cancellation cause and available stack traces.
+
+Successful results live in traced Task payloads, with independent internal retention
+roots while running or awaiting report consumption. Terminal reports also reserve an
+independent result root at publication, so an unrelated quarantine cannot prevent
+later report transfer or change an already completed outcome. Mutable host roots cannot replace
+those private roots. Consuming a report retires the generational slot; remaining Task
+handles retain their result, and dropping the last handle permits collection. Sealed
+failure publication/report reads remain available after quarantine without running
+provider hooks, exposing borrows, allocating heap objects or adding GC edges.
+
+Focused `cargo test -p kagari-embed --test async_execution scoped_task_` passed the
+scope contract and shutdown/dispatcher contract. The source-to-encoded-artifact fixture
+drives a real for-await task in one-instruction slices with interleaved GC, verifies
+element replacement visibility and structural-edit rejection, runs an independent task,
+and checks lease release on completion/cancellation. It covers deferred starts, report
+backpressure, scope capacity, stale generations, wrong-scope driving, completed result
+retention/reclamation, factory traps, failed admission, notification-only completion,
+scope cancellation, provider cancellation, runtime quarantine and destruction.
+A channel-coordinated producer verifies in-flight dispatcher replacement without sleeps.
+
+The existing standard documentation/example-analysis contract also passed for the new
+type/module names. Focused SDK-test Clippy, structure (966 Rust files, no violations
+or exceptions), formatting, documentation links and diff checks passed. Manual review
+kept registry, sealed heap payloads, notification control and backend orchestration in
+their owning modules, with no new re-exports or structural debt. No errors are carried.
+
+AX04 remains open: wire generic script spawn and Task cancellation, extend checked
+await contracts and runtime waiting to shared Task caches, bound waiter registrations,
+reject dependency cycles and preserve originating-task provenance through waiters.
+The current script `.await` still accepts Future only. AX05/AX06 and full GitHub CI
+acceptance remain pending. No local full suite or feature/backend matrix was run.
+
 ### Other proposals
 
 These are design documents, not additional active execution plans. Activation and

@@ -34,6 +34,7 @@ use crate::{
         CandidateSession, ExecutionEntry, ExecutionObserver, ExecutionOptions, ExecutionPhase,
         ExecutionSession,
     },
+    task::store::TaskStore,
     value::Value,
 };
 use kagari_bytecode::instruction::BinaryOp;
@@ -71,6 +72,7 @@ pub mod resource;
 mod value_check;
 
 pub mod session;
+pub mod task;
 pub mod value;
 pub mod value_semantics;
 
@@ -122,6 +124,7 @@ pub struct RuntimeConfig {
 /// ```
 #[derive(Debug)]
 pub struct Runtime {
+    tasks: RefCell<TaskStore>,
     operations: OnceLock<Result<CompletionRegistry, RuntimeError>>,
     async_limits: AsyncLimits,
     gc: GcHeap,
@@ -157,6 +160,7 @@ impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = ResourceState::new(config.limits);
         Self {
+            tasks: RefCell::new(TaskStore::new(config.async_limits)),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
             gc: GcHeap::new(config.gc, resources),

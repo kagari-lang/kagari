@@ -146,9 +146,14 @@ fn build_module(
     }
     let collections_module = declaration.identity == namespaces::module("std", "collections");
     let future_module = declaration.identity == namespaces::module("core", "future");
+    let task_module = declaration.identity == namespaces::module("core", "task");
     let mut builder = ModuleBuilder::from_declaration(declaration, &catalog, bindings);
     if future_module {
         builder.bind_storage(&catalog.future_type()?, NativeStorage::future())?;
+    }
+    if task_module {
+        builder.bind_storage(&catalog.task_type()?, NativeStorage::task())?;
+        builder.bind_storage(&catalog.task_scope_type()?, NativeStorage::task_scope())?;
     }
     if collections_module {
         collections::register(&mut builder, language)?;
