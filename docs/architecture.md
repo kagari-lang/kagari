@@ -709,10 +709,18 @@ call arguments and other variable-length metadata remain in the canonical immuta
 instruction records. Their logical PC is the index, so normalization and hot reload
 do not require a second semantic description or change debug locations. The VM
 borrows these records at slow boundaries instead of cloning wide instructions.
-The runtime cursor supplies a closed scalar execution region: it fetches only
+The runtime cursor supplies a closed nonallocating execution region: it fetches only
 sealed operations and reuses entry authority without admitting caller callbacks
-or external Values. Managed operands/replacements and identity comparisons leave
-the region before normal ownership/drop and heap semantics run. The VM owns the
+or external Values. Concrete field operations retain sealed slots and layout IDs,
+bind them to the executing frame's exact loaded version, and use checked heap
+storage. Copying a field value does not allocate, create a root lease or run a
+destructor; the frame and object remain traced at the surrounding safepoints.
+The scalar loop hands prepared field operations back to the cursor's object
+handlers without releasing its frame/window access. Keeping those handlers outside
+the scalar loop prevents their storage checks from changing its inlining budget;
+the handoff retains original logical PC and instruction-slice accounting.
+Shared generic layouts and other managed operations use the ordinary boundary.
+The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks
 cancellation, observer requests and abandoned program leases at each original
 program point. Collector threshold eligibility is invariant within the closed
@@ -721,6 +729,14 @@ the driver has already checked the first PC before acquiring it. Full safepoints
 and error observation run after releasing the cursor. Values retain full scalar
 precision and complete handle identities; large immutable host descriptors are
 shared out of line rather than inflating every scalar execution slot.
+
+Standard Vec length/read/push operations borrow the native frame's existing roots
+and prepared type arguments, retaining declared access, bounds and dynamic lease
+checks without constructing temporary owning SDK handles. Callback algorithms and
+Rust-retained handles keep the owning conversion protocol. Builtin map reads borrow
+the stored key contract and entries together; custom Hash/Eq callbacks still run
+outside table borrows. Collection Option results reuse immutable declaration handles
+but validate runtime-local enum layouts and allocate ordinary traced enum objects.
 
 The SDK's default artifact path applies the bounded MIR pass pipeline before both
 bytecode and portable native input emission. Copy forwarding requires equal complete

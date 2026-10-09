@@ -33,13 +33,13 @@ impl GcHeap {
     }
 
     pub fn map_get(&self, id: HeapObjectId, key: &Value) -> Option<Value> {
-        let (contract, _, builtin) = self.map_contract(id)?;
-        if !builtin || !self.valid_storage_value(key, &contract) {
-            return None;
-        }
-        let key = MapKey::from_value(self, key)?;
-        self.with_map(id, |entries| entries.get(&key).cloned())
-            .flatten()
+        self.with_map_payload(id, |payload| {
+            if !payload.builtin_keys || !self.valid_storage_value(key, &payload.key) {
+                return None;
+            }
+            let key = MapKey::from_value(self, key)?;
+            payload.entries.get(&key).copied()
+        })?
     }
 
     pub fn map_insert(
@@ -233,6 +233,12 @@ impl GcHeap {
         id: HeapObjectId,
         f: impl FnOnce(&HashMapStorage) -> R,
     ) -> Option<R> {
+        self.with_map_payload(id, |payload| f(&payload.entries))
+    }
+
+    /// Builtin lookup borrows prepared contracts and entries together. All key
+    /// inspection is read-only; user Hash/Eq callbacks use custom_keys instead.
+    fn with_map_payload<R>(&self, id: HeapObjectId, f: impl FnOnce(&MapPayload) -> R) -> Option<R> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
             return None;
@@ -240,7 +246,7 @@ impl GcHeap {
         if !matches!(object.ty, Ty::Map { .. }) {
             return None;
         }
-        Some(f(&object.payload::<MapPayload>().ok()?.entries))
+        Some(f(object.payload::<MapPayload>().ok()?))
     }
 
     pub(super) fn with_map_mut<R>(

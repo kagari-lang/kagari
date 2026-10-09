@@ -4,20 +4,30 @@
 pub(crate) mod allocation;
 pub(crate) mod layout;
 
-use crate::numeric::binary_operation;
 use crate::{
     frame::values::scalar,
-    module::execution::layout::{FrameLayout, scalar_type},
+    module::{
+        LoadedModule, StructLayoutRef,
+        execution::layout::{FrameLayout, scalar_type},
+    },
+    numeric::binary_operation,
     value::Value,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BinaryOp, BytecodeInstruction, ConstantOperand, JumpTarget, Register, UnaryOp},
+    instruction::{
+        BinaryOp, BytecodeInstruction, ConstantOperand, FieldRef, JumpTarget, Register, StructId,
+        UnaryOp,
+    },
     module::BytecodeModule,
     suspension::AwaitLiveness,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_types::payload::{self, ScalarKernel};
+use kagari_contract::representation::semantic_representation;
+use kagari_types::{
+    payload::{self, ScalarKernel},
+    ty::Ty,
+};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A bounded physical operand in a prepared function's value window.
@@ -57,6 +67,41 @@ impl ScalarSlot {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct PreparedField {
+    structure: StructId,
+    pub(crate) slot: u32,
+    pub(crate) representation: ValueType,
+}
+
+impl PreparedField {
+    fn prepare(
+        module: &BytecodeModule<DefinitionId>,
+        field: &FieldRef<DefinitionId>,
+    ) -> Option<Self> {
+        let layout = module.structures.get(field.structure.index())?;
+        if layout.arguments != field.arguments || !layout.arguments.iter().all(Ty::is_concrete) {
+            return None;
+        }
+        Some(Self {
+            structure: field.structure,
+            slot: field.slot,
+            representation: semantic_representation(&layout.fields.get(field.slot as usize)?.ty),
+        })
+    }
+
+    /// Only sealed concrete layouts use this record. The executing frame supplies
+    /// its exact loaded owner; shared code never stores a runtime identity.
+    pub(crate) fn layout(self, owner: &LoadedModule) -> StructLayoutRef {
+        StructLayoutRef {
+            module: owner.clone(),
+            id: self.structure,
+            applied: None,
+            environment: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ExecutionInstruction {
     Constant {
         dst: ScalarSlot,
@@ -77,6 +122,16 @@ pub enum ExecutionInstruction {
         cond: ScalarSlot,
         then_target: JumpTarget,
         else_target: JumpTarget,
+    },
+    ReadField {
+        dst: Register,
+        base: Register,
+        field: PreparedField,
+    },
+    WriteField {
+        base: Register,
+        value: Register,
+        field: PreparedField,
     },
     Return {
         value: Option<OperandSlot>,
@@ -140,11 +195,7 @@ impl ExecutionModule {
                         .instructions
                         .iter()
                         .map(|instruction| {
-                            ExecutionInstruction::prepare(
-                                instruction,
-                                &registers,
-                                &module.constants,
-                            )
+                            ExecutionInstruction::prepare(instruction, &registers, module)
                         })
                         .collect();
                     ExecutionFunction {
@@ -162,7 +213,7 @@ impl ExecutionInstruction {
     fn prepare(
         instruction: &BytecodeInstruction<DefinitionId>,
         registers: &FrameLayout,
-        constants: &[ConstantOperand],
+        module: &BytecodeModule<DefinitionId>,
     ) -> Self {
         let location = |register: Register| {
             registers
@@ -195,7 +246,7 @@ impl ExecutionInstruction {
 
         match *instruction {
             BytecodeInstruction::LoadConst { dst, constant } => {
-                let value = match constants[constant.index()] {
+                let value = match module.constants[constant.index()] {
                     ConstantOperand::Unit => Value::Unit,
                     ConstantOperand::Bool(v) => Value::Bool(v),
                     ConstantOperand::I32(v) => Value::I32(v),
@@ -220,6 +271,19 @@ impl ExecutionInstruction {
                 Self::move_slots(local_slot(local.index()), slot(src))
             }
             BytecodeInstruction::Move { dst, src } => Self::move_slots(slot(dst), slot(src)),
+            BytecodeInstruction::ReadAggregateField {
+                dst,
+                base,
+                ref field,
+            } => PreparedField::prepare(module, field)
+                .map_or(Self::Boundary, |field| Self::ReadField { dst, base, field }),
+            BytecodeInstruction::WriteAggregateField {
+                base,
+                value,
+                ref field,
+            } => PreparedField::prepare(module, field).map_or(Self::Boundary, |field| {
+                Self::WriteField { base, value, field }
+            }),
             BytecodeInstruction::Unary { dst, op, operand } => {
                 let ty = scalar_type(location(operand).representation);
                 let kernel = match op {

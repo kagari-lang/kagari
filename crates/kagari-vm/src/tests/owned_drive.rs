@@ -33,12 +33,13 @@ impl Wake for WakeCount {
 fn async_owned_drive_contract() {
     let program = compile_test_bytecode(
         r#"
+        struct State { var sum: i32, var kept: Vec<i32> }
         fn helper(n: i32) -> i32 { n + 1 }
         fn main() -> Vec<i32> {
-            val kept = [1, 2, 3];
-            var sum = 0;
-            for value in kept { sum += helper(value); print("step"); }
-            [sum, kept[0]]
+            val state = State { sum: 0, kept: [1, 2, 3] };
+            for value in state.kept { state.sum += helper(value); print("step"); }
+            state.kept = [state.sum, state.kept[0]];
+            state.kept
         }
         fn spin() { while true {} }
         fn recurse() -> i32 { recurse() }
@@ -81,6 +82,7 @@ fn async_owned_drive_contract() {
         panic!("array output")
     };
     let expected = vm.runtime().gc().array_snapshot(expected).unwrap();
+    assert_eq!(expected, vec![Value::I32(9), Value::I32(1)]);
     events.lock().unwrap().clear();
     let first = vm
         .start(&loaded, "main", &[], ExecutionOptions::default())

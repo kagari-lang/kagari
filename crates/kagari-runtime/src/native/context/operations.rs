@@ -8,10 +8,11 @@ use crate::{
         context::{CallContext, LinkedCallable},
         sequence_edit::SequenceEdit,
     },
+    value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
-use kagari_types::ty::Ty;
+use kagari_types::{collection::CollectionAccess, ty::Ty};
 use std::slice;
 
 /// A rooted synchronous key lookup; recursive structural mutation remains blocked.
@@ -32,6 +33,53 @@ impl LinkedCallable {
 }
 
 impl<'call> CallContext<'call> {
+    /// Read an existing argument root with its prepared closed type. This does
+    /// not create an owning Rust handle or convert the value through host storage.
+    pub fn checked_argument(&self, index: usize) -> NativeResult<Value> {
+        let value = self.argument(index)?;
+        let signature = self.function.type_signature(self.runtime, self.owner)?;
+        if !signature
+            .params
+            .get(index)
+            .is_some_and(|ty| ty.matches(self.runtime, &value, self.owner))
+        {
+            return Err(RuntimeError::module_validation(
+                "native argument differs from its declared type",
+            ));
+        }
+        Ok(value)
+    }
+
+    /// Admit a call-scoped Vec receiver with its retained element contract and
+    /// declared access. Storage methods still check dynamic leases and bounds.
+    pub fn array_argument(&self, index: usize, writable: bool) -> NativeResult<HeapObjectId> {
+        let signature = self.function.type_signature(self.runtime, self.owner)?;
+        let expected = signature
+            .params
+            .get(index)
+            .ok_or_else(|| RuntimeError::module_validation("native array argument slot"))?;
+        let Ty::Array(_, access) = expected.ty() else {
+            return Err(RuntimeError::module_validation(
+                "native array argument type",
+            ));
+        };
+        if writable && *access != CollectionAccess::Mutable {
+            return Err(RuntimeError::module_validation(
+                "collection view is read-only",
+            ));
+        }
+        let value = self.argument(index)?;
+        if !expected.matches(self.runtime, &value, self.owner) {
+            return Err(RuntimeError::module_validation(
+                "native argument differs from its declared type",
+            ));
+        }
+        let Value::Array(id) = value else {
+            return Err(RuntimeError::module_validation("native array argument"));
+        };
+        Ok(id)
+    }
+
     /// Copy sequence storage while preserving its checked element contract.
     pub fn clone_sequence(&self, source: HeapObjectId) -> NativeResult<HeapObjectId> {
         self.heap().clone_array(source)

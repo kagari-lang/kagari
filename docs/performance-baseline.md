@@ -7,6 +7,124 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Prepared fields and scoped collections (VE05), 2026-10-10
+
+Relative to the accepted VE04 executable, arrays take 35.7% of the time, concrete
+field updates 48.1%, maps 91.9% and arithmetic 93.2%. The initial field implementation
+regressed scalar routes; separating object handlers from the scalar loop while
+retaining the admitted cursor removes that measured regression. This is still far
+from Lua parity. Dynamic/interface/shared-generic calls remain largely unchanged;
+VE06 owns call preparation and transfers, and VE07 owns further measured dispatch work.
+
+Baseline: VE04 production (`511e40a2`, integration gate `0f6252f8`), preserved at
+`target/ve04/candidate-executable`, SHA-256
+`88440efb52b9d16ea3f87ab38458a24c7896fd571269f4196651e3b261e693d0`.
+Candidate: VE05 checkpoint production, preserved at `target/ve05/candidate-executable`,
+SHA-256 `bc21be2da1784eb1dc7dd4b95109b936feff968295f827e80a4f6e8dcd32575b`.
+Sources, inputs, checksums, lockfile and benchmark driver are unchanged. Value remains
+16 bytes/Copy and ExecutionInstruction remains 24 bytes on this target.
+
+Environment: Apple M1 Max, 10 logical CPUs, 32 GiB RAM, macOS 26.6.2 arm64;
+Rust 1.98.1 (`48a229cea`), LLVM 22.1.8, Cargo 1.98.1. Workspace release defaults,
+default target/parallelism, SDK source/native and mlua lua54/vendored (PUC Lua 5.4.8),
+interpreter only. `DEVELOPER_DIR=/Library/Developer/CommandLineTools`; no custom flags
+or jobs. Final code rebuild took 18.59 s; reporting drivers reused it in 0.125/0.078 s.
+Build, compilation, verification and linking are excluded from execution. Host
+entry/return, callbacks, ordinary conversions and GC remain included.
+
+Each final matrix interleaves baseline,candidate,candidate,baseline in fresh sequential
+processes, three warmups and eleven samples per route/process, reversing route order
+in the second pair. All 1,672 execution batches pass their checksums (22 samples per
+variant/engine/workload). No builds, tests, probes or profilers ran concurrently with
+these final throughput measurements. Frequency, affinity and background activity are
+uncontrolled. Small changes, including entry/fibonacci/shared-generic increases and
+the 2.1% concrete-generic increase, are reported without a significance claim.
+
+Tables show microseconds per complete workload. C/B compares candidate VM to paired
+baseline VM; VM/Lua uses the candidate process's Lua result. The native source-form
+row remains unmatched (Rust callback versus Lua helper); host_callback includes the
+same Rust body in both adapters. These rows do not establish standalone Lua VM speed.
+
+### Original workloads
+
+| Workload | VE04 VM | VE05 VM | C/B | Candidate Lua | VM/Lua | VE05 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 3409.729 | 3177.250 | 0.932 | 381.646 | 8.33 | 3168.750–3350.375 |
+| arrays | 14042.875 | 5007.187 | 0.357 | 66.958 | 74.78 | 4994.375–5145.666 |
+| branches | 3979.354 | 3726.459 | 0.936 | 796.146 | 4.68 | 3716.792–3741.667 |
+| calls | 7106.333 | 6965.521 | 0.980 | 222.667 | 31.28 | 6954.166–7108.375 |
+| entry | 1.435 | 1.440 | 1.003 | 0.028 | 50.64 | 1.427–1.459 |
+| fibonacci | 14369.688 | 14436.167 | 1.005 | 344.542 | 41.90 | 14375.459–14506.667 |
+| maps | 13371.875 | 12288.959 | 0.919 | 65.521 | 187.56 | 12186.458–12732.167 |
+
+### Source forms
+
+| Workload | VE04 VM | VE05 VM | C/B | Candidate Lua | VM/Lua | VE05 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7115.500 | 7063.292 | 0.993 | 109.334 | 64.60 | 7021.875–7111.584 |
+| forms_capture_cell | 10131.188 | 10112.542 | 0.998 | 141.605 | 71.41 | 10078.167–10163.500 |
+| forms_concrete_generic | 3541.646 | 3615.479 | 1.021 | 103.105 | 35.07 | 3513.250–3713.625 |
+| forms_direct | 464.625 | 438.584 | 0.944 | 75.125 | 5.84 | 435.041–440.417 |
+| forms_field | 7754.188 | 3731.751 | 0.481 | 89.958 | 41.48 | 3717.084–3790.459 |
+| forms_helper | 3485.604 | 3469.709 | 0.995 | 140.229 | 24.74 | 3457.042–3626.333 |
+| forms_host_callback | 1956.188 | 1935.979 | 0.990 | 247.125 | 7.83 | 1928.166–1945.791 |
+| forms_interface | 10448.334 | 10433.646 | 0.999 | 135.146 | 77.20 | 10377.375–11054.458 |
+| forms_native | 1954.771 | 1934.688 | 0.990 | 139.938 | 13.83 | 1927.458–1981.250 |
+| forms_shared_generic | 21274.166 | 21383.562 | 1.005 | 106.834 | 200.16 | 21250.958–24106.833 |
+| forms_string_calls | 12831.083 | 12765.479 | 0.995 | 123.209 | 103.61 | 12737.458–13115.541 |
+| forms_string_constants | 6989.042 | 6925.792 | 0.991 | 66.249 | 104.54 | 6905.000–7013.209 |
+
+### Remaining allocation cost and reproduction
+
+Separate release counting-allocator probes execute 5,000 iterations after three
+warmups, checking a 325,000 sum. Map get reads key 1/value 65; map update repeatedly
+inserts that pair and tests contains_key. Vec read indexes `[65]`; Vec growth pushes
+65 and reads the new index. Setup is excluded; per-execution container creation,
+public host boundaries and GC are included. Requests count alloc/alloc_zeroed/realloc;
+bytes are requested bytes, not live storage or RSS. The VE03 probe is the same
+production implementation accepted by VE04.
+
+| Probe | VE04 requests | VE05 requests | VE04 requested bytes | VE05 requested bytes | GC objects / collections, both |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Map get / ordinary Option | 575280 | 500280 | 41533903 | 38753903 | 5001 / 10 |
+| Map update + contains_key | 25045 | 25045 | 283323 | 283323 | 1 / 0 |
+| Vec read | 360023 | 15023 | 30121187 | 201187 | 1 / 0 |
+| Vec push + read | 525101 | 45093 | 33273223 | 672295 | 1 / 4 |
+
+Vec operations remove temporary owning SDK conversions. Map reads reuse the stored
+contract; immutable Option member preparation removes 15 Rust requests per lookup,
+but checked enum results and call machinery still cause about 100 requests per get
+in this complete probe. This is an allocation observation, not a claim that the
+single GC node accounts for all elapsed time. Ordinary enum layout/type validation,
+result allocation and cleanup remain. No enum unboxing, custom-key bypass or changed
+write-commit order was introduced. String and composite keys can still copy key data.
+
+The rejected initial candidate measured arithmetic/branches 8.9%/7.2% slower and
+had 3,764 bytes in execute_region versus VE04's 2,200. Generated code introduced a
+payload-read call. Outlining fields and forcing the cursor read inline alone left
+about 6.5% arithmetic regression. Isolating scalar execution from object handlers
+resolved it in the final paired suite; original PC, slice and safepoint semantics
+are unchanged. Generated-code inspection and focused intermediate probes are
+separate from the final throughput samples.
+
+Reproduce final paired measurements with:
+
+```text
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/ve04/candidate-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve04/candidate-executable
+```
+
+Raw final reports are `target/lua-comparison/20261009T171545Z-paired/` and
+`20261009T171753Z-forms-paired/`. Initial rejected reports are `20261009T170528Z-paired/`
+and `20261009T170757Z-forms-paired/`. Diagnostics live under `target/ve05/`, including
+`collections.kgr`, `vectors.kgr`, `build_probe.py`, allocation logs and region
+assembly. Run `uv run python target/ve05/build_probe.py`, then execute both
+`target/ve03/measure_source` and `target/ve05/measure_source` against each source.
+The preserved probe uses the entry aliases string_constants/string_calls for its
+two cases; these collection probes are not the frozen string timing workloads.
+Rebuild the old production revision separately if a preserved executable is absent;
+compiling the current tree twice does not recreate a baseline.
+
 ## Compact values and shared constants (VE04), 2026-10-10
 
 VE00-VE03 reduce Value from 32 to 16 bytes and make it Copy without per-copy

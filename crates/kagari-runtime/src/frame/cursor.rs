@@ -17,6 +17,7 @@ use kagari_bytecode::{
 use std::cell::{Ref, RefMut};
 
 pub mod kernel;
+mod objects;
 
 /// A transient interpreter view. Release it before GC, observation, native calls,
 /// stack growth or synchronous reentry; the stores reject conflicting borrows.

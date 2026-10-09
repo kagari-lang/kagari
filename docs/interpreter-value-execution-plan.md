@@ -1,8 +1,8 @@
 # Compact values and interpreter execution (VE00-VE08)
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
-VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE04 are
-complete; VE05 prepared object/collection operations are next. Lua parity and
+VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE05 are
+locally complete; VE06 prepared calls/frame transfers are next. Lua parity and
 full-plan integration/CI acceptance remain open.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
@@ -532,7 +532,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 - [x] VE02: Compact Copy values and complete consumer migration.
 - [x] VE03: Runtime string constants and shared string access.
 - [x] VE04: Value/reference integration and measurement gate.
-- [ ] VE05: Prepared object and collection operations.
+- [x] VE05: Prepared object and collection operations.
 - [ ] VE06: Prepared script calls and frame transfers.
 - [ ] VE07: Execution-region and instruction costs.
 - [ ] VE08: Final integration and paired performance evaluation.
@@ -991,3 +991,86 @@ All carried VE04 failures are resolved. The value/reference milestone is locally
 accepted, permitting VE05. Full-plan local integration, CI and Lua parity remain
 open; current matched VM/Lua ratios are still well above 1.0. VE05–VE07 own the
 already-authorized prepared collection/object/call and execution-loop work.
+
+### VE05 in progress: concrete object/collection preparation
+
+VE04 gate checkpoint: `0f6252f8`. Preserve its release benchmark separately at
+`target/ve04/candidate-executable` for incremental attribution. Inspection identifies
+two concrete hot costs: field access repeatedly enters frame/layout lookup, and
+ordinary Vec methods decode rooted ScriptVec/ScriptValue host handles and encode
+them back on each script call. The existing linked native signature already owns
+prepared scoped type arguments; read-only standard strings demonstrate the scoped
+alternative. Start by reusing those checked facts for non-callback Vec operations,
+keeping the same GC storage methods and explicit declared access/bounds/lease checks.
+Retain owned SDK handles for Rust retention and callback algorithms.
+
+Implemented concrete fields as prepared slot/layout/representation records. The
+executing frame supplies the exact loaded owner; eligible canonical concrete
+layouts avoid repeated application/cache lookup. Shared generic applications keep
+the canonical path. Checked field reads/writes run in the nonallocating cursor
+region, with original logical PCs, observer/cancel checks and GC boundaries. Failed
+read/receiver admission falls back before any write to preserve VM diagnostics.
+Object handlers live separately from the generic execution loop. The existing
+owned-drive contract now exercises struct-held scalar and managed fields while
+interleaving two one-instruction slices and collections between every drive.
+
+Vec length/is_empty/get/index/push borrow native call roots and prepared signature
+facts, preserving declared access and storage guards. Set/insert/clear and callback
+algorithms keep their existing owned SDK conversion path in this bounded phase.
+Builtin map lookup borrows its prepared storage contract and entries together,
+removing duplicate checked object access and contract Arc clones. Custom key
+callbacks and write commit ordering are unchanged. Collection Option constructors
+prepare immutable declaration member handles once; each allocation still validates
+its runtime-local, generation-pinned layout and creates an ordinary traced enum.
+No general enum unboxing or collection storage replacement was introduced.
+
+Focused checks pass: VM execution contracts (44), owned-drive/sliced iteration (2),
+collection access (5), structural/custom keys (4), Hash/Eq trap/reentry (1), native
+map Option/type behavior (1), iteration alias-write guards (1), typed bulk edit
+failure restoration (1) and generic reload (2). A temporary private Option import
+error during helper extraction was resolved by keeping the helper at its existing
+owner. Affected runtime/stdlib/VM/embed all-target Clippy passes with warnings denied;
+structure review reports 984 Rust files and no violations. No carried build errors.
+Incremental VE04 paired timing and allocator measurements remain in progress;
+VE05 acceptance is not yet claimed.
+
+The first paired candidate improved arrays to 0.364x, fields to 0.479x and maps
+to 0.941x VE04 time, but regressed arithmetic/branches by 8.9%/7.2%. It was not
+accepted. Instruction records stayed 24 bytes; generated scalar-region code grew
+from 2200 to 3764 bytes and acquired an out-of-line payload read. Isolating field
+handlers and forcing the tiny cursor read inline only reduced the arithmetic
+regression to about 6.5%. The final design separates the scalar loop from object
+handlers while retaining one admitted cursor and collector eligibility. An object
+handoff consumes exactly its original PC and slice unit; resumption checks its
+successor normally. A focused alternating arithmetic probe now measures 3187.250
+us versus 3376.521 us VE04 (0.944x). Final boundary checks and paired original/form
+matrices are rerunning after this substantive control-flow change. Generated code,
+intermediate executables, raw CSV and allocation probes remain under `target/ve05/`.
+
+### VE05 local acceptance
+
+Final production executable SHA-256 is
+`bc21be2da1784eb1dc7dd4b95109b936feff968295f827e80a4f6e8dcd32575b`, preserved at
+`target/ve05/candidate-executable`. The final paired original/form suites pass all
+1672 measured execution checksums. Relative to VE04, arrays take 0.357x time,
+fields 0.481x, maps 0.919x, arithmetic 0.932x and branches 0.936x. Dynamic forms
+remain largely unchanged; concrete generic is 2.1% slower and other small
+regressions/ranges are retained in the
+[full report](performance-baseline.md#prepared-fields-and-scoped-collections-ve05-2026-10-10).
+All matched VM/Lua ratios remain above 1.0. This establishes VE05 benefit, not Lua
+parity or an overall interpreter speedup factor.
+
+Separate final allocator probes reproduce the recorded reductions exactly: Vec
+read requests fall 360023 -> 15023, push/read 525101 -> 45093; map Option lookup
+575280 -> 500280. GC object/collection counts are unchanged. Option lookup still
+makes about 100 Rust requests per iteration in the full probe; general unboxing
+remains excluded. Value/ExecutionInstruction sizes remain 16/24 bytes.
+
+After the loop separation, debug protocol/stepping (2), reentrant breakpoint/trap
+traces (1) and owned-drive/sliced iteration (2) pass. The owned-drive source now
+also replaces a managed field, checks the exact output [9, 1], and reruns with
+collections between every single-instruction slice. Affected all-target Clippy,
+format and structure checks pass; there are no carried build/test failures or
+new structural exceptions. Earlier field/collection/key/reload contracts above
+remain valid. Full workspace integration and CI are reserved for their documented
+final scopes. VE05 is locally accepted; proceed to VE06.

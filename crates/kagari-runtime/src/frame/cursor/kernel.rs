@@ -1,4 +1,4 @@
-//! Closed scalar operations reuse authority without admitting callbacks or values.
+//! Closed operations reuse authority without allocating or admitting callbacks.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::{cursor::ExecutionCursor, transfer::ReturnValue},
@@ -16,10 +16,16 @@ enum CursorProgress {
     Continue,
     Boundary,
     Return(ReturnValue),
+    Object(ExecutionInstruction),
+}
+
+enum ScalarExit {
+    Region(RegionExit),
+    Object(ExecutionInstruction),
 }
 
 impl ExecutionCursor<'_> {
-    /// Execute sealed scalar operations under one authority check. The driver
+    /// Execute sealed nonallocating operations under one authority check. The driver
     /// has already polled and observed the first PC; subsequent logical PCs keep
     /// the same cancellation, collection and observation boundaries. No caller
     /// supplies values or callbacks while authority is reused.
@@ -31,18 +37,50 @@ impl ExecutionCursor<'_> {
             .resources()
             .ensure_cursor_allowed(&self.session)?;
         self.runtime.gc().ensure_no_native_borrow()?;
-        // A closed region cannot allocate/drop managed values, mutate executable
-        // metadata or change collector policy. Recompute after every boundary.
+        // A closed region cannot allocate heap records, mutate executable metadata
+        // or change collector policy. Field operations copy rooted Values using
+        // checked storage methods; no destructor/callback runs on replacement.
+        // Recompute after every allocating or reentrant boundary.
         // Abandoned program leases can expire on another thread and remain
         // checked at each logical PC, as do cancellation and observer requests.
         let collection_due = self.runtime.gc().collection_due();
         let mut first = true;
         loop {
+            match self.execute_scalars(remaining, collection_due, first)? {
+                ScalarExit::Region(exit) => return Ok(exit),
+                ScalarExit::Object(ExecutionInstruction::ReadField { dst, base, field }) => {
+                    if !self.read_field(dst, base, field)? {
+                        return Ok(RegionExit::Boundary);
+                    }
+                }
+                ScalarExit::Object(ExecutionInstruction::WriteField { base, value, field }) => {
+                    if !self.write_field(base, value, field)? {
+                        return Ok(RegionExit::Boundary);
+                    }
+                }
+                ScalarExit::Object(_) => unreachable!("sealed object operation"),
+            }
+            // The field's PC and slice unit were consumed before the handoff.
+            // Its successor still needs the normal logical boundary checks.
+            first = false;
+        }
+    }
+
+    // Keep object handlers out of this loop's register allocation and inlining
+    // budget while reusing the same admitted cursor across both operation kinds.
+    #[inline(never)]
+    fn execute_scalars(
+        &mut self,
+        remaining: &mut Option<usize>,
+        collection_due: bool,
+        mut first: bool,
+    ) -> Result<ScalarExit, RuntimeError> {
+        loop {
             if !first && *remaining == Some(0) {
-                return Ok(RegionExit::Slice);
+                return Ok(ScalarExit::Region(RegionExit::Slice));
             }
             if !first && self.prepare_instruction(collection_due)? {
-                return Ok(RegionExit::Safepoint);
+                return Ok(ScalarExit::Region(RegionExit::Safepoint));
             }
             first = false;
             if let Some(remaining) = remaining {
@@ -50,8 +88,11 @@ impl ExecutionCursor<'_> {
             }
             match self.execute_next()? {
                 CursorProgress::Continue => {}
-                CursorProgress::Boundary => return Ok(RegionExit::Boundary),
-                CursorProgress::Return(value) => return Ok(RegionExit::Return(value)),
+                CursorProgress::Boundary => return Ok(ScalarExit::Region(RegionExit::Boundary)),
+                CursorProgress::Return(value) => {
+                    return Ok(ScalarExit::Region(RegionExit::Return(value)));
+                }
+                CursorProgress::Object(instruction) => return Ok(ScalarExit::Object(instruction)),
             }
         }
     }
@@ -113,6 +154,10 @@ impl ExecutionCursor<'_> {
                 };
                 return Ok(CursorProgress::Return(value));
             }
+            instruction @ (ExecutionInstruction::ReadField { .. }
+            | ExecutionInstruction::WriteField { .. }) => {
+                return Ok(CursorProgress::Object(instruction));
+            }
             ExecutionInstruction::Boundary => return Ok(CursorProgress::Boundary),
         };
         self.values
@@ -121,7 +166,8 @@ impl ExecutionCursor<'_> {
         Ok(CursorProgress::Continue)
     }
 
-    #[inline]
+    // Field handlers must not displace this tiny read from the scalar hot path.
+    #[inline(always)]
     fn payload(&self, slot: ScalarSlot) -> Result<u64, RuntimeError> {
         self.values
             .payload(&self.ranges, slot)

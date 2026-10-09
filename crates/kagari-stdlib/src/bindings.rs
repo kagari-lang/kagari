@@ -20,6 +20,7 @@ use kagari_runtime::{
         module::NativeModule,
         scalar::NativeScalar,
         storage::NativeStorage,
+        types::VariantRef,
     },
     value::Value,
 };
@@ -183,12 +184,20 @@ fn list_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.allocate_result()
 }
 
+/// Only immutable declaration handles are shared. Each allocation still resolves
+/// and checks the result's runtime-local, generation-pinned enum layout.
 pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult<Value> {
-    enums::allocate(
-        cx,
+    static MEMBERS: OnceLock<NativeResult<(VariantRef, VariantRef)>> = OnceLock::new();
+    let (some, none) = MEMBERS
+        .get_or_init(|| {
+            let option = StandardDeclarations::default().enumeration("Option")?;
+            Ok((option.variant("Some")?, option.variant("None")?))
+        })
+        .as_ref()
+        .map_err(Clone::clone)?;
+    cx.allocate_enum(
         &cx.result_type_argument()?,
-        "Option",
-        if value.is_some() { "Some" } else { "None" },
+        if value.is_some() { some } else { none },
         value.into_iter().collect(),
     )
 }
