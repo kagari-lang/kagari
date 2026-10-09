@@ -1,9 +1,10 @@
 # Compact values and interpreter execution (VE00-VE08)
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
-VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE07 are
-locally complete; VE08 final integration and baseline comparison are in progress.
-Lua parity and full-plan integration/CI acceptance remain open.
+VE00-VE08 in order, following the debug-only diagnostic refinement. The finite
+implementation and final local integration/performance evaluation are complete.
+Lua parity fails the frozen gate; GitHub CI acceptance remains unrun. Overall goal
+acceptance remains open, and the bounded follow-up proposal is not activated.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation and queue placement. This plan owns phase order, implementation scope,
@@ -535,8 +536,8 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 - [x] VE05: Prepared object and collection operations.
 - [x] VE06: Prepared script calls and frame transfers.
 - [x] VE07: Execution-region and instruction costs.
-- [ ] VE08: Final integration and paired performance evaluation.
-- [ ] Final local correctness/integration acceptance.
+- [x] VE08: Final integration and paired performance evaluation (Lua gate failed).
+- [x] Final local correctness/integration acceptance.
 - [ ] Complete GitHub CI feature/backend acceptance.
 - [ ] Lua parity for every frozen genuinely matched nontrivial workload.
 
@@ -1175,3 +1176,115 @@ structure (988 files, zero violations), formatting and diff checks pass. No unsa
 code, structural exception, carried errors or obsolete production prototype remains.
 VE07 is locally accepted; VE08 owns batched final workspace integration and the
 preserved VE00 comparison. Lua parity remains unaccepted.
+
+### VE08 in progress: final integration and preserved-baseline comparison
+
+VE07 checkpoint is `0a6c34f0`. The single batched final local run uses workspace
+structure, format, all-target Clippy and `cargo test --workspace`, followed by
+paired original/source-form/numeric matrices against the unchanged VE00 executable.
+Commands run sequentially; throughput starts only after tests complete. Logs are
+under `target/ve08/`. Structure, format and all-target Clippy have passed. The full
+test run is still in progress; its long language-contract owner passed after a
+separate one-second diagnostic sample confirmed active source compilation rather
+than a stuck interpreter loop. That test-only sample precedes all throughput timing.
+No CI/backend matrix result or Lua parity acceptance is claimed.
+
+The first full test command exited 101 at `kagari-embed --test list_algorithms`:
+`shared_calls_keep_key_types_and_stable_object_order_under_gc` and
+`generic_custom_receiver_uses_its_associated_iterator_in_default_calls` expected
+zero live objects but found the two strings retained by the current module's
+constant cache. The same missing retirement precondition was reproduced with
+`cargo test -p kagari-embed --test try_protocols source_enum_carriers_implement_the_same_protocol`
+(one retained string). Both source-free fixture helpers now publish an unused
+replacement before collection, matching VE04's string cleanup owner. Exact zero
+object/root assertions and behavioral checks remain intact. Focused checks and a
+final `cargo test --workspace --no-fail-fast` integration retry follow; the latter
+collects all remaining target failures rather than stopping at the first one.
+No production code or performance workload changed for this correction.
+
+### Bounded proposal if final parity remains open (not activated)
+
+Prepare native enum-result payload admission at its existing runtime owner. The
+VE05 counting probe still measures 500,280 Rust allocation requests for 5,000
+Map::get/Option iterations; post-VE06 sampling places substantial time in allocation,
+type normalization and compatibility. Existing `TypeArgument::prepared_variants`
+and `ScopedSignature` already cache some facts, so another cache alone is not an
+implementation plan: first attribute remaining requests to exact call sites, then
+reuse the existing pinned variant/payload scope through construction and result
+admission instead of reconstructing it. Keep the ordinary traced enum allocation,
+runtime owner/generation checks, dynamic payload validation and publication roots.
+
+Scope would be the native enum construction/result path and its existing prepared
+type/layout owners, with Map::get as the measured consumer. Reuse current enum,
+custom-key callback, foreign-runtime, reload and GC/trap contract fixtures. Accept
+only a measured reduction in warmed metadata allocation requests and end-to-end
+Map::get cost with unchanged results and safety boundaries; disclose remaining
+ordinary enum objects and all regressions. General enum unboxing, collector
+replacement, new JIT work, unrelated interface dispatch and benchmark changes are
+excluded. This is one proposed follow-up, not a promise that it alone reaches Lua
+parity and not an automatic extension of VE08.
+
+### VE08 integration fixture corrections
+
+The no-fail-fast retry completed every target and found 13 remaining old GC
+accounting assertions in three owners: `kagari-runtime --test host_objects` (1),
+`kagari-vm --lib` (1) and `kagari-vm --test native_boundary` (11). They counted
+strings as inline payloads or asserted zero while current/pinned module constant
+caches remained live. The correction counts separately traced host strings and
+retained module constants exactly, releases typed bindings/contexts before version
+retirement, and keeps final zero-object/unit assertions. Cancellation probes still
+exercise a fresh session on the same generation before retiring its cache. Map/set
+unit deltas remain unchanged; their final accounting now distinguishes container
+storage from the two retained constant strings. No production code changed.
+
+All three failed owners now pass focused reruns: retained host-child cleanup (1),
+path callback reentry across source/artifact and interpreter/native-fallback routes
+(1), and the full native-boundary target (158). Its old-version reclamation and
+zero-root/object checks remain exact. An intermediate E0753 from placing a helper
+import before an inner module doc comment was corrected before compilation.
+Formatting, affected Clippy/structure review and one final clean full invocation
+follow these batched fixture corrections. The earlier successful all-target Clippy
+and other unchanged checks are not treated as CI results.
+
+### VE08 final local correctness gate
+
+The clean final `cargo test --workspace --no-fail-fast` invocation passes every
+workspace unit, integration and doc-test target (`target/ve08/tests-clean.log`).
+The earlier failed runs remain recorded above; all their failures were resolved
+without changing production semantics or weakening final cleanup assertions.
+Workspace all-target Clippy passed before fixture corrections; affected embed and
+runtime/VM targets passed Clippy again after their corrections. Final formatting,
+structure (988 Rust files, zero violations/exceptions) and diff checks pass.
+Manual review keeps test helper ownership explicit and releases retained bindings
+before asserting cache retirement; no public API, unsafe scope or structural
+exception was added in VE08. There are no carried build/test failures.
+
+The source/native default workspace configuration is locally accepted. This is
+not a claim that GitHub CI or its complete feature/backend matrix ran. Final
+preserved-baseline/Lua timing subsequently completed serially after all tests/profiling;
+its evaluation follows below.
+
+### VE08 final paired evaluation and finite-scope completion
+
+All three matrices pass 2,728 measured batch checksums with the preserved VE00
+baseline. The final production binary is identical to VE07, SHA-256
+`98a14ea576a1a4f616bb6573c8e7342f01148dbbeac70147753269d08edf2261`, preserved at
+`target/ve08/candidate-executable`. Arrays take 0.328x baseline time, fields 0.469x,
+string constants 0.298x, arithmetic 0.720x and calls 0.823x. The
+[final report](performance-baseline.md#compact-value-and-interpreter-final-local-evaluation-ve08-2026-10-10)
+contains every workload, ranges, hashes, environment, scope and reproduction.
+
+All 16 frozen matched nontrivial workloads fail Lua parity: original arithmetic,
+arrays, branches, calls, fibonacci and maps; source-form direct, helper, concrete
+generic, interface, shared generic, capture cell, field, byte state, string constants
+and string calls. Their VM/Lua medians span 3.65-201.48. Entry and host callbacks
+remain separate; the unmatched native adapter and bounded numeric matrix are
+diagnostics, not alternate gates. No workload or result check was changed.
+
+Representation, implementation and final local correctness acceptance are complete.
+GitHub CI remains unrun and the Lua performance goal remains open. Per VE08's finite
+scope, do not silently start another optimization phase. The native enum-result
+admission proposal above is the single recorded follow-up and is not activated;
+its allocation/type evidence identifies a concrete next investigation without
+claiming that it solves the remaining interpreter-wide gap. There are no carried
+local build/test errors or unresolved structural exceptions.

@@ -141,13 +141,15 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     let first = runtime.bind_field::<Object>(&pair_type, "first").unwrap();
     let second = runtime.bind_field::<Object>(&pair_type, "second").unwrap();
     let hp = runtime.bind_field::<i32>(&player_type, "hp").unwrap();
+    let name = runtime.bind_field::<String>(&player_type, "name").unwrap();
     let mut cx = NativeContext::new(&runtime, &owner).unwrap();
     let child = player(&mut cx, &player_type, 42);
     let mut incomplete = pair_type.builder().unwrap();
     incomplete.set(&mut cx, &first, child.clone()).unwrap();
     assert!(incomplete.set(&mut cx, &first, child.clone()).is_err());
     assert!(incomplete.build(&mut cx).is_err());
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    // The retained player also owns its separately traced String.
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     let mut complete = pair_type.builder().unwrap();
     complete.set(&mut cx, &first, child.clone()).unwrap();
     complete.set(&mut cx, &second, child.clone()).unwrap();
@@ -155,8 +157,10 @@ fn object_reads_retain_children_and_failed_construction_releases_temporaries() {
     let read = pair.get(&mut cx, &first).unwrap();
     drop(child);
     drop(pair);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    // The retained player also owns its separately traced String.
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     assert_eq!(read.get(&mut cx, &hp).unwrap(), 42);
+    assert_eq!(read.get(&mut cx, &name).unwrap(), "Ada");
     drop(read);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }

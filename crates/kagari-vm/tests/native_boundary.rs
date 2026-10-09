@@ -5,6 +5,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     gc::mutations::PreparedCollectionCommit,
+    module::LoadedModule,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -87,6 +88,20 @@ fn compile(
     }
     let loaded = runtime.load_program("boundary", program).unwrap();
     (Vm::new(runtime), loaded)
+}
+
+// Constant caches belong to a published/pinned program, independently of host
+// value roots. Finish version-specific checks and drop bindings before retiring it.
+fn publish_unused_version(vm: &Vm, active: &LoadedModule) {
+    let candidate = vm
+        .runtime()
+        .stage_reload_verified_program(
+            active,
+            active.name.clone(),
+            active.verified_program().clone(),
+        )
+        .unwrap();
+    vm.runtime().publish_staged_reload(candidate).unwrap();
 }
 
 #[test]

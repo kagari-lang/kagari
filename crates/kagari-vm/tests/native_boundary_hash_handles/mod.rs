@@ -1,5 +1,5 @@
 mod construction;
-use super::{compile_program, native_boundary_functions::fixture};
+use crate::{compile_program, native_boundary_functions::fixture, publish_unused_version};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
 use kagari_runtime::{
@@ -71,6 +71,7 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
     let (foreign, other) = fixture("pub fn main() {}", None);
     assert!(set.len(&foreign.context(&other).unwrap()).is_err());
     drop((removed, values, map, alias, set, make, size, cx));
+    publish_unused_version(&vm, &owner);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 

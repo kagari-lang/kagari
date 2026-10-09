@@ -32,6 +32,10 @@ fn execute(source: &str) {
         Value::I32(42)
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    // Retire materialized module constants before checking execution-root cleanup.
+    runtime
+        .reload_program(&loaded, &program, Default::default())
+        .unwrap();
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
 }

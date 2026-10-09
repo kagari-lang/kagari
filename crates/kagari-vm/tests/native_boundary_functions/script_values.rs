@@ -1,4 +1,5 @@
 use super::fixture;
+use crate::publish_unused_version;
 use kagari_runtime::native::{
     binding::NativeResult,
     builder::ModuleBuilder,
@@ -91,82 +92,85 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
     "#,
         Some(&module),
     );
-    let number = vm
-        .runtime()
-        .bind_function::<(), ScriptValue>(&owner, "number")
-        .unwrap();
-    let text = vm
-        .runtime()
-        .bind_function::<(), ScriptValue>(&owner, "text")
-        .unwrap();
-    let vector = vm
-        .runtime()
-        .bind_function::<(), ScriptValue>(&owner, "vector")
-        .unwrap();
-    let closure = vm
-        .runtime()
-        .bind_function::<(), ScriptValue>(&owner, "closure")
-        .unwrap();
-    let readonly = vm
-        .runtime()
-        .bind_function::<(), ScriptValue>(&owner, "readonly")
-        .unwrap();
-    let string_argument = vm
-        .runtime()
-        .bind_function::<(ScriptValue,), String>(&owner, "string_argument")
-        .unwrap();
-    let read = vm
-        .runtime()
-        .bind_function::<(ScriptValue,), i32>(&owner, "read")
-        .unwrap();
-    let write = vm
-        .runtime()
-        .bind_function::<(ScriptValue,), ()>(&owner, "write")
-        .unwrap();
-    let number = vm.call(&number, ()).unwrap();
-    let text = vm.call(&text, ()).unwrap();
-    let vector = vm.call(&vector, ()).unwrap();
-    let closure = vm.call(&closure, ()).unwrap();
-    let readonly = vm.call(&readonly, ()).unwrap();
-    vm.runtime().collect_garbage().unwrap();
-    let mut cx = vm.context(&owner).unwrap();
-    assert_eq!(number.decode::<i32>(&mut cx).unwrap(), 42);
-    assert!(number.decode::<String>(&mut cx).is_err());
-    assert_eq!(text.decode::<String>(&mut cx).unwrap(), "retained");
-    assert_eq!(
-        vm.call(&string_argument, (text.clone(),)).unwrap(),
-        "retained"
-    );
-    assert!(vm.call(&string_argument, (number.clone(),)).is_err());
-    assert!(vm.call(&write, (readonly.clone(),)).is_err());
-    assert_eq!(vm.call(&read, (readonly.clone(),)).unwrap(), 42);
-    let items = vector.decode::<ScriptVec<ScriptValue>>(&mut cx).unwrap();
-    let item = items
-        .get(&mut cx, 0)
-        .unwrap()
-        .unwrap()
-        .decode::<Object>(&mut cx)
-        .unwrap();
-    let field = vm
-        .runtime()
-        .bind_field::<i32>(item.object_type(), "value")
-        .unwrap();
-    assert_eq!(item.get(&mut cx, &field).unwrap(), 42);
-    let callback = closure
-        .decode::<PinnedFunction<(), Object>>(&mut cx)
-        .unwrap();
-    drop((number, text, vector, closure, readonly, items, item));
-    vm.runtime().collect_garbage().unwrap();
-    let result = callback.call(&mut cx, ()).unwrap();
-    assert_eq!(result.get(&mut cx, &field).unwrap(), 42);
-    let (foreign, foreign_owner) = fixture("pub fn number() -> i32 { 7 }", None);
-    let foreign_binding = foreign
-        .runtime()
-        .bind_function::<(), ScriptValue>(&foreign_owner, "number")
-        .unwrap();
-    let value = foreign.call(&foreign_binding, ()).unwrap();
-    assert!(value.decode::<i32>(&mut cx).is_err());
-    drop((callback, result, cx));
+    {
+        let number = vm
+            .runtime()
+            .bind_function::<(), ScriptValue>(&owner, "number")
+            .unwrap();
+        let text = vm
+            .runtime()
+            .bind_function::<(), ScriptValue>(&owner, "text")
+            .unwrap();
+        let vector = vm
+            .runtime()
+            .bind_function::<(), ScriptValue>(&owner, "vector")
+            .unwrap();
+        let closure = vm
+            .runtime()
+            .bind_function::<(), ScriptValue>(&owner, "closure")
+            .unwrap();
+        let readonly = vm
+            .runtime()
+            .bind_function::<(), ScriptValue>(&owner, "readonly")
+            .unwrap();
+        let string_argument = vm
+            .runtime()
+            .bind_function::<(ScriptValue,), String>(&owner, "string_argument")
+            .unwrap();
+        let read = vm
+            .runtime()
+            .bind_function::<(ScriptValue,), i32>(&owner, "read")
+            .unwrap();
+        let write = vm
+            .runtime()
+            .bind_function::<(ScriptValue,), ()>(&owner, "write")
+            .unwrap();
+        let number = vm.call(&number, ()).unwrap();
+        let text = vm.call(&text, ()).unwrap();
+        let vector = vm.call(&vector, ()).unwrap();
+        let closure = vm.call(&closure, ()).unwrap();
+        let readonly = vm.call(&readonly, ()).unwrap();
+        vm.runtime().collect_garbage().unwrap();
+        let mut cx = vm.context(&owner).unwrap();
+        assert_eq!(number.decode::<i32>(&mut cx).unwrap(), 42);
+        assert!(number.decode::<String>(&mut cx).is_err());
+        assert_eq!(text.decode::<String>(&mut cx).unwrap(), "retained");
+        assert_eq!(
+            vm.call(&string_argument, (text.clone(),)).unwrap(),
+            "retained"
+        );
+        assert!(vm.call(&string_argument, (number.clone(),)).is_err());
+        assert!(vm.call(&write, (readonly.clone(),)).is_err());
+        assert_eq!(vm.call(&read, (readonly.clone(),)).unwrap(), 42);
+        let items = vector.decode::<ScriptVec<ScriptValue>>(&mut cx).unwrap();
+        let item = items
+            .get(&mut cx, 0)
+            .unwrap()
+            .unwrap()
+            .decode::<Object>(&mut cx)
+            .unwrap();
+        let field = vm
+            .runtime()
+            .bind_field::<i32>(item.object_type(), "value")
+            .unwrap();
+        assert_eq!(item.get(&mut cx, &field).unwrap(), 42);
+        let callback = closure
+            .decode::<PinnedFunction<(), Object>>(&mut cx)
+            .unwrap();
+        drop((number, text, vector, closure, readonly, items, item));
+        vm.runtime().collect_garbage().unwrap();
+        let result = callback.call(&mut cx, ()).unwrap();
+        assert_eq!(result.get(&mut cx, &field).unwrap(), 42);
+        let (foreign, foreign_owner) = fixture("pub fn number() -> i32 { 7 }", None);
+        let foreign_binding = foreign
+            .runtime()
+            .bind_function::<(), ScriptValue>(&foreign_owner, "number")
+            .unwrap();
+        let value = foreign.call(&foreign_binding, ()).unwrap();
+        assert!(value.decode::<i32>(&mut cx).is_err());
+        drop((callback, result, cx));
+    }
+    publish_unused_version(&vm, &owner);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }

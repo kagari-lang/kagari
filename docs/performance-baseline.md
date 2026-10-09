@@ -4,8 +4,153 @@ Keep workload, baseline/candidate, environment, timing scope and reproduction
 together. These are finite observations, not language-wide guarantees. Build,
 preparation and execution times are separate; allocation requests are not RSS.
 Older superseded tables and successful test logs remain in Git history.
-Historical sections were not rerun by the documentation cleanup. The post-GO06
-interpreter section is a new measurement on its explicitly recorded revision.
+The VE00-VE08 sections record the compact-value and interpreter execution track;
+older measurements retain their original revisions and were not rerun implicitly.
+
+## Compact value and interpreter final local evaluation (VE08), 2026-10-10
+
+VE00-VE08 implementation and final local correctness evaluation are complete.
+`Value` is 16 bytes and Copy in both debug and release, down from 32 bytes.
+Runtime-local string constants share traced storage, concrete fields and calls use
+prepared facts, selected collections use scoped access, and scalar segments retain
+bounded code/bank borrows. Host retention, runtime ownership, generations, roots,
+checked arithmetic and observable execution boundaries remain enforced.
+
+The frozen Lua parity gate **fails all 16 matched nontrivial workloads**: candidate
+medians take 3.65-201.48x Lua time. Improvements over VE00 include arrays taking
+0.328x time, fields 0.469x, string constants 0.298x, arithmetic 0.720x and calls
+0.823x. These are whole-track changes, not effects attributable only to Value size.
+Full GitHub CI feature/backend acceptance remains unrun. The plan records
+[one bounded follow-up proposal](interpreter-value-execution-plan.md#bounded-proposal-if-final-parity-remains-open-not-activated)
+for native enum-result admission; it is not activated and does not promise parity.
+
+### Environment and measurement scope
+
+Baseline is the preserved VE00 executable `target/ve00/baseline-executable`, SHA-256
+`60aa2c07334fb25123208c8c77a4008d1bc93d2f680da6ac21560838e7ebfc81`.
+Candidate is `target/ve08/candidate-executable`, SHA-256
+`98a14ea576a1a4f616bb6573c8e7342f01148dbbeac70147753269d08edf2261`.
+Its production revision is VE07 `0a6c34f0`; VE08 changes only integration fixtures
+and documentation. All three matrices used this same candidate binary.
+
+Apple M1 Max, 10 logical CPUs, 32 GiB, macOS 26.6.2 arm64; Rust 1.98.1
+(`48a229cea`, LLVM 22.1.8), Cargo 1.98.1; workspace release defaults, default target
+and Cargo parallelism, source/native SDK features, mlua lua54,vendored PUC Lua 5.4.8.
+Only the interpreter is timed. Each matrix runs baseline,candidate,candidate,baseline
+sequentially, with fresh process/state, three warmups per route and eleven measured
+samples per process. Engine order rotates; the second pair reverses initial order.
+Each variant/engine/workload has 22 samples. All 2,728 measured execution batches
+across 31 workloads pass checksum validation; warmups are checked separately.
+
+No compilation, tests, allocation probes or profilers ran concurrently with final
+throughput. Builds reused the release cache and took 0.123 / 0.080 / 0.092 s for
+original/forms/numeric, excluded from execution. Source compilation, verification,
+runtime setup and linking are excluded; public host entry/return and ordinary GC
+remain included. CPU frequency, affinity and background activity are uncontrolled.
+Tables show microseconds per complete workload (entry normalized per call), C/B
+candidate-to-baseline median ratio, and candidate sample extrema. Extrema are not
+confidence intervals; small differences are not statistical significance claims.
+Raw JSON/CSV retain both variants' ranges and separate setup samples.
+
+### Final original workloads
+
+The six nontrivial rows belong to the parity gate; entry measures the host boundary
+separately. Algorithms, inputs and explicit while loops are unchanged from VE00.
+
+| Workload | VE00 VM | Final VM | C/B | Candidate Lua | VM/Lua | Final VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 3438.229 | 2473.874 | 0.720 | 383.812 | 6.45 | 2448.333–2566.875 |
+| arrays | 15296.376 | 5016.583 | 0.328 | 67.729 | 74.07 | 4969.792–5378.792 |
+| branches | 3987.709 | 2925.938 | 0.734 | 801.917 | 3.65 | 2919.833–2945.292 |
+| calls | 7417.396 | 6101.645 | 0.823 | 222.020 | 27.48 | 6059.500–6221.875 |
+| entry | 1.455 | 1.409 | 0.968 | 0.028 | 49.60 | 1.403–1.415 |
+| fibonacci | 15097.021 | 12413.729 | 0.822 | 352.021 | 35.26 | 12343.708–12730.042 |
+| maps | 13961.312 | 12398.000 | 0.888 | 65.833 | 188.33 | 12324.584–12483.291 |
+
+### Final source forms
+
+The ten script forms belong to the parity gate alongside the six original cases.
+`host_callback` compares the same Rust body through each host adapter separately;
+`native` compares a Kagari Rust callback with a Lua script helper and is diagnostic.
+All use 5,000 iterations. String routes alternate the unchanged 62/68-byte ASCII
+constants and check 325,000 bytes; they do not compare Unicode character counts.
+Shared generic/interface rows compare algorithms, not equivalent type systems.
+
+| Workload | VE00 VM | Final VM | C/B | Candidate Lua | VM/Lua | Final VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7693.312 | 6851.208 | 0.891 | 109.604 | 62.51 | 6841.417–6942.167 |
+| forms_capture_cell | 11002.834 | 10059.354 | 0.914 | 139.875 | 71.92 | 10025.958–10109.500 |
+| forms_concrete_generic | 3622.916 | 3047.646 | 0.841 | 103.480 | 29.45 | 3037.667–3086.375 |
+| forms_direct | 470.354 | 336.041 | 0.714 | 75.125 | 4.47 | 335.334–351.375 |
+| forms_field | 7951.146 | 3725.791 | 0.469 | 90.145 | 41.33 | 3681.333–3849.625 |
+| forms_helper | 3589.375 | 3030.062 | 0.844 | 139.896 | 21.66 | 3020.666–3049.084 |
+| forms_host_callback | 2081.041 | 1892.250 | 0.909 | 253.167 | 7.47 | 1885.667–1901.709 |
+| forms_interface | 10748.812 | 10429.708 | 0.970 | 134.480 | 77.56 | 10312.708–10779.500 |
+| forms_native | 2081.166 | 1904.854 | 0.915 | 140.520 | 13.56 | 1892.625–1911.792 |
+| forms_shared_generic | 21666.896 | 21386.646 | 0.987 | 106.146 | 201.48 | 21226.667–21479.916 |
+| forms_string_calls | 30427.709 | 12702.312 | 0.417 | 123.063 | 103.22 | 12681.958–13175.917 |
+| forms_string_constants | 23424.625 | 6974.895 | 0.298 | 66.438 | 104.98 | 6952.000–7161.708 |
+
+### Final numeric diagnostics
+
+The 12 numeric routes use bounded exact inputs with 20,000 iterations. Kagari uses
+while and these Lua fixtures use numeric for; their ratios are diagnostic and are
+excluded from the frozen matched parity gate. They do not establish equivalent
+full integer/float domains or checked overflow. No fixture was changed to improve
+these ratios. Numeric semantic/source-free contracts are checked separately.
+
+| Workload | VE00 VM | Final VM | C/B | Candidate Lua | VM/Lua | Final VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| numeric_f32 | 2544.667 | 1879.708 | 0.739 | 443.125 | 4.24 | 1841.667–1937.125 |
+| numeric_f64 | 2508.833 | 1826.458 | 0.728 | 443.688 | 4.12 | 1807.459–1939.542 |
+| numeric_i16 | 2904.834 | 2088.417 | 0.719 | 581.625 | 3.59 | 2051.959–2144.584 |
+| numeric_i32 | 2843.334 | 2062.625 | 0.725 | 574.229 | 3.59 | 2047.958–2077.917 |
+| numeric_i64 | 2867.938 | 2056.062 | 0.717 | 574.375 | 3.58 | 2044.000–2088.542 |
+| numeric_i8 | 2866.854 | 2087.791 | 0.728 | 574.104 | 3.64 | 2062.416–2115.792 |
+| numeric_isize | 2865.708 | 2052.104 | 0.716 | 574.250 | 3.57 | 2043.958–2094.958 |
+| numeric_u16 | 2833.188 | 2059.041 | 0.727 | 574.145 | 3.59 | 2056.333–2092.375 |
+| numeric_u32 | 2815.292 | 2065.292 | 0.734 | 574.000 | 3.60 | 2056.333–2095.208 |
+| numeric_u64 | 2793.709 | 2072.667 | 0.742 | 574.396 | 3.61 | 2064.125–2095.292 |
+| numeric_u8 | 2840.812 | 2064.166 | 0.727 | 574.333 | 3.59 | 2056.375–2080.417 |
+| numeric_usize | 2793.854 | 2089.604 | 0.748 | 576.812 | 3.62 | 2071.333–2172.166 |
+
+### Memory, attribution and correctness
+
+The 16-byte value does not halve total memory: strings, tuples, ranges and ephemeral
+host payloads now have separately traced backing allocations; retained host handles
+remain non-Copy. VE02/VE04 record backing layouts and allocation tradeoffs, while
+VE05 records independent collection allocation probes. No whole-process memory
+reduction is claimed. VE07's independent counts still describe the identical final
+production binary: arithmetic 550,015 Kagari / 250,007 Lua canonical operations;
+direct 75,015 / 40,006; helper 105,012 / 65,007. These scalar probes allocate no
+script GC objects. Generated-code and wall-clock sample evidence remain in the
+VE07 section; counters/profiling are separate from throughput.
+
+Final `cargo test --workspace --no-fail-fast` passes all unit, integration and doc-test
+targets after correcting old fixture assumptions about inline strings and live
+module constant caches. Exact final zero-root/object assertions remain. Workspace
+all-target Clippy passed, followed by affected-target Clippy after fixture fixes;
+formatting, structure (988 Rust files, no violations/exceptions) and diff checks
+pass. Logs are under `target/ve08/`. This is local default source/native acceptance,
+not an unrun GitHub CI/backend matrix result. No production API or semantic change
+was needed for VE08 corrections; no carried build/test failures remain.
+
+### Final reproduction and raw reports
+
+Raw directories under `target/lua-comparison/`:
+
+- `20261009T184853Z-paired/` (original).
+- `20261009T185103Z-forms-paired/` (source forms).
+- `20261009T185119Z-numeric-paired/` (numeric diagnostics).
+
+```sh
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/ve00/baseline-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve00/baseline-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --numeric-matrix --baseline-executable target/ve00/baseline-executable
+```
+
+Ignored binaries/raw logs are local reproduction aids, not durable release assets.
+The committed tables, hashes, environment and commands preserve the conclusions.
 
 ## Borrowed scalar execution segments (VE07), 2026-10-10
 

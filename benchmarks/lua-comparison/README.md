@@ -27,18 +27,20 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The current architectural follow-up is recorded in
-[IP04 native preparation and final measurements](../../docs/performance-baseline.md#prepared-native-facts-and-integration-ip04-2026-10-06).
-The seven original workloads remain unchanged. IP01–IP04 improve their recorded VM
-medians, but the six nontrivial cases still take 27.22–217.20x Lua time; parity
-has not been achieved. The post-GO06 report below remains the IP00 baseline.
+The current compact-value/interpreter results are recorded in the
+[VE08 final local evaluation](../../docs/performance-baseline.md#compact-value-and-interpreter-final-local-evaluation-ve08-2026-10-10).
+The seven original workloads remain unchanged. Implementation and local workspace
+integration are complete, but all 16 frozen matched nontrivial original/source-form
+cases still take 3.65-201.48x Lua time. Parity remains unmet and full GitHub CI is
+unrun. Historical reports below retain their distinct baseline scope.
 
 ## Matching and timing
 
 Kagari and Lua have different grammars. The paired `.kgr` and `.lua` files use
 equivalent source constructs, loop bounds, algorithms, constants and inputs.
-Neither language delegates the workload to a Rust helper. Both use explicit
-`while` loops rather than comparing different iterator or numeric-for machinery.
+For the seven original workloads, neither language delegates the workload to a
+Rust helper. Both use explicit `while` loops rather than comparing different
+iterator or numeric-for machinery.
 All seven results are checked against independent Rust reference calculations.
 The regression test additionally checks empty and single-element inputs.
 
@@ -56,8 +58,10 @@ host adapters. The older `native` row compares a Kagari native callback with a L
 script helper and remains diagnostic only. Shared generic identity and interface
 dispatch compare observable algorithms, not equivalent language type systems.
 The shared generic Add default-body lowering failure remains separately tracked.
-The numeric matrix uses bounded exact inputs; it does not claim Lua implements
-Kagari's entire integer/float domain or checked-overflow semantics.
+The numeric matrix uses bounded exact inputs, with Kagari while and Lua numeric-for
+loops. Its ratios are diagnostic, outside the frozen matched parity gate; it does
+not claim Lua implements Kagari's entire integer/float domain or checked-overflow
+semantics.
 
 Saved VE00 binaries can be paired with either unchanged matrix as well as the
 original suite. For example:

@@ -623,18 +623,20 @@ expansion and new numeric APIs remain outside these completed tracks.
 
 The [compact values and interpreter execution plan](interpreter-value-execution-plan.md)
 defines the active VE00-VE08 follow-up. Goal execution was authorized on 2026-10-09;
-VE00-VE07 are locally complete with 16-byte Copy values, checked compact identities,
-runtime-local string constants, the lifecycle/performance gate and prepared
-field/scoped collection operations and prepared script calls/frame transfers;
-scalar execution now reuses bounded code/bank borrows. VE08 final integration and
-comparison with the preserved original baseline are in progress.
-The plan owns its phase checklist,
-decisions and ledger. VE00-VE04 first establish compact Copy internal values,
-checked host-handle boundaries, shared strings/runtime constants and GC/async integration. VE05-VE08
-then cover prepared object/collection operations, script calls, execution-loop
-costs and final measurements. VE00 selected compact checked indices over direct
-references using bounded storage probes. Completing the value milestone does not
-establish Lua parity; final local, CI and performance acceptance stay separate.
+VE00-VE08 implementation and final local evaluation are complete: 16-byte Copy
+values, checked compact identities, shared runtime string constants, GC/async
+integration, prepared field/scoped collection operations and script call/frame
+transfers, plus bounded code/bank borrows in scalar execution. The plan owns its
+phase checklist, decisions and ledger. VE00 selected compact checked indices over
+direct references using bounded storage probes.
+
+The [final report](performance-baseline.md#compact-value-and-interpreter-final-local-evaluation-ve08-2026-10-10)
+records the preserved-baseline comparison and passing local workspace integration.
+All 16 frozen matched nontrivial workloads still exceed Lua (3.65-201.48x median
+time), so performance acceptance remains open. Complete GitHub CI feature/backend
+acceptance remains unrun. One bounded native enum-result admission proposal is
+recorded in the plan but is not activated; this finite track does not automatically
+expand to more architecture work.
 
 ### Async execution (AX00-AX06, active)
 

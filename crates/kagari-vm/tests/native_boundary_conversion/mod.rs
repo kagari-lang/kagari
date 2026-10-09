@@ -1,6 +1,6 @@
 use kagari_runtime::value_semantics::script_equal;
 mod vector_edits;
-use super::compile_program;
+use crate::{compile_program, publish_unused_version};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
@@ -263,6 +263,7 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
             .expect("retained execution result"),
         Value::I32(42)
     );
+    publish_unused_version(&vm, &loaded);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 

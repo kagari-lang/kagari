@@ -331,6 +331,15 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             drop(report);
             assert_eq!(vm.runtime().gc().active_roots(), 0);
             drop(scope);
+            let replacement = vm
+                .runtime()
+                .stage_reload_verified_program(
+                    &loaded,
+                    loaded.name.clone(),
+                    loaded.verified_program().clone(),
+                )
+                .unwrap();
+            vm.runtime().publish_staged_reload(replacement).unwrap();
             vm.runtime().collect_garbage().unwrap();
             assert_eq!(vm.runtime().gc().allocated_objects(), 0);
             assert_eq!(vm.runtime().host_dirty_paths().len(), 1);

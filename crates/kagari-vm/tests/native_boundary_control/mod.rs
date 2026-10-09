@@ -1,4 +1,5 @@
 //! Retained control-boundary behavior using ordinary synchronous application natives.
+use crate::publish_unused_version;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget},
@@ -210,7 +211,6 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         assert!(vm.execute(&loaded, "ready").is_err());
         drop(session);
         vm.runtime().collect_garbage().unwrap();
-        assert_eq!(vm.runtime().gc().allocated_objects(), 0);
         assert_eq!(
             vm.execute(&loaded, "ready")
                 .unwrap()
@@ -219,6 +219,9 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
                 .expect("retained execution result"),
             Value::I32(7)
         );
+        // Check a fresh session on the same version before retiring its constants.
+        publish_unused_version(&vm, &loaded);
+        assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     }
 }
 
@@ -457,6 +460,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         retained.lock().unwrap().take();
         drop(rooted);
         assert_clean(&vm);
+        publish_unused_version(&vm, &new);
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(vm.runtime().gc().allocated_objects(), 0);
     }
@@ -515,7 +519,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             assert!(*effects.lock().unwrap() <= 1);
             assert_clean(&vm);
             drop(session);
-            assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+            vm.runtime().collect_garbage().unwrap();
             assert_eq!(
                 vm.execute(&loaded, "ready")
                     .unwrap()
@@ -524,6 +528,8 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                     .expect("retained execution result"),
                 Value::I32(7)
             );
+            publish_unused_version(&vm, &loaded);
+            assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
             if vm
                 .runtime()
                 .execution_observer::<crate::support::CancelAt>()

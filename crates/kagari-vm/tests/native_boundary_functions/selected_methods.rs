@@ -1,5 +1,5 @@
 use super::fixture;
-use crate::compile_program;
+use crate::{compile_program, publish_unused_version};
 use kagari_runtime::{
     native::{
         binding::NativeResult,
@@ -302,26 +302,29 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
     "#,
         Some(&module),
     );
-    let run = vm
-        .runtime()
-        .bind_function::<(), Object>(&owner, "run")
-        .unwrap();
-    let wrong = vm
-        .runtime()
-        .bind_function::<(), String>(&owner, "wrong")
-        .unwrap();
-    let item = vm.call(&run, ()).unwrap();
-    let ty = vm.runtime().bind_type(&owner, "Item", &[]).unwrap();
-    let value = vm.runtime().bind_field::<i32>(&ty, "value").unwrap();
-    vm.runtime().collect_garbage().unwrap();
-    assert_eq!(
-        item.get(&mut vm.context(&owner).unwrap(), &value).unwrap(),
-        43
-    );
-    assert!(vm.call(&wrong, ()).is_err());
-    assert_eq!(effects.load(Ordering::Relaxed), 1);
-    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
-    drop(item);
+    {
+        let run = vm
+            .runtime()
+            .bind_function::<(), Object>(&owner, "run")
+            .unwrap();
+        let wrong = vm
+            .runtime()
+            .bind_function::<(), String>(&owner, "wrong")
+            .unwrap();
+        let item = vm.call(&run, ()).unwrap();
+        let ty = vm.runtime().bind_type(&owner, "Item", &[]).unwrap();
+        let value = vm.runtime().bind_field::<i32>(&ty, "value").unwrap();
+        vm.runtime().collect_garbage().unwrap();
+        assert_eq!(
+            item.get(&mut vm.context(&owner).unwrap(), &value).unwrap(),
+            43
+        );
+        assert!(vm.call(&wrong, ()).is_err());
+        assert_eq!(effects.load(Ordering::Relaxed), 1);
+        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+        drop(item);
+    }
+    publish_unused_version(&vm, &owner);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 

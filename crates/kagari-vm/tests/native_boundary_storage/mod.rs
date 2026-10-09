@@ -1,4 +1,4 @@
-use super::compile;
+use crate::{compile, publish_unused_version};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::{GcHeap, GcObjectKind, HeapObjectId},
@@ -152,8 +152,12 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
     assert_eq!(heap.stats().current_heap_units, before - 2);
     // Clearing removes the map's ownership of its strings; sweeping reclaims them.
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(heap.stats().current_heap_units, 1);
+    // Empty container (1) plus two one-byte module constants (2 units each).
+    assert_eq!(heap.stats().current_heap_units, 5);
     drop(root);
+    publish_unused_version(&vm, &loaded);
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(heap.stats().current_heap_units, 0);
 }
 
 #[test]
@@ -195,8 +199,12 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
     assert!(heap.set_snapshot(set).unwrap().is_empty());
     assert_eq!(heap.stats().current_heap_units, before - 2);
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(heap.stats().current_heap_units, 1);
+    // Empty container (1) plus two one-byte module constants (2 units each).
+    assert_eq!(heap.stats().current_heap_units, 5);
     drop(root);
+    publish_unused_version(&vm, &loaded);
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(heap.stats().current_heap_units, 0);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use crate::{compile_program, native_boundary_functions::fixture};
+use crate::{compile_program, native_boundary_functions::fixture, publish_unused_version};
 use kagari_runtime::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
@@ -177,7 +177,8 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     assert_eq!(object.get(&mut cx, &name).unwrap(), "initial");
     object.set(&mut cx, &name, "updated".into()).unwrap();
     assert_eq!(alias.get(&mut cx, &name.clone()).unwrap(), "updated");
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 2);
+    // Holder/callback, the updated name, and the module string constant.
+    assert_eq!(cx.collect_garbage().unwrap().live_objects, 4);
     let held = object.get(&mut cx, &callback).unwrap();
     object
         .edit_data(&cx, |state| {
@@ -210,9 +211,11 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     );
     assert_eq!(held.call(&mut cx, ()).unwrap(), 43);
     drop((object, alias));
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 2);
-    drop(held);
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 0);
+    // Holder/callback, the updated name, and the module string constant.
+    assert_eq!(cx.collect_garbage().unwrap().live_objects, 4);
+    drop((held, cx, native_type, name, callback));
+    publish_unused_version(&vm, &owner);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
 
@@ -331,9 +334,11 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
     drop((object, field));
     let collected = cx.collect_garbage().unwrap();
     assert!(collected.reclaimed_modules.contains(&old.key()));
-    assert_eq!(collected.live_objects, 2);
-    drop(replacement);
-    assert_eq!(cx.collect_garbage().unwrap().live_objects, 0);
+    // Current holder/callback, its name, and its module string constant.
+    assert_eq!(collected.live_objects, 4);
+    drop((replacement, cx));
+    publish_unused_version(&vm, &new);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
 struct Converted {
