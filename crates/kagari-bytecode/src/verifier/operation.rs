@@ -154,11 +154,11 @@ pub(super) fn verify_instruction(
             )?;
         }
         BytecodeInstruction::LoadConst { dst, constant } => {
-            if !module.constants.contains(constant) {
-                return Err(BytecodeVerificationError::MissingConstant {
+            let constant = module.constants.get(constant.index()).ok_or(
+                BytecodeVerificationError::MissingConstant {
                     function: function.id,
-                });
-            }
+                },
+            )?;
             expect_register_ty(function, *dst, constant_type(constant), "load const dst")?;
         }
         BytecodeInstruction::LoadLocal { dst, local } => {

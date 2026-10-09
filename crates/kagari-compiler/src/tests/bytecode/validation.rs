@@ -1,7 +1,7 @@
 use crate::tests::bytecode::*;
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::{ConstantOperand, NativeImportId},
+    instruction::{ConstantId, ConstantOperand, NativeImportId},
     module::{FunctionRecord, RootSlotLayout},
     program::verify_program,
 };
@@ -147,11 +147,42 @@ fn encoded_root_layout_must_cover_exact_heap_slots() {
 
 #[test]
 fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
+    let artifact = KbcArtifact::from_program(
+        common::bytecode_ok("fn main() -> i32 { 1 }"),
+        ArtifactBuildOptions::default(),
+    )
+    .unwrap();
+    for duplicate in [false, true] {
+        let mut forged = artifact.clone();
+        let module = &mut forged.program.modules[forged.program.root.index()];
+        if duplicate {
+            module.constants.push(module.constants[0].clone());
+        } else {
+            let BytecodeInstruction::LoadConst { constant, .. } =
+                &mut module.functions[0].instructions[0]
+            else {
+                panic!("expected constant")
+            };
+            *constant = ConstantId::new(module.constants.len());
+        }
+        let expected = if duplicate {
+            BytecodeVerificationError::DuplicateConstant
+        } else {
+            BytecodeVerificationError::MissingConstant {
+                function: FunctionRef::new(0),
+            }
+        };
+        assert_eq!(verify_program(&forged.program).unwrap_err(), expected);
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        assert!(
+            matches!(decoded.validate_for_loader(&ArtifactCompatibility::default()), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
+        );
+    }
     let mut invalid_register = common::bytecode_ok("fn main() -> i32 { 1 }");
     invalid_register.modules[invalid_register.root.index()].functions[0].instructions[0] =
         BytecodeInstruction::LoadConst {
             dst: Register::new(999),
-            constant: ConstantOperand::I32(1),
+            constant: ConstantId::new(0),
         };
     assert!(matches!(
         verify_program(&invalid_register),
@@ -537,7 +568,6 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
 
 #[test]
 fn forged_repetition_cannot_copy_shared_mutable_identities() {
-    use kagari_bytecode::instruction::ConstantOperand;
     for value in [
         "Cell { value: 1 }",
         "(Cell { value: 1 }, 1)",
@@ -548,6 +578,11 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
         );
         let mut module = common::bytecode_ok(&source);
         verify_program(&module).unwrap();
+        let constant = module.modules[module.root.index()]
+            .constants
+            .iter()
+            .position(|constant| constant == &ConstantOperand::U64(2))
+            .unwrap();
         let function = module.modules[module.root.index()]
             .functions
             .iter_mut()
@@ -561,10 +596,9 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
             .instructions
             .iter()
             .find_map(|i| match i {
-                BytecodeInstruction::LoadConst {
-                    dst,
-                    constant: ConstantOperand::U64(2),
-                } => Some(*dst),
+                BytecodeInstruction::LoadConst { dst, constant: id } if id.index() == constant => {
+                    Some(*dst)
+                }
                 _ => None,
             })
             .unwrap();

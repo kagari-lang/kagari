@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     error::VmError, reentry::reenter, tests::native_fixtures, vm::native::PreparedNativeEntry,
 };
+use kagari_bytecode::instruction::ConstantId;
 use kagari_bytecode::{
     instruction::NativeImportId,
     program::{BytecodeProgram, ModuleRef},
@@ -52,11 +53,11 @@ fn executes_runtime_host_helper_call() {
                         vec![
                             BytecodeInstruction::LoadConst {
                                 dst: Register::new(0),
-                                constant: ConstantOperand::I32(40),
+                                constant: ConstantId::new(0),
                             },
                             BytecodeInstruction::LoadConst {
                                 dst: Register::new(1),
-                                constant: ConstantOperand::I32(2),
+                                constant: ConstantId::new(1),
                             },
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(2)),
@@ -67,6 +68,7 @@ fn executes_runtime_host_helper_call() {
                         ],
                         ValueType::I32,
                         vec![ValueType::I32, ValueType::I32, ValueType::I32],
+                        vec![ConstantOperand::I32(40), ConstantOperand::I32(2)],
                     ),
                     vec![kagari_types::host_interface::HostFunctionDeclaration::new(
                         "host.add_i32",
@@ -147,7 +149,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                         },
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(1),
-                            constant: ConstantOperand::I32(20),
+                            constant: ConstantId::new(0),
                         },
                         BytecodeInstruction::SetPath {
                             root_or_view: Register::new(0),
@@ -158,6 +160,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                         BytecodeInstruction::Return(Some(Register::new(1))),
                     ],
                     ValueType::I32,
+                    vec![ConstantOperand::I32(20)],
                 )],
             };
             let program = if encoded {
@@ -360,7 +363,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
                         },
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(2),
-                            constant: ConstantOperand::I32(5),
+                            constant: ConstantId::new(0),
                         },
                         BytecodeInstruction::SetPath {
                             root_or_view: Register::new(0),
@@ -370,7 +373,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
                         },
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(3),
-                            constant: ConstantOperand::I32(2),
+                            constant: ConstantId::new(1),
                         },
                         BytecodeInstruction::ModifyPath {
                             dst: Some(Register::new(4)),
@@ -389,6 +392,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
                         BytecodeInstruction::Return(Some(Register::new(4))),
                     ],
                     ValueType::I32,
+                    vec![ConstantOperand::I32(5), ConstantOperand::I32(2)],
                 )],
             },
         )
@@ -427,7 +431,7 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
                         },
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(1),
-                            constant: ConstantOperand::I32(2),
+                            constant: ConstantId::new(0),
                         },
                         BytecodeInstruction::SetPath {
                             root_or_view: Register::new(0),
@@ -438,6 +442,7 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
                         BytecodeInstruction::Return(None),
                     ],
                     ValueType::Unit,
+                    vec![ConstantOperand::I32(2)],
                 )],
             },
         )
@@ -472,6 +477,7 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
                         BytecodeInstruction::Return(Some(Register::new(1))),
                     ],
                     ValueType::I32,
+                    vec![],
                 )],
             },
         )
@@ -542,6 +548,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                     BytecodeInstruction::Return(Some(Register::new(1))),
                 ],
                 ValueType::I32,
+                vec![],
             );
             bytecode.paths[0].contract_fingerprint = runtime
                 .host()
@@ -681,12 +688,13 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                     },
                     BytecodeInstruction::LoadConst {
                         dst: Register::new(1),
-                        constant: ConstantOperand::I32(3),
+                        constant: ConstantId::new(0),
                     },
                     instruction,
                     BytecodeInstruction::Return(None),
                 ],
                 ValueType::Unit,
+                vec![ConstantOperand::I32(3)],
             );
             module.paths[0].contract_fingerprint = fingerprint;
             let before = runtime.modules().loaded_count();

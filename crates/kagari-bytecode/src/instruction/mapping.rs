@@ -174,7 +174,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
 
             Self::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
                 dst: *(dst),
-                constant: (constant).clone(),
+                constant: *constant,
             },
             Self::LoadLocal { dst, local } => BytecodeInstruction::LoadLocal {
                 dst: *(dst),

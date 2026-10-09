@@ -529,7 +529,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 - [x] VE00: Current baseline, consumer inventory and selected representation.
 - [x] VE01: Storage, internal reference ownership and roots.
 - [x] VE02: Compact Copy values and complete consumer migration.
-- [ ] VE03: Runtime string constants and shared string access.
+- [x] VE03: Runtime string constants and shared string access.
 - [ ] VE04: Value/reference integration and measurement gate.
 - [ ] VE05: Prepared object and collection operations.
 - [ ] VE06: Prepared script calls and frame transfers.
@@ -858,3 +858,66 @@ Ephemeral accepting HostHandle after compaction; the existing category test now
 checks that distinction. No production semantic fallback or disabled validation
 was used. VE03 owns indexed constant bindings; VE04 still owns the combined
 reference/string performance and lifecycle gate.
+
+### VE03 completed: indexed constants and scoped string inputs
+
+Canonical `LoadConst` now carries a checked `ConstantId`; lowering deduplicates
+portable constants by exact representation (including float bits). Verification
+rejects out-of-range indices and duplicate pool entries. Prepared scalar execution
+still embeds its scalar bits; runtime string bindings live only in the owning
+module record and are traced with that version. Shared verified code remains
+runtime-independent. The first string load materializes the bytes; subsequent
+loads copy the cached Value. Escaped strings retain their own heap storage without
+retaining obsolete module metadata.
+
+Standard string methods now read scoped heap views. Owned host String conversion
+remains explicit, and owned results use the existing typed conversion/rooting and
+resource-limit path after dropping input views. Dynamic interning is deferred.
+Production and migrated test targets compile together. The bytecode representation
+changes directly, without a compatibility reader or unpublished ABI/schema bump;
+VE04 refreshes affected disposable source-free products at its integration gate.
+
+Focused validation (DEVELOPER_DIR=/Library/Developer/CommandLineTools):
+
+- Extended runtime shared-code/isolation contract passes: repeated cached reads,
+  foreign runtime and invalid-index rejection without allocation, version-rooted
+  constants, old-version reclamation, independently rooted escaped string survival
+  and eventual reclamation, and unaffected second-runtime state.
+- Compiler constant contracts: 6 pass, including NaN payload/signed-zero identity,
+  deduplication, semantic integer ranges and source lowering. Existing malformed
+  bytecode contract passes with out-of-range and duplicate-pool cases, including
+  serialized loader rejection. Repeated string lowering shares one pool entry.
+- Embedding string contracts: 5 pass through serialized artifacts and aggressive
+  collection, including content equality, Unicode slices, split/list output,
+  immutable aliases and traps. The initial cleanup assertion expected zero live
+  objects while a published version still owned its constants. The helper now
+  publishes an unused replacement version before asserting exact zero, preserving
+  detection of leaked execution roots rather than ignoring retained objects.
+- Native owned conversion: 10 pass. VM execution/frame/debugger/interface contracts:
+  44 pass, including pinned generations and cleanup. Extended existing key contract
+  proves independently allocated equal UTF-8 strings have equal keys and hashes.
+- Affected runtime, compiler, stdlib, VM, embedding, CLI and Lua benchmark all-target
+  Clippy passes with `-D warnings`. Formatting, structure (983 files, zero violations),
+  imports/visibility/ownership review and `git diff --check` pass. No new unsafe
+  storage was introduced. No full-workspace test or GitHub CI matrix ran.
+
+The unchanged VE00 allocator probe, linked separately as
+`target/ve03/measure_source`, gives the following after three warmups, for each
+5,000-iteration execution (checksum 325000):
+
+| Workload | VE00 allocation/reallocation calls | VE03 calls | VE00 requested bytes | VE03 bytes | VE03 heap allocations / GC collections |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| string constants and length | 480007 | 7 | 50155179 | 163 | 0 / 0 |
+| string function transfer and length | 500007 | 7 | 51455175 | 159 | 0 / 0 |
+
+This removes both VE02's repeated constant materialization and owned standard
+string input conversion. Value transfer and warmed constant access copy no text;
+the remaining seven allocations belong to the complete execution boundary, not
+the loop's string operations. These are allocation diagnostics, not speed or RSS
+claims. Environment/profile/features match VE00; Cargo uses default parallelism
+and target directory. Release library build took 27.22 s, separate from execution.
+Reproduce with `cargo build --release -p kagari-embed`, the rustc command recorded
+by `target/ve03/build_probe.py`/`probe-build.log`, and
+`target/ve03/measure_source target/ve00/strings.kgr`. Raw validation/allocation logs
+are under `target/ve03/`; preserved baseline binaries remain untouched. VE03
+acceptance passes. VE04 owns the combined lifecycle and paired throughput gate.

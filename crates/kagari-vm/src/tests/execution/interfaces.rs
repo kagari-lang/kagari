@@ -1,5 +1,6 @@
 use super::*;
 use crate::{executor::Executor, tests::common::standard_runtime};
+use kagari_bytecode::instruction::ConstantId;
 use kagari_bytecode::instruction::StructId;
 use kagari_contract::types::PublicItem;
 use kagari_runtime::{Runtime, module::LoadedModule};
@@ -524,26 +525,29 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     use kagari_common::identity::ModuleIdentity;
 
     let dependency = interface_instruction_module();
-    let mut consumer = verified_module(vec![test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
-                constant: ConstantOperand::I32(11),
-            },
-            BytecodeInstruction::MakeInterface {
-                dst: Register::new(1),
-                value: Register::new(0),
-                module: ModuleRef::new(0),
-                implementation: InterfaceTableRef::new(0),
-                arguments: vec![],
-            },
-            BytecodeInstruction::Return(Some(Register::new(1))),
-        ],
-        ValueType::HeapObject,
-        vec![ValueType::I32, ValueType::HeapObject],
-    )]);
+    let mut consumer = verified_module(
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::MakeInterface {
+                    dst: Register::new(1),
+                    value: Register::new(0),
+                    module: ModuleRef::new(0),
+                    implementation: InterfaceTableRef::new(0),
+                    arguments: vec![],
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+            ValueType::HeapObject,
+            vec![ValueType::I32, ValueType::HeapObject],
+        )],
+        vec![ConstantOperand::I32(11)],
+    );
     consumer.identity = ModuleIdentity::single_file("interface-consumer.kgr");
     consumer.dependencies = vec![ModuleRef::new(0)];
     let program = BytecodeProgram {

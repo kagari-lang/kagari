@@ -10,6 +10,10 @@ use kagari_contract::{
 };
 use kagari_types::ty::{NominalTy, Ty};
 use serde::{Deserialize, Serialize};
+use std::{
+    hash::{Hash, Hasher},
+    mem,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Register(u16);
@@ -141,6 +145,20 @@ impl NativeImportId {
     }
 }
 
+/// An index into the owning module's portable constant table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ConstantId(u32);
+
+impl ConstantId {
+    pub fn new(index: usize) -> Self {
+        Self(u32::try_from(index).expect("constant table index overflow"))
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConstantOperand {
     Unit,
@@ -167,6 +185,24 @@ impl PartialEq for ConstantOperand {
             (Self::F64(a), Self::F64(b)) => a.to_bits() == b.to_bits(),
             (Self::Str(a), Self::Str(b)) => a == b,
             _ => false,
+        }
+    }
+}
+
+impl Eq for ConstantOperand {}
+
+impl Hash for ConstantOperand {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        mem::discriminant(self).hash(state);
+        match self {
+            Self::Unit => {}
+            Self::Bool(value) => value.hash(state),
+            Self::I32(value) => value.hash(state),
+            Self::I64(value) => value.hash(state),
+            Self::U64(value) => value.hash(state),
+            Self::F32(value) => value.to_bits().hash(state),
+            Self::F64(value) => value.to_bits().hash(state),
+            Self::Str(value) => value.hash(state),
         }
     }
 }
@@ -266,7 +302,7 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
     },
     LoadConst {
         dst: Register,
-        constant: ConstantOperand,
+        constant: ConstantId,
     },
     LoadLocal {
         dst: Register,

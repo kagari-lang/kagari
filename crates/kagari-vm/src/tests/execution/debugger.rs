@@ -162,7 +162,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
         vec![
             BytecodeInstruction::LoadConst {
                 dst: Register::new(0),
-                constant: ConstantOperand::I32(1),
+                constant: ConstantId::new(0),
             },
             BytecodeInstruction::Unreachable,
         ],
@@ -198,7 +198,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
             "debug_trap.kbc",
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![verified_module(vec![main])],
+                modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
             },
         )
         .expect("trap module should load");

@@ -219,9 +219,7 @@ fn charge(work: &mut usize, amount: usize) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_bytecode::instruction::{
-        BinaryOp, ConstantOperand, JumpTarget, LocalSlot, Register,
-    };
+    use kagari_bytecode::instruction::{BinaryOp, ConstantId, JumpTarget, LocalSlot, Register};
 
     #[test]
     fn loop_carried_values_do_not_alias_body_temporaries() {
@@ -231,15 +229,15 @@ mod tests {
             instructions: vec![
                 BytecodeInstruction::LoadConst {
                     dst: r(0),
-                    constant: ConstantOperand::I32(0),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::LoadConst {
                     dst: r(1),
-                    constant: ConstantOperand::I32(3),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::LoadConst {
                     dst: r(2),
-                    constant: ConstantOperand::I32(1),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Binary {
                     dst: r(3),
@@ -288,7 +286,7 @@ mod tests {
                 },
                 BytecodeInstruction::LoadConst {
                     dst: r(1),
-                    constant: ConstantOperand::I32(7),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Move {
                     dst: r(2),
@@ -296,7 +294,7 @@ mod tests {
                 },
                 BytecodeInstruction::LoadConst {
                     dst: r(3),
-                    constant: ConstantOperand::I32(9),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Branch {
                     cond: r(0),

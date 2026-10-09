@@ -1,4 +1,5 @@
 pub(crate) mod collection;
+mod constants;
 pub mod execution;
 mod layouts;
 mod records;
@@ -787,8 +788,11 @@ fn root_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
 mod tests {
     use crate::resource::ResourceState;
     use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeap};
-    use kagari_bytecode::module::BytecodeModuleSlot;
     use kagari_bytecode::program::ModuleRef;
+    use kagari_bytecode::{
+        instruction::{ConstantId, ConstantOperand},
+        module::BytecodeModuleSlot,
+    };
 
     use super::*;
 
@@ -834,6 +838,10 @@ mod tests {
         let code = VerifiedProgram::new(BytecodeProgram {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
+                constants: vec![
+                    ConstantOperand::Str("shared".into()),
+                    ConstantOperand::Str("pool-only".into()),
+                ],
                 module_slots: vec![BytecodeModuleSlot {
                     name: "state".into(),
                     ty: kagari_abi::representation::ValueType::I32,
@@ -857,6 +865,30 @@ mod tests {
         assert!(second_runtime.validate_loaded_module(&second).is_ok());
         assert!(first_runtime.validate_loaded_module(&second).is_err());
         assert!(second_runtime.validate_loaded_module(&first).is_err());
+        let shared = ConstantId::new(0);
+        let escaped = first_runtime.read_constant(&first, shared).unwrap();
+        let before = first_runtime.gc().stats();
+        for _ in 0..100 {
+            assert_eq!(
+                first_runtime.read_constant(&first, shared).unwrap(),
+                escaped
+            );
+        }
+        assert!(first_runtime.read_constant(&second, shared).is_err());
+        assert!(
+            first_runtime
+                .read_constant(&first, ConstantId::new(2))
+                .is_err()
+        );
+        assert_eq!(first_runtime.gc().stats(), before);
+        let second_value = second_runtime.read_constant(&second, shared).unwrap();
+        assert_ne!(escaped, second_value);
+        for (runtime, value) in [(&first_runtime, escaped), (&second_runtime, second_value)] {
+            let Value::Str(id) = value else {
+                panic!("expected string")
+            };
+            assert_eq!(&*runtime.gc().string(id).unwrap(), "shared");
+        }
         first_runtime
             .modules()
             .instance_mut(first.key())
@@ -877,6 +909,48 @@ mod tests {
                 .unwrap()
                 .module_slots,
             vec![Value::Unit]
+        );
+
+        let pool_only = first_runtime
+            .read_constant(&first, ConstantId::new(1))
+            .unwrap();
+        assert_eq!(
+            first_runtime.collect_garbage().unwrap().reclaimed_objects,
+            0
+        );
+        let escaped_root = first_runtime.root_value(escaped).unwrap();
+        let mut replacement = first.to_unverified(&CancellationToken::default()).unwrap();
+        replacement.constants.clear();
+        let candidate = first_runtime
+            .stage_reload_program(
+                &first,
+                "shared",
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![replacement],
+                },
+            )
+            .unwrap();
+        first_runtime.publish_staged_reload(candidate).unwrap();
+        let collected = first_runtime.collect_garbage().unwrap();
+        assert_eq!(collected.reclaimed_modules, vec![first.key()]);
+        assert_eq!(collected.reclaimed_objects, 1);
+        assert!(!first_runtime.gc().validate_value(&pool_only));
+        assert!(first_runtime.gc().validate_value(&escaped));
+        assert!(first_runtime.read_constant(&first, shared).is_err());
+        drop(escaped_root);
+        assert_eq!(
+            first_runtime.collect_garbage().unwrap().reclaimed_objects,
+            1
+        );
+        assert!(!first_runtime.gc().validate_value(&escaped));
+        assert_eq!(
+            second_runtime.collect_garbage().unwrap().reclaimed_objects,
+            0
+        );
+        assert_eq!(
+            second_runtime.read_constant(&second, shared).unwrap(),
+            second_value
         );
     }
 

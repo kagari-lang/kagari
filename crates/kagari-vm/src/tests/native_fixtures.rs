@@ -1,7 +1,7 @@
 //! Compiler-independent fixtures for VM native-entry and fallback decisions.
 use std::{ffi::c_void, sync::Arc};
 
-use kagari_bytecode::instruction::{BytecodeInstruction, ConstantOperand, Register};
+use kagari_bytecode::instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register};
 use kagari_runtime::{
     Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_poll_execution,
     module::LoadedModule,
@@ -58,12 +58,13 @@ pub(super) fn install_i32<const VALUE: i32>(
         .iter()
         .find(|f| f.name == "main")
         .unwrap();
+    assert_eq!(module.bytecode.constants[0], ConstantOperand::I32(VALUE));
     assert_eq!(
         function.instructions,
         [
             BytecodeInstruction::LoadConst {
                 dst: Register::new(0),
-                constant: ConstantOperand::I32(VALUE)
+                constant: ConstantId::new(0)
             },
             BytecodeInstruction::Return(Some(Register::new(0))),
         ],

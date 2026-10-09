@@ -5,7 +5,7 @@ use crate::bytecode::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
-        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, EnumId, FieldRef,
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, EnumId, FieldRef,
         InterfaceTableRef, JumpTarget, LocalSlot, ModuleSlot, NativeImportId, PathId, Register,
         RuntimeHelper, StructId, UnaryOp,
     },
@@ -163,7 +163,7 @@ fn lower_linked_module(
                 mutable: slot.mutable,
             })
             .collect(),
-        constants: Vec::new(),
+        constants: context.constants,
         types: Vec::new(),
         structures: ir.structures.clone(),
         enumerations: ir.enumerations.clone(),
@@ -174,7 +174,6 @@ fn lower_linked_module(
         trait_contracts: ir.abi.trait_contracts.clone(),
         functions,
     };
-    module.constants = collect_constant_pool(&module.functions);
     module.types = collect_type_table(&module);
     module.function_table = collect_function_table(&module.functions);
 
@@ -192,9 +191,21 @@ struct BytecodeLoweringContext<'a> {
     host_interface: HostInterface<DefinitionId>,
     native_imports: Vec<NativeImport<DefinitionId>>,
     paths: Vec<PathRecord>,
+    constants: Vec<ConstantOperand>,
+    constant_ids: HashMap<ConstantOperand, ConstantId>,
 }
 
 impl BytecodeLoweringContext<'_> {
+    fn constant_id(&mut self, value: ConstantOperand) -> ConstantId {
+        if let Some(id) = self.constant_ids.get(&value) {
+            return *id;
+        }
+        let id = ConstantId::new(self.constants.len());
+        self.constants.push(value.clone());
+        self.constant_ids.insert(value, id);
+        id
+    }
+
     fn owner_ref(&self, owner: &ModuleIdentity) -> ModuleRef {
         if let Some(program) = self.program {
             let index = program
@@ -401,20 +412,6 @@ fn collect_function_table(
         .collect()
 }
 
-fn collect_constant_pool(functions: &[BytecodeFunction<DefinitionId>]) -> Vec<ConstantOperand> {
-    let mut constants = Vec::new();
-    for function in functions {
-        for instruction in &function.instructions {
-            if let BytecodeInstruction::LoadConst { constant, .. } = instruction
-                && !constants.contains(constant)
-            {
-                constants.push(constant.clone());
-            }
-        }
-    }
-    constants
-}
-
 fn collect_type_table(module: &BytecodeModule<DefinitionId>) -> Vec<ValueType> {
     let mut types = Vec::new();
     for slot in &module.module_slots {
@@ -540,7 +537,7 @@ fn lower_instruction(
     match instruction {
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
             dst: lower_value(*dst),
-            constant: lower_constant(constant),
+            constant: context.constant_id(lower_constant(constant)),
         },
         Instruction::LoadLocal { dst, local } => BytecodeInstruction::LoadLocal {
             dst: lower_value(*dst),

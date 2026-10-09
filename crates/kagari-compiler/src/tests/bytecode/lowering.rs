@@ -161,6 +161,7 @@ fn add(a: i32, b: i32) -> i32 { a + b }
 
 fn main() -> i32 {
     print("ok");
+    print("ok");
     add(1, 2)
 }
 "#,
@@ -171,15 +172,31 @@ fn main() -> i32 {
         .find(|function| function.name == "main")
         .expect("expected main function");
 
-    assert!(
+    assert_eq!(
         bytecode.modules[bytecode.root.index()]
             .constants
             .iter()
-            .any(|constant| matches!(
+            .filter(|constant| matches!(
                 constant,
                 ConstantOperand::Str(text) if text == "ok"
             ))
+            .count(),
+        1
     );
+    let constants = &bytecode.modules[bytecode.root.index()].constants;
+    let string_loads: Vec<_> = main
+        .instructions
+        .iter()
+        .filter_map(|instruction| {
+            let BytecodeInstruction::LoadConst { constant, .. } = instruction else {
+                return None;
+            };
+            matches!(&constants[constant.index()], ConstantOperand::Str(text) if text == "ok")
+                .then_some(*constant)
+        })
+        .collect();
+    assert_eq!(string_loads.len(), 2);
+    assert_eq!(string_loads[0], string_loads[1]);
     assert!(
         bytecode.modules[bytecode.root.index()]
             .types

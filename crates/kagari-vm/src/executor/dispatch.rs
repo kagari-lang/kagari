@@ -3,7 +3,7 @@ use crate::{
     executor::{Executor, native::invoke_script},
 };
 use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register, RuntimeHelper,
+    BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
@@ -171,17 +171,10 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, result)?;
             }
-            BytecodeInstruction::LoadConst { dst, ref constant } => {
-                let value = match *constant {
-                    ConstantOperand::Unit => Value::Unit,
-                    ConstantOperand::Bool(v) => Value::Bool(v),
-                    ConstantOperand::I32(v) => Value::I32(v),
-                    ConstantOperand::I64(v) => Value::I64(v),
-                    ConstantOperand::U64(v) => Value::U64(v),
-                    ConstantOperand::F32(v) => Value::F32(v),
-                    ConstantOperand::F64(v) => Value::F64(v),
-                    ConstantOperand::Str(ref v) => self.runtime.gc().alloc_string(v.clone())?,
-                };
+            BytecodeInstruction::LoadConst { dst, constant } => {
+                let value = self
+                    .runtime
+                    .read_constant(self.current_frame()?.loaded(), constant)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }

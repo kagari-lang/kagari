@@ -7,7 +7,8 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
-        BytecodeInstruction, CallTarget, ConstantOperand, ModuleSlot, Register, RuntimeHelper,
+        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, ModuleSlot, Register,
+        RuntimeHelper,
     },
     module::{
         BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
@@ -49,20 +50,10 @@ fn test_function(
     }
 }
 
-fn verified_module(functions: Vec<BytecodeFunction>) -> BytecodeModule {
-    let constants = functions
-        .iter()
-        .flat_map(|function| &function.instructions)
-        .filter_map(|instruction| match instruction {
-            BytecodeInstruction::LoadConst { constant, .. } => Some(constant.clone()),
-            _ => None,
-        })
-        .fold(Vec::new(), |mut constants, constant| {
-            if !constants.contains(&constant) {
-                constants.push(constant);
-            }
-            constants
-        });
+fn verified_module(
+    functions: Vec<BytecodeFunction>,
+    constants: Vec<ConstantOperand>,
+) -> BytecodeModule {
     let mut types = vec![ValueType::Unit];
     for function in &functions {
         for ty in std::iter::once(function.metadata.return_type)
@@ -96,38 +87,41 @@ fn verified_module(functions: Vec<BytecodeFunction>) -> BytecodeModule {
 }
 
 fn module_with_mutable_slot(value: i32) -> BytecodeModule {
-    let mut module = verified_module(vec![
-        test_function(
-            0,
-            "init",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
-                    constant: ConstantOperand::I32(value),
-                },
-                BytecodeInstruction::StoreModule {
-                    slot: ModuleSlot::new(0),
-                    src: Register::new(0),
-                },
-                BytecodeInstruction::Return(Some(Register::new(0))),
-            ],
-            ValueType::I32,
-            vec![ValueType::I32],
-        ),
-        test_function(
-            1,
-            "main",
-            vec![
-                BytecodeInstruction::LoadModule {
-                    dst: Register::new(0),
-                    slot: ModuleSlot::new(0),
-                },
-                BytecodeInstruction::Return(Some(Register::new(0))),
-            ],
-            ValueType::I32,
-            vec![ValueType::I32],
-        ),
-    ]);
+    let mut module = verified_module(
+        vec![
+            test_function(
+                0,
+                "init",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantId::new(0),
+                    },
+                    BytecodeInstruction::StoreModule {
+                        slot: ModuleSlot::new(0),
+                        src: Register::new(0),
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(0))),
+                ],
+                ValueType::I32,
+                vec![ValueType::I32],
+            ),
+            test_function(
+                1,
+                "main",
+                vec![
+                    BytecodeInstruction::LoadModule {
+                        dst: Register::new(0),
+                        slot: ModuleSlot::new(0),
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(0))),
+                ],
+                ValueType::I32,
+                vec![ValueType::I32],
+            ),
+        ],
+        vec![ConstantOperand::I32(value)],
+    );
     module.module_slots = vec![BytecodeModuleSlot {
         name: "private".to_owned(),
         ty: ValueType::I32,
@@ -137,19 +131,22 @@ fn module_with_mutable_slot(value: i32) -> BytecodeModule {
 }
 
 fn reloadable_value_module(value: i32) -> BytecodeModule {
-    verified_module(vec![test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
-                constant: ConstantOperand::I32(value),
-            },
-            BytecodeInstruction::Return(Some(Register::new(0))),
-        ],
-        ValueType::I32,
-        vec![ValueType::I32],
-    )])
+    verified_module(
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::Return(Some(Register::new(0))),
+            ],
+            ValueType::I32,
+            vec![ValueType::I32],
+        )],
+        vec![ConstantOperand::I32(value)],
+    )
 }
 
 fn host_call_runtime() -> Runtime {
@@ -189,26 +186,29 @@ fn interface_instruction_module() -> BytecodeModule {
     };
     let trait_id = declaration(DefinitionKind::Trait, "Tag");
     let impl_id = declaration(DefinitionKind::Impl, "");
-    let mut module = verified_module(vec![test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
-                constant: ConstantOperand::I32(7),
-            },
-            BytecodeInstruction::MakeInterface {
-                dst: Register::new(1),
-                value: Register::new(0),
-                module: ModuleRef::new(0),
-                implementation: InterfaceTableRef::new(0),
-                arguments: vec![],
-            },
-            BytecodeInstruction::Return(Some(Register::new(1))),
-        ],
-        ValueType::HeapObject,
-        vec![ValueType::I32, ValueType::HeapObject],
-    )]);
+    let mut module = verified_module(
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::MakeInterface {
+                    dst: Register::new(1),
+                    value: Register::new(0),
+                    module: ModuleRef::new(0),
+                    implementation: InterfaceTableRef::new(0),
+                    arguments: vec![],
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
+            ],
+            ValueType::HeapObject,
+            vec![ValueType::I32, ValueType::HeapObject],
+        )],
+        vec![ConstantOperand::I32(7)],
+    );
     module.identity = identity;
     module.public_items = vec![
         PublicItem::Trait(TraitDef {

@@ -4,8 +4,7 @@ use kagari_abi::{
     version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
 };
 use kagari_bytecode::{
-    artifact::ArtifactValidationError,
-    instruction::{BytecodeInstruction, ConstantOperand},
+    artifact::ArtifactValidationError, instruction::ConstantOperand,
     program::verified::VerifiedBytecodeProgram,
 };
 use kagari_common::{
@@ -419,18 +418,9 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             assert_same_bytecode(&original, &decoded);
             let mut changed = bytecode.to_unverified(&Default::default()).unwrap();
             let module = &mut changed.modules[changed.root.index()];
-            // Keep pool and instruction operands consistent so the modified graph
-            // is independently valid, including NaN payloads and signed zero.
-            let operands = module.constants.iter_mut().chain(
-                module
-                    .functions
-                    .iter_mut()
-                    .flat_map(|function| &mut function.instructions)
-                    .filter_map(|instruction| match instruction {
-                        BytecodeInstruction::LoadConst { constant, .. } => Some(constant),
-                        _ => None,
-                    }),
-            );
+            // Indexed instructions keep their identity while the authoritative
+            // pool changes, including NaN payloads and signed zero.
+            let operands = &mut module.constants;
             for constant in operands {
                 match constant {
                     ConstantOperand::F32(value) => *value = f32::from_bits(value.to_bits() ^ 1),

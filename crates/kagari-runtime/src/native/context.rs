@@ -20,6 +20,7 @@ use crate::{
         binding::{LinkedNativeFunction, NativeResult},
         callable::{CallableHandle, PreparedClosure},
         context::operations::NativeKeyLookupGuard,
+        conversion::{IntoKagari, context::ConversionContext},
         declarations::SelectedCall,
         function_handle::PreparedFunction,
         scalar::NativeScalar,
@@ -352,6 +353,14 @@ impl<'call> CallContext<'call> {
             .type_signature(self.runtime, self.owner)?
             .result
             .parameter(self.runtime, self.owner, index)
+    }
+
+    /// Convert an owned Rust result after all scoped input views are released.
+    /// This uses the typed boundary's limits and temporary roots. The caller
+    /// publishes the returned value before the next safepoint.
+    pub fn encode_result<T: IntoKagari>(&self, value: T) -> NativeResult<Value> {
+        let signature = self.function.type_signature(self.runtime, self.owner)?;
+        ConversionContext::in_native_call(self)?.encode_value(&signature.result, value)
     }
 
     /// Retain the complete result type, including nominal payload scopes.

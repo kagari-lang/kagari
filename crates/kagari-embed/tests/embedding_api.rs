@@ -2,7 +2,8 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     instruction::{
-        BytecodeInstruction, CallTarget, ConstantOperand, NativeImportId, PathId, Register,
+        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, NativeImportId, PathId,
+        Register,
     },
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord,
@@ -134,14 +135,8 @@ fn host_path_artifact(
     instructions: Vec<BytecodeInstruction>,
     registers: Vec<ValueType>,
     return_type: ValueType,
+    constants: Vec<ConstantOperand>,
 ) -> BytecodeArtifact {
-    let constants = instructions
-        .iter()
-        .filter_map(|instruction| match instruction {
-            BytecodeInstruction::LoadConst { constant, .. } => Some(constant.clone()),
-            _ => None,
-        })
-        .collect();
     let metadata = FunctionMetadata {
         return_type,
         roots: RootSlotLayout::from_types(&[], &registers),
@@ -452,6 +447,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         vec![BytecodeInstruction::Return(None)],
         vec![],
         ValueType::Unit,
+        vec![],
     );
     let mut changed = contract.clone();
     changed.abi_fingerprint.0 ^= 1;
@@ -462,6 +458,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         vec![BytecodeInstruction::Return(None)],
         vec![],
         ValueType::Unit,
+        vec![],
     );
 
     let loaded = runtime
@@ -557,7 +554,7 @@ fn installed_host_path_mutation_uses_declared_access() {
             },
             BytecodeInstruction::LoadConst {
                 dst: Register::new(1),
-                constant: ConstantOperand::I32(5),
+                constant: ConstantId::new(0),
             },
             BytecodeInstruction::SetPath {
                 root_or_view: Register::new(0),
@@ -569,6 +566,7 @@ fn installed_host_path_mutation_uses_declared_access() {
         ],
         vec![ValueType::HostHandle, ValueType::I32],
         ValueType::Unit,
+        vec![ConstantOperand::I32(5)],
     );
     let loaded = runtime
         .load_program(
@@ -623,6 +621,7 @@ fn installed_host_path_reads_need_no_permission_flags() {
         ],
         vec![ValueType::HostHandle, ValueType::I32],
         ValueType::I32,
+        vec![],
     );
     let loaded = runtime
         .load_program(

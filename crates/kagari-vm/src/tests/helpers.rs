@@ -138,14 +138,8 @@ fn path_module(
     name: &str,
     instructions: Vec<BytecodeInstruction>,
     return_type: ValueType,
+    constants: Vec<ConstantOperand>,
 ) -> BytecodeModule {
-    let instructions_constants = instructions
-        .iter()
-        .filter_map(|instruction| match instruction {
-            BytecodeInstruction::LoadConst { constant, .. } => Some(constant.clone()),
-            _ => None,
-        })
-        .collect();
     let metadata = FunctionMetadata {
         return_type,
         registers: vec![
@@ -176,7 +170,7 @@ fn path_module(
         host_interface,
         native_imports,
         module_slots: vec![],
-        constants: instructions_constants,
+        constants,
         types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
             contract_fingerprint: runtime

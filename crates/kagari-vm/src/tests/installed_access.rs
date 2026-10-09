@@ -6,8 +6,8 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
-        BytecodeInstruction, CallTarget, ConstantOperand, NativeImportId, Register, RuntimeHelper,
-        StructId,
+        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, NativeImportId, Register,
+        RuntimeHelper, StructId,
     },
     program::{BytecodeProgram, ModuleRef},
 };
@@ -48,6 +48,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
                         ],
                         ValueType::I32,
                         vec![ValueType::I32],
+                        vec![],
                     ),
                     vec![kagari_types::host_interface::HostFunctionDeclaration::new(
                         "host.hidden",
@@ -80,7 +81,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
                     vec![
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(0),
-                            constant: ConstantOperand::I32(7),
+                            constant: ConstantId::new(0),
                         },
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(1)),
@@ -91,6 +92,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
                     ],
                     ValueType::Str,
                     vec![ValueType::I32, ValueType::Str],
+                    vec![ConstantOperand::I32(7)],
                 )],
             },
         )
@@ -131,7 +133,7 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
                     vec![
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(0),
-                            constant: ConstantOperand::I32(1),
+                            constant: ConstantId::new(0),
                         },
                         BytecodeInstruction::MakeStruct {
                             dst: Register::new(1),
@@ -141,7 +143,7 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
                         },
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(2),
-                            constant: ConstantOperand::I32(2),
+                            constant: ConstantId::new(1),
                         },
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(3)),
@@ -159,6 +161,7 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
                         ValueType::I32,
                         ValueType::HeapObject,
                     ],
+                    vec![ConstantOperand::I32(1), ConstantOperand::I32(2)],
                 )],
             },
         )

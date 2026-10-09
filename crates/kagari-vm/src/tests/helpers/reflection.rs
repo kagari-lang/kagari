@@ -1,5 +1,6 @@
 use super::*;
 use crate::tests::{common, common::standard_runtime};
+use kagari_bytecode::instruction::ConstantId;
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 use kagari_runtime::value_semantics::script_equal;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -13,7 +14,7 @@ fn executes_runtime_reflect_type_of_helper() {
             vec![
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(0),
-                    constant: ConstantOperand::I32(7),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(1)),
@@ -24,6 +25,7 @@ fn executes_runtime_reflect_type_of_helper() {
             ],
             ValueType::Str,
             vec![ValueType::I32, ValueType::Str],
+            vec![ConstantOperand::I32(7)],
         ),
     );
 
@@ -52,7 +54,7 @@ fn runtime_reflection_helpers_use_declared_metadata() {
             vec![
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(0),
-                    constant: ConstantOperand::I32(7),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(1)),
@@ -63,6 +65,7 @@ fn runtime_reflection_helpers_use_declared_metadata() {
             ],
             ValueType::Str,
             vec![ValueType::I32, ValueType::Str],
+            vec![ConstantOperand::I32(7)],
         ),
     );
 
@@ -96,7 +99,7 @@ fn declared_reflection_reads_are_available() {
                     vec![
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(0),
-                            constant: ConstantOperand::I32(1),
+                            constant: ConstantId::new(0),
                         },
                         BytecodeInstruction::MakeStruct {
                             dst: Register::new(1),
@@ -115,6 +118,7 @@ fn declared_reflection_reads_are_available() {
                     ],
                     ValueType::I32,
                     vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
+                    vec![ConstantOperand::I32(1)],
                 )],
             },
         )
@@ -145,7 +149,7 @@ fn declared_reflection_writes_are_available() {
                     vec![
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(0),
-                            constant: ConstantOperand::I32(1),
+                            constant: ConstantId::new(0),
                         },
                         BytecodeInstruction::MakeStruct {
                             dst: Register::new(1),
@@ -155,7 +159,7 @@ fn declared_reflection_writes_are_available() {
                         },
                         BytecodeInstruction::LoadConst {
                             dst: Register::new(2),
-                            constant: ConstantOperand::I32(2),
+                            constant: ConstantId::new(1),
                         },
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(3)),
@@ -173,6 +177,7 @@ fn declared_reflection_writes_are_available() {
                         ValueType::I32,
                         ValueType::HeapObject,
                     ],
+                    vec![ConstantOperand::I32(1), ConstantOperand::I32(2)],
                 )],
             },
         )
@@ -190,7 +195,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
             vec![
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(0),
-                    constant: ConstantOperand::I32(1),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::MakeStruct {
                     dst: Register::new(1),
@@ -200,7 +205,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
                 },
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(2),
-                    constant: ConstantOperand::I32(9),
+                    constant: ConstantId::new(1),
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(3)),
@@ -226,6 +231,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
                 ValueType::HeapObject,
                 ValueType::I32,
             ],
+            vec![ConstantOperand::I32(1), ConstantOperand::I32(9)],
         ),
     );
 
@@ -250,11 +256,11 @@ fn executes_runtime_reflect_set_index_helper() {
             vec![
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(0),
-                    constant: ConstantOperand::I32(1),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(1),
-                    constant: ConstantOperand::I32(2),
+                    constant: ConstantId::new(1),
                 },
                 BytecodeInstruction::MakeArray {
                     element: Ty::Builtin(BuiltinType::I32),
@@ -263,7 +269,7 @@ fn executes_runtime_reflect_set_index_helper() {
                 },
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(3),
-                    constant: ConstantOperand::I32(0),
+                    constant: ConstantId::new(2),
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(4)),
@@ -279,6 +285,11 @@ fn executes_runtime_reflect_set_index_helper() {
                 ValueType::HeapObject,
                 ValueType::I32,
                 ValueType::HeapObject,
+            ],
+            vec![
+                ConstantOperand::I32(1),
+                ConstantOperand::I32(2),
+                ConstantOperand::I32(0),
             ],
         ),
     );

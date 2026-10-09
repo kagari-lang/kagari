@@ -90,6 +90,7 @@ pub fn test_function_module(
     instructions: Vec<BytecodeInstruction>,
     return_type: ValueType,
     registers: Vec<ValueType>,
+    constants: Vec<ConstantOperand>,
 ) -> BytecodeModule {
     let metadata = FunctionMetadata {
         return_type,
@@ -98,7 +99,7 @@ pub fn test_function_module(
         ..FunctionMetadata::default()
     };
     BytecodeModule {
-        constants: constants_for_instructions(&instructions),
+        constants,
         types: unique_types(
             std::iter::once(ValueType::Unit)
                 .chain(std::iter::once(metadata.return_type))
@@ -139,18 +140,6 @@ pub fn with_host_imports(
     module
 }
 
-pub fn constants_for_instructions(instructions: &[BytecodeInstruction]) -> Vec<ConstantOperand> {
-    let mut constants = Vec::new();
-    for instruction in instructions {
-        if let BytecodeInstruction::LoadConst { constant, .. } = instruction
-            && !constants.contains(constant)
-        {
-            constants.push(constant.clone());
-        }
-    }
-    constants
-}
-
 pub fn unique_types(types: impl IntoIterator<Item = ValueType>) -> Vec<ValueType> {
     let mut unique = Vec::new();
     for ty in types {
@@ -167,8 +156,9 @@ pub fn point_function_module(
     instructions: Vec<BytecodeInstruction>,
     return_type: ValueType,
     registers: Vec<ValueType>,
+    constants: Vec<ConstantOperand>,
 ) -> BytecodeModule {
-    let mut module = test_function_module(name, instructions, return_type, registers);
+    let mut module = test_function_module(name, instructions, return_type, registers, constants);
     let program = compile_test_bytecode("struct Point { var x: i32 }");
     module.structures = program.modules[program.root.index()].structures.clone();
     module

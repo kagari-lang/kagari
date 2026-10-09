@@ -1,7 +1,7 @@
 use super::*;
 use crate::tests::common::standard_runtime;
 use kagari_bytecode::{
-    instruction::StructId,
+    instruction::{ConstantId, StructId},
     program::{BytecodeProgram, ModuleRef, verify_program},
 };
 use kagari_runtime::error::RuntimeErrorKind;
@@ -53,19 +53,22 @@ fn executes_simple_arithmetic_function() {
 
 #[test]
 fn rejects_unverified_bytecode_before_publication() {
-    let mut bytecode = verified_module(vec![test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
-                constant: ConstantOperand::I32(1),
-            },
-            BytecodeInstruction::Return(Some(Register::new(0))),
-        ],
-        ValueType::I32,
-        vec![ValueType::I32],
-    )]);
+    let mut bytecode = verified_module(
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::Return(Some(Register::new(0))),
+            ],
+            ValueType::I32,
+            vec![ValueType::I32],
+        )],
+        vec![ConstantOperand::I32(1)],
+    );
     bytecode.function_table.clear();
     let mut runtime = standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {
@@ -90,38 +93,44 @@ fn rejects_unverified_bytecode_before_publication() {
 
 #[test]
 fn rejects_unsupported_bytecode_before_publication() {
-    let register_call = verified_module(vec![test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
-                constant: ConstantOperand::I32(1),
-            },
-            BytecodeInstruction::Call {
-                dst: None,
-                callee: CallTarget::Register(Register::new(0)),
-                args: vec![],
-            },
-            BytecodeInstruction::Return(None),
-        ],
-        ValueType::Unit,
-        vec![ValueType::I32],
-    )]);
-    let dynamic_call = verified_module(vec![test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::Call {
-                dst: None,
-                callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
-                args: vec![],
-            },
-            BytecodeInstruction::Return(None),
-        ],
-        ValueType::Unit,
+    let register_call = verified_module(
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::Call {
+                    dst: None,
+                    callee: CallTarget::Register(Register::new(0)),
+                    args: vec![],
+                },
+                BytecodeInstruction::Return(None),
+            ],
+            ValueType::Unit,
+            vec![ValueType::I32],
+        )],
+        vec![ConstantOperand::I32(1)],
+    );
+    let dynamic_call = verified_module(
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::Call {
+                    dst: None,
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
+                    args: vec![],
+                },
+                BytecodeInstruction::Return(None),
+            ],
+            ValueType::Unit,
+            vec![],
+        )],
         vec![],
-    )]);
+    );
     let mut runtime = standard_runtime(Default::default());
     for (name, bytecode) in [
         ("register_call.kbc", register_call),
@@ -144,20 +153,23 @@ fn rejects_unsupported_bytecode_before_publication() {
 
 #[test]
 fn unsupported_dynamic_invocation_is_rejected() {
-    let dynamic_call = verified_module(vec![test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::Call {
-                dst: None,
-                callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
-                args: vec![],
-            },
-            BytecodeInstruction::Return(None),
-        ],
-        ValueType::Unit,
+    let dynamic_call = verified_module(
+        vec![test_function(
+            0,
+            "main",
+            vec![
+                BytecodeInstruction::Call {
+                    dst: None,
+                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
+                    args: vec![],
+                },
+                BytecodeInstruction::Return(None),
+            ],
+            ValueType::Unit,
+            vec![],
+        )],
         vec![],
-    )]);
+    );
     let mut runtime = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
@@ -279,13 +291,16 @@ fn unreachable_instruction_is_a_script_trap() {
             "trap.kbc",
             BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![verified_module(vec![test_function(
-                    0,
-                    "main",
-                    vec![BytecodeInstruction::Unreachable],
-                    ValueType::Unit,
+                modules: vec![verified_module(
+                    vec![test_function(
+                        0,
+                        "main",
+                        vec![BytecodeInstruction::Unreachable],
+                        ValueType::Unit,
+                        vec![],
+                    )],
                     vec![],
-                )])],
+                )],
             },
         )
         .expect("module should load");

@@ -171,6 +171,7 @@ pub(super) fn verify(
             let mut produced: Option<(Register, Fact)> = None;
             match instruction {
                 I::LoadConst { dst, constant } => {
+                    let constant = module.constants.get(constant.index()).ok_or_else(invalid)?;
                     let ty = match constant {
                         ConstantOperand::Unit => B::Unit,
                         ConstantOperand::Bool(_) => B::Bool,

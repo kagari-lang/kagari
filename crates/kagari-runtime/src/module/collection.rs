@@ -50,6 +50,12 @@ impl ProgramGraph<'_> {
         for member in program.members() {
             let record = self.store.records.get(&member.key())?;
             record
+                .constants
+                .iter()
+                .flatten()
+                .rev()
+                .for_each(&mut *visit);
+            record
                 .instance
                 .module_slots
                 .iter()

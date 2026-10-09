@@ -115,6 +115,8 @@ pub enum BytecodeVerificationError {
     },
     #[error("instruction in {function:?} references a missing constant")]
     MissingConstant { function: FunctionRef },
+    #[error("duplicate entry in the module constant table")]
+    DuplicateConstant,
     #[error("metadata in {function:?} references missing type {ty:?}")]
     MissingType {
         function: FunctionRef,
@@ -179,6 +181,7 @@ impl BytecodeVerificationError {
             Self::ReadOnlyPath { .. } => "KG_BYTECODE_READ_ONLY_PATH",
             Self::InvalidFunctionRef { .. } => "KG_BYTECODE_INVALID_FUNCTION_REF",
             Self::MissingConstant { .. } => "KG_BYTECODE_MISSING_CONSTANT",
+            Self::DuplicateConstant => "KG_BYTECODE_DUPLICATE_CONSTANT",
             Self::MissingType { .. } => "KG_BYTECODE_MISSING_TYPE",
             Self::InvalidJumpTarget { .. } => "KG_BYTECODE_INVALID_JUMP_TARGET",
             Self::TypeMismatch { .. } => "KG_BYTECODE_TYPE_MISMATCH",
@@ -204,6 +207,14 @@ pub(super) fn verify_module_with_program(
     program: Option<&BytecodeProgram>,
     flow_budget: &mut FlowBudget,
 ) -> Result<Vec<Vec<AwaitLiveness>>, BytecodeVerificationError> {
+    let mut constants = HashSet::with_capacity(module.constants.len());
+    if !module
+        .constants
+        .iter()
+        .all(|constant| constants.insert(constant))
+    {
+        return Err(BytecodeVerificationError::DuplicateConstant);
+    }
     if module
         .paths
         .iter()

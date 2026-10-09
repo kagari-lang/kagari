@@ -139,7 +139,13 @@ impl ExecutionModule {
                     let instructions = function
                         .instructions
                         .iter()
-                        .map(|instruction| ExecutionInstruction::prepare(instruction, &registers))
+                        .map(|instruction| {
+                            ExecutionInstruction::prepare(
+                                instruction,
+                                &registers,
+                                &module.constants,
+                            )
+                        })
                         .collect();
                     ExecutionFunction {
                         instructions,
@@ -153,7 +159,11 @@ impl ExecutionModule {
 }
 
 impl ExecutionInstruction {
-    fn prepare(instruction: &BytecodeInstruction<DefinitionId>, registers: &FrameLayout) -> Self {
+    fn prepare(
+        instruction: &BytecodeInstruction<DefinitionId>,
+        registers: &FrameLayout,
+        constants: &[ConstantOperand],
+    ) -> Self {
         let location = |register: Register| {
             registers
                 .location(register.index())
@@ -184,8 +194,8 @@ impl ExecutionInstruction {
         };
 
         match *instruction {
-            BytecodeInstruction::LoadConst { dst, ref constant } => {
-                let value = match *constant {
+            BytecodeInstruction::LoadConst { dst, constant } => {
+                let value = match constants[constant.index()] {
                     ConstantOperand::Unit => Value::Unit,
                     ConstantOperand::Bool(v) => Value::Bool(v),
                     ConstantOperand::I32(v) => Value::I32(v),

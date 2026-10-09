@@ -585,6 +585,13 @@ mod tests {
             assert_eq!(a.script_hash(), b.script_hash());
             assert_eq!(a.to_value(), value);
         }
+        let first = gc.alloc_string("é🙂".into()).unwrap();
+        let second = gc.alloc_string("é🙂".into()).unwrap();
+        assert_ne!(first, second);
+        let first_key = MapKey::from_value(&gc, &first).unwrap();
+        let second_key = MapKey::from_value(&gc, &second).unwrap();
+        assert_eq!(first_key, second_key);
+        assert_eq!(first_key.script_hash(), second_key.script_hash());
         assert!(MapKey::from_value(&gc, &Value::F64(1.0)).is_none());
     }
 }

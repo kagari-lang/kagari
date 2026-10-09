@@ -36,10 +36,11 @@ fn integer_constants_must_match_semantic_range_and_representation() {
     ] {
         let mut bytecode = common::bytecode_ok(source);
         let mut replaced = false;
-        for function in &mut bytecode.modules[bytecode.root.index()].functions {
+        let module = &mut bytecode.modules[bytecode.root.index()];
+        for function in &mut module.functions {
             for instruction in &mut function.instructions {
                 if let BytecodeInstruction::LoadConst { constant, .. } = instruction {
-                    *constant = invalid.clone();
+                    module.constants[constant.index()] = invalid.clone();
                     replaced = true;
                 }
             }
@@ -655,9 +656,9 @@ fn emits_the_declared_entry_block_first() {
     assert!(matches!(
         bytecode.modules[bytecode.root.index()].functions[0].instructions[0],
         BytecodeInstruction::LoadConst {
-            constant: ConstantOperand::I32(42),
+            constant,
             ..
-        }
+        } if bytecode.modules[bytecode.root.index()].constants[constant.index()] == ConstantOperand::I32(42)
     ));
 }
 

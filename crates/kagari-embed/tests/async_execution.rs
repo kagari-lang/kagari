@@ -3,7 +3,8 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{
-        BytecodeInstruction as I, CallTarget, ConstantOperand, LocalSlot, NativeImportId, Register,
+        BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand, LocalSlot,
+        NativeImportId, Register,
     },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
@@ -195,7 +196,7 @@ impl Fixture {
             vec![
                 I::LoadConst {
                     dst: Register::new(1),
-                    constant: ConstantOperand::I32(13),
+                    constant: ConstantId::new(0),
                 },
                 I::Call {
                     dst: Some(Register::new(0)),

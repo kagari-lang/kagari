@@ -5,7 +5,7 @@ use crate::{
 };
 use kagari_abi::{native::BackendId, representation::ValueType};
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, ConstantOperand, Register},
+    instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register},
     module::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
     },
@@ -92,12 +92,13 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
         vec![
             BytecodeInstruction::LoadConst {
                 dst: Register::new(0),
-                constant: ConstantOperand::I32(7),
+                constant: ConstantId::new(0),
             },
             BytecodeInstruction::Return(Some(Register::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],
+        vec![ConstantOperand::I32(7)],
     );
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(jit_runtime(), "jit_fallback", module);
@@ -253,6 +254,7 @@ fn ordinary_interpreter_execution_has_no_jit_report() {
         vec![BytecodeInstruction::Return(None)],
         ValueType::Unit,
         Vec::new(),
+        vec![],
     );
     let (runtime, loaded) = common::load_bytecode_module("interpreter_only", module);
     let vm = Vm::new(runtime);
@@ -278,12 +280,13 @@ fn jit_native_execution_reports_installed_artifact() {
         vec![
             BytecodeInstruction::LoadConst {
                 dst: Register::new(0),
-                constant: ConstantOperand::I32(7),
+                constant: ConstantId::new(0),
             },
             BytecodeInstruction::Return(Some(Register::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],
+        vec![ConstantOperand::I32(7)],
     );
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(jit_runtime(), "jit_native", module);
@@ -319,12 +322,13 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
         vec![
             BytecodeInstruction::LoadConst {
                 dst: Register::new(0),
-                constant: ConstantOperand::I32(7),
+                constant: ConstantId::new(0),
             },
             BytecodeInstruction::Return(Some(Register::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],
+        vec![ConstantOperand::I32(7)],
     );
     let (runtime, loaded) =
         common::load_bytecode_module_with_runtime(jit_runtime(), "jit_policy_disabled", module);
@@ -444,12 +448,13 @@ fn debug_test_module(value: i32) -> BytecodeModule {
         vec![
             BytecodeInstruction::LoadConst {
                 dst: Register::new(0),
-                constant: ConstantOperand::I32(value),
+                constant: ConstantId::new(0),
             },
             BytecodeInstruction::Return(Some(Register::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],
+        vec![ConstantOperand::I32(value)],
     );
     let span = Span::new(0, 4);
     let function = &mut module.functions[0];

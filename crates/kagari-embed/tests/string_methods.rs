@@ -42,6 +42,11 @@ fn run(source: &str, expected_error: Option<&str>) {
         runtime.runtime().resources().counters().current_call_depth,
         0
     );
+    // The published version owns its materialized constants. Replace it with an
+    // unused version so this assertion still detects leaked execution roots.
+    runtime
+        .reload_program(&loaded, &program, Default::default())
+        .unwrap();
     assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
     assert!(!runtime.runtime().is_quarantined());
 }
