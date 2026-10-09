@@ -693,6 +693,16 @@ admission. Window identity and initialization are checked before transactional
 frame publication. Scalar-only sources skip heap-reference walks. Concrete scalar
 returns use an opaque packet until the caller slot or public host boundary;
 shared environments and interface adapters retain their full return validation.
+Concrete Function/ModuleFunction call sites prepare the callee layout, physical
+argument transfers and return destination once. The executing canonical PC selects
+the record; module slots bind through the caller's pinned program descriptor.
+Shared verified records contain no runtime-local identities. Admission reuses one
+session/scope check until frame creation, while retaining dynamic argument, depth
+and cancellation checks. Scalar returns without environment/interface adaptation
+reuse the admitted stack borrow through retirement and caller publication; root
+conversion and adapters run after releasing that borrow. Arena allocation order
+allows last-allocated windows to truncate both banks; independent out-of-order
+retirement still compacts ranges and preserves surviving window identities.
 Native callable frames have prepared signature layouts. Native arithmetic and
 casts admit tagged inputs once and invoke the same payload kernels as scripts.
 Managed results retain their normal allocation/root protocol.

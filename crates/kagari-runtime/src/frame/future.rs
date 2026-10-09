@@ -153,6 +153,7 @@ impl ExecutionStack<'_> {
             FrameArguments::plain(&closure.captures),
             destination,
             FrameDispatch {
+                prepared: None,
                 entry: FrameEntry::Await,
                 interface_method: None,
                 environment: closure.environment.clone(),

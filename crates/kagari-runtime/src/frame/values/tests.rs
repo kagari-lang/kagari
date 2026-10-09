@@ -1,6 +1,8 @@
 use super::*;
-use crate::Runtime;
-use crate::module::execution::layout::Location;
+use crate::{
+    Runtime,
+    module::execution::{calls::ArgumentTransfer, layout::Location},
+};
 use kagari_bytecode::{
     instruction::Register,
     module::BytecodeModule,
@@ -145,7 +147,23 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
         )
         .unwrap();
     let registers = [Register::new(1), Register::new(0), Register::new(1)];
-    let arguments = FrameArguments::frame(caller, &registers);
+    let transfers = registers
+        .iter()
+        .enumerate()
+        .map(|(index, register)| ArgumentTransfer {
+            source: values
+                .window(caller)
+                .unwrap()
+                .location(register.index())
+                .unwrap(),
+            target: Location {
+                operand: OperandSlot::new(4096 + index, true),
+                representation: ValueType::Generic,
+                semantic: None,
+            },
+        })
+        .collect::<Vec<_>>();
+    let arguments = FrameArguments::frame(caller, &transfers);
     let callee = values
         .allocate(8192, 4096, &arguments, module.clone(), None, None)
         .unwrap();
@@ -274,7 +292,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
             4,
             0,
             &FrameArguments::plain(&[Value::U64(u64::MAX)]),
-            module,
+            module.clone(),
             None,
             Some(scalar_layout()),
         )
@@ -282,5 +300,49 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     assert_eq!(
         values.with_value(slots, 0, Value::clone),
         Some(Value::U64(u64::MAX))
+    );
+    let mut narrow = scalar_layout();
+    Arc::get_mut(&mut narrow).unwrap().locations[0].semantic = Some(BuiltinType::U8);
+    let transfers = [ArgumentTransfer {
+        source: scalar_layout().location(0).unwrap(),
+        target: narrow.location(0).unwrap(),
+    }];
+    assert!(
+        values
+            .allocate(
+                4,
+                0,
+                &FrameArguments::frame(slots, &transfers),
+                module.clone(),
+                None,
+                Some(narrow.clone())
+            )
+            .is_err()
+    );
+    assert_eq!(values.active_windows(), 1);
+    assert_eq!(values.payloads.len(), 3);
+    assert_eq!(
+        values.with_value(slots, 0, Value::clone),
+        Some(Value::U64(u64::MAX))
+    );
+    values.set(slots, 0, Value::U64(255)).unwrap();
+    let accepted = values
+        .allocate(
+            4,
+            0,
+            &FrameArguments::frame(slots, &transfers),
+            module,
+            None,
+            Some(narrow),
+        )
+        .unwrap();
+    assert_eq!(
+        values.with_value(accepted, 0, Value::clone),
+        Some(Value::U64(255))
+    );
+    values.release(accepted).unwrap();
+    assert_eq!(
+        values.with_value(slots, 0, Value::clone),
+        Some(Value::U64(255))
     );
 }

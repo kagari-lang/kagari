@@ -531,15 +531,13 @@ impl<'a> Executor<'a> {
                 .invoke_native(self.runtime, *import, args, dst, invoke_script)
                 .map_err(VmError::RuntimeError);
         }
-        let direct = match *callee {
-            CallTarget::Function(function) => Some((self.current_frame()?.module(), function)),
-            CallTarget::ModuleFunction { module, function } => Some((module, function)),
-            _ => None,
-        };
-        if let Some((module, function)) = direct {
+        if matches!(
+            callee,
+            CallTarget::Function(_) | CallTarget::ModuleFunction { .. }
+        ) {
             return self
                 .stack
-                .push_registers(self.runtime, module, function, args, dst)
+                .push_prepared_call(self.runtime)
                 .map_err(VmError::RuntimeError);
         }
         let arg_values = args

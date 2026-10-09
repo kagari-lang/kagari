@@ -306,23 +306,15 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             None,
         )
         .unwrap();
-    for instruction in &caller.instructions {
-        if let BytecodeInstruction::LoadLocal { dst, local } = instruction {
-            let value = stack
-                .current()
-                .unwrap()
-                .read_local(&runtime, *local)
-                .unwrap();
-            stack
-                .current_mut()
-                .unwrap()
-                .write_register(&runtime, *dst, value)
-                .unwrap();
-        }
-    }
-    stack
-        .push_registers(&runtime, module, callee, arguments, None)
-        .unwrap();
+    assert!(matches!(
+        stack
+            .cursor(&runtime)
+            .unwrap()
+            .execute_region(&mut None)
+            .unwrap(),
+        RegionExit::Boundary
+    ));
+    stack.push_prepared_call(&runtime).unwrap();
     for (index, expected) in [11, 20, 11].into_iter().enumerate() {
         assert_eq!(
             stack
@@ -349,9 +341,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
     stack.pop().unwrap();
     let (window, _) = measured(|| {
         for _ in 0..1000 {
-            stack
-                .push_registers(&runtime, module, callee, black_box(arguments), None)
-                .unwrap();
+            stack.push_prepared_call(black_box(&runtime)).unwrap();
             stack.pop().unwrap();
         }
     });
@@ -364,9 +354,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     .write_register(&runtime, *register, *value)
                     .unwrap();
             }
-            stack
-                .push_registers(&runtime, module, callee, black_box(arguments), destination)
-                .unwrap();
+            stack.push_prepared_call(black_box(&runtime)).unwrap();
             let RegionExit::Return(value) = stack
                 .cursor(&runtime)
                 .unwrap()

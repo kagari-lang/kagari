@@ -2,13 +2,17 @@
 //! Logical PCs remain one-to-one with the canonical code. Identity-bearing and
 //! variable-length operands stay in that immutable code, addressed by the PC.
 pub(crate) mod allocation;
+pub(crate) mod calls;
 pub(crate) mod layout;
 
 use crate::{
     frame::values::scalar,
     module::{
         LoadedModule, StructLayoutRef,
-        execution::layout::{FrameLayout, scalar_type},
+        execution::{
+            calls::PreparedScriptCall,
+            layout::{FrameLayout, scalar_type},
+        },
     },
     numeric::binary_operation,
     value::Value,
@@ -155,6 +159,7 @@ pub(crate) struct ExecutionFunction {
     /// Managed physical locations retained immediately before an await. Slot
     /// coalescing may share a location: any live logical alias keeps it alive.
     pub awaits: BTreeMap<usize, Box<[u64]>>,
+    pub calls: BTreeMap<usize, PreparedScriptCall>,
 }
 
 impl ExecutionModule {
@@ -202,6 +207,7 @@ impl ExecutionModule {
                         instructions,
                         registers,
                         awaits,
+                        calls: BTreeMap::new(),
                     }
                 })
                 .collect(),

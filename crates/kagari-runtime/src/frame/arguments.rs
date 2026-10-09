@@ -1,12 +1,14 @@
 //! Captures and explicit arguments feed frame roots without a temporary vector.
-use crate::{Runtime, error::RuntimeError, frame::values::FrameSlots, value::Value};
-use kagari_bytecode::instruction::Register;
+use crate::{
+    Runtime, error::RuntimeError, frame::values::FrameSlots,
+    module::execution::calls::ArgumentTransfer, value::Value,
+};
 use std::slice;
 
 #[derive(Clone, Copy)]
 pub(crate) struct FrameArguments<'args> {
     captures: &'args [Value],
-    window: Option<(FrameSlots, &'args [Register])>,
+    window: Option<(FrameSlots, &'args [ArgumentTransfer])>,
     explicit: &'args [Value],
     count: usize,
 }
@@ -37,16 +39,16 @@ impl<'args> FrameArguments<'args> {
         })
     }
 
-    pub(crate) fn frame(slots: FrameSlots, registers: &'args [Register]) -> Self {
+    pub(crate) fn frame(slots: FrameSlots, transfers: &'args [ArgumentTransfer]) -> Self {
         Self {
             captures: &[],
             explicit: &[],
-            count: registers.len(),
-            window: Some((slots, registers)),
+            count: transfers.len(),
+            window: Some((slots, transfers)),
         }
     }
 
-    pub(crate) fn window(self) -> Option<(FrameSlots, &'args [Register])> {
+    pub(crate) fn window(self) -> Option<(FrameSlots, &'args [ArgumentTransfer])> {
         self.window
     }
 
@@ -55,7 +57,7 @@ impl<'args> FrameArguments<'args> {
         runtime: &Runtime,
         mut check: impl FnMut(&Value) -> bool,
     ) -> Result<bool, RuntimeError> {
-        let Some((slots, registers)) = self.window else {
+        let Some((slots, transfers)) = self.window else {
             return Ok(self.iter().all(check));
         };
         let storage = runtime.resources().frame_values.try_borrow().map_err(|_| {
@@ -63,9 +65,9 @@ impl<'args> FrameArguments<'args> {
                 .resources()
                 .quarantine("argument window borrowed during call entry")
         })?;
-        for register in registers {
+        for transfer in transfers {
             let valid = storage
-                .check_managed(slots, register.index(), &mut check)
+                .check_managed_location(slots, transfer.source, &mut check)
                 .ok_or_else(|| {
                     runtime
                         .resources()

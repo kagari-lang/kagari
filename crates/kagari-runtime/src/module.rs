@@ -150,7 +150,7 @@ impl VerifiedProgram {
             .map(Arc::new)
             .collect();
         let mut allocation_work = 0;
-        let execution = modules
+        let mut execution: Vec<ExecutionModule> = modules
             .iter()
             .enumerate()
             .map(|(index, module)| {
@@ -163,8 +163,21 @@ impl VerifiedProgram {
                 )
             })
             .collect();
+        let layouts = execution
+            .iter()
+            .map(|module| {
+                module
+                    .functions
+                    .iter()
+                    .map(|function| function.registers.clone())
+                    .collect()
+            })
+            .collect::<Vec<Vec<_>>>();
+        for (index, prepared) in execution.iter_mut().enumerate() {
+            prepared.prepare_calls(ModuleRef::new(index), &modules[index], &layouts);
+        }
         Self {
-            execution,
+            execution: execution.into(),
             root: program.program().root,
             version: modules.clone(),
             version_definitions: definitions.clone(),

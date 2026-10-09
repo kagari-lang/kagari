@@ -623,9 +623,10 @@ expansion and new numeric APIs remain outside these completed tracks.
 
 The [compact values and interpreter execution plan](interpreter-value-execution-plan.md)
 defines the active VE00-VE08 follow-up. Goal execution was authorized on 2026-10-09;
-VE00-VE05 are locally complete with 16-byte Copy values, checked compact identities,
+VE00-VE06 are locally complete with 16-byte Copy values, checked compact identities,
 runtime-local string constants, the lifecycle/performance gate and prepared
-field/scoped collection operations; VE06 prepared calls/frame transfers are next.
+field/scoped collection operations and prepared script calls/frame transfers;
+VE07 execution-region profiling is in progress.
 The plan owns its phase checklist,
 decisions and ledger. VE00-VE04 first establish compact Copy internal values,
 checked host-handle boundaries, shared strings/runtime constants and GC/async integration. VE05-VE08

@@ -5,7 +5,13 @@ use crate::{
     execution_metadata::MetadataRoot,
     frame::{arguments::FrameArguments, types::TypeEnvironment, values::FrameSlots},
     gc::CollectionIteration,
-    module::{LoadedModule, execution::layout::FrameLayout},
+    module::{
+        LoadedModule,
+        execution::{
+            calls::PreparedScriptCall,
+            layout::{FrameLayout, Location},
+        },
+    },
     resource::ResourceState,
     session::ExecutionSession,
     value::Value,
@@ -29,12 +35,14 @@ use std::{
 };
 
 mod arguments;
+mod calls;
 pub mod cursor;
 pub(crate) mod factory;
 mod future;
 mod layouts;
 mod native;
 mod owned;
+mod returns;
 mod shared;
 pub mod transfer;
 pub mod types;
@@ -184,50 +192,6 @@ impl<'runtime> ExecutionStack<'runtime> {
         )
     }
 
-    /// Copy ordinary script arguments directly from the suspended caller's
-    /// window into the callee's reusable arena range. No temporary value vector
-    /// or borrowed arena pointer survives stack growth.
-    pub fn push_registers(
-        &self,
-        runtime: &Runtime,
-        module: ModuleRef,
-        function: FunctionRef,
-        registers: &[Register],
-        return_dst: Option<Register>,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        let (loaded, slots) = {
-            let caller = self.current()?;
-            if registers
-                .iter()
-                .any(|register| register.index() >= caller.register_count)
-            {
-                return Err(runtime
-                    .resources()
-                    .quarantine("invalid script argument register"));
-            }
-            (
-                caller
-                    .loaded
-                    .member(module)
-                    .ok_or_else(|| runtime.resources().quarantine("invalid script call module"))?,
-                caller.slots,
-            )
-        };
-        self.push_arguments(
-            runtime,
-            loaded,
-            CallableTarget::Script(function),
-            FrameArguments::frame(slots, registers),
-            return_dst,
-            FrameDispatch {
-                entry: FrameEntry::Call,
-                interface_method: None,
-                environment: None,
-            },
-        )
-    }
-
     /// Enters a method selected from a rooted interface value, preserving its
     /// own linked program even when the caller belongs to a newer version.
     pub fn push_interface_method(
@@ -281,6 +245,7 @@ impl<'runtime> ExecutionStack<'runtime> {
                     FrameArguments::plain(args),
                     return_dst,
                     FrameDispatch {
+                        prepared: None,
                         entry: FrameEntry::Call,
                         interface_method: None,
                         environment,
@@ -339,6 +304,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             all,
             return_dst,
             FrameDispatch {
+                prepared: None,
                 entry: FrameEntry::Call,
                 interface_method: None,
                 environment: closure.environment.clone(),
@@ -365,6 +331,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             FrameArguments::plain(args),
             return_dst,
             FrameDispatch {
+                prepared: None,
                 entry: FrameEntry::Call,
                 interface_method,
                 environment,
@@ -379,9 +346,22 @@ impl<'runtime> ExecutionStack<'runtime> {
         target: CallableTarget,
         args: FrameArguments<'_>,
         return_dst: Option<Register>,
-        dispatch: FrameDispatch,
+        dispatch: FrameDispatch<'_>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
+        self.push_admitted_arguments(runtime, loaded, target, args, return_dst, dispatch)
+    }
+
+    /// Reuse a checked stack only across internal preparation without callbacks.
+    fn push_admitted_arguments(
+        &self,
+        runtime: &Runtime,
+        loaded: LoadedModule,
+        target: CallableTarget,
+        args: FrameArguments<'_>,
+        return_dst: Option<Register>,
+        dispatch: FrameDispatch<'_>,
+    ) -> Result<(), RuntimeError> {
         if !args.all_managed(runtime, |value| runtime.gc.validate_candidate_value(value))? {
             return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate call arguments",
@@ -491,6 +471,7 @@ impl Drop for ExecutionStack<'_> {
 #[derive(Clone, Copy)]
 enum ReturnDestination {
     Register(Option<Register>),
+    Prepared(Option<Location>),
 }
 
 #[derive(Debug)]
@@ -533,7 +514,8 @@ enum FrameEntry {
     Await,
 }
 
-struct FrameDispatch {
+struct FrameDispatch<'call> {
+    prepared: Option<&'call PreparedScriptCall>,
     entry: FrameEntry,
     interface_method: Option<RootedInterfaceMethod>,
     environment: Option<TypeEnvironment>,
@@ -567,11 +549,12 @@ impl ExecutionFrame {
         target: CallableTarget,
         args: FrameArguments<'_>,
         return_dst: Option<Register>,
-        dispatch: FrameDispatch,
+        dispatch: FrameDispatch<'_>,
     ) -> Result<Self, RuntimeError> {
         let heap = runtime.gc();
         let resources = runtime.resources();
         let FrameDispatch {
+            prepared,
             entry: _,
             interface_method,
             environment,
@@ -604,9 +587,13 @@ impl ExecutionFrame {
                     ));
                 }
                 let register_count = usize::from(metadata.register_count);
-                let registers = loaded.execution().functions[function.index()]
-                    .registers
-                    .clone();
+                let registers = prepared
+                    .map(|call| call.registers.clone())
+                    .unwrap_or_else(|| {
+                        loaded.execution().functions[function.index()]
+                            .registers
+                            .clone()
+                    });
                 (
                     register_count,
                     register_count + usize::from(metadata.local_count),
@@ -680,7 +667,9 @@ impl ExecutionFrame {
             slots,
             register_count,
             registers,
-            return_to: ReturnDestination::Register(return_dst),
+            return_to: prepared.map_or(ReturnDestination::Register(return_dst), |call| {
+                ReturnDestination::Prepared(call.destination)
+            }),
             interface_method,
             iterations: Vec::new(),
             mutations: Vec::new(),

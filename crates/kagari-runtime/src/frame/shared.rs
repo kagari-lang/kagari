@@ -43,6 +43,7 @@ impl ExecutionStack<'_> {
             FrameArguments::plain(args),
             None,
             FrameDispatch {
+                prepared: None,
                 entry: FrameEntry::Call,
                 interface_method: None,
                 environment: selected.environment.clone(),
@@ -112,6 +113,7 @@ impl ExecutionStack<'_> {
             FrameArguments::plain(args),
             return_dst,
             FrameDispatch {
+                prepared: None,
                 entry: FrameEntry::Call,
                 interface_method: None,
                 environment: Some(environment),

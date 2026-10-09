@@ -1,8 +1,8 @@
 # Compact values and interpreter execution (VE00-VE08)
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
-VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE05 are
-locally complete; VE06 prepared calls/frame transfers are next. Lua parity and
+VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE06 are
+locally complete; VE07 execution-region profiling is in progress. Lua parity and
 full-plan integration/CI acceptance remain open.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
@@ -533,7 +533,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 - [x] VE03: Runtime string constants and shared string access.
 - [x] VE04: Value/reference integration and measurement gate.
 - [x] VE05: Prepared object and collection operations.
-- [ ] VE06: Prepared script calls and frame transfers.
+- [x] VE06: Prepared script calls and frame transfers.
 - [ ] VE07: Execution-region and instruction costs.
 - [ ] VE08: Final integration and paired performance evaluation.
 - [ ] Final local correctness/integration acceptance.
@@ -1074,3 +1074,60 @@ format and structure checks pass; there are no carried build/test failures or
 new structural exceptions. Earlier field/collection/key/reload contracts above
 remain valid. Full workspace integration and CI are reserved for their documented
 final scopes. VE05 is locally accepted; proceed to VE06.
+
+### VE06 in progress: prepared script calls and frame transfers
+
+VE05 checkpoint is `263499b5`; preserve `target/ve05/candidate-executable` for the
+incremental comparison. Concrete calls already avoid a temporary Value vector,
+but repeatedly map logical arguments to physical frame locations during admission
+and copying, recover callee layouts, and map the return destination again. Prepare
+these facts with the sealed program, bind module slots through the caller's pinned
+program, and retain dynamic window identity/initialization, numeric admission,
+depth, roots and cleanup checks. Shared/interface/closure/async entry must retain
+its checked environment and adaptation boundaries. No VE06 acceptance is claimed.
+
+Concrete Function/ModuleFunction call sites now retain physical source/destination
+locations, a callee frame layout and a physical return destination in the sealed
+execution product. Only the current executing PC selects a record; module slots
+bind through the caller's exact program descriptor. Runtime normalization shares
+these identity-free physical facts. Copy admission checks ranges and scalar domains
+before frame publication; banks may grow without retaining interior pointers.
+Normal native/closure/shared/async entries retain their existing environment paths.
+The public internal push_registers entry was replaced directly by push_prepared_call;
+its allocation contract fixture now advances to an actual sealed call boundary.
+
+Frame arenas also retain allocation order so ordinary last-allocated returns can
+truncate both banks without scanning all older windows. Out-of-order owned-root
+retirement still compacts banks and updates surviving ranges. An initial all-target
+check exposed three obsolete test callers of push_registers; those were migrated,
+and the affected runtime/VM/embed all-target check now passes. Window identity,
+growth/reordering, scalar admission and independent-root tests pass (5), as do both
+warmed native/script-window allocation contracts (2). Broader affected call/return,
+reload, async and measurement checks remain in progress; no phase acceptance yet.
+
+### VE06 local acceptance
+
+The initial prepared-transfer candidate improved calls by 1.9% and fibonacci by
+3.7%. Inspection found repeated session/scope lookup within entry/return sequences
+that cannot invoke callbacks. Final entry validates once before internal preparation;
+scalar return reuses the admitted stack borrow through retirement/publication only
+when no environment/interface adaptation is needed. Root conversion runs after
+releasing the borrow. Dynamic window/representation admission, depth, cancellation,
+GC ownership and cleanup checks remain. Return handling now has its own module.
+
+Final incremental paired measurements pass all 1,672 checksums: calls 0.918x VE05,
+fibonacci 0.868x, helper 0.923x, concrete generic 0.911x. Direct computation is
+1.028x; small regressions and ranges are published without significance claims.
+Independent instruction counts are unchanged: direct 75,015 / Lua 40,006;
+helper 105,012 / Lua 65,007, retaining 5,000 calls. Neither allocates script heap
+objects. The [full report](performance-baseline.md#prepared-script-calls-and-frame-retirement-ve06-2026-10-10)
+records memory additions, hashes, environment and reproduction. Lua parity is open.
+
+Focused checks pass: frame windows/scalar-domain admission (5), warmed allocations
+(2), execution semantics (44), sessions (9), owned/sliced drive (2), generic reload
+(2), async lifecycle/reload (1), debug protocol (2) and native/backend frame contracts
+(10). Entry/return refinement reran affected allocation, execution, session, owned,
+async, debug and native-frame checks. Runtime/VM/embed all-target Clippy passes;
+structure check reports 987 files and no violations. No carried build errors or
+new structural exceptions. Full workspace checks and CI remain pending VE08.
+VE06 is locally accepted; post-VE06 scalar/mixed sampling selects bounded VE07 work.

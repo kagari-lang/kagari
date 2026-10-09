@@ -71,6 +71,7 @@ pub(crate) struct ExecutionValues {
     pub(crate) payloads: Vec<u64>,
     pub(crate) initialized: Vec<bool>,
     windows: Vec<Option<Window>>,
+    allocation_order: Vec<usize>,
 }
 
 impl Default for ExecutionValues {
@@ -85,6 +86,7 @@ impl Default for ExecutionValues {
             payloads: Vec::new(),
             initialized: Vec::new(),
             windows: Vec::new(),
+            allocation_order: Vec::new(),
         }
     }
 }
@@ -125,9 +127,16 @@ impl ExecutionValues {
         // Admission is transactional: reject an invalid argument before growing
         // any bank or publishing a frame window. No partial roots can escape.
         if let Some((source, operands)) = arguments.window() {
-            for (index, register) in operands.iter().enumerate() {
-                let target = destination(argument_offset + index).expect("checked argument range");
-                if !self.admits_transfer(source, register.index(), target, registers.is_none()) {
+            for transfer in operands {
+                let target = transfer.target;
+                let capacity = if target.operand.managed() {
+                    managed_count
+                } else {
+                    scalar_count
+                };
+                if target.operand.index() >= capacity
+                    || !self.admits_transfer(source, transfer.source, target)
+                {
                     return Err(RuntimeError::module_validation(
                         "invalid frame argument type or window",
                     ));
@@ -162,6 +171,9 @@ impl ExecutionValues {
         self.windows
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("execution frame windows"))?;
+        self.allocation_order
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("execution frame order"))?;
         let scalar_start = self.payloads.len();
         let managed_start = self.values.len();
         self.payloads.resize(scalar_start + scalar_count, 0);
@@ -193,25 +205,21 @@ impl ExecutionValues {
         } else {
             self.windows[slots.index] = window;
         }
+        self.allocation_order.push(slots.index);
         if let Some((source, operands)) = arguments.window() {
-            for (index, register) in operands.iter().enumerate() {
-                // Resolve after both banks grow; caller/callee remain disjoint.
-                if let Some((representation, bits)) = self.scalar_value(source, register.index())
-                    && !self
-                        .window(slots)
-                        .expect("published window")
-                        .location(argument_offset + index)
-                        .expect("argument location")
-                        .operand
-                        .managed()
+            let ranges = self.ranges(slots).expect("published window");
+            for transfer in operands {
+                // Indices survive bank growth; source and destination are disjoint.
+                if let Some((_, bits)) = self.scalar_location(source, transfer.source)
+                    && let Some(target) = transfer.target.operand.scalar()
                 {
-                    self.set_scalar(slots, argument_offset + index, representation, bits)
-                        .expect("admitted scalar argument");
+                    self.write_payload(&ranges, target, bits)
+                        .expect("admitted scalar transfer");
                 } else {
                     let value = self
-                        .with_value(source, register.index(), Value::clone)
+                        .with_location(source, transfer.source, Value::clone)
                         .expect("checked source window");
-                    self.set(slots, argument_offset + index, value)
+                    self.set_location(slots, transfer.target, value)
                         .expect("admitted argument");
                 }
             }
@@ -224,48 +232,34 @@ impl ExecutionValues {
         Ok(slots)
     }
 
-    fn admits_transfer(
-        &self,
-        source: FrameSlots,
-        logical: usize,
-        target: Location,
-        unrestricted: bool,
-    ) -> bool {
-        if let Some((representation, bits)) = self.scalar_value(source, logical)
+    fn admits_transfer(&self, source: FrameSlots, location: Location, target: Location) -> bool {
+        if let Some((representation, bits)) = self.scalar_location(source, location)
             && !target.operand.managed()
         {
             return target.admits_payload(representation, bits);
         }
-        self.with_value(source, logical, |value| {
-            unrestricted || target.admits(value)
-        })
-        .unwrap_or(false)
+        self.with_location(source, location, |value| target.admits(value))
+            .unwrap_or(false)
     }
 
-    pub(crate) fn scalar_value(
-        &self,
-        slots: FrameSlots,
-        logical: usize,
-    ) -> Option<(ValueType, u64)> {
+    fn scalar_location(&self, slots: FrameSlots, location: Location) -> Option<(ValueType, u64)> {
         let window = self.window(slots)?;
-        let location = window.location(logical)?;
         let slot = location.operand.scalar()?;
         Some((location.representation, self.payload(&window.ranges, slot)?))
     }
 
-    pub(crate) fn check_managed(
+    pub(crate) fn check_managed_location(
         &self,
         slots: FrameSlots,
-        logical: usize,
+        location: Location,
         check: impl FnOnce(&Value) -> bool,
     ) -> Option<bool> {
         let window = self.window(slots)?;
-        let location = window.location(logical)?;
         if let Some(slot) = location.operand.scalar() {
             self.payload(&window.ranges, slot)?;
             return Some(true);
         }
-        self.with_value(slots, logical, check)
+        self.with_location(slots, location, check)
     }
 
     pub(crate) fn set_scalar(
@@ -277,16 +271,25 @@ impl ExecutionValues {
     ) -> Option<()> {
         let window = self.window(slots)?;
         let location = window.location(logical)?;
+        self.set_scalar_location(slots, location, representation, bits)
+    }
+
+    pub(crate) fn set_scalar_location(
+        &mut self,
+        slots: FrameSlots,
+        location: Location,
+        representation: ValueType,
+        bits: u64,
+    ) -> Option<()> {
+        let window = self.window(slots)?;
         if location.operand.managed() {
-            return self.set(slots, logical, scalar::decode(representation, bits)?);
+            return self.set_location(slots, location, scalar::decode(representation, bits)?);
         }
         if !location.admits_payload(representation, bits) {
             return None;
         }
-        let index = window.ranges.scalars.start + location.operand.index();
-        *self.payloads.get_mut(index)? = bits;
-        *self.initialized.get_mut(index)? = true;
-        Some(())
+        let ranges = window.ranges.clone();
+        self.write_payload(&ranges, location.operand.scalar()?, bits)
     }
 
     fn window(&self, slots: FrameSlots) -> Option<&Window> {
@@ -338,12 +341,28 @@ impl ExecutionValues {
     ) -> Option<R> {
         let window = self.window(slots)?;
         let location = window.location(logical)?;
+        self.with_location(slots, location, read)
+    }
+
+    pub(crate) fn with_location<R>(
+        &self,
+        slots: FrameSlots,
+        location: Location,
+        read: impl FnOnce(&Value) -> R,
+    ) -> Option<R> {
+        let window = self.window(slots)?;
         let slot = location.operand;
         if slot.managed() {
+            if slot.index() >= window.ranges.managed.len() {
+                return None;
+            }
             return self
                 .values
                 .get(window.ranges.managed.start + slot.index())
                 .map(read);
+        }
+        if slot.index() >= window.ranges.scalars.len() {
+            return None;
         }
         let index = window.ranges.scalars.start + slot.index();
         if !self.initialized.get(index).copied()? {
@@ -359,14 +378,30 @@ impl ExecutionValues {
     pub(crate) fn set(&mut self, slots: FrameSlots, logical: usize, value: Value) -> Option<()> {
         let window = self.window(slots)?;
         let location = window.location(logical)?;
-        if window.registers.is_some() && !location.admits(&value) {
+        self.set_location(slots, location, value)
+    }
+
+    pub(crate) fn set_location(
+        &mut self,
+        slots: FrameSlots,
+        location: Location,
+        value: Value,
+    ) -> Option<()> {
+        let window = self.window(slots)?;
+        if !location.admits(&value) {
             return None;
         }
         let slot = location.operand;
         if slot.managed() {
+            if slot.index() >= window.ranges.managed.len() {
+                return None;
+            }
             let index = window.ranges.managed.start + slot.index();
             *self.values.get_mut(index)? = value;
         } else {
+            if slot.index() >= window.ranges.scalars.len() {
+                return None;
+            }
             let index = window.ranges.scalars.start + slot.index();
             *self.payloads.get_mut(index)? = scalar::encode(&value)?;
             *self.initialized.get_mut(index)? = true;
@@ -404,21 +439,35 @@ impl ExecutionValues {
 
     pub(crate) fn release(&mut self, slots: FrameSlots) -> Option<()> {
         let ranges = self.window(slots)?.ranges.clone();
-        // Independent roots can finish in any order. Compact the banks while
-        // retaining generational window identities; no cursor may be borrowed
-        // during release. Leaving interior holes would grow with historical work.
-        self.values.drain(ranges.managed.clone());
-        self.payloads.drain(ranges.scalars.clone());
-        self.initialized.drain(ranges.scalars.clone());
+        let order = self
+            .allocation_order
+            .iter()
+            .rposition(|index| *index == slots.index)?;
+        let tail = order + 1 == self.allocation_order.len();
+        self.allocation_order.remove(order);
         self.windows[slots.index] = None;
-        for window in self.windows.iter_mut().flatten() {
-            if window.ranges.managed.start >= ranges.managed.end {
-                window.ranges.managed.start -= ranges.managed.len();
-                window.ranges.managed.end -= ranges.managed.len();
-            }
-            if window.ranges.scalars.start >= ranges.scalars.end {
-                window.ranges.scalars.start -= ranges.scalars.len();
-                window.ranges.scalars.end -= ranges.scalars.len();
+        if tail {
+            // Ordinary returns retire the most recently allocated window. Older
+            // roots precede both ranges, including zero-width banks and reused IDs.
+            self.values.truncate(ranges.managed.start);
+            self.payloads.truncate(ranges.scalars.start);
+            self.initialized.truncate(ranges.scalars.start);
+        } else {
+            // Independent roots can finish in any order. Compact the banks while
+            // retaining generational window identities; no cursor may be borrowed
+            // during release. Leaving interior holes would grow with historical work.
+            self.values.drain(ranges.managed.clone());
+            self.payloads.drain(ranges.scalars.clone());
+            self.initialized.drain(ranges.scalars.clone());
+            for window in self.windows.iter_mut().flatten() {
+                if window.ranges.managed.start >= ranges.managed.end {
+                    window.ranges.managed.start -= ranges.managed.len();
+                    window.ranges.managed.end -= ranges.managed.len();
+                }
+                if window.ranges.scalars.start >= ranges.scalars.end {
+                    window.ranges.scalars.start -= ranges.scalars.len();
+                    window.ranges.scalars.end -= ranges.scalars.len();
+                }
             }
         }
         while self.windows.last().is_some_and(Option::is_none) {
@@ -474,6 +523,20 @@ impl FrameSlots {
         }
         let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
         values.set(self, index, value)
+    }
+
+    pub(crate) fn set_location(
+        self,
+        heap: &GcHeap,
+        location: Location,
+        value: Value,
+    ) -> Option<()> {
+        heap.ensure_execution_allowed().ok()?;
+        if !heap.validate_value(&value) {
+            return None;
+        }
+        let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
+        values.set_location(self, location, value)
     }
 }
 

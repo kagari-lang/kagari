@@ -7,6 +7,87 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Prepared script calls and frame retirement (VE06), 2026-10-10
+
+Concrete calls prepare physical argument/return locations and callee layouts;
+module slots bind through the caller's pinned program. Entry and scalar return
+reuse admitted session access, and last-allocated frame windows truncate their
+banks directly. Generic/interface adaptation retains its checked boundary.
+Relative to VE05, calls take 0.918x time, fibonacci 0.868x, helper 0.923x and
+concrete generic 0.911x. Direct source-form computation increases 2.8%; other
+small increases and all sample ranges are retained below. Lua parity remains open.
+
+Baseline is VE05 `263499b5`, `target/ve05/candidate-executable`, SHA-256
+`bc21be2da1784eb1dc7dd4b95109b936feff968295f827e80a4f6e8dcd32575b`.
+Candidate is preserved at `target/ve06/candidate-executable`, SHA-256
+`15ff231a38726958d2b53948793cdee1b35f438c30953d2dc6c1f8a3ecfc0c66`.
+Machine/toolchain/features/profile/cache/parallelism and execution scope match the
+VE05 section below. Final release rebuild took 18.477 s, excluded from execution;
+the forms driver reused that build in 0.084 s. Each matrix uses baseline,
+candidate,candidate,baseline, three warmups and eleven samples per process/route;
+22 samples per variant/engine/workload and all 1,672 execution checksums pass.
+No other builds, tests, probes or profilers ran during final throughput runs.
+Frequency and background activity remain uncontrolled; small changes are not a
+statistical significance claim. Native source-form remains an unmatched adapter
+comparison, and host_callback includes the same Rust body in both engines.
+
+Tables report microseconds per complete workload, not time per VM instruction.
+
+### Original workloads
+
+| Workload | VE05 VM | VE06 VM | C/B | Candidate Lua | VM/Lua | VE06 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 3221.916 | 3240.688 | 1.006 | 381.354 | 8.50 | 3177.541–3288.875 |
+| arrays | 5043.042 | 5069.875 | 1.005 | 67.230 | 75.41 | 5027.250–5173.375 |
+| branches | 3815.876 | 3733.834 | 0.978 | 805.604 | 4.63 | 3713.959–3791.250 |
+| calls | 7074.520 | 6493.188 | 0.918 | 227.333 | 28.56 | 6299.375–6669.459 |
+| entry | 1.463 | 1.409 | 0.963 | 0.028 | 49.46 | 1.407–1.415 |
+| fibonacci | 14645.979 | 12711.875 | 0.868 | 345.812 | 36.76 | 12694.791–12768.709 |
+| maps | 12193.833 | 12288.771 | 1.008 | 65.896 | 186.49 | 12251.958–13425.250 |
+
+### Source forms
+
+| Workload | VE05 VM | VE06 VM | C/B | Candidate Lua | VM/Lua | VE06 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7076.146 | 7017.917 | 0.992 | 109.896 | 63.86 | 6975.500–7426.458 |
+| forms_capture_cell | 10308.104 | 10206.437 | 0.990 | 142.916 | 71.42 | 10027.417–10648.125 |
+| forms_concrete_generic | 3535.521 | 3221.208 | 0.911 | 104.646 | 30.78 | 3195.917–3274.917 |
+| forms_direct | 438.916 | 451.167 | 1.028 | 76.541 | 5.89 | 450.375–493.500 |
+| forms_field | 3734.438 | 3754.521 | 1.005 | 90.188 | 41.63 | 3740.666–3936.875 |
+| forms_helper | 3476.438 | 3209.791 | 0.923 | 142.833 | 22.47 | 3195.500–3228.166 |
+| forms_host_callback | 1937.292 | 1947.479 | 1.005 | 248.271 | 7.84 | 1933.250–1968.459 |
+| forms_interface | 10471.937 | 10620.084 | 1.014 | 136.646 | 77.72 | 10573.833–10683.208 |
+| forms_native | 1936.354 | 1956.833 | 1.011 | 140.959 | 13.88 | 1936.166–2102.292 |
+| forms_shared_generic | 21948.209 | 21852.979 | 0.996 | 108.500 | 201.41 | 21677.250–21964.875 |
+| forms_string_calls | 12797.729 | 12666.312 | 0.990 | 125.145 | 101.21 | 12647.416–12717.458 |
+| forms_string_constants | 6947.833 | 6993.230 | 1.007 | 66.417 | 105.29 | 6960.958–7110.667 |
+
+### Independent counts and remaining costs
+
+Separate observer runs report unchanged canonical counts before/after VE06:
+direct 75,015 Kagari versus 40,006 Lua instructions; helper 105,012 versus 65,007.
+Helper retains all 5,000 calls and 5,001 returns; its source/callee was not removed.
+Direct uses 11 scalar slots, helper 8 and step 4; all have zero managed slots.
+Both workloads allocate zero script heap objects and trigger zero collections.
+Warmed script-window and native scalar fixtures still make zero Rust allocation
+requests. Prepared call records add a per-site transfer box/layout Arc and PC map;
+frame arenas retain an allocation-order vector. This is not a universal memory
+reduction claim. Closure/interface/shared-environment costs remain substantial.
+
+The first preparation-only candidate yielded only 1.9% calls/3.7% fibonacci savings;
+redundant internal stack admission motivated the final return/entry refinement.
+Its reports remain `20261009T173645Z-paired` and `20261009T173913Z-forms-paired`;
+final reports are `target/lua-comparison/20261009T174458Z-paired/` and
+`20261009T174725Z-forms-paired/`, with executable hashes, build logs, CSV and JSON.
+Independent counts are `target/ve06/{baseline,candidate}-{direct,helper}-counts.log`.
+
+```sh
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/ve05/candidate-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve05/candidate-executable
+target/ve06/candidate-executable --source-forms --profile=direct
+target/ve06/candidate-executable --source-forms --profile=helper
+```
+
 ## Prepared fields and scoped collections (VE05), 2026-10-10
 
 Relative to the accepted VE04 executable, arrays take 35.7% of the time, concrete
