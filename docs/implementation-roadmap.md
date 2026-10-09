@@ -623,7 +623,8 @@ expansion and new numeric APIs remain outside these completed tracks.
 
 The [compact values and interpreter execution plan](interpreter-value-execution-plan.md)
 defines the active VE00-VE08 follow-up. Goal execution was authorized on 2026-10-09;
-VE00 baseline/design work is complete. The plan owns its phase checklist,
+VE00 baseline/design and VE01 compact reference ownership are complete; VE02 is
+next. The plan owns its phase checklist,
 decisions and ledger. VE00-VE04 first establish compact Copy internal values,
 checked host-handle boundaries, shared strings/runtime constants and GC/async integration. VE05-VE08
 then cover prepared object/collection operations, script calls, execution-loop

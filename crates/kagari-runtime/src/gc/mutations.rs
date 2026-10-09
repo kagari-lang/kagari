@@ -50,7 +50,7 @@ impl GcHeap {
         let before = source.units();
         let _temporary = self.resources.reserve_temporary_heap(before)?;
         self.resources.poll_execution()?;
-        let revision = objects[id.slot]
+        let revision = objects[id.index()]
             .revision
             .checked_add(1)
             .ok_or_else(invalid)?;
@@ -154,7 +154,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         let mut objects = self.objects_mut()?;
         *self.object_mut(&mut objects, id).ok_or_else(invalid)? = prepared;
-        objects[id.slot].revision = revision;
+        objects[id.index()].revision = revision;
         self.release_heap_units(before - after);
         Ok(())
     }

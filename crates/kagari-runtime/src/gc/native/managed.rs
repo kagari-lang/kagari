@@ -31,11 +31,11 @@ impl GcHeap {
         if !payload.schema.registered_in(&object.storage) {
             return Err(invalid());
         }
-        let revision = objects[id.slot]
+        let revision = objects[id.index()]
             .revision
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("native revision exhausted"))?;
-        objects[id.slot].revision = revision;
+        objects[id.index()].revision = revision;
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
             return Err(invalid());
         };

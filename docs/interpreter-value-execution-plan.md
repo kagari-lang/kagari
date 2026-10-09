@@ -2,7 +2,7 @@
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
 VE00-VE08 in order, following the debug-only diagnostic refinement. VE00 baseline
-and design are complete; VE01 storage/reference implementation is next.
+and VE01 storage/reference ownership are complete; VE02 value migration is next.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation and queue placement. This plan owns phase order, implementation scope,
@@ -527,7 +527,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 ### Phase checklist
 
 - [x] VE00: Current baseline, consumer inventory and selected representation.
-- [ ] VE01: Storage, internal reference ownership and roots.
+- [x] VE01: Storage, internal reference ownership and roots.
 - [ ] VE02: Compact Copy values and complete consumer migration.
 - [ ] VE03: Runtime string constants and shared string access.
 - [ ] VE04: Value/reference integration and measurement gate.
@@ -700,3 +700,51 @@ formatting, structure (981 files, zero violations), Python syntax, 79 local
 document link targets and diff checks pass. All 88 probe checksums also pass.
 No production Rust contract changed, and no workspace tests or CI matrix ran.
 The reproduced shared-Add frontend error is pre-existing and outside VE scope.
+
+### 2026-10-09: VE01 compact checked storage identities
+
+HeapObjectId is now 12 bytes with private u32 owner/slot/generation fields. The
+global owner counter fails on exhaustion; allocation checks the slot capacity
+before insertion/accounting; collection retires exhausted generations. Root and
+metadata identities retain their existing widths, leases and graph protocols.
+All storage accesses still validate owner, bounds, generation and object kind at
+their existing contract owners. No check was removed, no raw reference API or
+unsafe code was added, and no payload address stability is assumed. The Rust
+`generation()` result changes from u64 to u32; this is an unpublished API change,
+with no native/wire-format change or version bump.
+
+Updated storage consumers to use the checked ID's usize index accessor. Extended
+the existing layout contract for the 12-byte ID and added a missing exhaustion
+boundary case: the final valid generation is usable while rooted, is reclaimed,
+then its slot is permanently retired without making old values valid again.
+Value itself remains 32 bytes until VE02 removes its other large payloads.
+
+Focused validation passes with the CommandLineTools environment recorded in VE00:
+
+- `cargo test -p kagari-runtime --test gc_ownership`: 6 pass, also with `--release`.
+- `cargo test -p kagari-runtime --lib gc::`: 22 pass, also with `--release`.
+- `cargo test -p kagari-runtime --lib scalar_slot_layout_does_not_inline_host_descriptors`:
+  1 pass, also with `--release`.
+- `cargo test -p kagari-embed --test runtime_transfer`: 1 pass; also builds the
+  current source/native SDK consumer graph.
+- `cargo test -p kagari-vm --test native_boundary native_boundary_callbacks::stored_callbacks_trace_captures_through_an_ordinary_native_payload`:
+  1 pass, including native-triggered collection, traced captures and script reentry.
+- Formatting, structure (981 files, zero violations), reviewed imports/visibility/
+  ownership and `git diff --check` pass. No workspace suite or CI matrix ran.
+
+The first debug ownership build found E0277 in gc/native/managed.rs: two remaining
+u32 slot indexes had not migrated to `index()`. VE01 repaired both before the
+successful checks above. No error is carried into VE02. Logs are under
+`target/ve01/`; production changes remain confined to reference representation.
+
+The preserved pre-VE01 allocation-probe binary additionally measured 5,000 tuple
+constructions/member reads and 5,000 one-element range traversals, both checksum
+325,000. Tuple baseline: 35,007 Rust allocation/realloc calls, 1,680,179 requested
+bytes, zero GC objects/collections. Range baseline: 1,540,708 calls, 107,233,227 bytes,
+15,000 GC objects and 25 collections (existing cursors/Option results included).
+These are diagnostic allocation baselines for VE02, not new parity workloads.
+Sources and outputs: `target/ve00/tuple-range.kgr`, `tuple-range-allocations.log`;
+the probe's fixed entry aliases are string_constants=tuple and string_calls=range.
+Use the same source with the candidate allocator probe at VE04. Temporary drafts
+using unsupported Rust-style tuple access/destructuring were corrected to Kagari's
+`pair[1]` before measurement; they were never benchmark or production changes.

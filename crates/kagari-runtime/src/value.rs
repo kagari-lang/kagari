@@ -432,6 +432,7 @@ mod tests {
     fn scalar_slot_layout_does_not_inline_host_descriptors() {
         // An interpreter storage budget, not a serialized or external ABI.
         assert!(size_of::<Value>() <= 32);
+        assert_eq!(size_of::<HeapObjectId>(), 12);
     }
 
     fn host_root(object_id: u64) -> HostRootHandle {

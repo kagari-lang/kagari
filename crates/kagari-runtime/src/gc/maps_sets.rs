@@ -249,7 +249,7 @@ impl GcHeap {
         f: impl FnOnce(&mut HashMapStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
-        let revision = objects.get(id.slot)?.revision.checked_add(1)?;
+        let revision = objects.get(id.index())?.revision.checked_add(1)?;
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;
         };
@@ -260,7 +260,7 @@ impl GcHeap {
         let old_len = entries.len();
         let result = f(entries);
         if entries.len() != old_len {
-            objects[id.slot].revision = revision;
+            objects[id.index()].revision = revision;
         }
         Some(result)
     }
@@ -286,7 +286,7 @@ impl GcHeap {
         f: impl FnOnce(&mut HashSetStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
-        let revision = objects.get(id.slot)?.revision.checked_add(1)?;
+        let revision = objects.get(id.index())?.revision.checked_add(1)?;
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;
         };
@@ -297,7 +297,7 @@ impl GcHeap {
         let old_len = entries.len();
         let result = f(entries);
         if entries.len() != old_len {
-            objects[id.slot].revision = revision;
+            objects[id.index()].revision = revision;
         }
         Some(result)
     }

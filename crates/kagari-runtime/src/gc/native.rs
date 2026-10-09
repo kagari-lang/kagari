@@ -46,13 +46,13 @@ impl GcHeap {
                 "storage does not permit direct data editing",
             ));
         }
-        let revision = objects[id.slot]
+        let revision = objects[id.index()]
             .revision
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("native revision exhausted"))?;
         // Publish the revision before lending data so unwind preserves both the
         // completed writes and their invalidation. Size and graph edges are fixed.
-        objects[id.slot].revision = revision;
+        objects[id.index()].revision = revision;
         let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
             return Err(RuntimeError::module_validation(
                 "invalid native edit receiver",
@@ -238,7 +238,7 @@ impl GcHeap {
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
         let revision = objects
-            .get(id.slot)
+            .get(id.index())
             .ok_or_else(|| RuntimeError::module_validation("invalid sequence receiver"))?
             .revision
             .checked_add(1)
@@ -254,7 +254,7 @@ impl GcHeap {
         let result = access(values);
         // A bulk write may permute slots. Closed cursors must observe that change
         // even when the closure returned an error after completed scalar writes.
-        objects[id.slot].revision = revision;
+        objects[id.index()].revision = revision;
         result
     }
 }

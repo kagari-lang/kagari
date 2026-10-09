@@ -300,6 +300,39 @@ fn rejects_non_storable_heap_mutations() {
 }
 
 #[test]
+fn exhausted_object_generation_retires_storage_without_aliasing_old_values() {
+    let runtime = Runtime::default();
+    let heap = runtime.gc();
+    let first = heap.alloc_cell(ValueType::I32, Value::I32(7)).unwrap();
+    // Advance the existing allocation to its final reusable generation without
+    // billions of collections. No stale handle is admitted as a root.
+    heap.objects.borrow_mut()[first.index()].generation = u32::MAX - 1;
+    let penultimate = HeapObjectId::new(heap.owner, first.index(), u32::MAX - 1);
+    let root = heap.root_value(Value::Cell(penultimate)).unwrap();
+    assert!(!heap.validate_value(&Value::Cell(first)));
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+
+    let last = heap.alloc_cell(ValueType::I32, Value::I32(8)).unwrap();
+    assert_eq!(last.index(), first.index());
+    assert_eq!(last.generation(), u32::MAX);
+    assert!(!heap.validate_value(&Value::Cell(penultimate)));
+    let root = heap.root_value(Value::Cell(last)).unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+
+    let next = heap.alloc_cell(ValueType::I32, Value::I32(9)).unwrap();
+    assert_ne!(next.index(), last.index());
+    assert!(!heap.validate_value(&Value::Cell(first)));
+    assert!(!heap.validate_value(&Value::Cell(last)));
+    assert!(heap.root_value(Value::Cell(last)).is_none());
+    assert_eq!(heap.cell_get(next, ValueType::I32).unwrap(), Value::I32(9));
+    assert_eq!(heap.stats().allocated_objects, 1);
+}
+
+#[test]
 fn roots_are_explicit_storable_slots() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);

@@ -149,11 +149,7 @@ impl GcHeap {
                 .iter()
                 .enumerate()
                 .filter_map(|(index, slot)| {
-                    let id = HeapObjectId {
-                        owner: self.owner,
-                        slot: index,
-                        generation: slot.generation,
-                    };
+                    let id = HeapObjectId::new(self.owner, index, slot.generation);
                     (!live.contains(&id))
                         .then(|| slot.object.as_ref().map(|object| (index, object.units())))
                         .flatten()

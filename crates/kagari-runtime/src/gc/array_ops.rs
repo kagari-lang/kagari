@@ -60,7 +60,7 @@ impl GcHeap {
         self.ensure_structure_mutable(id)?;
         let mut objects = self.objects_mut()?;
         let revision = objects
-            .get(id.slot)
+            .get(id.index())
             .ok_or_else(invalid)?
             .revision
             .checked_add(1)
@@ -77,7 +77,7 @@ impl GcHeap {
         }
         values.swap(a, b)?;
         if a != b {
-            objects[id.slot].revision = revision;
+            objects[id.index()].revision = revision;
         }
         Ok(())
     }
@@ -89,7 +89,7 @@ impl GcHeap {
         self.resources.poll_execution()?;
         let mut objects = self.objects_mut()?;
         let revision = objects
-            .get(id.slot)
+            .get(id.index())
             .ok_or_else(invalid)?
             .revision
             .checked_add(1)
@@ -102,7 +102,7 @@ impl GcHeap {
         }
         object.payload_mut::<SequencePayload>()?.values.reverse();
         if count > 1 {
-            objects[id.slot].revision = revision;
+            objects[id.index()].revision = revision;
         }
         Ok(())
     }

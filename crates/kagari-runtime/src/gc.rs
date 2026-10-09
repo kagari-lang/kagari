@@ -28,7 +28,7 @@ use std::{
     slice,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, Ordering},
     },
     time::Duration,
 };
@@ -97,20 +97,32 @@ struct CollectorStats {
     last_pause: Duration,
 }
 
+/// Unrooted checked identity. Copies never retain objects or expose their addresses.
+/// Reclamation retires a slot when its allocation generation cannot advance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HeapObjectId {
-    owner: u64,
-    slot: usize,
-    generation: u64,
+    owner: u32,
+    slot: u32,
+    generation: u32,
 }
 
 impl HeapObjectId {
     pub fn index(self) -> usize {
-        self.slot
+        self.slot as usize
     }
 
-    pub fn generation(self) -> u64 {
+    pub fn generation(self) -> u32 {
         self.generation
+    }
+
+    // Both conversions follow allocation admission. They must never truncate a
+    // foreign owner or an unrepresentable slot into a valid compact identity.
+    fn new(owner: u64, slot: usize, generation: u32) -> Self {
+        Self {
+            owner: u32::try_from(owner).expect("admitted heap identity"),
+            slot: u32::try_from(slot).expect("admitted heap slot"),
+            generation,
+        }
     }
 }
 
@@ -136,7 +148,7 @@ pub struct GcCollection {
 #[derive(Debug)]
 struct ObjectSlot {
     revision: u64,
-    generation: u64,
+    generation: u32,
     initialization_owner: Option<ModuleKey>,
     object: Option<HeapObject>,
 }
@@ -215,12 +227,14 @@ impl GcHeap {
     }
 
     pub fn new(config: GcHeapConfig, resources: ResourceState) -> Self {
-        static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
-        let owner = NEXT_OWNER
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
-                next.checked_add(1)
-            })
-            .expect("heap identity exhausted");
+        static NEXT_OWNER: AtomicU32 = AtomicU32::new(1);
+        let owner = u64::from(
+            NEXT_OWNER
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                    next.checked_add(1)
+                })
+                .expect("heap identity exhausted"),
+        );
         Self {
             owner,
             config,
@@ -730,7 +744,7 @@ impl GcHeap {
                 return false;
             };
             matches!(object, HeapObject::Enum(..))
-                || objects[id.slot].initialization_owner == Some(owner)
+                || objects[id.index()].initialization_owner == Some(owner)
         })
     }
 
@@ -760,6 +774,7 @@ impl GcHeap {
             objects[index].initialization_owner = initialization_owner;
             index
         } else {
+            u32::try_from(objects.len()).map_err(|_| self.resource_limit("heap object slots"))?;
             objects
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
@@ -774,11 +789,11 @@ impl GcHeap {
         };
         self.stats.borrow_mut().allocated_objects += 1;
         growth.commit();
-        Ok(HeapObjectId {
-            owner: self.owner,
+        Ok(HeapObjectId::new(
+            self.owner,
             slot,
-            generation: objects[slot].generation,
-        })
+            objects[slot].generation,
+        ))
     }
 
     fn object_ref<'a>(
@@ -786,10 +801,10 @@ impl GcHeap {
         objects: &'a [ObjectSlot],
         id: HeapObjectId,
     ) -> Option<&'a HeapObject> {
-        if id.owner != self.owner {
+        if u64::from(id.owner) != self.owner {
             return None;
         }
-        let slot = objects.get(id.slot)?;
+        let slot = objects.get(id.index())?;
         if slot.generation != id.generation {
             return None;
         }
@@ -807,7 +822,7 @@ impl GcHeap {
             .resources
             .active_session()
             .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
-            && objects[id.slot].initialization_owner != Some(session.root.program_root().key())
+            && objects[id.index()].initialization_owner != Some(session.root.program_root().key())
         {
             return None;
         }
@@ -819,10 +834,10 @@ impl GcHeap {
         objects: &'a mut [ObjectSlot],
         id: HeapObjectId,
     ) -> Option<&'a mut HeapObject> {
-        if id.owner != self.owner {
+        if u64::from(id.owner) != self.owner {
             return None;
         }
-        let slot = objects.get_mut(id.slot)?;
+        let slot = objects.get_mut(id.index())?;
         if slot.generation != id.generation {
             return None;
         }

@@ -151,7 +151,7 @@ impl GcHeap {
             Value::Array(id) | Value::Map(id) | Value::Set(id) => {
                 let objects = self.objects.borrow();
                 self.readable_object(&objects, *id)?;
-                Some(objects[id.slot].revision)
+                Some(objects[id.index()].revision)
             }
             _ => None,
         }

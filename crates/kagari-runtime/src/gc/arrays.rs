@@ -401,7 +401,7 @@ impl GcHeap {
         f: impl FnOnce(&mut SequenceStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
-        let revision = objects.get(id.slot)?.revision.checked_add(1)?;
+        let revision = objects.get(id.index())?.revision.checked_add(1)?;
         let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
             return None;
         };
@@ -412,7 +412,7 @@ impl GcHeap {
         let old_len = values.len();
         let result = f(values);
         if values.len() != old_len {
-            objects[id.slot].revision = revision;
+            objects[id.index()].revision = revision;
         }
         Some(result)
     }
